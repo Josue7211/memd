@@ -164,6 +164,7 @@ pub(crate) async fn run_obsidian_compile(
                         .transpose()?,
                     belief_branch: None,
                     source_agent: None,
+                    region: None,
                     tags: Vec::new(),
                     stages: vec![MemoryStage::Canonical, MemoryStage::Candidate],
                     limit: Some(args.limit.unwrap_or(12).clamp(1, 48)),

@@ -155,8 +155,7 @@ pub(crate) fn filter_items(
     let query = req.query.as_ref().map(|q| q.to_ascii_lowercase());
     let limit = req.limit.unwrap_or(10).min(100);
     let max_chars = req.max_chars_per_item.unwrap_or(420).clamp(120, 4000);
-    let fts_ids: std::collections::HashSet<Uuid> =
-        fts_ranks.iter().map(|(id, _)| *id).collect();
+    let fts_ids: std::collections::HashSet<Uuid> = fts_ranks.iter().map(|(id, _)| *id).collect();
 
     let mut filtered: Vec<MemoryViewItem> = items
         .iter()
@@ -318,11 +317,10 @@ fn tokenize_search_text(text: &str) -> BTreeSet<String> {
 
 fn search_keyword_tokens(query: &str) -> Vec<String> {
     let stop_words = [
-        "what", "when", "where", "who", "how", "which", "did", "do", "was", "were", "have",
-        "has", "had", "is", "are", "the", "a", "an", "my", "me", "i", "you", "your", "their",
-        "it", "its", "in", "on", "at", "to", "for", "of", "with", "by", "from", "ago", "last",
-        "that", "this", "there", "about", "get", "got", "give", "gave", "buy", "bought",
-        "made", "make",
+        "what", "when", "where", "who", "how", "which", "did", "do", "was", "were", "have", "has",
+        "had", "is", "are", "the", "a", "an", "my", "me", "i", "you", "your", "their", "it", "its",
+        "in", "on", "at", "to", "for", "of", "with", "by", "from", "ago", "last", "that", "this",
+        "there", "about", "get", "got", "give", "gave", "buy", "bought", "made", "make",
     ]
     .into_iter()
     .collect::<BTreeSet<_>>();
@@ -1518,6 +1516,9 @@ mod tests {
             relation_kind: memd_schema::EntityRelationKind::Related,
             confidence: 0.85,
             created_at: Utc::now(),
+            valid_from: Some(Utc::now()),
+            valid_to: None,
+            source_item_id: Some(uuid::Uuid::new_v4()),
             note: Some("related".to_string()),
             context: None,
             tags: vec!["project".to_string()],
@@ -1529,6 +1530,9 @@ mod tests {
             relation_kind: memd_schema::EntityRelationKind::Related,
             confidence: 0.85,
             created_at: Utc::now(),
+            valid_from: Some(Utc::now()),
+            valid_to: None,
+            source_item_id: Some(uuid::Uuid::new_v4()),
             note: Some("related".to_string()),
             context: None,
             tags: vec!["project".to_string()],

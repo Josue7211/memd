@@ -444,7 +444,10 @@ fn public_benchmark_source_catalog_pins_convomem_download() {
         )
     );
     assert_eq!(source.default_filename, "convomem-evidence-sample.json");
-    assert_eq!(source.expected_checksum, None);
+    assert_eq!(
+        source.expected_checksum,
+        Some("sha256:dead92689c44ac5a3b66c0c7980166c8fc8d9b16a9cedb2e1c2f7981b6e6f094")
+    );
     assert_eq!(source.split, "evidence-sample");
 }
 
@@ -459,7 +462,10 @@ fn public_benchmark_source_catalog_pins_membench_download() {
             .is_some_and(|url| url.contains("/import-myself/Membench/"))
     );
     assert_eq!(source.default_filename, "membench-firstagent.json");
-    assert_eq!(source.expected_checksum, None);
+    assert_eq!(
+        source.expected_checksum,
+        Some("sha256:54bde8259c10ee1cfe5ff16f35a8a25ca9ad5d79e162e0b3a43034ed64115e5a")
+    );
     assert_eq!(source.split, "FirstAgent");
 }
 
@@ -815,10 +821,7 @@ fn longmemeval_corpus_builders_skip_blank_user_turns() {
     let (session_corpus, session_ids, _) = build_longmemeval_session_corpus(&item);
     assert_eq!(
         session_corpus,
-        vec![
-            "assistant: ignored",
-            "user: first fact\nuser: second fact"
-        ]
+        vec!["assistant: ignored", "user: first fact\nuser: second fact"]
     );
     assert_eq!(session_ids, vec!["s1", "s2"]);
 
@@ -1489,7 +1492,8 @@ fn merge_ranked_longmemeval_results_skips_lexical_when_primary_sufficient() {
         .collect::<std::collections::HashMap<_, _>>();
 
     let primary = [(0, 5.0), (1, 4.0), (3, 3.0), (4, 2.0), (5, 1.0)];
-    let merged = merge_ranked_longmemeval_results(&primary, &lexical_fallback, &lexical_rank_by_index);
+    let merged =
+        merge_ranked_longmemeval_results(&primary, &lexical_fallback, &lexical_rank_by_index);
 
     let top5: Vec<usize> = merged.iter().take(5).map(|(index, _)| *index).collect();
     assert_eq!(top5, vec![0, 1, 3, 4, 5]);
@@ -2056,7 +2060,7 @@ async fn run_public_longmemeval_command_writes_artifacts_and_docs() {
         .expect("read public leaderboard docs");
     assert!(leaderboard.contains("# memd public leaderboard"));
     assert!(leaderboard.contains("fixture-backed"));
-    assert!(leaderboard.contains("dataset-grade / retrieval-local"));
+    assert!(leaderboard.contains("fixture-only"));
     assert!(
         leaderboard.contains("declared parity targets: longmemeval, locomo, convomem, membench")
     );
@@ -2165,12 +2169,16 @@ async fn render_public_leaderboard_marks_fixture_backed_partial_parity() {
     .expect("run public benchmark");
 
     let leaderboard_report =
-        build_public_benchmark_leaderboard_report(std::slice::from_ref(&report));
+        build_public_benchmark_leaderboard_report(&dir, &output, std::slice::from_ref(&report));
     let markdown = render_public_leaderboard(&leaderboard_report);
     assert!(markdown.contains("# memd public leaderboard"));
     assert!(markdown.contains("fixture-backed"));
-    assert!(markdown.contains("dataset-grade / retrieval-local"));
-    assert!(markdown.contains("not a full MemPalace parity claim"));
+    assert!(markdown.contains("fixture-only"));
+    assert!(markdown.contains("MemPalace"));
+    assert!(markdown.contains("Verification"));
+    assert!(markdown.contains("Regression"));
+    assert!(markdown.contains("Commit"));
+    assert!(markdown.contains("Rerun"));
     assert!(markdown.contains("run mode is benchmark execution mode"));
     assert!(
         markdown.contains("implemented mini adapters: longmemeval, locomo, convomem, membench")
@@ -2179,6 +2187,95 @@ async fn render_public_leaderboard_marks_fixture_backed_partial_parity() {
     assert!(markdown.contains("declared parity targets: longmemeval, locomo, convomem, membench"));
 
     fs::remove_dir_all(dir).expect("cleanup public leaderboard dir");
+}
+
+#[test]
+fn build_public_leaderboard_prefers_local_mempalace_replay_artifacts() {
+    let dir = std::env::temp_dir().join(format!(
+        "memd-public-leaderboard-mempalace-replay-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let output = dir.join(".memd");
+    fs::create_dir_all(output.join("benchmarks").join("baselines")).expect("create baselines dir");
+
+    fs::write(
+        default_baselines_path(&output),
+        serde_json::to_string_pretty(&json!({
+            "longmemeval": {
+                "MemPalace": {
+                    "accuracy": 98.4,
+                    "source": "mempalace/benchmarks/BENCHMARKS.md",
+                    "date": "2026-03-26",
+                    "note": "published held-out baseline; local same-fixture replay pending"
+                }
+            }
+        }))
+        .expect("serialize published baselines"),
+    )
+    .expect("write published baselines");
+    fs::write(
+        default_mempalace_replays_path(&output),
+        serde_json::to_string_pretty(&json!({
+            "longmemeval": {
+                "accuracy": 0.966,
+                "source": ".memd/benchmarks/baselines/mempalace-replays/longmemeval/latest/summary.json",
+                "note": "local same-fixture replay complete",
+                "status": "replayed",
+                "command": "python scripts/bench-mempalace.py --benchmark longmemeval",
+                "artifact_path": ".memd/benchmarks/baselines/mempalace-replays/longmemeval/latest/"
+            }
+        }))
+        .expect("serialize local replays"),
+    )
+    .expect("write local replays");
+
+    let report = PublicBenchmarkRunReport {
+        manifest: PublicBenchmarkManifest {
+            benchmark_id: "longmemeval".to_string(),
+            benchmark_version: "upstream".to_string(),
+            dataset_name: "LongMemEval".to_string(),
+            dataset_source_url:
+                "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json"
+                    .to_string(),
+            dataset_local_path: ".memd/benchmarks/datasets/longmemeval/longmemeval_s_cleaned.json"
+                .to_string(),
+            dataset_checksum: "sha256:test".to_string(),
+            dataset_split: "cleaned-small".to_string(),
+            git_sha: Some("deadbeef".to_string()),
+            dirty_worktree: false,
+            run_timestamp: Utc::now(),
+            mode: "raw".to_string(),
+            top_k: 5,
+            reranker_id: None,
+            reranker_provider: None,
+            limit: Some(2),
+            runtime_settings: json!({"dataset_verification": "verified"}),
+            hardware_summary: "cpu-only".to_string(),
+            duration_ms: 1,
+            token_usage: None,
+            cost_estimate_usd: None,
+        },
+        metrics: BTreeMap::from([("session_recall_any@5".to_string(), 0.88)]),
+        item_count: 2,
+        failures: Vec::new(),
+        items: Vec::new(),
+    };
+
+    let leaderboard =
+        build_public_benchmark_leaderboard_report(&dir, &output, std::slice::from_ref(&report));
+    let row = leaderboard.rows.first().expect("leaderboard row");
+    assert_eq!(row.mempalace_score, Some(0.966));
+    assert_eq!(row.mempalace_status, "replayed");
+    assert_eq!(row.claim_class, "cross-replayed");
+    assert_eq!(row.parity_status, "cross-replayed");
+    assert!(row.notes.iter().any(|note| {
+        note == "mempalace_command=python scripts/bench-mempalace.py --benchmark longmemeval"
+    }));
+    assert!(row.notes.iter().any(|note| {
+        note == "mempalace_artifacts=.memd/benchmarks/baselines/mempalace-replays/longmemeval/latest/"
+    }));
+
+    fs::remove_dir_all(dir).expect("cleanup local replay dir");
 }
 
 #[tokio::test]
@@ -2272,8 +2369,102 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
     assert!(leaderboard.contains("| LoCoMo |"));
     assert!(leaderboard.contains("| ConvoMem |"));
     assert!(leaderboard.contains("| MemBench |"));
+    assert!(leaderboard.contains("| Verification |"));
+    assert!(leaderboard.contains("| MemPalace |"));
+    assert!(leaderboard.contains("| Commit |"));
+    assert!(leaderboard.contains("| Rerun |"));
 
     fs::remove_dir_all(dir).expect("cleanup public benchmark suite docs dir");
+}
+
+#[tokio::test]
+async fn benchmark_public_all_write_refreshes_each_latest_artifact() {
+    let dir = std::env::temp_dir().join(format!(
+        "memd-public-benchmark-all-write-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let docs_root = dir.join("repo");
+    let output = docs_root.join(".memd");
+    fs::create_dir_all(docs_root.join(".git")).expect("create git dir");
+    fs::create_dir_all(&output).expect("create output dir");
+
+    for dataset in ["longmemeval", "locomo", "convomem", "membench"] {
+        let source = public_benchmark_dataset_source(dataset).expect("catalog entry");
+        let cache_path =
+            public_benchmark_dataset_cache_path(&output, dataset, source.default_filename);
+        if let Some(parent) = cache_path.parent() {
+            fs::create_dir_all(parent).expect("create dataset cache dir");
+        }
+        let fixture_path = match dataset {
+            "convomem" => PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(".memd/benchmarks/datasets/convomem/convomem-evidence-sample.json"),
+            "membench" => PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(".memd/benchmarks/datasets/membench/membench-firstagent.json"),
+            _ => public_benchmark_fixture_path(dataset),
+        };
+        fs::copy(fixture_path, &cache_path).expect("seed cached fixture");
+    }
+
+    run_benchmark_command(
+        &BenchmarkArgs {
+            output: output.clone(),
+            write: false,
+            summary: false,
+            subcommand: Some(BenchmarkSubcommand::Public(PublicBenchmarkArgs {
+                dataset: String::new(),
+                mode: Some("raw".to_string()),
+                retrieval_backend: None,
+                rag_url: None,
+                memd_url: None,
+                top_k: Some(5),
+                limit: Some(2),
+                dataset_root: None,
+                reranker: None,
+                write: true,
+                json: false,
+                community_standard: false,
+                hypotheses_file: None,
+                grader_model: None,
+                full_eval: false,
+                generator_model: None,
+                sample: None,
+                dry_run: false,
+                dual: false,
+                turn_diagnostics: false,
+                all: true,
+                out: output.clone(),
+                ci: false,
+                record: false,
+            })),
+        },
+        "http://127.0.0.1:8787",
+    )
+    .await
+    .expect("run benchmark public --all --write");
+
+    for dataset in ["convomem", "membench"] {
+        assert!(
+            public_benchmark_manifest_json_path(&output, dataset).exists(),
+            "missing manifest for {dataset}"
+        );
+        assert!(
+            public_benchmark_results_json_path(&output, dataset).exists(),
+            "missing results for {dataset}"
+        );
+        assert!(
+            public_benchmark_report_md_path(&output, dataset).exists(),
+            "missing report for {dataset}"
+        );
+    }
+
+    let leaderboard = fs::read_to_string(public_benchmark_leaderboard_docs_path(&docs_root))
+        .expect("read public leaderboard docs");
+    assert!(leaderboard.contains("| ConvoMem |"));
+    assert!(leaderboard.contains("| MemBench |"));
+
+    fs::remove_dir_all(dir).expect("cleanup benchmark public --all dir");
 }
 
 #[test]

@@ -236,6 +236,9 @@ pub(crate) struct RepairArgs {
     pub(crate) workspace: Option<String>,
 
     #[arg(long)]
+    pub(crate) region: Option<String>,
+
+    #[arg(long)]
     pub(crate) visibility: Option<String>,
 
     #[arg(long)]
@@ -296,6 +299,9 @@ pub(crate) struct ContextArgs {
     pub(crate) workspace: Option<String>,
 
     #[arg(long)]
+    pub(crate) region: Option<String>,
+
+    #[arg(long)]
     pub(crate) visibility: Option<String>,
 
     #[arg(long)]
@@ -333,6 +339,9 @@ pub(crate) struct WorkingArgs {
 
     #[arg(long)]
     pub(crate) workspace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) region: Option<String>,
 
     #[arg(long)]
     pub(crate) visibility: Option<String>,
@@ -1204,6 +1213,9 @@ pub(crate) struct LookupArgs {
 
     #[arg(long)]
     pub(crate) workspace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) region: Option<String>,
 
     #[arg(long)]
     pub(crate) visibility: Option<String>,

@@ -1636,6 +1636,7 @@ pub(crate) async fn mock_healthz() -> Json<memd_schema::HealthResponse> {
         eval_score: None,
         pressure: None,
         rag: None,
+        atlas: None,
     })
 }
 

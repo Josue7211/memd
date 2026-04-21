@@ -269,6 +269,7 @@ pub(crate) async fn execute_cli_verifier_step(
                 visibility,
                 belief_branch,
                 source_agent: None,
+                region: None,
                 tags: Vec::new(),
                 stages: vec![MemoryStage::Canonical, MemoryStage::Candidate],
                 limit: Some(6),

@@ -137,9 +137,7 @@ struct MockRagSearchState {
     rerank: RagRerankResponse,
 }
 
-async fn mock_rag_rerank(
-    State(state): State<MockRagSearchState>,
-) -> Json<RagRerankResponse> {
+async fn mock_rag_rerank(State(state): State<MockRagSearchState>) -> Json<RagRerankResponse> {
     Json(state.rerank)
 }
 
@@ -2278,6 +2276,196 @@ async fn atlas_expand_returns_neighborhood_for_seed_items() {
     // No entity links → no expanded nodes
     assert!(response.expanded_nodes.is_empty());
     assert!(response.links.is_empty());
+}
+
+#[tokio::test]
+async fn atlas_one_hop_neighbors_resolve_through_entities() {
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-onehop-{}.db", uuid::Uuid::new_v4())),
+    )
+    .expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
+    };
+
+    let base_req = StoreMemoryRequest {
+        content: String::new(),
+        kind: MemoryKind::Fact,
+        scope: MemoryScope::Project,
+        project: Some("atlas-expand".to_string()),
+        namespace: Some("main".to_string()),
+        workspace: None,
+        visibility: None,
+        belief_branch: None,
+        source_agent: None,
+        source_system: None,
+        source_path: None,
+        source_quality: None,
+        confidence: Some(0.9),
+        ttl_seconds: None,
+        last_verified_at: None,
+        supersedes: Vec::new(),
+        tags: Vec::new(),
+        status: None,
+        lane: None,
+    };
+
+    let (seed, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "alpha-svc uses event sourcing".to_string(),
+                ..base_req.clone()
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store seed");
+    let (neighbor, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "migration plan references [[atlas-expand]] decisions".to_string(),
+                ..base_req
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store neighbor");
+
+    let seed_entity = store
+        .entity_for_item(seed.id)
+        .expect("seed entity lookup")
+        .expect("seed entity present");
+    let neighbor_entity = store
+        .entity_for_item(neighbor.id)
+        .expect("neighbor entity lookup")
+        .expect("neighbor entity present");
+    store
+        .link_entity(&memd_schema::EntityLinkRequest {
+            from_entity_id: seed_entity.id,
+            to_entity_id: neighbor_entity.id,
+            relation_kind: memd_schema::EntityRelationKind::Related,
+            confidence: Some(0.95),
+            valid_from: Some(seed.updated_at),
+            valid_to: None,
+            source_item_id: Some(seed.id),
+            note: Some("manual atlas path".to_string()),
+            context: None,
+            tags: vec!["manual".to_string()],
+        })
+        .expect("create manual atlas link");
+
+    let neighbors = store.one_hop_neighbors_for_items(&[seed.id], 10);
+    assert!(
+        neighbors.contains(&neighbor.id),
+        "one-hop recall should surface linked neighbor item via entity graph"
+    );
+}
+
+#[tokio::test]
+async fn atlas_expand_returns_linked_neighbors_for_seed_items() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!(
+        "memd-atlas-expand-link-{}.db",
+        uuid::Uuid::new_v4()
+    )))
+    .expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
+    };
+
+    let base_req = StoreMemoryRequest {
+        content: String::new(),
+        kind: MemoryKind::Fact,
+        scope: MemoryScope::Project,
+        project: Some("atlas-expand".to_string()),
+        namespace: Some("main".to_string()),
+        workspace: None,
+        visibility: None,
+        belief_branch: None,
+        source_agent: None,
+        source_system: None,
+        source_path: None,
+        source_quality: None,
+        confidence: Some(0.9),
+        ttl_seconds: None,
+        last_verified_at: None,
+        supersedes: Vec::new(),
+        tags: Vec::new(),
+        status: None,
+        lane: None,
+    };
+
+    let (seed, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "alpha-svc uses event sourcing".to_string(),
+                ..base_req.clone()
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store seed");
+    let (neighbor, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "migration plan references [[atlas-expand]] decisions".to_string(),
+                ..base_req
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store neighbor");
+
+    let seed_entity = store
+        .entity_for_item(seed.id)
+        .expect("seed entity lookup")
+        .expect("seed entity present");
+    let neighbor_entity = store
+        .entity_for_item(neighbor.id)
+        .expect("neighbor entity lookup")
+        .expect("neighbor entity present");
+    store
+        .link_entity(&memd_schema::EntityLinkRequest {
+            from_entity_id: seed_entity.id,
+            to_entity_id: neighbor_entity.id,
+            relation_kind: memd_schema::EntityRelationKind::Related,
+            confidence: Some(0.95),
+            valid_from: Some(seed.updated_at),
+            valid_to: None,
+            source_item_id: Some(seed.id),
+            note: Some("manual atlas path".to_string()),
+            context: None,
+            tags: vec!["manual".to_string()],
+        })
+        .expect("create manual atlas link");
+
+    let response = store
+        .atlas_expand(&memd_schema::AtlasExpandRequest {
+            memory_ids: vec![seed.id],
+            project: Some("atlas-expand".to_string()),
+            namespace: Some("main".to_string()),
+            depth: Some(1),
+            limit: Some(10),
+        })
+        .expect("atlas expand");
+
+    assert!(
+        response
+            .expanded_nodes
+            .iter()
+            .any(|node| node.id == neighbor.id),
+        "atlas expand should traverse item -> entity -> linked entity -> item"
+    );
+    assert!(
+        response
+            .links
+            .iter()
+            .any(|link| link.from_node_id == seed.id && link.to_node_id == neighbor.id),
+        "atlas expand should emit the traversed atlas link"
+    );
 }
 
 #[tokio::test]
@@ -5035,6 +5223,93 @@ fn wiki_link_creates_entity_link_on_store() {
 }
 
 #[test]
+fn named_entity_mentions_create_source_backed_atlas_links() {
+    let (dir, state) = temp_state("memd-ner-link");
+
+    let (fact_a, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "Alice Johnson owns the deploy process for ACME Cloud.".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("atlas-ner".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                source_agent: Some("codex".to_string()),
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: None,
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["people".to_string()],
+                belief_branch: None,
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store fact A");
+
+    let (fact_b, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "Escalate ACME Cloud incidents to Alice Johnson first.".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("atlas-ner".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                source_agent: Some("codex".to_string()),
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: None,
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["ops".to_string()],
+                belief_branch: None,
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store fact B");
+
+    let entity_a = state
+        .store
+        .entity_for_item(fact_a.id)
+        .unwrap()
+        .expect("entity A");
+    let entity_b = state
+        .store
+        .entity_for_item(fact_b.id)
+        .unwrap()
+        .expect("entity B");
+    let links = state
+        .store
+        .links_for_entity(&memd_schema::EntityLinksRequest {
+            entity_id: entity_b.id,
+        })
+        .expect("links for entity B");
+
+    assert!(
+        links.iter().any(|link| {
+            (link.from_entity_id == entity_a.id || link.to_entity_id == entity_a.id)
+                && link.tags.iter().any(|tag| tag == "ner")
+                && link.source_item_id == Some(fact_b.id)
+        }),
+        "named entity mentions should create source-backed atlas links"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn atlas_regions_generated_for_project_with_items() {
     let (dir, state) = temp_state("memd-atlas-regions");
 
@@ -5438,8 +5713,7 @@ fn filter_items_keeps_fts_hits_even_when_raw_question_text_is_not_a_substring() 
     let (target, _) = state
         .store_item(
             StoreMemoryRequest {
-                content: "graduated with a degree in business administration from UCLA"
-                    .to_string(),
+                content: "graduated with a degree in business administration from UCLA".to_string(),
                 kind: MemoryKind::Fact,
                 scope: MemoryScope::Project,
                 project: Some("memd".to_string()),
@@ -5497,11 +5771,11 @@ fn filter_items_keeps_fts_hits_even_when_raw_question_text_is_not_a_substring() 
 #[test]
 fn search_score_prefers_query_token_overlap_over_unrelated_high_metadata_item() {
     let plan = RetrievalPlan::resolve(None, None);
-    let query = Some("What should I serve for dinner this weekend with my homegrown ingredients?"
-        .to_string());
+    let query = Some(
+        "What should I serve for dinner this weekend with my homegrown ingredients?".to_string(),
+    );
     let relevant = MemoryItem {
-        content: "homegrown cherry tomatoes basil mint dinner ideas and garden produce"
-            .to_string(),
+        content: "homegrown cherry tomatoes basil mint dinner ideas and garden produce".to_string(),
         tags: vec!["garden".to_string(), "dinner".to_string()],
         confidence: 0.7,
         source_quality: Some(SourceQuality::Canonical),
@@ -8030,6 +8304,288 @@ async fn healthz_route_surfaces_reachable_rag_name() {
 }
 
 #[tokio::test]
+async fn healthz_route_surfaces_atlas_dormant_warning() {
+    let (dir, state) = temp_state("memd-healthz-atlas-dormant");
+    state
+        .store_item(
+            StoreMemoryRequest {
+                content: "single item without atlas links".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.8),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: Vec::new(),
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store lone item");
+    let app = Router::new()
+        .route("/healthz", get(healthz))
+        .with_state(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/healthz")
+                .body(Body::empty())
+                .expect("build healthz request"),
+        )
+        .await
+        .expect("run healthz route");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = decode_json(response).await;
+    assert_eq!(body["atlas"]["edges_active"], 0);
+    assert_eq!(body["atlas"]["region_count"], 0);
+    assert_eq!(body["atlas"]["dormant"], true);
+    assert!(
+        body["atlas"]["warning"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("atlas dormant")
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup atlas dormant temp dir");
+}
+
+#[tokio::test]
+async fn search_memory_region_filter_limits_results_to_region_members() {
+    let (dir, state) = temp_state("memd-search-region-filter");
+
+    state
+        .store_item(
+            StoreMemoryRequest {
+                content: "fact region item".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("atlas-region".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: Some(MemoryVisibility::Workspace),
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.8),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["facts".to_string()],
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store fact");
+    state
+        .store_item(
+            StoreMemoryRequest {
+                content: "decision region item".to_string(),
+                kind: MemoryKind::Decision,
+                scope: MemoryScope::Project,
+                project: Some("atlas-region".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: Some(MemoryVisibility::Workspace),
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.9),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["decisions".to_string()],
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store decision");
+
+    let region_members = crate::routes::resolve_region_member_filter(
+        &state,
+        Some("facts"),
+        Some("atlas-region"),
+        Some("main"),
+    )
+    .expect("resolve region members")
+    .expect("expected region filter set");
+    assert_eq!(
+        region_members.len(),
+        1,
+        "facts region should resolve one member"
+    );
+
+    let Json(response) = search_memory(
+        State(state),
+        Json(SearchMemoryRequest {
+            query: None,
+            route: None,
+            intent: None,
+            scopes: vec![MemoryScope::Project],
+            kinds: Vec::new(),
+            statuses: vec![MemoryStatus::Active],
+            project: Some("atlas-region".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: None,
+            belief_branch: None,
+            source_agent: None,
+            region: Some("facts".to_string()),
+            tags: Vec::new(),
+            stages: vec![MemoryStage::Canonical],
+            limit: Some(10),
+            max_chars_per_item: None,
+        }),
+    )
+    .await
+    .expect("search with region");
+
+    assert!(
+        !response.items.is_empty(),
+        "region-filtered search should return items"
+    );
+    assert!(
+        response
+            .items
+            .iter()
+            .all(|item| item.kind == MemoryKind::Fact)
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup region filter temp dir");
+}
+
+#[test]
+fn correct_item_closes_source_backed_atlas_links() {
+    let (dir, state) = temp_state("memd-correction-closes-atlas-links");
+
+    let (old_item, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "old auth belief".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("atlas-correct".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.7),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: Vec::new(),
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store old item");
+    let (peer_item, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "peer auth evidence".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("atlas-correct".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.8),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: Vec::new(),
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store peer item");
+
+    let old_entity = state
+        .store
+        .entity_for_item(old_item.id)
+        .expect("old entity lookup")
+        .expect("old entity present");
+    let peer_entity = state
+        .store
+        .entity_for_item(peer_item.id)
+        .expect("peer entity lookup")
+        .expect("peer entity present");
+    state
+        .store
+        .link_entity(&memd_schema::EntityLinkRequest {
+            from_entity_id: old_entity.id,
+            to_entity_id: peer_entity.id,
+            relation_kind: memd_schema::EntityRelationKind::Related,
+            confidence: Some(0.9),
+            valid_from: Some(old_item.updated_at),
+            valid_to: None,
+            source_item_id: Some(old_item.id),
+            note: Some("old-item atlas path".to_string()),
+            context: None,
+            tags: vec!["manual".to_string()],
+        })
+        .expect("create source-backed link");
+
+    let response = repair::correct_item(
+        &state,
+        CorrectMemoryRequest {
+            id: old_item.id,
+            content: "corrected auth belief".to_string(),
+            reason: Some("auth updated".to_string()),
+            tags: None,
+            confidence: Some(0.95),
+        },
+    )
+    .expect("correct item");
+
+    let links = state
+        .store
+        .links_for_entity(&memd_schema::EntityLinksRequest {
+            entity_id: old_entity.id,
+        })
+        .expect("list old links");
+    let closed = links
+        .iter()
+        .find(|link| link.source_item_id == Some(old_item.id))
+        .expect("source-backed link should remain readable");
+    assert!(
+        closed.valid_to.is_some(),
+        "source-backed link should be time-closed when correction supersedes the old item"
+    );
+    assert_eq!(response.old_item.status, MemoryStatus::Superseded);
+
+    std::fs::remove_dir_all(dir).expect("cleanup correction temp dir");
+}
+
+#[tokio::test]
 async fn store_memory_fanouts_rag_ingest_with_identity_contract() {
     let (rag_url, rx) = spawn_mock_rag_ingest_server().await;
     let (dir, state) = temp_state_with_rag("memd-rag-ingest", Some(&rag_url));
@@ -8193,6 +8749,7 @@ async fn search_memory_injects_dense_rag_candidates() {
                         visibility: None,
                         belief_branch: None,
                         source_agent: None,
+                        region: None,
                         tags: Vec::new(),
                         stages: Vec::new(),
                         limit: Some(10),
@@ -8393,6 +8950,7 @@ async fn search_memory_uses_sidecar_rerank_when_available() {
                         visibility: None,
                         belief_branch: None,
                         source_agent: None,
+                        region: None,
                         tags: Vec::new(),
                         stages: Vec::new(),
                         limit: Some(10),

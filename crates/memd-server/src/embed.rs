@@ -64,10 +64,7 @@ impl Embedder {
     /// between the returned Vec and the non-empty inputs only. That
     /// keeps the ingest hot path off a per-chunk mutex dance and cuts
     /// wall-clock per document by roughly Nx for N chunks.
-    pub(crate) fn embed_batch_normalized(
-        &self,
-        texts: &[String],
-    ) -> anyhow::Result<Vec<Vec<f32>>> {
+    pub(crate) fn embed_batch_normalized(&self, texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>> {
         let prepared: Vec<String> = texts
             .iter()
             .map(|t| t.trim().to_string())

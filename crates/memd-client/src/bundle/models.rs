@@ -479,7 +479,11 @@ pub(crate) struct PublicBenchmarkLeaderboardRow {
     pub item_modes: Vec<String>,
     pub item_claim_classes: Vec<String>,
     pub coverage_status: String,
+    #[serde(default)]
+    pub claim_class: String,
     pub parity_status: String,
+    #[serde(default)]
+    pub verification_status: String,
     #[serde(default)]
     pub primary_metric_label: String,
     pub accuracy: f64,
@@ -489,6 +493,22 @@ pub(crate) struct PublicBenchmarkLeaderboardRow {
     pub accelerated_score: Option<f64>,
     #[serde(default)]
     pub score_delta: Option<f64>,
+    #[serde(default)]
+    pub mempalace_score: Option<f64>,
+    #[serde(default)]
+    pub mempalace_status: String,
+    #[serde(default)]
+    pub regression_delta: Option<f64>,
+    #[serde(default)]
+    pub regression_budget: Option<f64>,
+    #[serde(default)]
+    pub commit_sha: Option<String>,
+    #[serde(default)]
+    pub commit_url: Option<String>,
+    #[serde(default)]
+    pub rerun_command: Option<String>,
+    #[serde(default)]
+    pub artifact_path: Option<String>,
     pub item_count: usize,
     pub notes: Vec<String>,
 }

@@ -1,9 +1,9 @@
 pub use memd_sidecar::{
     SidecarBackendHealth as RagBackendHealth, SidecarHealthResponse as RagBackendHealthResponse,
     SidecarIngestRequest as RagIngestRequest, SidecarIngestResponse as RagIngestResponse,
-    SidecarIngestSource as RagIngestSource, SidecarRetrieveItem as RagRetrieveItem,
-    SidecarRerankCandidate as RagRerankCandidate, SidecarRerankItem as RagRerankItem,
-    SidecarRerankRequest as RagRerankRequest, SidecarRerankResponse as RagRerankResponse,
+    SidecarIngestSource as RagIngestSource, SidecarRerankCandidate as RagRerankCandidate,
+    SidecarRerankItem as RagRerankItem, SidecarRerankRequest as RagRerankRequest,
+    SidecarRerankResponse as RagRerankResponse, SidecarRetrieveItem as RagRetrieveItem,
     SidecarRetrieveMode as RagRetrieveMode, SidecarRetrieveRequest as RagRetrieveRequest,
     SidecarRetrieveResponse as RagRetrieveResponse,
 };

@@ -13,6 +13,61 @@ fn atlas_recall_enabled() -> bool {
     }
 }
 
+pub(crate) fn resolve_region_member_filter(
+    state: &AppState,
+    region: Option<&str>,
+    project: Option<&str>,
+    namespace: Option<&str>,
+) -> anyhow::Result<Option<std::collections::HashSet<Uuid>>> {
+    let Some(region) = region.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+
+    let mut regions = state
+        .store
+        .list_atlas_regions(&memd_schema::AtlasRegionsRequest {
+            project: project.map(str::to_string),
+            namespace: namespace.map(str::to_string),
+            lane: None,
+            limit: None,
+        })?
+        .regions;
+    if regions.is_empty() {
+        regions = state
+            .store
+            .generate_regions_for_project(project, namespace, None)?;
+    }
+
+    let needle = region.to_ascii_lowercase();
+    let matched = regions.into_iter().find(|candidate| {
+        candidate.name.eq_ignore_ascii_case(region)
+            || candidate.id.to_string() == region
+            || candidate.id.to_string().starts_with(&needle)
+    });
+    let Some(region) = matched else {
+        let fallback_members = state
+            .store
+            .list()?
+            .into_iter()
+            .filter(|item| item.status == MemoryStatus::Active)
+            .filter(|item| project.is_none_or(|value| item.project.as_deref() == Some(value)))
+            .filter(|item| namespace.is_none_or(|value| item.namespace.as_deref() == Some(value)))
+            .filter(|item| {
+                crate::atlas::region_bucket_key(item, None)
+                    .is_some_and(|bucket| bucket.eq_ignore_ascii_case(region))
+            })
+            .map(|item| item.id)
+            .collect::<std::collections::HashSet<_>>();
+        return Ok(Some(fallback_members));
+    };
+    let member_ids = state
+        .store
+        .get_region_member_ids(region.id)?
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+    Ok(Some(member_ids))
+}
+
 fn intrinsic_rerank_enabled() -> bool {
     match std::env::var("MEMD_RETRIEVAL_RERANK") {
         Ok(value) => {
@@ -35,8 +90,10 @@ pub(crate) fn intrinsic_rerank_search_candidates(
         return base_ranks.to_vec();
     }
 
-    let by_id: std::collections::HashMap<Uuid, &MemoryItem> =
-        items.iter().map(|entry| (entry.item.id, &entry.item)).collect();
+    let by_id: std::collections::HashMap<Uuid, &MemoryItem> = items
+        .iter()
+        .map(|entry| (entry.item.id, &entry.item))
+        .collect();
     let head_len = base_ranks.len().min(INTRINSIC_RERANK_WINDOW);
     let (head, tail) = base_ranks.split_at(head_len);
 
@@ -54,10 +111,7 @@ pub(crate) fn intrinsic_rerank_search_candidates(
         })
         .collect::<Vec<_>>();
 
-    reranked.sort_by(|a, b| {
-        b.1.total_cmp(&a.1)
-            .then_with(|| a.2.cmp(&b.2))
-    });
+    reranked.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.2.cmp(&b.2)));
 
     let mut ordered = reranked
         .into_iter()
@@ -78,21 +132,22 @@ async fn rerank_search_candidates(
         return base_ranks.to_vec();
     }
 
-    let by_id: std::collections::HashMap<Uuid, &MemoryItem> =
-        items.iter().map(|entry| (entry.item.id, &entry.item)).collect();
+    let by_id: std::collections::HashMap<Uuid, &MemoryItem> = items
+        .iter()
+        .map(|entry| (entry.item.id, &entry.item))
+        .collect();
     let head_len = base_ranks.len().min(INTRINSIC_RERANK_WINDOW);
     let (head, tail) = base_ranks.split_at(head_len);
 
     if let Some(rag) = state.rag.as_deref() {
         let candidates = head
             .iter()
-            .filter_map(|(id, _)| {
-                by_id.get(id)
-                    .map(|item| (*id, rerank_item_haystack(item)))
-            })
+            .filter_map(|(id, _)| by_id.get(id).map(|item| (*id, rerank_item_haystack(item))))
             .collect::<Vec<_>>();
         if !candidates.is_empty() {
-            match crate::rag_bridge::rerank_candidates(rag, query, &candidates, candidates.len()).await {
+            match crate::rag_bridge::rerank_candidates(rag, query, &candidates, candidates.len())
+                .await
+            {
                 Ok(reranked) if !reranked.is_empty() => {
                     let mut ordered = reranked;
                     let seen = ordered
@@ -108,7 +163,9 @@ async fn rerank_search_candidates(
                     return ordered;
                 }
                 Ok(_) => {}
-                Err(error) => warn!(error = %format_args!("{error:#}"), "sidecar rerank failed; falling back to intrinsic rerank"),
+                Err(error) => {
+                    warn!(error = %format_args!("{error:#}"), "sidecar rerank failed; falling back to intrinsic rerank")
+                }
             }
         }
     }
@@ -136,13 +193,13 @@ fn intrinsic_local_rerank_score(item: &MemoryItem, query: &str) -> f64 {
         .collect::<std::collections::BTreeSet<_>>();
     let overlap = query_term_set.intersection(&record_term_set).count() as f64;
     let lexical = overlap / query_term_set.len().max(1) as f64;
-    let token_frequency = record_tokens.iter().fold(
-        std::collections::HashMap::new(),
-        |mut acc, token| {
-            *acc.entry(token.as_str()).or_insert(0usize) += 1;
-            acc
-        },
-    );
+    let token_frequency =
+        record_tokens
+            .iter()
+            .fold(std::collections::HashMap::new(), |mut acc, token| {
+                *acc.entry(token.as_str()).or_insert(0usize) += 1;
+                acc
+            });
     let bm25ish = if query_keywords.is_empty() {
         0.0
     } else {
@@ -195,7 +252,11 @@ fn intrinsic_local_rerank_score(item: &MemoryItem, query: &str) -> f64 {
             .count() as f64
             / query_keywords.len() as f64
     };
-    let path_lower = item.source_path.as_deref().unwrap_or_default().to_ascii_lowercase();
+    let path_lower = item
+        .source_path
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     let path_bonus = if query_keywords.is_empty() {
         0.0
     } else {
@@ -257,12 +318,12 @@ fn rerank_tokenize(text: &str) -> Vec<String> {
 
 fn rerank_keyword_tokens(query_terms: &[String]) -> Vec<String> {
     let stop_words = [
-        "what", "when", "where", "who", "how", "which", "did", "do", "was", "were", "have",
-        "has", "had", "is", "are", "the", "a", "an", "my", "me", "i", "you", "your", "their",
-        "it", "its", "in", "on", "at", "to", "for", "of", "with", "by", "from", "ago", "last",
-        "that", "this", "there", "about", "get", "got", "give", "gave", "buy", "bought",
-        "made", "make", "said", "would", "could", "should", "might", "can", "will", "shall",
-        "kind", "type", "like", "prefer", "enjoy", "think", "feel",
+        "what", "when", "where", "who", "how", "which", "did", "do", "was", "were", "have", "has",
+        "had", "is", "are", "the", "a", "an", "my", "me", "i", "you", "your", "their", "it", "its",
+        "in", "on", "at", "to", "for", "of", "with", "by", "from", "ago", "last", "that", "this",
+        "there", "about", "get", "got", "give", "gave", "buy", "bought", "made", "make", "said",
+        "would", "could", "should", "might", "can", "will", "shall", "kind", "type", "like",
+        "prefer", "enjoy", "think", "feel",
     ]
     .into_iter()
     .collect::<std::collections::BTreeSet<_>>();
@@ -380,6 +441,7 @@ pub(crate) async fn healthz(
         .filter(|i| i.status == MemoryStatus::Expired)
         .count();
     let rag = state.rag_health_surface().await;
+    let atlas = crate::status::atlas_health_surface(&state, items).map_err(internal_error)?;
 
     Ok(Json(HealthResponse {
         status: "ok".to_string(),
@@ -392,6 +454,7 @@ pub(crate) async fn healthz(
             expired,
         }),
         rag: Some(rag),
+        atlas: Some(atlas),
     }))
 }
 
@@ -612,7 +675,17 @@ pub(crate) async fn search_memory(
     let snapshot = state
         .snapshot_for_scope(req.project.as_deref(), req.namespace.as_deref())
         .map_err(internal_error)?;
-    let items = enrich_with_entities(&state, snapshot).map_err(internal_error)?;
+    let region_member_ids = resolve_region_member_filter(
+        &state,
+        req.region.as_deref(),
+        req.project.as_deref(),
+        req.namespace.as_deref(),
+    )
+    .map_err(internal_error)?;
+    let mut items = enrich_with_entities(&state, snapshot).map_err(internal_error)?;
+    if let Some(allowed_ids) = region_member_ids.as_ref() {
+        items.retain(|entry| allowed_ids.contains(&entry.item.id));
+    }
     let plan = RetrievalPlan::resolve(req.route, req.intent);
     // B3-T2: sanitize + atlas-synonym expand before FTS.
     let mut fts_ranks = req
@@ -628,6 +701,9 @@ pub(crate) async fn search_memory(
             state.store.fts_search(&fts_expr, 100).ok()
         })
         .unwrap_or_default();
+    if let Some(allowed_ids) = region_member_ids.as_ref() {
+        fts_ranks.retain(|(id, _)| allowed_ids.contains(id));
+    }
 
     // B3-T6: atlas-at-recall 1-hop entity expansion (item-space). Top K
     // FTS hits seed a 1-hop neighbor lookup; neighbors are injected into
@@ -664,6 +740,12 @@ pub(crate) async fn search_memory(
                 let mut existing: std::collections::HashSet<Uuid> =
                     fts_ranks.iter().map(|(id, _)| *id).collect();
                 for (id, _) in dense {
+                    if region_member_ids
+                        .as_ref()
+                        .is_some_and(|allowed_ids| !allowed_ids.contains(&id))
+                    {
+                        continue;
+                    }
                     if existing.insert(id) {
                         fts_ranks.push((id, tail_score));
                     }
@@ -682,18 +764,19 @@ pub(crate) async fn search_memory(
     // (zero lexical overlap) surface into the top-K.
     if let Some(embedder) = state.embedder.as_deref()
         && crate::embed::intrinsic_dense_enabled()
-        && let Some(query_text) = req.query.as_deref().map(str::trim).filter(|q| !q.is_empty())
+        && let Some(query_text) = req
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|q| !q.is_empty())
     {
         match embedder.embed_query_normalized(query_text) {
             Ok(q_vec) => {
-                match state
-                    .store
-                    .list_vectors_for_scope(
-                        req.project.as_deref(),
-                        req.namespace.as_deref(),
-                        embedder.model_code(),
-                    )
-                {
+                match state.store.list_vectors_for_scope(
+                    req.project.as_deref(),
+                    req.namespace.as_deref(),
+                    embedder.model_code(),
+                ) {
                     Ok(candidates) if !candidates.is_empty() => {
                         // Per-chunk scoring; one memory_id can appear multiple
                         // times if content was chunked on store. Group by
@@ -710,13 +793,23 @@ pub(crate) async fn search_memory(
                             }
                         }
                         let mut scored: Vec<(Uuid, f64)> = by_id.into_iter().collect();
-                        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                        scored.sort_by(|a, b| {
+                            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+                        });
                         scored.truncate(200);
                         let existing: std::collections::HashMap<Uuid, f64> =
                             fts_ranks.iter().copied().collect();
-                        let mut blended: Vec<(Uuid, f64)> = Vec::with_capacity(scored.len() + fts_ranks.len());
-                        let mut seen: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+                        let mut blended: Vec<(Uuid, f64)> =
+                            Vec::with_capacity(scored.len() + fts_ranks.len());
+                        let mut seen: std::collections::HashSet<Uuid> =
+                            std::collections::HashSet::new();
                         for (id, dense_score) in scored {
+                            if region_member_ids
+                                .as_ref()
+                                .is_some_and(|allowed_ids| !allowed_ids.contains(&id))
+                            {
+                                continue;
+                            }
                             seen.insert(id);
                             let fts_score = existing.get(&id).copied().unwrap_or(0.0);
                             // Heavy dense weight — the gate exists because
@@ -727,22 +820,36 @@ pub(crate) async fn search_memory(
                             blended.push((id, blended_score));
                         }
                         for (id, fts_score) in fts_ranks.iter() {
+                            if region_member_ids
+                                .as_ref()
+                                .is_some_and(|allowed_ids| !allowed_ids.contains(id))
+                            {
+                                continue;
+                            }
                             if !seen.contains(id) {
                                 blended.push((*id, 0.1 * *fts_score));
                             }
                         }
-                        blended.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                        blended.sort_by(|a, b| {
+                            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+                        });
                         fts_ranks = blended;
                     }
                     Ok(_) => {}
-                    Err(error) => warn!(error = %format_args!("{error:#}"), "list_vectors_for_scope failed"),
+                    Err(error) => {
+                        warn!(error = %format_args!("{error:#}"), "list_vectors_for_scope failed")
+                    }
                 }
             }
             Err(error) => warn!(error = %format_args!("{error:#}"), "query embed failed"),
         }
     }
     if intrinsic_rerank_enabled()
-        && let Some(query_text) = req.query.as_deref().map(str::trim).filter(|q| !q.is_empty())
+        && let Some(query_text) = req
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|q| !q.is_empty())
         && fts_ranks.len() > 1
     {
         fts_ranks = rerank_search_candidates(&state, &items, query_text, &fts_ranks).await;

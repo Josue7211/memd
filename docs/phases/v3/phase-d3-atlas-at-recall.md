@@ -2,7 +2,7 @@
 phase: D3
 name: Atlas at Recall
 version: v3
-status: pending
+status: complete
 depends_on: [A3, B3, C3]
 notes: Renamed C3→D3 on 2026-04-17 when new A3 (memd Continuity Foundation) was inserted at V3 entry.
 backlog_items:

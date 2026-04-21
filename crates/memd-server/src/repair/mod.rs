@@ -91,6 +91,10 @@ pub(crate) fn correct_item(
         .store
         .update(&superseded, &old_canonical, &old_redundancy)
         .map_err(internal_error)?;
+    state
+        .store
+        .close_links_for_source_item(old_item.id, superseded.updated_at)
+        .map_err(internal_error)?;
     if let Err(e) = record_lifecycle_event(
         state,
         &superseded,

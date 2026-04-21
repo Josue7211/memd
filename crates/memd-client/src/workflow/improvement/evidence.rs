@@ -433,6 +433,7 @@ pub(crate) async fn search_live_truth_record(
             visibility,
             belief_branch: None,
             source_agent: Some("memd".to_string()),
+            region: None,
             tags: vec!["live_truth".to_string()],
             stages: vec![MemoryStage::Canonical],
             limit: Some(1),

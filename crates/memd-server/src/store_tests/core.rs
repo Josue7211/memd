@@ -247,17 +247,17 @@ fn fresh_database_stamped_at_current_schema_version() {
     let v: i64 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("read user_version");
-    assert_eq!(v as u32, crate::store::SCHEMA_VERSION_M4);
+    assert_eq!(v as u32, crate::store::SCHEMA_VERSION_M5);
     std::fs::remove_dir_all(dir).expect("cleanup temp dir");
 }
 
 #[test]
-fn m3_stamped_database_upgrades_to_m4_on_open() {
+fn m3_stamped_database_upgrades_to_m5_on_open() {
     let dir = std::env::temp_dir().join(format!("k28-upgrade-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let db = dir.join("state.sqlite");
 
-    // First open stamps M4 and runs column migrations.
+    // First open stamps M5 and runs column migrations.
     {
         let _store = SqliteStore::open(&db).expect("open fresh store");
     }
@@ -275,18 +275,18 @@ fn m3_stamped_database_upgrades_to_m4_on_open() {
             .expect("rewind user_version to M3");
     }
 
-    // Reopen — migration path must upgrade to M4 without dropping data.
+    // Reopen — migration path must upgrade to M5 without dropping data.
     {
         let _store = SqliteStore::open(&db).expect("reopen M3 db");
         let conn = rusqlite::Connection::open(&db).expect("inspect");
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("read user_version");
-        assert_eq!(v as u32, crate::store::SCHEMA_VERSION_M4);
+        assert_eq!(v as u32, crate::store::SCHEMA_VERSION_M5);
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM memory_items", [], |r| r.get(0))
             .expect("count");
-        assert_eq!(count, 2, "M3 -> M4 upgrade must preserve data");
+        assert_eq!(count, 2, "M3 -> M5 upgrade must preserve data");
     }
 
     std::fs::remove_dir_all(dir).expect("cleanup temp dir");

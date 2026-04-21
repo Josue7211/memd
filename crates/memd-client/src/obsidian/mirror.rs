@@ -376,6 +376,9 @@ pub fn build_entity_link_request(
         to_entity_id,
         relation_kind: EntityRelationKind::Related,
         confidence: Some(0.72),
+        valid_from: None,
+        valid_to: None,
+        source_item_id: None,
         note: Some(format!("obsidian wiki link from {}", note.relative_path)),
         context: Some(MemoryContextFrame {
             at: Some(Utc::now()),

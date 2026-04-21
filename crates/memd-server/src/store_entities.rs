@@ -138,6 +138,76 @@ fn entity_aliases(item: &MemoryItem) -> Vec<String> {
         }
     }
     aliases.push(format!("{:?}", item.kind).to_lowercase());
+    aliases.extend(extract_named_entity_aliases(&item.content));
+    aliases.sort();
+    aliases.dedup();
+    aliases
+}
+
+pub(crate) fn extract_named_entity_aliases(content: &str) -> Vec<String> {
+    const STOPWORDS: &[&str] = &[
+        "A", "An", "And", "At", "But", "By", "For", "From", "He", "Her", "His", "I", "If", "In",
+        "It", "Its", "No", "Not", "Of", "On", "Or", "Our", "She", "That", "The", "Their", "There",
+        "They", "This", "To", "We", "With", "You",
+    ];
+
+    fn clean_token(raw: &str) -> Option<String> {
+        let trimmed = raw
+            .trim_matches(|ch: char| !ch.is_alphanumeric() && ch != '-' && ch != '_' && ch != '.')
+            .trim_matches('.');
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    }
+
+    fn token_looks_named(token: &str) -> bool {
+        if token.len() < 2 {
+            return false;
+        }
+        if STOPWORDS.contains(&token) {
+            return false;
+        }
+        let mut chars = token.chars();
+        let Some(first) = chars.next() else {
+            return false;
+        };
+        let has_upper = token.chars().any(|ch| ch.is_uppercase());
+        if !has_upper {
+            return false;
+        }
+        first.is_uppercase()
+            || token.chars().any(|ch| ch.is_numeric())
+            || token.chars().any(|ch| ch == '-' || ch == '_')
+    }
+
+    let tokens = content
+        .split_whitespace()
+        .filter_map(clean_token)
+        .collect::<Vec<_>>();
+    let mut aliases = Vec::new();
+    let mut index = 0usize;
+    while index < tokens.len() {
+        if !token_looks_named(&tokens[index]) {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        while index < tokens.len() && token_looks_named(&tokens[index]) {
+            index += 1;
+        }
+        let run = &tokens[start..index];
+        let max_len = run.len().min(3);
+        for width in (1..=max_len).rev() {
+            for offset in 0..=(run.len() - width) {
+                let alias = run[offset..offset + width].join(" ");
+                if alias.len() >= 3 {
+                    aliases.push(alias);
+                }
+            }
+        }
+    }
     aliases.sort();
     aliases.dedup();
     aliases

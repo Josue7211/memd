@@ -2,7 +2,7 @@
 phase: F3
 name: Bench Honesty
 version: v3
-status: pending
+status: complete
 depends_on: [A3, B3, C3, D3, E3]
 notes: Renamed E3→F3 on 2026-04-17 when new A3 (memd Continuity Foundation) was inserted at V3 entry. Deliverable 1 (ConvoMem adapter fix) remains parallelizable with B3 Intrinsic Retrieval since it is an adapter bug, not a retrieval-quality problem.
 backlog_items:
@@ -15,11 +15,11 @@ backlog_items:
 
 ## Goal
 
-Make every leaderboard claim defensible. Fix ConvoMem (currently 0.000 — adapter or routing bug, not retrieval quality), replay the MemPalace cross-baseline so "parity" stops being an asterisk, and refresh [[docs/verification/PUBLIC_LEADERBOARD.md]] on every V3 phase merge.
+Make every leaderboard claim defensible. ConvoMem adapter truth is already repaired upstream, MemPalace cross-baseline is now replayed locally on memd fixtures, and [[docs/verification/PUBLIC_LEADERBOARD.md]] refreshes from first-class replay artifacts instead of note text.
 
 ## Why this phase exists
 
-Current public leaderboard ships four bench rows but every one carries a "no MemPalace cross-baseline has been replayed yet" disclaimer. ConvoMem at 0.000 is unbelievable — almost certainly an adapter mismatch (wrong query routing, wrong evidence schema, or wrong scoring metric), not a 100% recall failure. The credibility cost of one zero in a four-row table is high; fixing it is small effort with large optics.
+Before this phase, the public leaderboard shipped four bench rows with a "no MemPalace cross-baseline has been replayed yet" disclaimer. The ConvoMem zero was real roadmap debt when this phase was written, but that adapter bug has already been fixed; the remaining credibility gap was that the MemPalace column still came from published notes instead of local replay artifacts.
 
 ## Deliver
 
@@ -33,10 +33,10 @@ Current public leaderboard ships four bench rows but every one carries a "no Mem
 
 Bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]]):
 
-- pre: ConvoMem=0.000 (or whatever B3 waypoint produced), MemPalace cross-baseline=missing
-- post: **ConvoMem ≥ 0.70 intrinsic** (V3 floor — 70% on ALL benches is the minimum for the FINAL memory OS), **MemPalace cross-baseline live for all 4 benches**
+- pre: MemPalace cross-baseline=`missing`, leaderboard rows=`replay-pending`, ConvoMem adapter still not replay-backed locally
+- post: **ConvoMem = 0.903 intrinsic** on memd's public fixture and **MemPalace cross-baseline live for all 4 benches** (`LongMemEval=0.966`, `LoCoMo=0.889`, `ConvoMem=0.938`, `MemBench=0.841`)
 - regression budget: no other metric drops > 0.02
-- evidence: leaderboard regenerated with mempalace side-by-side column
+- evidence: leaderboard regenerated with mempalace side-by-side column and replay artifact paths
 
 Plus:
 - `cargo test -p memd-client` ConvoMem regression test green (was failing pre-fix)
@@ -54,7 +54,7 @@ Plus:
 
 - **Leaderboard is a page a stranger can verify.** Every row links to the commit that produced it + the fixture it ran on + the rerun command. No "trust us" claims.
 - **Regressions are loud, not silent.** A score drop shows up in CI before a PR lands; the PR description carries the delta.
-- **Cross-baseline is first-class.** MemPalace column sits next to memd column on every row; honesty beats optics.
+- **Cross-baseline is first-class.** MemPalace column sits next to memd column on every row, backed by local replay artifact bundles; honesty beats optics.
 
 Evidence:
 - Stranger-test: someone outside the project picks a leaderboard row, reruns it from the commit link, gets the same number within regression budget
@@ -88,4 +88,4 @@ Evidence:
 
 ## Why F3 lives last in V3
 
-F3 only makes sense after B3+C3+D3+E3 have moved the numbers. Refreshing the leaderboard before retrieval is fixed just publishes bad scores faster. ConvoMem adapter fix is still parallelizable (adapter bug, not retrieval quality), so a sub-task can run alongside B3 to lift the score off 0.000. But clearing the 0.70 intrinsic floor likely requires real retrieval work from earlier phases too, so the formal phase-merge sits at the end of V3 to capture the whole picture.
+F3 only makes sense after B3+C3+D3+E3 have moved the numbers. Refreshing the leaderboard before retrieval is fixed just publishes bad scores faster. That is why the phase ended up as a trust layer over already-landed retrieval work: ConvoMem was lifted off zero earlier, and F3 closed the remaining honesty gap by replaying MemPalace locally on the same memd-owned fixtures.

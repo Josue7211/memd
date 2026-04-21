@@ -2,7 +2,7 @@
 phase: E3
 name: Consolidation + Sessions
 version: v3
-status: pending
+status: in_progress
 depends_on: [A3, B3, C3, D3]
 notes: Renamed D3→E3 on 2026-04-17 when new A3 (memd Continuity Foundation) was inserted at V3 entry.
 backlog_items:

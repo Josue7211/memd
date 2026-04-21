@@ -379,6 +379,7 @@ async fn lookup_cli_defaults_stay_on_repo_b_bundle_against_live_memory_server() 
         project: None,
         namespace: None,
         workspace: None,
+        region: None,
         visibility: None,
         route: None,
         intent: None,

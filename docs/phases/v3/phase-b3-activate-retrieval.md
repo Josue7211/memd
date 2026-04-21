@@ -2,7 +2,7 @@
 phase: B3
 name: Intrinsic Retrieval (RAG-Optional)
 version: v3
-status: in_progress
+status: complete
 depends_on: [A3]
 notes: Renamed A3→B3 on 2026-04-17 when new A3 "memd Continuity Foundation" was inserted at V3 entry (continuity bugs supersede retrieval work — can't benchmark a product whose memory leaks state across compaction). Still carries the intrinsic-wins-first / sidecar-optional framing from the 2026-04-17 RAG-optional correction.
 backlog_items:

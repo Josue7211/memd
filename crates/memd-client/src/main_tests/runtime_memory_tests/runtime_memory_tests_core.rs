@@ -23,6 +23,7 @@ async fn lookup_with_fallbacks_retries_until_match() {
         visibility: None,
         belief_branch: None,
         source_agent: None,
+        region: None,
         tags: vec!["caveman-ultra".to_string()],
         stages: vec![
             memd_schema::MemoryStage::Canonical,

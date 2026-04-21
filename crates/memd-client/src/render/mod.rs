@@ -183,11 +183,41 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
         .and_then(Value::as_bool)
         .map(|healthy| if healthy { "ready" } else { "degraded" })
         .unwrap_or("off");
+    let atlas = status.get("server").and_then(|value| value.get("atlas"));
 
     let mut output = format!(
         "status bundle={} ready={} setup={} server={} rag={}",
         bundle, setup_ready, setup_ready, server, rag
     );
+    if let Some(atlas) = atlas {
+        output.push_str(&format!(
+            " atlas_edges={} atlas_regions={} atlas_ratio={:.2} atlas_state={}",
+            atlas
+                .get("edges_active")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            atlas
+                .get("region_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            atlas
+                .get("edge_item_ratio")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
+            if atlas
+                .get("dormant")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                "dormant"
+            } else {
+                "active"
+            }
+        ));
+        if let Some(warning) = atlas.get("warning").and_then(Value::as_str) {
+            output.push_str(&format!(" atlas_warning=\"{}\"", warning));
+        }
+    }
 
     let resume = status
         .get("resume_preview")

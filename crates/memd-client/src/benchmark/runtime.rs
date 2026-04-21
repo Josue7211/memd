@@ -1168,16 +1168,16 @@ pub(crate) fn render_public_leaderboard(report: &PublicBenchmarkLeaderboardRepor
     }
     lines.push(String::new());
     lines.push(
-        "| Benchmark | Version | Run mode | Item modes | Item claim classes | Coverage | Parity claim | Primary Metric | Value | Intrinsic | Accelerated | Delta | Items | Notes |"
+        "| Benchmark | Version | Run mode | Item modes | Item claim classes | Coverage | Claim Class | Verification | Primary Metric | memd | Intrinsic | Accelerated | Delta | MemPalace | Regression | Commit | Rerun | Items | Notes |"
             .to_string(),
     );
     lines.push(
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
             .to_string(),
     );
     for row in &report.rows {
         lines.push(format!(
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {:.3} | {} | {} | {} | {} | {} |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {:.3} | {} | {} | {} | {} | {} | {} | `{}` | {} | {} |",
             row.benchmark_name,
             row.benchmark_version,
             row.run_mode,
@@ -1188,7 +1188,8 @@ pub(crate) fn render_public_leaderboard(report: &PublicBenchmarkLeaderboardRepor
             },
             row.item_claim_classes.join(", "),
             row.coverage_status,
-            row.parity_status,
+            row.claim_class,
+            row.verification_status,
             row.primary_metric_label,
             row.accuracy,
             row.intrinsic_score
@@ -1200,6 +1201,21 @@ pub(crate) fn render_public_leaderboard(report: &PublicBenchmarkLeaderboardRepor
             row.score_delta
                 .map(|value| format!("{value:+.3}"))
                 .unwrap_or_else(|| "-".to_string()),
+            row.mempalace_score
+                .map(|value| format!("{value:.3} ({})", row.mempalace_status))
+                .unwrap_or_else(|| row.mempalace_status.clone()),
+            match (row.regression_delta, row.regression_budget) {
+                (Some(delta), Some(budget)) => format!("{delta:+.3} / {budget:.3}"),
+                (None, Some(budget)) => format!("- / {budget:.3}"),
+                _ => "-".to_string(),
+            },
+            row.commit_url
+                .as_ref()
+                .zip(row.commit_sha.as_ref())
+                .map(|(url, sha)| format!("[{sha}]({url})"))
+                .or_else(|| row.commit_sha.clone())
+                .unwrap_or_else(|| "-".to_string()),
+            row.rerun_command.as_deref().unwrap_or("-"),
             row.item_count,
             row.notes.join("; "),
         ));
@@ -1220,6 +1236,38 @@ pub(crate) fn render_public_benchmark_summary(report: &PublicBenchmarkRunReport)
     )
 }
 
+fn public_benchmark_report_is_lexical_only(report: &PublicBenchmarkRunReport) -> bool {
+    let runtime = &report.manifest.runtime_settings;
+    let backend = runtime
+        .get("retrieval_backend")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("lexical");
+    let is_dual = runtime
+        .get("dual")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false);
+    let is_full_eval = runtime
+        .get("full_eval")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false);
+    let has_memd_base = runtime
+        .get("memd_base_url")
+        .and_then(JsonValue::as_str)
+        .is_some_and(|value| !value.trim().is_empty());
+    backend == "lexical" && !is_dual && !is_full_eval && !has_memd_base
+}
+
+fn public_benchmark_docs_should_skip_overwrite(
+    benchmark_docs_path: &Path,
+    leaderboard_path: &Path,
+    reports: &[PublicBenchmarkRunReport],
+) -> bool {
+    benchmark_docs_path.exists()
+        && leaderboard_path.exists()
+        && !reports.is_empty()
+        && reports.iter().all(public_benchmark_report_is_lexical_only)
+}
+
 pub(crate) fn write_public_benchmark_docs(
     repo_root: &Path,
     output: &Path,
@@ -1234,17 +1282,23 @@ pub(crate) fn write_public_benchmark_docs(
         reports.sort_by(|left, right| left.manifest.benchmark_id.cmp(&right.manifest.benchmark_id));
     }
     let path = public_benchmark_docs_path(repo_root);
+    let leaderboard_path = public_benchmark_leaderboard_docs_path(repo_root);
+    if public_benchmark_docs_should_skip_overwrite(&path, &leaderboard_path, &reports) {
+        eprintln!(
+            "[bench] skip public doc overwrite: lexical-only public harness reports are not authoritative for the verified release board"
+        );
+        return Ok(());
+    }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
     fs::write(&path, render_public_benchmark_markdown(&reports))
         .with_context(|| format!("write {}", path.display()))?;
 
-    let leaderboard_path = public_benchmark_leaderboard_docs_path(repo_root);
     if let Some(parent) = leaderboard_path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
-    let leaderboard = build_public_benchmark_leaderboard_report(&reports);
+    let leaderboard = build_public_benchmark_leaderboard_report(repo_root, output, &reports);
     fs::write(&leaderboard_path, render_public_leaderboard(&leaderboard))
         .with_context(|| format!("write {}", leaderboard_path.display()))?;
     Ok(())
@@ -1264,6 +1318,15 @@ pub(crate) async fn run_public_benchmark_command(
             sub_args.all = false;
             match Box::pin(run_public_benchmark_command(&sub_args)).await {
                 Ok(report) => {
+                    if args.write {
+                        let _ = write_public_benchmark_run_artifacts(&args.out, &report)?;
+                        if let Some(repo_root) = infer_bundle_project_root(&args.out) {
+                            write_public_benchmark_docs(&repo_root, &args.out, &report)?;
+                        }
+                    }
+                    if args.record {
+                        crate::cli::record_benchmark_run(&args.out, &report)?;
+                    }
                     last_report = Some(report);
                 }
                 Err(err) => {

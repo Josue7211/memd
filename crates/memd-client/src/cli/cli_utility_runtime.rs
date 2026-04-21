@@ -29,6 +29,7 @@ pub(crate) async fn run_inspiration_command(
                 visibility: None,
                 belief_branch: None,
                 source_agent: Some("ingestion-pipeline".to_string()),
+                region: None,
                 tags: vec!["lane:inspiration".to_string()],
                 stages: vec![memd_schema::MemoryStage::Canonical],
                 limit: Some(args.limit),

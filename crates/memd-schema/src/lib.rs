@@ -427,6 +427,8 @@ pub struct SearchMemoryRequest {
     pub visibility: Option<MemoryVisibility>,
     pub belief_branch: Option<String>,
     pub source_agent: Option<String>,
+    #[serde(default)]
+    pub region: Option<String>,
     pub tags: Vec<String>,
     pub stages: Vec<MemoryStage>,
     pub limit: Option<usize>,
@@ -1660,6 +1662,12 @@ pub struct MemoryEntityLinkRecord {
     pub relation_kind: EntityRelationKind,
     pub confidence: f32,
     pub created_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_from: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_to: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_item_id: Option<Uuid>,
     pub note: Option<String>,
     pub context: Option<MemoryContextFrame>,
     pub tags: Vec<String>,
@@ -1671,6 +1679,12 @@ pub struct EntityLinkRequest {
     pub to_entity_id: Uuid,
     pub relation_kind: EntityRelationKind,
     pub confidence: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_from: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_to: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_item_id: Option<Uuid>,
     pub note: Option<String>,
     pub context: Option<MemoryContextFrame>,
     pub tags: Vec<String>,
@@ -2551,6 +2565,18 @@ pub struct RagHealthStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasHealthStatus {
+    pub edges_total: usize,
+    pub edges_active: usize,
+    pub edges_dormant: usize,
+    pub region_count: usize,
+    pub edge_item_ratio: f64,
+    pub dormant: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
     pub status: String,
     pub items: usize,
@@ -2560,6 +2586,8 @@ pub struct HealthResponse {
     pub pressure: Option<PressureMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rag: Option<RagHealthStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub atlas: Option<AtlasHealthStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2620,6 +2648,8 @@ pub struct HarnessStatus {
     pub benchmark_gate: String,
     #[serde(default)]
     pub schema_version: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub atlas: Option<AtlasHealthStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -3324,6 +3354,9 @@ mod tests {
             relation_kind: EntityRelationKind::DerivedFrom,
             confidence: 0.84,
             created_at: Utc::now(),
+            valid_from: Some(Utc::now()),
+            valid_to: None,
+            source_item_id: Some(Uuid::new_v4()),
             note: Some("rolled up from repeated traces".to_string()),
             context: Some(MemoryContextFrame {
                 at: Some(Utc::now()),
@@ -3343,6 +3376,9 @@ mod tests {
             to_entity_id: link.to_entity_id,
             relation_kind: link.relation_kind,
             confidence: Some(link.confidence),
+            valid_from: link.valid_from,
+            valid_to: link.valid_to,
+            source_item_id: link.source_item_id,
             note: link.note.clone(),
             context: link.context.clone(),
             tags: link.tags.clone(),
@@ -3401,6 +3437,9 @@ mod tests {
             relation_kind: EntityRelationKind::Related,
             confidence: 0.7,
             created_at: Utc::now(),
+            valid_from: Some(Utc::now()),
+            valid_to: None,
+            source_item_id: Some(Uuid::new_v4()),
             note: Some("adjacent memory".to_string()),
             context: root.context.clone(),
             tags: vec!["graph".to_string()],

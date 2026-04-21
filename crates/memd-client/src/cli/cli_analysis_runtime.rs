@@ -86,7 +86,7 @@ pub(crate) async fn run_benchmark_command(
             }
 
             let response = run_public_benchmark_command(public_args).await?;
-            if public_args.write {
+            if public_args.write && !public_args.all {
                 let receipt = write_public_benchmark_run_artifacts(&public_args.out, &response)?;
                 let _ = (
                     &receipt.run_dir,
@@ -100,7 +100,7 @@ pub(crate) async fn run_benchmark_command(
                 }
             }
             // Record results if --record
-            if public_args.record {
+            if public_args.record && !public_args.all {
                 record_benchmark_run(&public_args.out, &response)?;
             }
             // Threshold gate
@@ -249,7 +249,7 @@ async fn run_benchmark_ci_gate(base_args: &PublicBenchmarkArgs) -> anyhow::Resul
 }
 
 /// Record a benchmark run to the history log (JSON-lines format).
-fn record_benchmark_run(
+pub(crate) fn record_benchmark_run(
     output: &std::path::Path,
     report: &PublicBenchmarkRunReport,
 ) -> anyhow::Result<()> {
@@ -258,15 +258,31 @@ fn record_benchmark_run(
     let history_file = history_dir.join("benchmark-runs.jsonl");
 
     // Get git SHA
-    let git_sha = std::process::Command::new("git")
-        .args(["rev-parse", "--short", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    let git_sha = report
+        .manifest
+        .git_sha
+        .clone()
+        .or_else(|| {
+            std::process::Command::new("git")
+                .args(["rev-parse", "--short", "HEAD"])
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        })
         .unwrap_or_else(|| "unknown".to_string());
 
     let (primary_label, primary_value) = public_benchmark_primary_metric(report);
+    let verification_status = report
+        .manifest
+        .runtime_settings
+        .get("dataset_verification")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(if report.manifest.dataset_source_url.starts_with("http") {
+            "recorded-unpinned"
+        } else {
+            "fixture-only"
+        });
 
     let entry = serde_json::json!({
         "benchmark_id": report.manifest.benchmark_id,
@@ -274,6 +290,7 @@ fn record_benchmark_run(
         "timestamp": chrono::Utc::now().to_rfc3339(),
         "primary_metric": primary_label,
         "primary_value": primary_value,
+        "verification_status": verification_status,
         "metrics": report.metrics,
         "item_count": report.item_count,
     });

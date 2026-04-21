@@ -493,6 +493,7 @@ pub(crate) async fn sync_resume_state_record(
             visibility,
             belief_branch: None,
             source_agent: effective_agent.map(ToOwned::to_owned),
+            region: None,
             tags: vec!["resume_state".to_string()],
             stages: vec![MemoryStage::Canonical],
             limit: Some(1),

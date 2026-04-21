@@ -111,6 +111,7 @@ async fn run_once(client: &MemdClient, args: &Args) -> anyhow::Result<WorkerResu
             visibility: None,
             belief_branch: None,
             source_agent: None,
+            region: None,
             tags: Vec::new(),
             stages: vec![MemoryStage::Canonical],
             limit: Some(args.batch_size),

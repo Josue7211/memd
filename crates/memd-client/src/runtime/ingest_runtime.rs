@@ -64,6 +64,7 @@ pub(crate) async fn sync_to_rag(
             visibility: None,
             belief_branch: None,
             source_agent: None,
+            region: None,
             tags: Vec::new(),
             stages: vec![MemoryStage::Canonical],
             limit: args.limit,

@@ -13,10 +13,10 @@ Use this after session clear or when an agent feels lost.
 
 - active version: `v3` (FINAL memory OS — 70% intrinsic floor on all four benches) — v2/M4 deferred mid-flight
 - active milestone: `V3: Make It Compete`
-- active phase: `B3: Intrinsic Retrieval (RAG-Optional)` (in progress) — A3 is closed; B3 Part 2 plumbing landed, the 500-Q intrinsic product-path run now completes, and the remaining blocker is score quality (`0.828 < 0.92`)
-- next step: `B3 retrieval-quality pass` — inspect the 500-Q LongMemEval misses on the memd-backed product path and move `session_recall_any@5` from `0.828` to the B3 target `≥0.92`. See [[phase-b3-activate-retrieval]].
+- active phase: `E3: Consolidation + Sessions` (in progress) — A3/B3/C3/D3/F3 are complete enough to move forward. The repo is now in post-atlas / post-bench-honesty state; next gain is consolidation/session quality, not replay-baseline cleanup.
+- next step: `E3 consolidation pass` — push long-tail LongMemEval and cross-session LoCoMo from the current verified release board while preserving the already-cleared floor and the restored public leaderboard truth.
 - V3 execution order: A3 → B3 → C3 → D3 → E3 → F3 (Continuity Foundation → Intrinsic Retrieval → Reranker → Atlas → Consolidation → Bench Honesty). IDs match execution order after the 2026-04-17 reshuffles.
-- main blocker: `longmemeval-intrinsic-primary-score-still-below-target` — the harness/runtime issue is fixed, but the intrinsic primary metric is still red
+- main blocker: `E3 not started deeply yet` — generator clobber guard is patched and D3/F3 docs are restored; next blocker is real consolidation/session behavior for the final stretch targets
 - v2/M4 status: K2 + L2 done; I2 + M2-evo + N2 paused. Resume after V3 or cherry-pick when needed.
 
 ## If You Need More Detail

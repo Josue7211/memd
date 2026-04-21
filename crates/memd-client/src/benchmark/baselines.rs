@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::Context;
+use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
 /// Load published baselines from the JSON file.
@@ -50,6 +51,27 @@ pub(crate) struct BaselineEntry {
     pub source: String,
     pub date: String,
     pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct MempalaceReplayEntry {
+    pub accuracy: Option<f64>,
+    pub source: String,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub artifact_path: Option<String>,
+}
+
+pub(crate) fn load_mempalace_replays(
+    replays_path: &Path,
+) -> anyhow::Result<BTreeMap<String, MempalaceReplayEntry>> {
+    let raw = std::fs::read_to_string(replays_path).context("read mempalace replays JSON")?;
+    serde_json::from_str(&raw).context("parse mempalace replays JSON")
 }
 
 /// Render a markdown comparison table for a set of benchmark results.
@@ -124,6 +146,13 @@ pub(crate) fn default_baselines_path(output: &Path) -> std::path::PathBuf {
         .join("benchmarks")
         .join("baselines")
         .join("published_baselines.json")
+}
+
+pub(crate) fn default_mempalace_replays_path(output: &Path) -> std::path::PathBuf {
+    output
+        .join("benchmarks")
+        .join("baselines")
+        .join("mempalace_replays.json")
 }
 
 #[cfg(test)]

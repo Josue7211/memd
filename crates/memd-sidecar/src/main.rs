@@ -132,7 +132,9 @@ async fn main() -> anyhow::Result<()> {
     } else {
         Vec::new()
     };
-    let reranker = RerankRuntime::try_new(&cli.embedding_cache_dir).ok().map(Arc::new);
+    let reranker = RerankRuntime::try_new(&cli.embedding_cache_dir)
+        .ok()
+        .map(Arc::new);
     let state = AppState {
         state_file,
         persist: cli.persist,
@@ -292,7 +294,10 @@ async fn rerank(
     let requested = request.top_k.unwrap_or(request.candidates.len());
     let top_k = requested.max(1).min(request.candidates.len().max(1));
     let (items, model) = match state.reranker.as_deref() {
-        Some(runtime) => match runtime.rerank(&request.query, &request.candidates, top_k).await {
+        Some(runtime) => match runtime
+            .rerank(&request.query, &request.candidates, top_k)
+            .await
+        {
             Ok(result) => (result.items, result.model),
             Err(_) => (
                 fallback_rerank_candidates(&request.query, &request.candidates, top_k),
@@ -529,8 +534,8 @@ impl AnthropicRerankRuntime {
         };
         let base_url = std::env::var("ANTHROPIC_BASE_URL")
             .unwrap_or_else(|_| "https://api.anthropic.com".to_string());
-        let model = std::env::var("MEMD_RERANK_MODEL")
-            .unwrap_or_else(|_| "claude-haiku-4-5".to_string());
+        let model =
+            std::env::var("MEMD_RERANK_MODEL").unwrap_or_else(|_| "claude-haiku-4-5".to_string());
         Ok(Some(Self::try_new(base_url, api_key, model)?))
     }
 
@@ -1204,7 +1209,10 @@ mod tests {
             .expect("read rerank body");
         let payload: SidecarRerankResponse =
             serde_json::from_slice(&body).expect("decode rerank response");
-        assert_eq!(payload.items.first().map(|item| item.id.as_str()), Some("strong"));
+        assert_eq!(
+            payload.items.first().map(|item| item.id.as_str()),
+            Some("strong")
+        );
     }
 
     #[tokio::test]
@@ -1295,6 +1303,9 @@ mod tests {
         let payload: SidecarRerankResponse =
             serde_json::from_slice(&body).expect("decode rerank response");
         assert_eq!(payload.model, "claude-haiku-4-5");
-        assert_eq!(payload.items.first().map(|item| item.id.as_str()), Some("strong"));
+        assert_eq!(
+            payload.items.first().map(|item| item.id.as_str()),
+            Some("strong")
+        );
     }
 }

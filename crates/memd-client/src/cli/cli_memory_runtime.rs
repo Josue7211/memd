@@ -320,6 +320,7 @@ mod tests {
                 project: None,
                 namespace: None,
                 workspace: None,
+                region: None,
                 visibility: None,
                 route: None,
                 intent: None,

@@ -2260,6 +2260,7 @@ fn lookup_cli_defaults_stay_on_repo_b_bundle_not_repo_a_global_memory() {
             project: None,
             namespace: None,
             workspace: None,
+            region: None,
             visibility: None,
             route: None,
             intent: None,

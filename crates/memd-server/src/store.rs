@@ -36,9 +36,9 @@ use crate::store_hive::{
 use crate::store_migrations::{
     create_hive_session_identity_indexes, migrate_fts5_index,
     migrate_hive_sessions_identity_columns, migrate_hive_sessions_last_wake_at,
-    migrate_lane_column, migrate_memory_items_embedding_model,
-    migrate_memory_vectors_chunk_idx, migrate_memory_vectors_embedding_model,
-    migrate_redundancy_key, migrate_version_column, migrate_visibility_column,
+    migrate_lane_column, migrate_memory_items_embedding_model, migrate_memory_vectors_chunk_idx,
+    migrate_memory_vectors_embedding_model, migrate_redundancy_key, migrate_version_column,
+    migrate_visibility_column,
 };
 #[path = "store_coordination.rs"]
 mod store_coordination;
@@ -53,6 +53,7 @@ mod store_divergence;
 // than SCHEMA_VERSION_M5 means the file was written by a newer binary;
 // we log a warning but still open so a rollback doesn't brick the deploy.
 pub(crate) const SCHEMA_VERSION_M3: u32 = 3;
+#[allow(dead_code)]
 pub(crate) const SCHEMA_VERSION_M4: u32 = 4;
 pub(crate) const SCHEMA_VERSION_M5: u32 = 5;
 
@@ -1481,6 +1482,9 @@ impl SqliteStore {
             relation_kind: request.relation_kind,
             confidence: request.confidence.unwrap_or(0.8).clamp(0.0, 1.0),
             created_at: now,
+            valid_from: request.valid_from.or(Some(now)),
+            valid_to: request.valid_to,
+            source_item_id: request.source_item_id,
             note: request.note.clone(),
             context: request.context.clone(),
             tags: request.tags.clone(),
@@ -1518,6 +1522,50 @@ impl SqliteStore {
             links.push(link);
         }
         Ok(links)
+    }
+
+    pub fn list_entity_links(&self) -> anyhow::Result<Vec<MemoryEntityLinkRecord>> {
+        let conn = self.connect()?;
+        let mut stmt = conn
+            .prepare("SELECT payload_json FROM memory_entity_links ORDER BY created_at DESC")
+            .context("prepare entity links list query")?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .context("query entity links list")?;
+
+        let mut links = Vec::new();
+        for row in rows {
+            let payload = row.context("read entity link row")?;
+            let link: MemoryEntityLinkRecord =
+                serde_json::from_str(&payload).context("deserialize entity link payload")?;
+            links.push(link);
+        }
+        Ok(links)
+    }
+
+    pub fn close_links_for_source_item(
+        &self,
+        source_item_id: Uuid,
+        closed_at: chrono::DateTime<chrono::Utc>,
+    ) -> anyhow::Result<usize> {
+        let mut updated = 0usize;
+        for mut link in self.list_entity_links()? {
+            if link.source_item_id != Some(source_item_id) || link.valid_to.is_some() {
+                continue;
+            }
+            link.valid_to = Some(closed_at);
+            self.upsert_entity_link(&link)?;
+            updated += 1;
+        }
+        Ok(updated)
+    }
+
+    pub fn atlas_region_count(&self) -> anyhow::Result<usize> {
+        let conn = self.connect()?;
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM atlas_regions", [], |row| row.get(0))
+            .context("count atlas regions")?;
+        Ok(count.max(0) as usize)
     }
 
     pub fn upsert_agent_profile(

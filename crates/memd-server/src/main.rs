@@ -243,6 +243,9 @@ impl AppState {
                     if let Err(e) = self.auto_link_entity(&entity.record, &item) {
                         warn!(error = %format_args!("{e:#}"), "auto_link_entity");
                     }
+                    if let Err(e) = self.create_named_entity_links(&entity.record, &item) {
+                        warn!(error = %format_args!("{e:#}"), "create_named_entity_links");
+                    }
                 }
 
                 // E2: Parse [[wiki links]] in content and create entity links
@@ -395,6 +398,9 @@ impl AppState {
                 relation_kind: memd_schema::EntityRelationKind::Related,
                 confidence: 0.5,
                 created_at: Utc::now(),
+                valid_from: Some(item.updated_at),
+                valid_to: None,
+                source_item_id: Some(item.id),
                 note: Some("auto-linked by co-occurrence".to_string()),
                 context: None,
                 tags: vec!["auto".to_string()],
@@ -442,12 +448,74 @@ impl AppState {
                     relation_kind: memd_schema::EntityRelationKind::Related,
                     confidence: 0.7,
                     created_at: Utc::now(),
+                    valid_from: Some(item.updated_at),
+                    valid_to: None,
+                    source_item_id: Some(item.id),
                     note: Some(format!("wiki link: [[{}]]", wiki_ref)),
                     context: None,
                     tags: vec!["wiki-link".to_string(), "auto".to_string()],
                 };
                 self.store.upsert_entity_link(&link)?;
             }
+        }
+        Ok(())
+    }
+
+    fn create_named_entity_links(
+        &self,
+        source_entity: &MemoryEntityRecord,
+        item: &MemoryItem,
+    ) -> anyhow::Result<()> {
+        let mentions = crate::store_entities::extract_named_entity_aliases(&item.content);
+        if mentions.is_empty() {
+            return Ok(());
+        }
+        let entities = self.store.list_entities()?;
+        let existing = self.store.links_for_entity(&EntityLinksRequest {
+            entity_id: source_entity.id,
+        })?;
+
+        for mention in mentions.into_iter().take(8) {
+            let mention_normalized = mention.to_ascii_lowercase();
+            let target = entities.iter().find(|entity| {
+                entity.id != source_entity.id
+                    && entity
+                        .aliases
+                        .iter()
+                        .any(|alias| alias.to_ascii_lowercase() == mention_normalized)
+            });
+            let Some(target_entity) = target else {
+                continue;
+            };
+            let already_linked = existing.iter().any(|link| {
+                (link.from_entity_id == target_entity.id || link.to_entity_id == target_entity.id)
+                    && link.relation_kind == memd_schema::EntityRelationKind::Related
+            });
+            if already_linked
+                && !existing.iter().any(|link| {
+                    (link.from_entity_id == target_entity.id
+                        || link.to_entity_id == target_entity.id)
+                        && link.tags.iter().any(|tag| tag == "auto")
+                })
+            {
+                continue;
+            }
+
+            let link = MemoryEntityLinkRecord {
+                id: Uuid::new_v4(),
+                from_entity_id: source_entity.id,
+                to_entity_id: target_entity.id,
+                relation_kind: memd_schema::EntityRelationKind::Related,
+                confidence: 0.65,
+                created_at: Utc::now(),
+                valid_from: Some(item.updated_at),
+                valid_to: None,
+                source_item_id: Some(item.id),
+                note: Some(format!("named entity mention: {mention}")),
+                context: None,
+                tags: vec!["ner".to_string(), "auto".to_string()],
+            };
+            self.store.upsert_entity_link(&link)?;
         }
         Ok(())
     }
@@ -697,19 +765,21 @@ fn schedule_reembed_sweep(state: AppState) {
     let target_model = embedder.model_code().to_string();
     let _ = std::thread::Builder::new()
         .name("memd-reembed-sweep".to_string())
-        .spawn(move || loop {
-            let items = match state.store.items_needing_reembed(&target_model, 64) {
-                Ok(items) => items,
-                Err(error) => {
-                    warn!(error = %format_args!("{error:#}"), "items_needing_reembed failed");
+        .spawn(move || {
+            loop {
+                let items = match state.store.items_needing_reembed(&target_model, 64) {
+                    Ok(items) => items,
+                    Err(error) => {
+                        warn!(error = %format_args!("{error:#}"), "items_needing_reembed failed");
+                        break;
+                    }
+                };
+                if items.is_empty() {
                     break;
                 }
-            };
-            if items.is_empty() {
-                break;
-            }
-            for item in items {
-                state.maybe_upsert_vector(&item);
+                for item in items {
+                    state.maybe_upsert_vector(&item);
+                }
             }
         });
 }

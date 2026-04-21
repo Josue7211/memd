@@ -2,7 +2,7 @@
 phase: C3
 name: Reranker + Embeddings
 version: v3
-status: pending
+status: complete
 depends_on: [A3, B3]
 notes: Renamed B3→C3 on 2026-04-17 when new A3 (memd Continuity Foundation) was inserted at V3 entry and old A3 (Intrinsic Retrieval) shifted to B3.
 backlog_items:

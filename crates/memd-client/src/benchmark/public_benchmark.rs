@@ -3,11 +3,23 @@ use anyhow::anyhow;
 use std::hash::{Hash, Hasher};
 
 const CONVOMEM_MESSAGE_EVIDENCE_MATCH_VERSION: i64 = 3;
+const PUBLIC_BENCHMARK_REGRESSION_BUDGET: f64 = 0.02;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct LongMemEvalHypothesisEntry {
     pub question_id: String,
     pub hypothesis: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct PublicBenchmarkHistoryEntry {
+    benchmark_id: String,
+    #[serde(default)]
+    git_sha: Option<String>,
+    timestamp: DateTime<Utc>,
+    primary_value: f64,
+    #[serde(default)]
+    verification_status: Option<String>,
 }
 
 pub(crate) fn supported_public_benchmark_ids() -> &'static [&'static str] {
@@ -162,7 +174,10 @@ fn convomem_message_id(
 fn convomem_normalize_match_key(speaker: &str, text: &str) -> (String, String) {
     (
         speaker.trim().to_ascii_lowercase(),
-        text.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase(),
+        text.split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_ascii_lowercase(),
     )
 }
 
@@ -172,7 +187,11 @@ fn convomem_message_docs(value: &JsonValue) -> Vec<(String, String)> {
         .into_iter()
         .flatten()
         .enumerate()
-        .filter_map(|(conversation_index, conversation)| conversation.as_object().map(|obj| (conversation_index, obj)))
+        .filter_map(|(conversation_index, conversation)| {
+            conversation
+                .as_object()
+                .map(|obj| (conversation_index, obj))
+        })
         .flat_map(|(conversation_index, conversation)| {
             conversation
                 .get("messages")
@@ -205,10 +224,7 @@ fn convomem_message_docs(value: &JsonValue) -> Vec<(String, String)> {
         .collect()
 }
 
-fn convomem_message_evidence_ids(
-    evidences: &JsonValue,
-    conversations: &JsonValue,
-) -> Vec<String> {
+fn convomem_message_evidence_ids(evidences: &JsonValue, conversations: &JsonValue) -> Vec<String> {
     let mut by_message = BTreeMap::<(String, String), Vec<String>>::new();
     let mut message_entries = Vec::new();
     for (message_id, rendered) in convomem_message_docs(conversations) {
@@ -630,7 +646,9 @@ pub(crate) fn public_benchmark_dataset_source(
                 "https://huggingface.co/datasets/Salesforce/ConvoMem/tree/main/core_benchmark/evidence_questions",
             ),
             default_filename: "convomem-evidence-sample.json",
-            expected_checksum: None,
+            expected_checksum: Some(
+                "sha256:dead92689c44ac5a3b66c0c7980166c8fc8d9b16a9cedb2e1c2f7981b6e6f094",
+            ),
             split: "evidence-sample",
             access_mode: "auto-download",
             notes: "Sampled upstream ConvoMem evidence files fetched from the Hugging Face dataset tree.",
@@ -641,7 +659,9 @@ pub(crate) fn public_benchmark_dataset_source(
                 "https://github.com/import-myself/Membench/tree/f66d8d1028d3f68627d00f77a967b93fbb8694b6/MemData/FirstAgent",
             ),
             default_filename: "membench-firstagent.json",
-            expected_checksum: None,
+            expected_checksum: Some(
+                "sha256:54bde8259c10ee1cfe5ff16f35a8a25ca9ad5d79e162e0b3a43034ed64115e5a",
+            ),
             split: "FirstAgent",
             access_mode: "auto-download",
             notes: "Commit-pinned MemBench FirstAgent category set normalized into a cached fixture.",
@@ -1020,24 +1040,24 @@ pub(crate) async fn resolve_public_benchmark_dataset(
                 cached_path.display()
             );
         } else {
-        let checksum = public_benchmark_fixture_checksum(&cached_path)?;
-        let verification_status =
-            validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
-        write_public_benchmark_dataset_cache_metadata(
-            &args.out,
-            &PublicBenchmarkDatasetCacheMetadata {
-                benchmark_id: args.dataset.clone(),
-                source_url: source.source_url.unwrap_or_default().to_string(),
-                local_path: cached_path.display().to_string(),
-                checksum: checksum.clone(),
-                expected_checksum: source.expected_checksum.map(str::to_string),
-                verification_status: verification_status.clone(),
-                fetched_at: Utc::now(),
-                bytes: fs::metadata(&cached_path)
-                    .with_context(|| format!("stat {}", cached_path.display()))?
-                    .len() as usize,
-            },
-        )?;
+            let checksum = public_benchmark_fixture_checksum(&cached_path)?;
+            let verification_status =
+                validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
+            write_public_benchmark_dataset_cache_metadata(
+                &args.out,
+                &PublicBenchmarkDatasetCacheMetadata {
+                    benchmark_id: args.dataset.clone(),
+                    source_url: source.source_url.unwrap_or_default().to_string(),
+                    local_path: cached_path.display().to_string(),
+                    checksum: checksum.clone(),
+                    expected_checksum: source.expected_checksum.map(str::to_string),
+                    verification_status: verification_status.clone(),
+                    fetched_at: Utc::now(),
+                    bytes: fs::metadata(&cached_path)
+                        .with_context(|| format!("stat {}", cached_path.display()))?
+                        .len() as usize,
+                },
+            )?;
             return Ok(ResolvedPublicBenchmarkDataset {
                 path: cached_path,
                 source_url: source.source_url.unwrap_or_default().to_string(),
@@ -1970,6 +1990,7 @@ async fn bench_memd_roundtrip(
         visibility: None,
         belief_branch: None,
         source_agent: Some("public-benchmark".to_string()),
+        region: None,
         tags: Vec::new(),
         stages: Vec::new(),
         limit: Some(corpus.len().max(1)),
@@ -2272,8 +2293,14 @@ pub(crate) fn merge_ranked_longmemeval_results(
             (
                 index,
                 score,
-                primary_score_by_index.get(&index).copied().unwrap_or_default(),
-                lexical_rank_by_index.get(&index).copied().unwrap_or(usize::MAX),
+                primary_score_by_index
+                    .get(&index)
+                    .copied()
+                    .unwrap_or_default(),
+                lexical_rank_by_index
+                    .get(&index)
+                    .copied()
+                    .unwrap_or(usize::MAX),
             )
         })
         .collect::<Vec<_>>();
@@ -3716,7 +3743,13 @@ pub(crate) fn build_public_benchmark_item_results(
             top_k,
             mode,
             reranker_id,
-            |item| convomem_message_docs(item.metadata.get("conversations").unwrap_or(&JsonValue::Null)),
+            |item| {
+                convomem_message_docs(
+                    item.metadata
+                        .get("conversations")
+                        .unwrap_or(&JsonValue::Null),
+                )
+            },
             |item| {
                 public_benchmark_string_vec(item.metadata.get("message_evidence_ids"))
                     .into_iter()
@@ -3801,11 +3834,18 @@ pub(crate) fn build_public_benchmark_manifest(
 }
 
 pub(crate) fn build_public_benchmark_leaderboard_report(
+    repo_root: &Path,
+    output: &Path,
     reports: &[PublicBenchmarkRunReport],
 ) -> PublicBenchmarkLeaderboardReport {
     let has_real_dataset_runs = reports
         .iter()
         .any(|report| report.manifest.dataset_source_url.starts_with("http"));
+    let history = load_public_benchmark_history(output);
+    let published_baselines =
+        load_published_baselines(&default_baselines_path(output)).unwrap_or_default();
+    let mempalace_replays =
+        load_mempalace_replays(&default_mempalace_replays_path(output)).unwrap_or_default();
     PublicBenchmarkLeaderboardReport {
         generated_at: reports
             .iter()
@@ -3813,7 +3853,7 @@ pub(crate) fn build_public_benchmark_leaderboard_report(
             .max()
             .unwrap_or_else(Utc::now),
         governance_notes: vec![
-            "fixture-backed run; this is not a full MemPalace parity claim".to_string(),
+            "claim class, verification, regression budget, commit, rerun command, and MemPalace baseline are first-class row fields".to_string(),
             "run mode is benchmark execution mode; item mode is intrinsic/accelerated when dual is active; claim class stays dataset-native".to_string(),
             format!(
                 "implemented mini adapters: {}",
@@ -3823,8 +3863,12 @@ pub(crate) fn build_public_benchmark_leaderboard_report(
                 "declared parity targets: {}",
                 supported_public_benchmark_ids().join(", ")
             ),
+            format!(
+                "default regression budget: {:.3}",
+                PUBLIC_BENCHMARK_REGRESSION_BUDGET
+            ),
             if has_real_dataset_runs {
-                "real upstream dataset runs use benchmark-shaped metrics with memd's local retrieval backend; do not treat them as full MemPalace parity yet".to_string()
+                "real upstream dataset runs use benchmark-shaped metrics with memd's local retrieval backend; MemPalace status is surfaced per row".to_string()
             } else {
                 "no real upstream datasets have been replayed yet".to_string()
             },
@@ -3839,6 +3883,24 @@ pub(crate) fn build_public_benchmark_leaderboard_report(
                 let score_delta = intrinsic_score
                     .zip(accelerated_score)
                     .map(|(intrinsic, accelerated)| accelerated - intrinsic);
+                let mempalace_baseline = resolve_mempalace_baseline(
+                    &published_baselines,
+                    &mempalace_replays,
+                    &report.manifest.benchmark_id,
+                );
+                let verification_status = public_benchmark_verification_status(report);
+                let prior_verified = latest_verified_history_entry(
+                    &history,
+                    &report.manifest.benchmark_id,
+                    report.manifest.run_timestamp,
+                );
+                let regression_delta = prior_verified
+                    .as_ref()
+                    .map(|entry| primary_metric_value - entry.primary_value);
+                let commit_sha = resolve_public_benchmark_commit_sha(report);
+                let commit_url = commit_sha
+                    .as_deref()
+                    .and_then(|sha| public_benchmark_commit_url(repo_root, sha));
                 let mut item_modes = report
                     .items
                     .iter()
@@ -3865,31 +3927,55 @@ pub(crate) fn build_public_benchmark_leaderboard_report(
                     } else {
                         "fixture-backed".to_string()
                     },
-                    parity_status: if report.manifest.benchmark_version == "upstream" {
-                        "dataset-grade / retrieval-local".to_string()
-                    } else {
-                        "partial / not full parity".to_string()
-                    },
+                    claim_class: public_benchmark_claim_class(report, mempalace_baseline.as_ref()),
+                    parity_status: public_benchmark_parity_status(
+                        report,
+                        mempalace_baseline.as_ref(),
+                    ),
+                    verification_status,
                     primary_metric_label: primary_metric_label.to_string(),
                     accuracy: primary_metric_value,
                     intrinsic_score,
                     accelerated_score,
                     score_delta,
+                    mempalace_score: mempalace_baseline.as_ref().and_then(|entry| entry.accuracy),
+                    mempalace_status: mempalace_baseline
+                        .as_ref()
+                        .map(|entry| entry.status.clone())
+                        .unwrap_or_else(|| "replay-pending".to_string()),
+                    regression_delta,
+                    regression_budget: Some(PUBLIC_BENCHMARK_REGRESSION_BUDGET),
+                    commit_sha,
+                    commit_url,
+                    rerun_command: Some(public_benchmark_rerun_command(report, output)),
+                    artifact_path: Some(public_benchmark_artifact_path(report)),
                     item_count: report.item_count,
                     notes: {
                         let mut notes = vec![
                             format!("dataset={}", report.manifest.dataset_local_path),
                             format!("checksum={}", report.manifest.dataset_checksum),
                             format!("source={}", report.manifest.dataset_source_url),
-                            "no MemPalace cross-baseline has been replayed yet".to_string(),
+                            format!("artifacts={}", public_benchmark_artifact_path(report)),
                         ];
-                        if let Some(verification) = report
-                            .manifest
-                            .runtime_settings
-                            .get("dataset_verification")
-                            .and_then(JsonValue::as_str)
-                        {
-                            notes.push(format!("verification={verification}"));
+                        if let Some(entry) = mempalace_baseline.as_ref() {
+                            notes.push(format!("mempalace_source={}", entry.source));
+                            if let Some(note) = entry.note.as_deref() {
+                                notes.push(format!("mempalace_note={note}"));
+                            }
+                            if let Some(command) = entry.command.as_deref() {
+                                notes.push(format!("mempalace_command={command}"));
+                            }
+                            if let Some(path) = entry.artifact_path.as_deref() {
+                                notes.push(format!("mempalace_artifacts={path}"));
+                            }
+                        } else {
+                            notes.push("mempalace_source=missing".to_string());
+                        }
+                        if let Some(entry) = prior_verified.as_ref() {
+                            if let Some(sha) = entry.git_sha.as_deref() {
+                                notes.push(format!("last_verified_commit={sha}"));
+                            }
+                            notes.push(format!("last_verified_value={:.3}", entry.primary_value));
                         }
                         if report.manifest.benchmark_version == "upstream" {
                             notes.push(
@@ -3903,6 +3989,200 @@ pub(crate) fn build_public_benchmark_leaderboard_report(
             })
             .collect(),
     }
+}
+
+#[derive(Debug, Clone)]
+struct MempalaceBaselineEntry {
+    accuracy: Option<f64>,
+    source: String,
+    note: Option<String>,
+    status: String,
+    command: Option<String>,
+    artifact_path: Option<String>,
+}
+
+fn load_public_benchmark_history(output: &Path) -> Vec<PublicBenchmarkHistoryEntry> {
+    let history_path = output
+        .join("benchmarks")
+        .join("history")
+        .join("benchmark-runs.jsonl");
+    let Ok(raw) = fs::read_to_string(&history_path) else {
+        return Vec::new();
+    };
+    raw.lines()
+        .filter_map(|line| serde_json::from_str::<PublicBenchmarkHistoryEntry>(line).ok())
+        .collect()
+}
+
+fn latest_verified_history_entry(
+    entries: &[PublicBenchmarkHistoryEntry],
+    benchmark_id: &str,
+    current_timestamp: DateTime<Utc>,
+) -> Option<PublicBenchmarkHistoryEntry> {
+    entries
+        .iter()
+        .filter(|entry| entry.benchmark_id == benchmark_id)
+        .filter(|entry| entry.timestamp <= current_timestamp)
+        .filter(|entry| {
+            entry
+                .verification_status
+                .as_deref()
+                .map(|status| status.starts_with("verified"))
+                .unwrap_or(true)
+        })
+        .max_by_key(|entry| entry.timestamp)
+        .cloned()
+}
+
+fn resolve_mempalace_baseline(
+    baselines: &BTreeMap<String, BTreeMap<String, BaselineEntry>>,
+    replays: &BTreeMap<String, MempalaceReplayEntry>,
+    benchmark_id: &str,
+) -> Option<MempalaceBaselineEntry> {
+    if let Some(entry) = replays.get(benchmark_id) {
+        return Some(MempalaceBaselineEntry {
+            accuracy: entry
+                .accuracy
+                .map(|value| if value > 1.0 { value / 100.0 } else { value }),
+            source: entry.source.clone(),
+            note: entry.note.clone(),
+            status: entry
+                .status
+                .clone()
+                .unwrap_or_else(|| "replayed".to_string()),
+            command: entry.command.clone(),
+            artifact_path: entry.artifact_path.clone(),
+        });
+    }
+    baselines
+        .get(benchmark_id)
+        .and_then(|systems| {
+            systems
+                .iter()
+                .find(|(name, _)| name.to_ascii_lowercase().contains("mempal"))
+        })
+        .map(|(_, entry)| MempalaceBaselineEntry {
+            accuracy: entry
+                .accuracy
+                .map(|value| if value > 1.0 { value / 100.0 } else { value }),
+            source: entry.source.clone(),
+            note: entry.note.clone(),
+            status: entry
+                .note
+                .as_deref()
+                .map(public_benchmark_mempalace_status_from_note)
+                .unwrap_or_else(|| "published-baseline".to_string()),
+            command: None,
+            artifact_path: None,
+        })
+}
+
+fn public_benchmark_mempalace_status_from_note(note: &str) -> String {
+    let note = note.to_ascii_lowercase();
+    if note.contains("pending") {
+        "replay-pending".to_string()
+    } else if note.contains("replayed") || note.contains("same-fixture replay complete") {
+        "replayed".to_string()
+    } else {
+        "published-baseline".to_string()
+    }
+}
+
+fn public_benchmark_claim_class(
+    report: &PublicBenchmarkRunReport,
+    mempalace_baseline: Option<&MempalaceBaselineEntry>,
+) -> String {
+    if !report.manifest.dataset_source_url.starts_with("http") {
+        return "fixture-only".to_string();
+    }
+    if mempalace_baseline
+        .map(|entry| entry.status == "replayed")
+        .unwrap_or(false)
+    {
+        return "cross-replayed".to_string();
+    }
+    "dataset-native / memd-local".to_string()
+}
+
+fn public_benchmark_parity_status(
+    report: &PublicBenchmarkRunReport,
+    mempalace_baseline: Option<&MempalaceBaselineEntry>,
+) -> String {
+    if !report.manifest.dataset_source_url.starts_with("http") {
+        return "fixture-backed".to_string();
+    }
+    if mempalace_baseline
+        .map(|entry| entry.status == "replayed")
+        .unwrap_or(false)
+    {
+        "cross-replayed".to_string()
+    } else {
+        "dataset-native / memd-local".to_string()
+    }
+}
+
+fn public_benchmark_verification_status(report: &PublicBenchmarkRunReport) -> String {
+    report
+        .manifest
+        .runtime_settings
+        .get("dataset_verification")
+        .and_then(JsonValue::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            if report.manifest.dataset_source_url.starts_with("http") {
+                "recorded-unpinned".to_string()
+            } else {
+                "fixture-only".to_string()
+            }
+        })
+}
+
+fn resolve_public_benchmark_commit_sha(report: &PublicBenchmarkRunReport) -> Option<String> {
+    report.manifest.git_sha.clone().or_else(|| {
+        std::process::Command::new("git")
+            .args(["rev-parse", "--short", "HEAD"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+fn public_benchmark_commit_url(repo_root: &Path, sha: &str) -> Option<String> {
+    let repo_root = repo_root.to_string_lossy().to_string();
+    let remote = std::process::Command::new("git")
+        .args(["-C", &repo_root, "config", "--get", "remote.origin.url"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())?;
+    let base = if let Some(rest) = remote.strip_prefix("https://github.com/") {
+        format!("https://github.com/{}", rest.trim_end_matches(".git"))
+    } else if let Some(rest) = remote.strip_prefix("git@github.com:") {
+        format!("https://github.com/{}", rest.trim_end_matches(".git"))
+    } else {
+        return None;
+    };
+    Some(format!("{base}/commit/{sha}"))
+}
+
+fn public_benchmark_rerun_command(report: &PublicBenchmarkRunReport, output: &Path) -> String {
+    format!(
+        "cargo run -p memd-client -- benchmark public {} --mode {} --top-k {} --write --record --out {} --dataset-root {}",
+        report.manifest.benchmark_id,
+        report.manifest.mode,
+        report.manifest.top_k,
+        output.display(),
+        report.manifest.dataset_local_path,
+    )
+}
+
+fn public_benchmark_artifact_path(report: &PublicBenchmarkRunReport) -> String {
+    format!(
+        ".memd/benchmarks/public/{}/latest/",
+        report.manifest.benchmark_id
+    )
 }
 
 pub(crate) fn public_benchmark_primary_metric(

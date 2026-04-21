@@ -192,38 +192,33 @@ impl SqliteStore {
         let mut links = Vec::new();
         if depth > 0 {
             let mut found_via_entity = false;
+            let pivot_time = req.pivot_time.unwrap_or_else(Utc::now);
             for seed_id in &seed_ids {
-                let entity_links = self.get_entity_links_for_item(*seed_id)?;
-                for el in entity_links {
-                    let neighbor_id = if el.from_entity_id == *seed_id {
-                        el.to_entity_id
-                    } else {
-                        el.from_entity_id
-                    };
-                    if let Some(neighbor_item) = self.get(neighbor_id)? {
-                        if !passes_pivot_filters(&neighbor_item, req) {
-                            continue;
-                        }
-                        if seen.insert(neighbor_item.id) {
-                            found_via_entity = true;
-                            let entity = self.entity_for_item(neighbor_item.id)?;
-                            let evidence_count = self.event_count_for_item(neighbor_item.id)?;
-                            nodes.push(item_to_atlas_node(
-                                &neighbor_item,
-                                region.as_ref().map(|r| r.id),
-                                1,
-                                entity.as_ref().map(|e| e.id),
-                                evidence_count,
-                            ));
-                        }
-                        links.push(AtlasLink {
-                            from_node_id: *seed_id,
-                            to_node_id: neighbor_item.id,
-                            link_kind: entity_relation_to_atlas_link(el.relation_kind),
-                            weight: el.confidence,
-                            label: el.note.clone(),
-                        });
+                for (neighbor_item, el) in
+                    self.linked_neighbor_items_for_seed_item(*seed_id, None, pivot_time)?
+                {
+                    if !passes_pivot_filters(&neighbor_item, req) {
+                        continue;
                     }
+                    if seen.insert(neighbor_item.id) {
+                        found_via_entity = true;
+                        let entity = self.entity_for_item(neighbor_item.id)?;
+                        let evidence_count = self.event_count_for_item(neighbor_item.id)?;
+                        nodes.push(item_to_atlas_node(
+                            &neighbor_item,
+                            region.as_ref().map(|r| r.id),
+                            1,
+                            entity.as_ref().map(|e| e.id),
+                            evidence_count,
+                        ));
+                    }
+                    links.push(AtlasLink {
+                        from_node_id: *seed_id,
+                        to_node_id: neighbor_item.id,
+                        link_kind: entity_relation_to_atlas_link(el.relation_kind),
+                        weight: el.confidence,
+                        label: el.note.clone(),
+                    });
                 }
             }
 
@@ -472,44 +467,39 @@ impl SqliteStore {
         let mut expanded_nodes = Vec::new();
         let mut links = Vec::new();
         let mut seen: std::collections::HashSet<Uuid> = req.memory_ids.iter().copied().collect();
+        let pivot_time = Utc::now();
 
         if depth > 0 {
             for seed_id in &req.memory_ids {
-                let entity_links = self.get_entity_links_for_item(*seed_id)?;
-                for el in entity_links {
-                    let neighbor_id = if el.from_entity_id == *seed_id {
-                        el.to_entity_id
-                    } else {
-                        el.from_entity_id
-                    };
-                    if let Some(item) = self.get(neighbor_id)? {
-                        if item.status != MemoryStatus::Active {
-                            continue;
-                        }
-                        if let Some(p) = &req.project
-                            && item.project.as_deref() != Some(p)
-                        {
-                            continue;
-                        }
-                        if seen.insert(item.id) {
-                            let entity = self.entity_for_item(item.id)?;
-                            let evidence_count = self.event_count_for_item(item.id)?;
-                            expanded_nodes.push(item_to_atlas_node(
-                                &item,
-                                None,
-                                1,
-                                entity.as_ref().map(|e| e.id),
-                                evidence_count,
-                            ));
-                        }
-                        links.push(AtlasLink {
-                            from_node_id: *seed_id,
-                            to_node_id: item.id,
-                            link_kind: entity_relation_to_atlas_link(el.relation_kind),
-                            weight: el.confidence,
-                            label: el.note.clone(),
-                        });
+                for (item, el) in
+                    self.linked_neighbor_items_for_seed_item(*seed_id, Some(limit), pivot_time)?
+                {
+                    if item.status != MemoryStatus::Active {
+                        continue;
                     }
+                    if let Some(p) = &req.project
+                        && item.project.as_deref() != Some(p)
+                    {
+                        continue;
+                    }
+                    if seen.insert(item.id) {
+                        let entity = self.entity_for_item(item.id)?;
+                        let evidence_count = self.event_count_for_item(item.id)?;
+                        expanded_nodes.push(item_to_atlas_node(
+                            &item,
+                            None,
+                            1,
+                            entity.as_ref().map(|e| e.id),
+                            evidence_count,
+                        ));
+                    }
+                    links.push(AtlasLink {
+                        from_node_id: *seed_id,
+                        to_node_id: item.id,
+                        link_kind: entity_relation_to_atlas_link(el.relation_kind),
+                        weight: el.confidence,
+                        label: el.note.clone(),
+                    });
                     if expanded_nodes.len() >= limit {
                         break;
                     }
@@ -742,22 +732,18 @@ impl SqliteStore {
         if limit == 0 || seeds.is_empty() {
             return Vec::new();
         }
-        let seed_set: std::collections::HashSet<Uuid> = seeds.iter().copied().collect();
         let mut out: Vec<Uuid> = Vec::new();
-        let mut seen: std::collections::HashSet<Uuid> = seed_set.clone();
+        let mut seen: std::collections::HashSet<Uuid> = seeds.iter().copied().collect();
+        let now = Utc::now();
         for seed_id in seeds {
-            let links = match self.get_entity_links_for_item(*seed_id) {
-                Ok(links) => links,
-                Err(_) => continue,
-            };
-            for el in links {
-                let neighbor = if el.from_entity_id == *seed_id {
-                    el.to_entity_id
-                } else {
-                    el.from_entity_id
+            let neighbors =
+                match self.linked_neighbor_items_for_seed_item(*seed_id, Some(limit), now) {
+                    Ok(neighbors) => neighbors,
+                    Err(_) => continue,
                 };
-                if seen.insert(neighbor) {
-                    out.push(neighbor);
+            for (neighbor, _) in neighbors {
+                if seen.insert(neighbor.id) {
+                    out.push(neighbor.id);
                     if out.len() >= limit {
                         return out;
                     }
@@ -771,25 +757,66 @@ impl SqliteStore {
         &self,
         item_id: Uuid,
     ) -> anyhow::Result<Vec<memd_schema::MemoryEntityLinkRecord>> {
-        let conn = self.connect()?;
-        let id_str = item_id.to_string();
-        let mut stmt = conn.prepare(
-            "SELECT payload_json FROM memory_entity_links WHERE from_entity_id = ?1 OR to_entity_id = ?1",
-        )?;
-        let links = stmt
-            .query_map(params![id_str], |row| row.get::<_, String>(0))?
-            .filter_map(|r| {
-                r.inspect_err(|e| warn!(error = %e, "entity link row read"))
-                    .ok()
-            })
-            .filter_map(|json| {
-                serde_json::from_str(&json)
-                    .inspect_err(|e| warn!(error = %e, "entity link json parse"))
-                    .ok()
-            })
-            .collect();
-        Ok(links)
+        let Some(entity) = self.entity_for_item(item_id)? else {
+            return Ok(Vec::new());
+        };
+        self.links_for_entity(&memd_schema::EntityLinksRequest {
+            entity_id: entity.id,
+        })
     }
+
+    fn linked_neighbor_items_for_seed_item(
+        &self,
+        item_id: Uuid,
+        limit: Option<usize>,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> anyhow::Result<Vec<(MemoryItem, memd_schema::MemoryEntityLinkRecord)>> {
+        let Some(entity) = self.entity_for_item(item_id)? else {
+            return Ok(Vec::new());
+        };
+        let links = self.get_entity_links_for_item(item_id)?;
+        let mut out = Vec::new();
+        let mut seen: std::collections::HashSet<Uuid> = std::iter::once(item_id).collect();
+        let cap = limit.unwrap_or(usize::MAX);
+
+        for link in links {
+            if !atlas_link_is_traversable(&link, at) {
+                continue;
+            }
+            let neighbor_entity_id = if link.from_entity_id == entity.id {
+                link.to_entity_id
+            } else {
+                link.from_entity_id
+            };
+            let neighbor_items = self.items_for_entity(neighbor_entity_id)?;
+            for item in neighbor_items {
+                if seen.insert(item.id) {
+                    out.push((item, link.clone()));
+                    if out.len() >= cap {
+                        return Ok(out);
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
+fn atlas_link_is_traversable(
+    link: &memd_schema::MemoryEntityLinkRecord,
+    at: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    if link.valid_from.is_some_and(|valid_from| at < valid_from) {
+        return false;
+    }
+    if link.valid_to.is_some_and(|valid_to| at > valid_to) {
+        return false;
+    }
+    // The legacy "same project, therefore related" links are too weak for
+    // recall expansion and drown the graph in noise. Keep stronger links:
+    // wiki links, corrective/manual links, and any non-generic relation.
+    !(link.relation_kind == memd_schema::EntityRelationKind::Related
+        && link.tags.iter().all(|tag| tag == "auto"))
 }
 
 fn deterministic_region_id(project: Option<&str>, namespace: Option<&str>, key: &str) -> Uuid {
@@ -809,7 +836,7 @@ fn deterministic_region_id(project: Option<&str>, namespace: Option<&str>, key: 
     Uuid::from_bytes(uuid_bytes)
 }
 
-fn region_bucket_key(item: &MemoryItem, lane_filter: Option<&str>) -> Option<String> {
+pub(crate) fn region_bucket_key(item: &MemoryItem, lane_filter: Option<&str>) -> Option<String> {
     // Group by lane_id if present
     if let Some(lane) = item_lane(item) {
         if let Some(filter) = lane_filter

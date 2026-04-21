@@ -332,6 +332,9 @@ pub(crate) async fn run_obsidian_import(
                     to_entity_id: note_entity_id,
                     relation_kind: match_.relation_kind,
                     confidence: Some(0.78),
+                    valid_from: None,
+                    valid_to: None,
+                    source_item_id: None,
                     note: Some(format!("obsidian attachment from {}", asset.relative_path)),
                     context: Some(memd_schema::MemoryContextFrame {
                         at: Some(chrono::Utc::now()),

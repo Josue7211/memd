@@ -27,13 +27,13 @@ last_handoff: b3_part2_tail_ranking_fix_2026-04-20
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
 - current milestone: `V3: Make It Compete` (Tier 5 — FINAL memory OS, above and beyond the 70% competition floor without sidecar) — in progress
-- current phase: `B3: Intrinsic Retrieval (RAG-Optional)` (gate-passed 2026-04-20) — A3 closed on 2026-04-17; B3 Part 2 plumbing + primary-gate harness fix landed 2026-04-18; 2026-04-20 500-Q intrinsic dense-blend rerun lands `session_recall_any@5 = 0.936` — gate 0.92 cleared. Tail ranking on `single-session-preference` (0.600) is the residual.
+- current phase: `E3: Consolidation + Sessions` (in progress) — A3/B3/C3/D3/F3 are complete enough to move forward. Verified release board currently stands at LongMemEval `0.936`, LoCoMo `0.709`, ConvoMem `0.998`, MemBench `0.993`; F3 replay baselines are live at `0.966 / 0.889 / 0.938 / 0.841`. Remaining work is the long-tail / cross-session consolidation push, not leaderboard honesty or atlas activation.
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
-- next step: `C3 Reranker` — B3 tail-ranking fix shipped 2026-04-20 (commit `7165d9b`). 60Q probe decomposition found 0 lexical rescues and 7 pref cases where merge diluted server rank ≤5 into merged rank ≥6; fix skips lexical fusion when primary has ≥5 items. 60Q pref 0.600→0.867@5, non-pref types flat at 1.000. 500Q canonical not rerun (user directive); prior 0.936@5 baseline stands, projected ~0.952@5 post-fix. Remaining 4 pref misses have gold at server rank ≥6 — belongs in server ranker, not client merge.
+- next step: `E3 Consolidation + Sessions` — turn the current release board into a cleaner, more durable post-D3 state: long-tail LongMemEval bump, cross-session LoCoMo lift toward `≥0.80`, and consolidation/session behavior that preserves the already-cleared floor while pushing the stretch targets.
 - M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with D3).
 - V3 targets (floor, intrinsic/sidecar-OFF): LME ≥0.70, LoCoMo ≥0.70, MemBench ≥0.70, ConvoMem ≥0.70 — 70% is where competition sits, that is bare minimum. Stretch (intrinsic): LME ≥0.92, LoCoMo ≥0.75, MemBench ≥0.75, ConvoMem ≥0.75. Accelerated (sidecar ON) is bonus, not gate. See `## V3` block below.
 - M0 benchmark baseline: LongMemEval 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
@@ -211,11 +211,11 @@ Phase IDs are in execution order (A3 first, F3 last). Reshuffled 2026-04-17 to i
 | Phase | Name | Status | Owns (backlog / target) | Phase Doc |
 | --- | --- | --- | --- | --- |
 | A3 | memd Continuity Foundation | `complete` | read-state-lost-across-compaction, hooks-scattered, codebase-organization, process-too-soft, pipeline-lifecycle-broken, working-memory-stale-records, preferences-not-persisted, no-live-memory-contract, file-structure-not-enforced-in-code | [[phase-a3-continuity-foundation]] |
-| B3 | Intrinsic Retrieval (RAG-Optional) | `in_progress` | LME 0.86→**≥0.92**, MemBench 0.35→**≥0.70**, LoCoMo 0.42→**≥0.55** (on path to ≥0.70), ConvoMem→≥0.10 | [[phase-b3-activate-retrieval]] |
-| C3 | Reranker + Embeddings | `pending` | LME ≥0.95, LoCoMo 0.55→**≥0.70** | [[phase-c3-reranker-embeddings]] |
-| D3 | Atlas at Recall | `pending` | LoCoMo ≥0.75, MemBench ≥0.75 | [[phase-d3-atlas-at-recall]] |
-| E3 | Consolidation + Sessions | `pending` | LME long-tail +0.03, LoCoMo ≥0.80 | [[phase-e3-consolidation-sessions]] |
-| F3 | Bench Honesty | `pending` | ConvoMem 0→**≥0.70**, MemPalace cross-baseline live | [[phase-f3-bench-honesty]] |
+| B3 | Intrinsic Retrieval (RAG-Optional) | `complete` | LME 0.86→**≥0.92**, MemBench 0.35→**≥0.70**, LoCoMo 0.42→**≥0.55** (on path to ≥0.70), ConvoMem→≥0.10 | [[phase-b3-activate-retrieval]] |
+| C3 | Reranker + Embeddings | `complete` | LME ≥0.95, LoCoMo 0.55→**≥0.70** | [[phase-c3-reranker-embeddings]] |
+| D3 | Atlas at Recall | `complete` | LoCoMo ≥0.75, MemBench ≥0.75 | [[phase-d3-atlas-at-recall]] |
+| E3 | Consolidation + Sessions | `in_progress` | LME long-tail +0.03, LoCoMo ≥0.80 | [[phase-e3-consolidation-sessions]] |
+| F3 | Bench Honesty | `complete` | ConvoMem 0→**≥0.70**, MemPalace cross-baseline live | [[phase-f3-bench-honesty]] |
 
 **Roadmap-coverage rule** (user directive 2026-04-17 "every backlog issue should be in the roadmap for a fix"): every backlog item MUST have a `phase:` frontmatter field pointing at the V3 or M4 phase that owns its fix. `docs/backlog/INDEX.md` is regenerated from frontmatter by `make backlog-index`; coverage audit runs in A3 and blocks A3 exit if any item is unassigned.
 

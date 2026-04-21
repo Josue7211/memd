@@ -1,8 +1,8 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use memd_rag::{
-    RagBackendHealthResponse, RagClient, RagIngestRequest, RagIngestSource, RagRetrieveMode,
-    RagRetrieveRequest, RagRerankCandidate, RagRerankRequest,
+    RagBackendHealthResponse, RagClient, RagIngestRequest, RagIngestSource, RagRerankCandidate,
+    RagRerankRequest, RagRetrieveMode, RagRetrieveRequest,
 };
 use memd_schema::{MemoryItem, RagHealthStatus, SearchMemoryRequest};
 use tracing::warn;
