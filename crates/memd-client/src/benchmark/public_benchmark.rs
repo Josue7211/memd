@@ -3239,11 +3239,19 @@ pub(crate) async fn build_longmemeval_community_standard_run_report(
                 hypothesis_text,
                 abstention,
             )?;
-            let grader_response =
-                call_openai_yes_no_grader(&base_url, &api_key, grader_model, &prompt).await?;
+            let cache_key = judge_cache_key(
+                "longmemeval-community-standard",
+                &item.question_id,
+                hypothesis_text,
+                grader_model,
+                &prompt,
+            );
+            let grader =
+                call_openai_yes_no_grader_cached(&base_url, &api_key, grader_model, &prompt, &cache_key)
+                    .await?;
             (
-                grader_response.to_ascii_lowercase().contains("yes"),
-                Some(grader_response),
+                grader.content.to_ascii_lowercase().contains("yes"),
+                Some(grader.content),
             )
         } else {
             (false, None)

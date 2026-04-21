@@ -11,7 +11,7 @@ milestone_status: in_progress
 current_phase: H3
 phase_status: pending
 next_milestone: V3
-next_step: G3 Bench Adapter Parity complete 2026-04-21. All 4 benches (LongMemEval, LoCoMo, MemBench, ConvoMem) now dispatch through `PublicBenchmarkBackend` enum (Lexical/Sidecar/Rrf/Memd) via `dispatch_context_retrieval_ranked`. `--retrieval-backend memd` routes every bench through memd-server's `/memory/store` + `/memory/search` path with per-item namespace isolation. 4 parity tests (one per bench) + 1 fallback test pass. `make bench-public-memd` added for parity cadence. Test baseline: 480 passed / 1 pre-existing dataset-checksum fail (unrelated). Next: H3 Canonical Metrics — publish LongMemEval GPT-4o-judged QA accuracy, LoCoMo token F1, MemBench MC accuracy (MQI deferred), ConvoMem accuracy as the primary columns; demote `hit_rate@5` to secondary.
+next_step: H3 Canonical Metrics — replace retrieval-diagnostic metrics with canonical per phase doc
 active_blockers: [non-canonical-metric-gap, phantom-locomo-membench-scores]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
