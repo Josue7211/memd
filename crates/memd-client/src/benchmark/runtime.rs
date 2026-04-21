@@ -1295,12 +1295,15 @@ pub(crate) fn write_public_benchmark_docs(
     fs::write(&path, render_public_benchmark_markdown(&reports))
         .with_context(|| format!("write {}", path.display()))?;
 
-    if let Some(parent) = leaderboard_path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-    let leaderboard = build_public_benchmark_leaderboard_report(repo_root, output, &reports);
-    fs::write(&leaderboard_path, render_public_leaderboard(&leaderboard))
-        .with_context(|| format!("write {}", leaderboard_path.display()))?;
+    // j3-docs: PUBLIC_LEADERBOARD.md is manually curated per I3 (method cards,
+    // retraction log, gaming-audit rule). Auto-overwriting from the bench
+    // runtime would wipe that structure every run. The machine-readable source
+    // of truth lives in `.memd/benchmarks/public/*/latest/` artifacts;
+    // `scripts/regen-leaderboard.sh --regen` owns leaderboard regeneration
+    // once it gains canonical-metric support. Leave the file alone here.
+    let _ = build_public_benchmark_leaderboard_report; // reserved for regen-leaderboard.sh
+    let _ = render_public_leaderboard;
+    let _ = leaderboard_path;
     Ok(())
 }
 

@@ -109,6 +109,51 @@ pub(crate) fn render_membench_message_list_text(value: &JsonValue) -> String {
         .join("\n")
 }
 
+/// Parse MemBench MC `choices` metadata into the labeled-string list expected
+/// by `build_mc_generation_prompt`.
+///
+/// Upstream FirstAgent fixture stores `choices` as a letter-keyed object where
+/// each value is an array of option strings, e.g. `{ "A": ["foo"], "B":
+/// ["foo", "bar"] }`. A prior implementation only handled a flat string array
+/// and therefore skipped every item. Accepted shapes:
+/// - object `{letter → [strings]}` → `"A. foo"`, `"B. foo, bar"`
+/// - object `{letter → "text"}` → `"A. text"`
+/// - array `["A. foo", "B. bar"]` → passthrough
+/// - `null` / missing / other → empty
+pub(crate) fn parse_membench_choices(value: Option<&JsonValue>) -> Vec<String> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    if let Some(obj) = value.as_object() {
+        let mut keys: Vec<&String> = obj.keys().collect();
+        keys.sort();
+        return keys
+            .into_iter()
+            .map(|letter| {
+                let rendered = match obj.get(letter) {
+                    Some(JsonValue::Array(arr)) => arr
+                        .iter()
+                        .filter_map(JsonValue::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    Some(JsonValue::String(s)) => s.clone(),
+                    Some(other) => other.to_string(),
+                    None => String::new(),
+                };
+                format!("{letter}. {rendered}")
+            })
+            .collect();
+    }
+    if let Some(arr) = value.as_array() {
+        return arr
+            .iter()
+            .filter_map(JsonValue::as_str)
+            .map(str::to_string)
+            .collect();
+    }
+    Vec::new()
+}
+
 pub(crate) fn render_membench_turn_text(turn: &JsonValue) -> Option<String> {
     let user = turn
         .get("user_message")
@@ -3887,17 +3932,7 @@ pub(crate) async fn build_membench_full_eval_report(
             .get("ground_truth")
             .and_then(JsonValue::as_str)
             .unwrap_or("");
-        let choices = item
-            .metadata
-            .get("choices")
-            .and_then(JsonValue::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(JsonValue::as_str)
-                    .map(str::to_string)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let choices = parse_membench_choices(item.metadata.get("choices"));
 
         if ground_truth.is_empty() || choices.is_empty() {
             eprintln!(

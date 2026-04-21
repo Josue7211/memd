@@ -2056,13 +2056,13 @@ async fn run_public_longmemeval_command_writes_artifacts_and_docs() {
     assert!(docs.contains("- locomo: implemented"));
     assert!(docs.contains("- convomem: implemented"));
     assert!(docs.contains("- membench: implemented"));
-    let leaderboard = fs::read_to_string(public_benchmark_leaderboard_docs_path(&docs_root))
-        .expect("read public leaderboard docs");
-    assert!(leaderboard.contains("# memd public leaderboard"));
-    assert!(leaderboard.contains("fixture-backed"));
-    assert!(leaderboard.contains("fixture-only"));
+    // J3 contract: `write_public_benchmark_docs` no longer auto-overwrites
+    // `PUBLIC_LEADERBOARD.md`. The leaderboard file is hand-curated per I3;
+    // the runtime only writes the summary report above. See
+    // `docs/handoff/2026-04-21-j3-complete-proxy-gap-deferred-next-k3.md`.
     assert!(
-        leaderboard.contains("declared parity targets: longmemeval, locomo, convomem, membench")
+        !public_benchmark_leaderboard_docs_path(&docs_root).exists(),
+        "leaderboard docs must not be auto-overwritten by the bench runtime"
     );
 
     fs::remove_dir_all(dir).expect("cleanup public benchmark command dir");
@@ -2363,16 +2363,12 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
     assert!(docs.contains("| MemBench |"));
     assert!(docs.contains("## Latest Run Detail: LoCoMo"));
 
-    let leaderboard = fs::read_to_string(public_benchmark_leaderboard_docs_path(&docs_root))
-        .expect("read public leaderboard docs");
-    assert!(leaderboard.contains("| LongMemEval |"));
-    assert!(leaderboard.contains("| LoCoMo |"));
-    assert!(leaderboard.contains("| ConvoMem |"));
-    assert!(leaderboard.contains("| MemBench |"));
-    assert!(leaderboard.contains("| Verification |"));
-    assert!(leaderboard.contains("| MemPalace |"));
-    assert!(leaderboard.contains("| Commit |"));
-    assert!(leaderboard.contains("| Rerun |"));
+    // J3 contract: `write_public_benchmark_docs` skips `PUBLIC_LEADERBOARD.md`.
+    // Hand-curated per I3 (method cards + retraction log + gaming-audit rule).
+    assert!(
+        !public_benchmark_leaderboard_docs_path(&docs_root).exists(),
+        "leaderboard docs must not be auto-overwritten by the bench runtime"
+    );
 
     fs::remove_dir_all(dir).expect("cleanup public benchmark suite docs dir");
 }
@@ -2459,10 +2455,11 @@ async fn benchmark_public_all_write_refreshes_each_latest_artifact() {
         );
     }
 
-    let leaderboard = fs::read_to_string(public_benchmark_leaderboard_docs_path(&docs_root))
-        .expect("read public leaderboard docs");
-    assert!(leaderboard.contains("| ConvoMem |"));
-    assert!(leaderboard.contains("| MemBench |"));
+    // J3 contract: runtime skips leaderboard writes.
+    assert!(
+        !public_benchmark_leaderboard_docs_path(&docs_root).exists(),
+        "leaderboard docs must not be auto-overwritten by the bench runtime"
+    );
 
     fs::remove_dir_all(dir).expect("cleanup benchmark public --all dir");
 }
@@ -2756,6 +2753,42 @@ fn dispatcher_memd_without_base_url_falls_back_to_lexical() {
     let lex_ids: Vec<&str> = lexical.iter().map(|((id, _), _)| id.as_str()).collect();
     let memd_ids: Vec<&str> = memd_no_url.iter().map(|((id, _), _)| id.as_str()).collect();
     assert_eq!(lex_ids, memd_ids);
+}
+
+#[test]
+fn parse_membench_choices_handles_upstream_object_shape() {
+    // j3-prep-3: upstream FirstAgent fixture stores `choices` as a letter-keyed
+    // object `{"A": ["foo"], "B": ["foo", "bar"]}`. Regression guard — the
+    // prior flat-array parser returned empty and the full-eval loop skipped
+    // every item.
+    let upstream = json!({
+        "A": ["Dude, Where's My Country?"],
+        "C": ["The Darwin Awards", "Dude, Where's My Country?"],
+        "B": ["Seinlanguage"]
+    });
+    let rendered = parse_membench_choices(Some(&upstream));
+    assert_eq!(
+        rendered,
+        vec![
+            "A. Dude, Where's My Country?".to_string(),
+            "B. Seinlanguage".to_string(),
+            "C. The Darwin Awards, Dude, Where's My Country?".to_string(),
+        ],
+        "letters must be sorted alphabetically and arrays comma-joined"
+    );
+}
+
+#[test]
+fn parse_membench_choices_handles_flat_array_legacy_shape() {
+    let legacy = json!(["A. Red", "B. Blue"]);
+    let rendered = parse_membench_choices(Some(&legacy));
+    assert_eq!(rendered, vec!["A. Red".to_string(), "B. Blue".to_string()]);
+}
+
+#[test]
+fn parse_membench_choices_empty_for_null_or_missing() {
+    assert!(parse_membench_choices(None).is_empty());
+    assert!(parse_membench_choices(Some(&JsonValue::Null)).is_empty());
 }
 
 #[test]
