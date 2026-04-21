@@ -1,1 +1,1 @@
-2026-04-20-c3-basis-landed-next-d3.md
+2026-04-21-f3-reopened-bench-honesty-expanded.md
