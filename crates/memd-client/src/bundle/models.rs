@@ -450,21 +450,30 @@ pub(crate) struct PublicBenchmarkRunReport {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LongMemEvalRetrievalBackend {
+pub(crate) enum PublicBenchmarkBackend {
     Lexical,
     Sidecar,
     Rrf,
     /// B3 Part-2 prereq: POST corpus → memd-server /memory/store,
     /// retrieve via /memory/search. Exercises the actual product path
-    /// (FTS5 weights, atlas recall, priority dedup) so LongMemEval
-    /// numbers reflect memd intrinsic retrieval, not the client-side
-    /// lexical scorer.
+    /// (FTS5 weights, atlas recall, priority dedup) so bench numbers
+    /// reflect memd intrinsic retrieval, not the client-side lexical
+    /// scorer. G3 generalizes this variant across all public benches.
     Memd,
 }
 
+/// Transitional alias preserved during G3 so existing call sites keep
+/// compiling. Remove once all four bench adapters dispatch via the
+/// generic `PublicBenchmarkBackend` enum.
+pub(crate) type LongMemEvalRetrievalBackend = PublicBenchmarkBackend;
+
 #[derive(Debug, Clone)]
 pub(crate) struct PublicBenchmarkRetrievalConfig {
-    pub longmemeval_backend: LongMemEvalRetrievalBackend,
+    /// G3: same backend applies to every bench (LongMemEval,
+    /// LoCoMo, MemBench, ConvoMem). Field name kept during the
+    /// transition to avoid a giant rename patch; migrated in the
+    /// same step that adds the dispatcher.
+    pub longmemeval_backend: PublicBenchmarkBackend,
     pub sidecar_base_url: Option<String>,
     pub memd_base_url: Option<String>,
 }
