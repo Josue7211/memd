@@ -11,12 +11,12 @@ milestone_status: in_progress
 current_phase: E3
 phase_status: in_progress
 next_milestone: V3
-next_step: E3 Consolidation + Sessions: long-tail LME bump, cross-session LoCoMo to >=0.80, consolidation/session behavior.
+next_step: E3-D2 3/n: store_episodes.rs CRUD (insert_episode, list_episodes, consolidate_episodes) + routes endpoints + worker wiring + integration idempotency test. Then D1 dedup, D5 CLI, D3 decay sweep, D4 dream loop, pass-gate bench reruns.
 active_blockers: [rag-sidecar-disabled-no-fallback, atlas-fully-built-completely-dormant]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
 note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. A3 Continuity Foundation closed 2026-04-17: Part 1 (file-interaction ledger + prime-reads + PreCompact non-blocking + PreEdit prime), Part 2 (hooks consolidation under .memd/hooks, contract v0.2, write-path hook gate, preference replay), Part 3 (file_layout v0.3 guarantee, backlog/phases regroup under v1/v2/v3, LATEST.md symlink fix, MANIFEST.json + `memd hooks doctor` green/red, lifecycle-probe NDJSON log, cross-harness pre-send validator pure function + 4 tests). B3 Part 2 plumbing landed 2026-04-18 (optional RAG fan-out, dense candidate injection, healthz rag state, dual-mode bench rows, turn diagnostics opt-in). 2026-04-20: 500-Q intrinsic product-path rerun on the real dense blend lands `session_recall_any@5 = 0.936` — gate 0.92 passed. The prior 0.828/0.882 numbers were lexical-only fallback because the bench search path left `source_agent=None` and `MemoryVisibility::Private` denied every item; one-line fix at public_benchmark.rs:1770 unblocked dense. V3 phase order: A3 ✓ → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty.
-last_handoff: c3_d3_f3_closed_e3_entry_2026-04-21
+last_handoff: e3_d2_foundation_2_of_n_2026-04-21
 -->
 
 ## Status Snapshot
