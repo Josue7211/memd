@@ -16,6 +16,7 @@ mod routes;
 mod routing;
 mod status;
 mod store;
+mod store_dedup;
 mod store_entities;
 mod store_episodes;
 mod store_hive;
@@ -171,6 +172,37 @@ impl AppState {
             redundancy_key: Some(redundancy_key.clone()),
             ..item
         };
+
+        // E3-D1: storage-time near-duplicate guard. Gated on
+        // MEMD_STORE_DEDUP=1; requires a live embedder in scope.
+        if store_dedup::store_dedup_enabled()
+            && let Some(existing) = self.find_near_duplicate_for_item(&item)?
+        {
+            let mut reinforced = existing.clone();
+            reinforced.updated_at = Utc::now();
+            reinforced.confidence = (reinforced.confidence + 0.05).min(1.0);
+            for tag in &item.tags {
+                if !reinforced.tags.iter().any(|t| t == tag) {
+                    reinforced.tags.push(tag.clone());
+                }
+            }
+            let existing_ck = crate::keys::canonical_key(&reinforced);
+            let existing_rk = reinforced
+                .redundancy_key
+                .clone()
+                .unwrap_or_else(|| crate::keys::redundancy_key(&reinforced));
+            self.store.update(&reinforced, &existing_ck, &existing_rk)?;
+            if let Err(e) = self.record_item_event(
+                &reinforced,
+                "reinforced",
+                "near-duplicate store (cosine) reinforced existing item".to_string(),
+            ) {
+                warn!(error = %format_args!("{e:#}"), "record_item_event (cosine-reinforced)");
+            }
+            self.fanout_rag_ingest(reinforced.clone());
+            return Ok((reinforced, None));
+        }
+
         let duplicate =
             self.store
                 .insert_or_get_duplicate(&item, &canonical_key, &redundancy_key)?;
@@ -261,6 +293,42 @@ impl AppState {
         self.fanout_rag_ingest(item.clone());
         self.maybe_upsert_vector(&item);
         Ok((item, duplicate))
+    }
+
+    fn find_near_duplicate_for_item(
+        &self,
+        item: &MemoryItem,
+    ) -> anyhow::Result<Option<MemoryItem>> {
+        let Some(embedder) = self.embedder.as_deref() else {
+            return Ok(None);
+        };
+        let chunks = embed::chunk_text(
+            &item.content,
+            embed::chunk_max_chars(),
+            embed::chunk_overlap_chars(),
+        );
+        if chunks.is_empty() {
+            return Ok(None);
+        }
+        let vectors = match embedder.embed_batch_normalized(&chunks) {
+            Ok(v) => v,
+            Err(err) => {
+                warn!(error = %format_args!("{err:#}"), "dedup embed failed");
+                return Ok(None);
+            }
+        };
+        let Some(first) = vectors.first() else {
+            return Ok(None);
+        };
+        let hit = self.store.find_near_duplicate(
+            item.project.as_deref(),
+            item.namespace.as_deref(),
+            embedder.model_code(),
+            first,
+            store_dedup::DEFAULT_DEDUP_COSINE_DISTANCE,
+        )?;
+        let Some(hit) = hit else { return Ok(None) };
+        self.store.get(hit.existing_id)
     }
 
     fn maybe_upsert_vector(&self, item: &MemoryItem) {
