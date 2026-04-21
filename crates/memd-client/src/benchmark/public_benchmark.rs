@@ -1221,12 +1221,92 @@ pub(crate) fn validate_public_benchmark_args(args: &PublicBenchmarkArgs) -> anyh
     Ok(())
 }
 
-pub(crate) async fn call_openai_yes_no_grader(
+#[derive(Debug, Clone)]
+pub(crate) struct GraderResult {
+    pub content: String,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub cache_hit: bool,
+}
+
+pub(crate) fn parse_judge_budget_env() -> Option<f64> {
+    std::env::var("MEMD_BENCH_JUDGE_BUDGET_USD")
+        .ok()
+        .and_then(|s| s.trim().parse::<f64>().ok())
+        .filter(|v| v.is_finite() && *v > 0.0)
+}
+
+pub(crate) fn estimate_judge_cost_usd(
+    grader_model: &str,
+    prompt_tokens: u64,
+    completion_tokens: u64,
+) -> f64 {
+    let (input_per_mtok, output_per_mtok) = match grader_model {
+        "gpt-4o-2024-08-06" | "gpt-4o" => (2.50, 10.00),
+        "gpt-4o-mini" | "gpt-4o-mini-2024-07-18" => (0.15, 0.60),
+        "gpt-4-turbo" | "gpt-4-turbo-2024-04-09" => (10.00, 30.00),
+        _ => (2.50, 10.00),
+    };
+    let p = prompt_tokens as f64 * input_per_mtok / 1_000_000.0;
+    let c = completion_tokens as f64 * output_per_mtok / 1_000_000.0;
+    p + c
+}
+
+pub(crate) fn judge_cache_dir() -> std::path::PathBuf {
+    if let Ok(dir) = std::env::var("MEMD_BENCH_JUDGE_CACHE_DIR") {
+        return std::path::PathBuf::from(dir);
+    }
+    std::path::PathBuf::from(".memd/benchmarks/grader-cache")
+}
+
+pub(crate) fn judge_cache_key(
+    namespace: &str,
+    question_id: &str,
+    prediction: &str,
+    grader_model: &str,
+    prompt: &str,
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(namespace.as_bytes());
+    h.update(b"\x00");
+    h.update(question_id.as_bytes());
+    h.update(b"\x00");
+    h.update(prediction.as_bytes());
+    h.update(b"\x00");
+    h.update(grader_model.as_bytes());
+    h.update(b"\x00");
+    h.update(prompt.as_bytes());
+    format!("{:x}", h.finalize())
+}
+
+pub(crate) async fn call_openai_yes_no_grader_cached(
     base_url: &str,
     api_key: &str,
     grader_model: &str,
     prompt: &str,
-) -> anyhow::Result<String> {
+    cache_key: &str,
+) -> anyhow::Result<GraderResult> {
+    let dir = judge_cache_dir();
+    let path = dir.join(format!("{cache_key}.json"));
+    if path.exists() {
+        if let Ok(bytes) = std::fs::read(&path) {
+            if let Ok(cached) = serde_json::from_slice::<JsonValue>(&bytes) {
+                if let (Some(content), Some(p), Some(c)) = (
+                    cached.get("content").and_then(JsonValue::as_str),
+                    cached.get("prompt_tokens").and_then(JsonValue::as_u64),
+                    cached.get("completion_tokens").and_then(JsonValue::as_u64),
+                ) {
+                    return Ok(GraderResult {
+                        content: content.to_string(),
+                        prompt_tokens: p,
+                        completion_tokens: c,
+                        cache_hit: true,
+                    });
+                }
+            }
+        }
+    }
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
         .connect_timeout(std::time::Duration::from_secs(15))
@@ -1260,7 +1340,8 @@ pub(crate) async fn call_openai_yes_no_grader(
         .json::<JsonValue>()
         .await
         .context("parse openai grader response json")?;
-    body.get("choices")
+    let content = body
+        .get("choices")
         .and_then(JsonValue::as_array)
         .and_then(|choices| choices.first())
         .and_then(|choice| choice.get("message"))
@@ -1268,7 +1349,52 @@ pub(crate) async fn call_openai_yes_no_grader(
         .and_then(JsonValue::as_str)
         .map(str::trim)
         .map(str::to_string)
-        .ok_or_else(|| anyhow!("openai grader response missing choices[0].message.content"))
+        .ok_or_else(|| anyhow!("openai grader response missing choices[0].message.content"))?;
+    let prompt_tokens = body
+        .get("usage")
+        .and_then(|u| u.get("prompt_tokens"))
+        .and_then(JsonValue::as_u64)
+        .unwrap_or(0);
+    let completion_tokens = body
+        .get("usage")
+        .and_then(|u| u.get("completion_tokens"))
+        .and_then(JsonValue::as_u64)
+        .unwrap_or(0);
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        eprintln!("[grader-cache] failed to create {}: {err}", dir.display());
+    } else {
+        let payload = json!({
+            "content": content,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "grader_model": grader_model,
+        });
+        if let Err(err) = std::fs::write(
+            &path,
+            serde_json::to_vec_pretty(&payload)
+                .unwrap_or_else(|_| payload.to_string().into_bytes()),
+        ) {
+            eprintln!("[grader-cache] failed to write {}: {err}", path.display());
+        }
+    }
+    Ok(GraderResult {
+        content,
+        prompt_tokens,
+        completion_tokens,
+        cache_hit: false,
+    })
+}
+
+pub(crate) async fn call_openai_yes_no_grader(
+    base_url: &str,
+    api_key: &str,
+    grader_model: &str,
+    prompt: &str,
+) -> anyhow::Result<String> {
+    let key = judge_cache_key("legacy", "", "", grader_model, prompt);
+    let res =
+        call_openai_yes_no_grader_cached(base_url, api_key, grader_model, prompt, &key).await?;
+    Ok(res.content)
 }
 
 pub(crate) fn public_benchmark_target_key(value: &JsonValue) -> Option<String> {
@@ -3262,6 +3388,11 @@ pub(crate) async fn build_longmemeval_full_eval_report(
     let mut per_type_total = BTreeMap::<String, usize>::new();
     let mut total_prompt_tokens: u64 = 0;
     let mut total_completion_tokens: u64 = 0;
+    let mut judge_prompt_tokens: u64 = 0;
+    let mut judge_completion_tokens: u64 = 0;
+    let mut judge_cache_hits: u64 = 0;
+    let mut judge_cache_misses: u64 = 0;
+    let judge_budget_usd = parse_judge_budget_env();
 
     let total_items = dataset.items.len();
     eprintln!("[longmemeval] starting full-eval: {total_items} items, top_k={top_k}, mode={mode}");
@@ -3328,13 +3459,45 @@ pub(crate) async fn build_longmemeval_full_eval_report(
             abstention,
         )?;
         eprintln!("[longmemeval]   calling grader…");
-        let grader_response = call_openai_yes_no_grader(
+        let cache_key = judge_cache_key(
+            "longmemeval-full-eval",
+            &item.question_id,
+            &gen_response.content,
+            &generator_config.grader_model,
+            &eval_prompt,
+        );
+        let grader = call_openai_yes_no_grader_cached(
             &generator_config.base_url,
             &generator_config.api_key,
             &generator_config.grader_model,
             &eval_prompt,
+            &cache_key,
         )
         .await?;
+        let grader_response = grader.content.clone();
+        total_prompt_tokens += grader.prompt_tokens;
+        total_completion_tokens += grader.completion_tokens;
+        judge_prompt_tokens += grader.prompt_tokens;
+        judge_completion_tokens += grader.completion_tokens;
+        if grader.cache_hit {
+            judge_cache_hits += 1;
+        } else {
+            judge_cache_misses += 1;
+        }
+        if let Some(budget) = judge_budget_usd {
+            let spent = estimate_judge_cost_usd(
+                &generator_config.grader_model,
+                judge_prompt_tokens,
+                judge_completion_tokens,
+            );
+            if spent > budget {
+                anyhow::bail!(
+                    "judge budget exceeded: spent ${:.4} > cap ${:.4} (MEMD_BENCH_JUDGE_BUDGET_USD)",
+                    spent,
+                    budget
+                );
+            }
+        }
         let label = grader_response.to_ascii_lowercase().contains("yes");
         eprintln!(
             "[longmemeval]   grader={grader_response} → correct={label} ({:.0}ms)",
@@ -3416,6 +3579,27 @@ pub(crate) async fn build_longmemeval_full_eval_report(
         started.elapsed().as_millis() as f64,
     );
 
+    let judge_cost_usd = estimate_judge_cost_usd(
+        &generator_config.grader_model,
+        judge_prompt_tokens,
+        judge_completion_tokens,
+    );
+    let judge_total_calls = judge_cache_hits + judge_cache_misses;
+    let judge_cache_hit_rate = if judge_total_calls == 0 {
+        0.0
+    } else {
+        judge_cache_hits as f64 / judge_total_calls as f64
+    };
+    metrics.insert("judge_prompt_tokens".to_string(), judge_prompt_tokens as f64);
+    metrics.insert(
+        "judge_completion_tokens".to_string(),
+        judge_completion_tokens as f64,
+    );
+    metrics.insert("judge_cost_usd".to_string(), judge_cost_usd);
+    metrics.insert("judge_cache_hit_rate".to_string(), judge_cache_hit_rate);
+    metrics.insert("judge_cache_hits".to_string(), judge_cache_hits as f64);
+    metrics.insert("judge_cache_misses".to_string(), judge_cache_misses as f64);
+
     Ok(PublicBenchmarkRunReport {
         manifest: PublicBenchmarkManifest {
             benchmark_id: String::new(),
@@ -3433,14 +3617,24 @@ pub(crate) async fn build_longmemeval_full_eval_report(
             reranker_id: Some(generator_config.grader_model.clone()),
             reranker_provider: Some("openai-eval".to_string()),
             limit: Some(item_count),
-            runtime_settings: json!({"full_eval": true, "generator_model": generator_config.model}),
+            runtime_settings: json!({
+                "full_eval": true,
+                "generator_model": generator_config.model,
+                "grader_model": generator_config.grader_model,
+                "judge_prompt_tokens": judge_prompt_tokens,
+                "judge_completion_tokens": judge_completion_tokens,
+                "judge_cache_hits": judge_cache_hits,
+                "judge_cache_misses": judge_cache_misses,
+                "judge_cache_hit_rate": judge_cache_hit_rate,
+                "judge_budget_usd": judge_budget_usd,
+            }),
             hardware_summary: String::new(),
             duration_ms: total_latency_ms,
             token_usage: Some(json!({
                 "prompt_tokens": total_prompt_tokens,
                 "completion_tokens": total_completion_tokens,
             })),
-            cost_estimate_usd: None,
+            cost_estimate_usd: Some(judge_cost_usd),
         },
         metrics,
         item_count,

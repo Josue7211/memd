@@ -2646,3 +2646,89 @@ fn dispatcher_memd_without_base_url_falls_back_to_lexical() {
     let memd_ids: Vec<&str> = memd_no_url.iter().map(|((id, _), _)| id.as_str()).collect();
     assert_eq!(lex_ids, memd_ids);
 }
+
+#[test]
+fn judge_cache_key_is_deterministic_and_sensitive() {
+    let a = judge_cache_key("ns", "q1", "pred1", "gpt-4o-2024-08-06", "prompt");
+    let b = judge_cache_key("ns", "q1", "pred1", "gpt-4o-2024-08-06", "prompt");
+    assert_eq!(a, b);
+    let c = judge_cache_key("ns", "q1", "pred2", "gpt-4o-2024-08-06", "prompt");
+    assert_ne!(a, c, "prediction change must change key");
+    let d = judge_cache_key("ns", "q2", "pred1", "gpt-4o-2024-08-06", "prompt");
+    assert_ne!(a, d, "question id change must change key");
+    let e = judge_cache_key("ns", "q1", "pred1", "gpt-4o-mini", "prompt");
+    assert_ne!(a, e, "grader model change must change key");
+    let f = judge_cache_key("ns", "q1", "pred1", "gpt-4o-2024-08-06", "other");
+    assert_ne!(a, f, "prompt change must change key");
+}
+
+#[test]
+fn estimate_judge_cost_usd_matches_openai_pricing() {
+    let cost = estimate_judge_cost_usd("gpt-4o-2024-08-06", 1_000_000, 0);
+    assert!((cost - 2.50).abs() < 1e-6, "1M input tokens = $2.50, got {cost}");
+    let cost = estimate_judge_cost_usd("gpt-4o-2024-08-06", 0, 1_000_000);
+    assert!((cost - 10.00).abs() < 1e-6, "1M output tokens = $10.00, got {cost}");
+    let cost = estimate_judge_cost_usd("gpt-4o-mini", 1_000_000, 0);
+    assert!((cost - 0.15).abs() < 1e-6, "mini 1M input = $0.15, got {cost}");
+    let cost = estimate_judge_cost_usd("gpt-4o-2024-08-06", 0, 0);
+    assert_eq!(cost, 0.0);
+}
+
+#[tokio::test]
+async fn judge_cache_hit_serves_without_network_call() {
+    let dir = std::env::temp_dir().join(format!("memd-judge-cache-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&dir).expect("create judge cache dir");
+    let key = judge_cache_key("test-ns", "q-x", "pred-x", "gpt-4o-2024-08-06", "prompt-x");
+    let cache_path = dir.join(format!("{key}.json"));
+    let payload = serde_json::json!({
+        "content": "yes",
+        "prompt_tokens": 42,
+        "completion_tokens": 3,
+        "grader_model": "gpt-4o-2024-08-06",
+    });
+    fs::write(&cache_path, serde_json::to_vec_pretty(&payload).unwrap())
+        .expect("write cache file");
+    unsafe { std::env::set_var("MEMD_BENCH_JUDGE_CACHE_DIR", &dir); }
+    let result = call_openai_yes_no_grader_cached(
+        "http://127.0.0.1:1",
+        "fake-key",
+        "gpt-4o-2024-08-06",
+        "prompt-x",
+        &key,
+    )
+    .await
+    .expect("cache hit should skip network");
+    unsafe { std::env::remove_var("MEMD_BENCH_JUDGE_CACHE_DIR"); }
+    assert!(result.cache_hit);
+    assert_eq!(result.content, "yes");
+    assert_eq!(result.prompt_tokens, 42);
+    assert_eq!(result.completion_tokens, 3);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn judge_budget_env_parses_positive_finite_only() {
+    unsafe {
+        std::env::remove_var("MEMD_BENCH_JUDGE_BUDGET_USD");
+    }
+    assert_eq!(parse_judge_budget_env(), None);
+    unsafe {
+        std::env::set_var("MEMD_BENCH_JUDGE_BUDGET_USD", "50");
+    }
+    assert_eq!(parse_judge_budget_env(), Some(50.0));
+    unsafe {
+        std::env::set_var("MEMD_BENCH_JUDGE_BUDGET_USD", "0");
+    }
+    assert_eq!(parse_judge_budget_env(), None, "zero rejected");
+    unsafe {
+        std::env::set_var("MEMD_BENCH_JUDGE_BUDGET_USD", "-5");
+    }
+    assert_eq!(parse_judge_budget_env(), None, "negative rejected");
+    unsafe {
+        std::env::set_var("MEMD_BENCH_JUDGE_BUDGET_USD", "nan");
+    }
+    assert_eq!(parse_judge_budget_env(), None, "nan rejected");
+    unsafe {
+        std::env::remove_var("MEMD_BENCH_JUDGE_BUDGET_USD");
+    }
+}
