@@ -1,5 +1,6 @@
 mod atlas;
 mod backup;
+mod decay_calibration;
 mod embed;
 mod episodes;
 mod errors;
