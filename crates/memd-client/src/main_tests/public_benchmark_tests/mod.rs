@@ -2531,3 +2531,118 @@ fn primary_metric_returns_full_eval_labels_when_runtime_settings_has_full_eval()
         "longmemeval retrieval label: {label}"
     );
 }
+
+/// G3 step 6 parity tests. One per bench_id. Each proves
+/// `dispatch_context_retrieval_ranked` actually routes by backend —
+/// i.e. `Backend::Rrf` and `Backend::Lexical` do not return identical
+/// rankings on a fixture where the underlying scorers disagree.
+///
+/// We use `Rrf` (not `Memd`) as the non-lexical witness because Rrf is
+/// in-process FTS5 (no server, no network) and deterministic. The Memd
+/// backend is exercised separately through the fallback-contract test
+/// below; its "returns non-identical ordering vs lexical" assertion
+/// lives in the live bench runs (J3) since a real memd-server is needed
+/// to prove it end-to-end.
+fn parity_fixture_docs() -> Vec<(String, String)> {
+    // Fixture exploits the `_abs` suffix penalty in the LME-tuned lexical
+    // scorer (rank_public_benchmark_corpus: ids containing "_abs" get
+    // -0.05). The generic token-intersection scorer
+    // (rank_public_benchmark_lexical_docs) has no such penalty, so two
+    // docs with identical content but different id suffixes tie → stable
+    // sort picks input order. The Rrf backend uses the LME-tuned scorer
+    // + FTS5 RRF merge, which breaks the tie the other way. That
+    // produces a guaranteed ordering divergence the test can lock.
+    vec![
+        ("doc_abs".to_string(), "cat sat on the mat".to_string()),
+        ("doc_plain".to_string(), "cat sat on the mat".to_string()),
+        ("doc_cat_only".to_string(), "cat".to_string()),
+        (
+            "doc_unrelated".to_string(),
+            "the quick brown fox jumps over the lazy dog".to_string(),
+        ),
+    ]
+}
+
+fn parity_cfg(backend: PublicBenchmarkBackend) -> PublicBenchmarkRetrievalConfig {
+    PublicBenchmarkRetrievalConfig {
+        longmemeval_backend: backend,
+        sidecar_base_url: None,
+        memd_base_url: None,
+    }
+}
+
+fn parity_ranked_ids(
+    bench_id: &str,
+    backend: PublicBenchmarkBackend,
+    query: &str,
+) -> Vec<String> {
+    let docs = parity_fixture_docs();
+    let cfg = parity_cfg(backend);
+    dispatch_context_retrieval_ranked(bench_id, "item-1", query, &docs, "raw", &cfg)
+        .into_iter()
+        .map(|((id, _), _)| id)
+        .collect()
+}
+
+fn assert_dispatcher_routes(bench_id: &str) {
+    let query = "the cat sat on what mat";
+    let lexical = parity_ranked_ids(bench_id, PublicBenchmarkBackend::Lexical, query);
+    let rrf = parity_ranked_ids(bench_id, PublicBenchmarkBackend::Rrf, query);
+    assert_eq!(
+        lexical.len(),
+        rrf.len(),
+        "{bench_id}: lexical and rrf must both return every doc"
+    );
+    assert_ne!(
+        lexical, rrf,
+        "{bench_id}: dispatcher is not routing — lexical and rrf rank identically"
+    );
+}
+
+#[test]
+fn dispatcher_parity_longmemeval_rrf_vs_lexical() {
+    assert_dispatcher_routes("longmemeval");
+}
+
+#[test]
+fn dispatcher_parity_locomo_rrf_vs_lexical() {
+    assert_dispatcher_routes("locomo");
+}
+
+#[test]
+fn dispatcher_parity_membench_rrf_vs_lexical() {
+    assert_dispatcher_routes("membench");
+}
+
+#[test]
+fn dispatcher_parity_convomem_rrf_vs_lexical() {
+    assert_dispatcher_routes("convomem");
+}
+
+#[test]
+fn dispatcher_memd_without_base_url_falls_back_to_lexical() {
+    // G3 contract: Backend::Memd with no memd_base_url degrades to
+    // lexical rather than panicking. Guarantees --backend memd stays
+    // safe on a CLI invocation that forgot to point at a server.
+    let docs = parity_fixture_docs();
+    let query = "the cat sat on what mat";
+    let lexical = dispatch_context_retrieval_ranked(
+        "locomo",
+        "item-1",
+        query,
+        &docs,
+        "raw",
+        &parity_cfg(PublicBenchmarkBackend::Lexical),
+    );
+    let memd_no_url = dispatch_context_retrieval_ranked(
+        "locomo",
+        "item-1",
+        query,
+        &docs,
+        "raw",
+        &parity_cfg(PublicBenchmarkBackend::Memd),
+    );
+    let lex_ids: Vec<&str> = lexical.iter().map(|((id, _), _)| id.as_str()).collect();
+    let memd_ids: Vec<&str> = memd_no_url.iter().map(|((id, _), _)| id.as_str()).collect();
+    assert_eq!(lex_ids, memd_ids);
+}
