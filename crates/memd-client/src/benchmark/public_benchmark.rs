@@ -1229,11 +1229,19 @@ pub(crate) struct GraderResult {
     pub cache_hit: bool,
 }
 
+pub(crate) fn parse_judge_budget_str(value: &str) -> Option<f64> {
+    value
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|v| v.is_finite() && *v > 0.0)
+}
+
 pub(crate) fn parse_judge_budget_env() -> Option<f64> {
     std::env::var("MEMD_BENCH_JUDGE_BUDGET_USD")
         .ok()
-        .and_then(|s| s.trim().parse::<f64>().ok())
-        .filter(|v| v.is_finite() && *v > 0.0)
+        .as_deref()
+        .and_then(parse_judge_budget_str)
 }
 
 pub(crate) fn estimate_judge_cost_usd(
@@ -1287,7 +1295,25 @@ pub(crate) async fn call_openai_yes_no_grader_cached(
     prompt: &str,
     cache_key: &str,
 ) -> anyhow::Result<GraderResult> {
-    let dir = judge_cache_dir();
+    call_openai_yes_no_grader_cached_in(
+        base_url,
+        api_key,
+        grader_model,
+        prompt,
+        cache_key,
+        &judge_cache_dir(),
+    )
+    .await
+}
+
+pub(crate) async fn call_openai_yes_no_grader_cached_in(
+    base_url: &str,
+    api_key: &str,
+    grader_model: &str,
+    prompt: &str,
+    cache_key: &str,
+    dir: &std::path::Path,
+) -> anyhow::Result<GraderResult> {
     let path = dir.join(format!("{cache_key}.json"));
     if path.exists() {
         if let Ok(bytes) = std::fs::read(&path) {
@@ -1360,7 +1386,7 @@ pub(crate) async fn call_openai_yes_no_grader_cached(
         .and_then(|u| u.get("completion_tokens"))
         .and_then(JsonValue::as_u64)
         .unwrap_or(0);
-    if let Err(err) = std::fs::create_dir_all(&dir) {
+    if let Err(err) = std::fs::create_dir_all(dir) {
         eprintln!("[grader-cache] failed to create {}: {err}", dir.display());
     } else {
         let payload = json!({

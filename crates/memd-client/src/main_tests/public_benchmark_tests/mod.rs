@@ -2674,6 +2674,17 @@ fn estimate_judge_cost_usd_matches_openai_pricing() {
     assert_eq!(cost, 0.0);
 }
 
+#[test]
+fn judge_budget_parser_rejects_zero_negative_nan() {
+    assert_eq!(parse_judge_budget_str("50"), Some(50.0));
+    assert_eq!(parse_judge_budget_str(" 50 "), Some(50.0));
+    assert_eq!(parse_judge_budget_str("0"), None, "zero rejected");
+    assert_eq!(parse_judge_budget_str("-5"), None, "negative rejected");
+    assert_eq!(parse_judge_budget_str("nan"), None, "nan rejected");
+    assert_eq!(parse_judge_budget_str("not-a-number"), None);
+    assert_eq!(parse_judge_budget_str(""), None);
+}
+
 #[tokio::test]
 async fn judge_cache_hit_serves_without_network_call() {
     let dir = std::env::temp_dir().join(format!("memd-judge-cache-{}", uuid::Uuid::new_v4()));
@@ -2688,47 +2699,19 @@ async fn judge_cache_hit_serves_without_network_call() {
     });
     fs::write(&cache_path, serde_json::to_vec_pretty(&payload).unwrap())
         .expect("write cache file");
-    unsafe { std::env::set_var("MEMD_BENCH_JUDGE_CACHE_DIR", &dir); }
-    let result = call_openai_yes_no_grader_cached(
+    let result = call_openai_yes_no_grader_cached_in(
         "http://127.0.0.1:1",
         "fake-key",
         "gpt-4o-2024-08-06",
         "prompt-x",
         &key,
+        &dir,
     )
     .await
     .expect("cache hit should skip network");
-    unsafe { std::env::remove_var("MEMD_BENCH_JUDGE_CACHE_DIR"); }
     assert!(result.cache_hit);
     assert_eq!(result.content, "yes");
     assert_eq!(result.prompt_tokens, 42);
     assert_eq!(result.completion_tokens, 3);
     let _ = fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn judge_budget_env_parses_positive_finite_only() {
-    unsafe {
-        std::env::remove_var("MEMD_BENCH_JUDGE_BUDGET_USD");
-    }
-    assert_eq!(parse_judge_budget_env(), None);
-    unsafe {
-        std::env::set_var("MEMD_BENCH_JUDGE_BUDGET_USD", "50");
-    }
-    assert_eq!(parse_judge_budget_env(), Some(50.0));
-    unsafe {
-        std::env::set_var("MEMD_BENCH_JUDGE_BUDGET_USD", "0");
-    }
-    assert_eq!(parse_judge_budget_env(), None, "zero rejected");
-    unsafe {
-        std::env::set_var("MEMD_BENCH_JUDGE_BUDGET_USD", "-5");
-    }
-    assert_eq!(parse_judge_budget_env(), None, "negative rejected");
-    unsafe {
-        std::env::set_var("MEMD_BENCH_JUDGE_BUDGET_USD", "nan");
-    }
-    assert_eq!(parse_judge_budget_env(), None, "nan rejected");
-    unsafe {
-        std::env::remove_var("MEMD_BENCH_JUDGE_BUDGET_USD");
-    }
 }
