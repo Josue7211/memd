@@ -9,14 +9,15 @@ version_status: in_progress
 current_milestone: V3
 milestone_status: in_progress
 current_phase: E3
-phase_status: in_progress
+phase_status: code_complete_bench_deferred
 next_milestone: V3
-next_step: E3-D2 3/n: store_episodes.rs CRUD (insert_episode, list_episodes, consolidate_episodes) + routes endpoints + worker wiring + integration idempotency test. Then D1 dedup, D5 CLI, D3 decay sweep, D4 dream loop, pass-gate bench reruns.
+next_step: E3 code-complete (D1+D2+D3+D4+D5 shipped via atomic commits d777a78, 6e4e113, 3364ff6, bb2be14). Bench reruns deferred per new every-2-phases cadence — gate run scheduled after F3-paired phase lands. Next phase: resume F3 tail work or next scheduled V3 phase.
 active_blockers: [rag-sidecar-disabled-no-fallback, atlas-fully-built-completely-dormant]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
 note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. A3 Continuity Foundation closed 2026-04-17: Part 1 (file-interaction ledger + prime-reads + PreCompact non-blocking + PreEdit prime), Part 2 (hooks consolidation under .memd/hooks, contract v0.2, write-path hook gate, preference replay), Part 3 (file_layout v0.3 guarantee, backlog/phases regroup under v1/v2/v3, LATEST.md symlink fix, MANIFEST.json + `memd hooks doctor` green/red, lifecycle-probe NDJSON log, cross-harness pre-send validator pure function + 4 tests). B3 Part 2 plumbing landed 2026-04-18 (optional RAG fan-out, dense candidate injection, healthz rag state, dual-mode bench rows, turn diagnostics opt-in). 2026-04-20: 500-Q intrinsic product-path rerun on the real dense blend lands `session_recall_any@5 = 0.936` — gate 0.92 passed. The prior 0.828/0.882 numbers were lexical-only fallback because the bench search path left `source_agent=None` and `MemoryVisibility::Private` denied every item; one-line fix at public_benchmark.rs:1770 unblocked dense. V3 phase order: A3 ✓ → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty.
-last_handoff: e3_d2_foundation_2_of_n_2026-04-21
+last_handoff: e3_code_complete_2026-04-21
+bench_cadence: every_two_phases  # test every TWO phases per user directive 2026-04-21
 -->
 
 ## Status Snapshot
@@ -27,7 +28,7 @@ last_handoff: e3_d2_foundation_2_of_n_2026-04-21
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
 - current milestone: `V3: Make It Compete` (Tier 5 — FINAL memory OS, above and beyond the 70% competition floor without sidecar) — in progress
-- current phase: `E3: Consolidation + Sessions` (in progress) — A3/B3/C3/D3/F3 are complete enough to move forward. Verified release board currently stands at LongMemEval `0.936`, LoCoMo `0.709`, ConvoMem `0.998`, MemBench `0.993`; F3 replay baselines are live at `0.966 / 0.889 / 0.938 / 0.841`. Remaining work is the long-tail / cross-session consolidation push, not leaderboard honesty or atlas activation.
+- current phase: `E3: Consolidation + Sessions` (code-complete 2026-04-21, bench run deferred per every-2-phases cadence) — A3/B3/C3/D3/F3 are complete enough to move forward. Verified release board currently stands at LongMemEval `0.936`, LoCoMo `0.709`, ConvoMem `0.998`, MemBench `0.993`; F3 replay baselines are live at `0.966 / 0.889 / 0.938 / 0.841`. Remaining work is the long-tail / cross-session consolidation push, not leaderboard honesty or atlas activation.
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
