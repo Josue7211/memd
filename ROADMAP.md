@@ -11,6 +11,7 @@ milestone_status: in_progress
 current_phase: J3
 phase_status: complete_proxy_gap_deferred
 next_milestone: V3
+post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 (see V4–V10 block below; 10-STAR composite target ≥8.5 by V10; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
 next_step: K3 — provision gpt-4o on openclaw LiteLLM proxy + rerun J3 canonical primaries for LongMemEval/LoCoMo/ConvoMem. J3 closed 2026-04-21 with proxy-gap-deferred verdict: MemBench canonical `mc_accuracy=0.417` (below 0.70 floor, recorded-unpinned); LongMemEval/LoCoMo/ConvoMem canonical primaries unreachable until gpt-4o routes (judge + free-form generator). Diagnostic retrieval numbers captured — LongMemEval 0.900, LoCoMo 0.360, ConvoMem 0.950.
 active_blockers: ["docs/backlog/v3/2026-04-21-gpt4o-proxy-route-for-judge.md"]
 v1_status: frozen_architecture_complete
@@ -239,6 +240,122 @@ Phase IDs are in execution order (A3 first, J3 last). Reshuffled 2026-04-17 to i
 - Product: on 5 dogfood surfaces (wake quality, correction UX, atlas navigation, episode readability, leaderboard verifiability) memd reads as best-in-class — not parity, better — against mempalace/supermemory/letta/mem0 to a stranger who didn't build it. Stranger test is run with sidecar OFF.
 
 **Demo**: "Same query, before and after — show the score AND hand the user the memory surface. They should want to use it."
+
+### V4–V10: The Path to 10-STAR
+
+V3 shipped retrieval honesty. Public benches expose the generator reasoning cap, not a memd cap — retrieval diagnostics sit ≥0.95 on every bench. Six of seven 10-STAR axes (session continuity, correction retention, procedural reuse, cross-harness, token efficiency, trust+provenance) haven't moved since 2026-04-14 because V3 didn't touch them. Current composite: **2.15/10**.
+
+Path forward is substrate-native: V4 fixes memd in real sessions, V5 builds benches that measure what memd is actually for, V6 ports typed ingest to public benches, V7–V10 ship correction E2E, operator surfaces, multi-user, self-improvement. Every milestone owns a 10-STAR axis lift; total lift targets **≥8.5/10** by V10.
+
+Status: all phase docs below are `planned`. Milestone audit docs stubbed at `docs/verification/milestones/MILESTONE-v{N}.md`. V4 phase docs are drafted; V5–V10 phase docs drafted at milestone-open to avoid stale content.
+
+#### V4: Live Loop Repair — 10-STAR Axis Lift: Session Continuity + Correction + Procedural (1→4)
+
+Goal: memd used-as-designed in a real claude-code/codex session does not lose state, does not drop corrections, does not bloat context. Fixes 10-STAR gaps 1–9. Composite target: 2.15 → **4.0**.
+
+| Phase | Name | Status | 10-STAR axes | Phase Doc |
+| --- | --- | --- | --- | --- |
+| A4 | Read-State Across Compaction | `planned` | session continuity | [[docs/phases/v4/phase-a4-read-state-compaction.md]] |
+| B4 | Hook Contract Enforcement | `planned` | session continuity | [[docs/phases/v4/phase-b4-hook-contract.md]] |
+| C4 | Correction Capture E2E | `planned` | correction retention | [[docs/phases/v4/phase-c4-correction-capture-e2e.md]] |
+| D4 | Working-Context Compiler | `planned` | token efficiency | [[docs/phases/v4/phase-d4-working-context-compiler.md]] |
+| E4 | Progressive-Depth Recall | `planned` | token efficiency, cross-harness | [[docs/phases/v4/phase-e4-progressive-depth-recall.md]] |
+| F4 | Preference Replay + Drift | `planned` | correction retention | [[docs/phases/v4/phase-f4-preference-drift.md]] |
+| G4 | Session-Continuity Proof Harness | `planned` | session continuity gate | [[docs/phases/v4/phase-g4-continuity-proof.md]] |
+
+V4 completion gate: on a 3-session claude-code dogfood, state survives compaction, a correction in session 1 is honored in session 3, wake context is <2k tokens with zero continuity loss. Evidence: recorded session trace + G4 harness pass.
+
+#### V5: Substrate-Native Benchmark Suite — Axis Lift: Cross-Harness + Provenance + Typed (2→6)
+
+Goal: ship memd's own benchmark suite, open-source, reproducible. Public benches measure flat RAG; these measure what memd is actually for. Composite target: 4.0 → **5.5**.
+
+| Phase | Name | Status | Measures | Phase Doc |
+| --- | --- | --- | --- | --- |
+| A5 | CrossSessionRecall | `planned` | recall across session cuts | deferred |
+| B5 | CorrectionPropagation | `planned` | fact corrected → next-session retrieval uses new | deferred |
+| C5 | CrossHarnessContinuity | `planned` | claude-code → codex handoff, truth conserved | deferred |
+| D5 | ProgressiveDepth | `planned` | wake/lookup/resume quality ladder | deferred |
+| E5 | ProvenanceIntegrity | `planned` | every retrieved record carries source | deferred |
+| F5 | TypedRetrieval | `planned` | right type returned per query shape | deferred |
+| G5 | AdversarialNoise | `planned` | canonical beats planted wrong facts | deferred |
+
+V5 completion gate: all 7 bench suites run in CI, numbers in `docs/verification/SUBSTRATE_BENCHMARKS.md`, any memd competitor can run them.
+
+#### V6: Typed Ingest for Public Benches — Axis Lift: Public Bench Numbers (raw retrieval 6→8)
+
+Goal: memd stops pretending public benches are flat-RAG. Episodic/semantic/canonical/candidate typing applied to bench inputs; working-context compiler trims the prompt; progressive-depth routes re-queries. LME/LoCoMo/MemBench/ConvoMem numbers lift without benchmaxxing. Composite: 5.5 → **7.0**.
+
+| Phase | Name | Status | Phase Doc |
+| --- | --- | --- | --- |
+| A6 | Episodic Ingest Pipeline | `planned` | deferred |
+| B6 | Semantic Distillation | `planned` | deferred |
+| C6 | Canonical Promotion | `planned` | deferred |
+| D6 | Working-Context Compiler on Bench | `planned` | deferred |
+| E6 | Progressive-Depth Routing | `planned` | deferred |
+| F6 | Iterative Reasoning Harness | `planned` | deferred |
+
+V6 gate: LME ≥0.85 / LoCoMo ≥0.75 / MemBench ≥0.75 / ConvoMem ≥0.90 canonical, intrinsic. No regression on retrieval diagnostics.
+
+#### V7: Correction + Behavior-Change E2E — Axis Lift: Correction Retention (2→8)
+
+Goal: correction lane lives end-to-end. User says "no, X is Y" — next session uses Y, provenance shows the correction turn, rollback works. Composite: 7.0 → **7.8**.
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| A7 | Correction Lane Ingestion Verify | `planned` |
+| B7 | Correction → Canonical Promotion | `planned` |
+| C7 | Next-Session Behavior Change Test | `planned` |
+| D7 | Contradiction Detection | `planned` |
+| E7 | Provenance Trail on Corrected Records | `planned` |
+| F7 | User-Visible "I learned X from Y" Surface | `planned` |
+| G7 | Rollback on Bad Correction | `planned` |
+
+V7 gate: correction bench in V5 suite shows 100% propagation, rollback test passes.
+
+#### V8: Operator Surfaces — Axis Lift: Trust + Provenance (2→7), stranger-test dogfood
+
+Goal: user can see memd — atlas, corrections, provenance, diff, rollback. Composite: 7.8 → **8.5**.
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| A8 | Atlas Navigation UI | `planned` |
+| B8 | Correction UX | `planned` |
+| C8 | Memory Inspector | `planned` |
+| D8 | Provenance Browser | `planned` |
+| E8 | Diff + Rollback UI | `planned` |
+| F8 | Public Leaderboard Transparency Page | `planned` |
+
+V8 gate: stranger test (outside reviewer, sidecar OFF) rates memd best-in-class vs mempalace/supermemory/letta/mem0 on 5 surfaces.
+
+#### V9: Multi-User / Team — Axis Lift: Cross-Harness (6→9)
+
+Goal: shared-namespace memory, visibility honored by retrieval, merge collisions resolved, team-wide correction propagation. Composite: 8.5 → **9.0**.
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| A9 | Shared Namespace Semantics | `planned` |
+| B9 | Visibility/ACL Honored by Retrieval | `planned` |
+| C9 | Merge Collision Governor Live | `planned` |
+| D9 | Hive Divergence Receipts | `planned` |
+| E9 | Multi-Agent Handoff Quality | `planned` |
+| F9 | Team-Wide Correction Propagation | `planned` |
+
+V9 gate: 2-user 3-agent dogfood holds truth across 10 sessions, divergence surfaced, no silent overwrites.
+
+#### V10: Self-Improvement — Axis Lift: All axes to 9.0+
+
+Goal: memd improves itself — overnight consolidation, auto-correction from user behavior, bench regression canary, 10-STAR automated. Composite: 9.0 → **9.5+**.
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| A10 | Consolidation-as-Dream (overnight pass) | `planned` |
+| B10 | Auto-Correction from User Behavior | `planned` |
+| C10 | Memory-Driven Agentic Replay | `planned` |
+| D10 | Bench-Score Regression Canary | `planned` |
+| E10 | Gap-Audit Self-Scoring (10-STAR automated) | `planned` |
+| F10 | Continuous-Deployment Memory | `planned` |
+
+V10 gate: composite ≥9.0, self-improvement loop demonstrated over 30 days without regression.
 
 ## Benchmarks
 
