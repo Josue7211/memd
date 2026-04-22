@@ -38,35 +38,68 @@ pub(crate) async fn call_generator(
     prompt: &str,
 ) -> anyhow::Result<GeneratorResponse> {
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(120))
+        .timeout(Duration::from_secs(300))
         .connect_timeout(Duration::from_secs(15))
         .build()
         .context("build generator client")?;
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-    eprintln!("[generator] POST {url} model={model}");
-    let response = client
-        .post(&url)
-        .bearer_auth(api_key)
-        .json(&json!({
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "n": 1,
-            "temperature": 0,
-            "max_tokens": 512
-        }))
-        .send()
-        .await
-        .context("send generator request")?;
-    eprintln!("[generator] response status={}", response.status());
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("generator request failed with {status}: {body}");
-    }
-    let body = response
-        .json::<JsonValue>()
-        .await
-        .context("parse generator response")?;
+    let payload = json!({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "n": 1,
+        "temperature": 0,
+        "max_tokens": 512
+    });
+    let mut last_err: Option<anyhow::Error> = None;
+    let body = {
+        let mut body_opt: Option<JsonValue> = None;
+        for attempt in 0..3u32 {
+            eprintln!("[generator] POST {url} model={model} attempt={}", attempt + 1);
+            match client
+                .post(&url)
+                .bearer_auth(api_key)
+                .json(&payload)
+                .send()
+                .await
+            {
+                Ok(resp) => {
+                    let status = resp.status();
+                    eprintln!("[generator] response status={status}");
+                    if status.is_success() {
+                        match resp.json::<JsonValue>().await {
+                            Ok(parsed) => {
+                                body_opt = Some(parsed);
+                                break;
+                            }
+                            Err(e) => {
+                                last_err = Some(anyhow::anyhow!(e).context("parse generator response"));
+                            }
+                        }
+                    } else {
+                        let body_text = resp.text().await.unwrap_or_default();
+                        last_err = Some(anyhow::anyhow!(
+                            "generator request failed with {status}: {body_text}"
+                        ));
+                        if status.as_u16() < 500 && status.as_u16() != 408 && status.as_u16() != 429 {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    last_err = Some(anyhow::anyhow!(e).context("send generator request"));
+                }
+            }
+            if attempt < 2 {
+                let wait_ms = 2000u64 * (1u64 << attempt);
+                eprintln!("[generator] retrying in {wait_ms}ms");
+                tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+            }
+        }
+        match body_opt {
+            Some(b) => b,
+            None => return Err(last_err.unwrap_or_else(|| anyhow::anyhow!("generator request failed after retries"))),
+        }
+    };
     let content = body
         .get("choices")
         .and_then(JsonValue::as_array)
