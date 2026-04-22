@@ -1,1 +1,1 @@
-2026-04-21-j3-complete-proxy-gap-deferred-next-k3.md
+2026-04-22-roadmap-v4-v10-seeded-next-full-plan-spec.md
