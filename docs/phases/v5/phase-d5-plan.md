@@ -8,7 +8,7 @@ opened: 2026-04-22
 depends_on: [V4, A5]
 phase_doc: docs/phases/v5/phase-d5-progressive-depth.md
 granularity: "one step = ≤1 agent session; TDD; commit per task"
-axis: token_efficiency, cross_harness
+axis: — (integrates token_efficiency, raw_retrieval; no credit per 0.1.0-AXIS-OWNERSHIP overlap 3 — V4 E4 / V6 E6 own)
 ---
 
 # Phase D5 — Implementation Plan

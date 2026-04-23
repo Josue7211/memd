@@ -8,7 +8,7 @@ opened: 2026-04-22
 depends_on: [V4, A5]
 phase_doc: docs/phases/v5/phase-e5-provenance-integrity.md
 granularity: "one step = ≤1 agent session; TDD; commit per task"
-axis: trust_provenance
+axis: — (integrates trust_provenance; no credit; V6 C6 owns TP 3→4, V7 E7 owns 4→5)
 ---
 
 # Phase E5 — Implementation Plan

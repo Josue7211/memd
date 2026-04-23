@@ -8,7 +8,7 @@ opened: 2026-04-22
 depends_on: [V4, A5]
 phase_doc: docs/phases/v5/phase-b5-correction-propagation.md
 granularity: "one step = ≤1 agent session; TDD; commit per task"
-axis: correction_retention
+axis: — (integrates correction_retention; no credit per 0.1.0-AXIS-OWNERSHIP overlap 1 — V4 C4 owns 1→4, V7 A7/C7 owns 4→5)
 ---
 
 # Phase B5 — Implementation Plan

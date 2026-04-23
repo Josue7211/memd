@@ -8,7 +8,7 @@ opened: 2026-04-22
 depends_on: [A5, B5, C5, D5, E5, F5]
 phase_doc: docs/phases/v5/phase-g5-adversarial-noise.md
 granularity: "one step = ≤1 agent session; TDD; commit per task"
-axis: raw_retrieval, trust_provenance, V5 completion gate
+axis: raw_retrieval
 ---
 
 # Phase G5 — Implementation Plan

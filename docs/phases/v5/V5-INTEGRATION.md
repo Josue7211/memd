@@ -3,12 +3,14 @@ version: v5
 kind: integration-plan
 status: ready-to-execute
 opened: 2026-04-22
+revised: 2026-04-22
 scope: A5..G5
+depends_on: [../../verification/0.1.0-CONTRACT.md, ../../verification/milestones/MILESTONE-v5.md]
 ---
 
 # V5 Integration — Cross-Phase Plan
 
-> Read after all seven `phase-{a5..g5}-plan.md` specs. This doc covers what no single phase plan owns: suite-wide module layout, shared fixtures, benchmark runner architecture, CI publishing flow, `SUBSTRATE_BENCHMARKS.md` regeneration ritual, competitor-card template policy, flag-graduation calendar, commit strategy, cross-phase API surface, and V5 milestone exit criteria.
+> Read after all seven `phase-{a5..g5}-plan.md` specs. This doc covers what no single phase plan owns: suite-wide module layout, shared fixtures, benchmark runner architecture, CI publishing flow, `SUBSTRATE_BENCHMARKS.md` regeneration ritual, competitor-card template policy, schema/ordering locks landed in V5, flag-graduation calendar, scorecard regenerator strict-mode check, commit strategy, cross-phase API surface, and V5 milestone exit criteria.
 
 ## 1. Execution-order discipline
 
@@ -158,6 +160,26 @@ Regeneration rules:
 - Preserve the prior file's section ordering.
 - Append a one-line delta history under `## History` (date → composite → suite pass-count).
 
+## 5b. Schema + ordering locks (V5 substrate sealing)
+
+Three schema-level locks land in V5 to support substrate bench scale-out and cross-phase determinism. All three are **A5 scope** (in the shared substrate module initialization).
+
+### 5b.1 Bench run determinism via fixed-seed fixtures
+
+Every substrate suite fixtures (sessions, preferences, transcripts, noise) are versioned and locked post-landing. No runtime regeneration of fixture seeds after bench publication. Rationale: substrate competitors must run exact same scenarios; re-seeding between versions breaks reproducibility.
+
+### 5b.2 Suite execution order lock
+
+G5 aggregator runs suites in fixed order (A5 → B5 → C5 → D5 → E5 → F5 → G5) to prevent cross-suite contamination if state is carried forward. Each suite produces isolated NDJSON; aggregator merges post-run. Rationale: suite_N results must not depend on suite_{N-1} execution order or side effects.
+
+### 5b.3 Harness adapter contract lock
+
+C5 HarnessAdapter trait finalizes the shape that both claude-code and codex drivers must implement. No runtime discovery of harness capabilities; explicit preset availability map in SubstrateCtx. Rationale: G5 adversarial-noise suite must seed facts cross-harness deterministically; loose harness adaptation breaks reproducibility.
+
+### Why V5 owns these
+
+All three are substrate plumbing, not per-phase. A5 is the "build shared substrate" phase; locks live in the shared skeleton. Later phases consume the locked interface without owning the locks.
+
 ## 6. Competitor-card policy
 
 `docs/verification/SUBSTRATE_COMPETITOR.md` is a template only. Rules (enforced by G5 Task G5.5 test 12):
@@ -181,12 +203,16 @@ CI substrate to confirm at G5 Task G5.6: check `.github/workflows/` first; fall 
 
 ## 8. Feature-flag graduation calendar
 
-V5 uses fewer flags than V4; most substrate behavior is always-on once wired. Flags that do exist:
+V5 uses fewer flags than V4; most substrate behavior is always-on once wired. Only one flag owns milestone closure:
 
-1. `MEMD_SUBSTRATE_AGG_PARALLEL` = 1 default after G5 7-day stability (G5 Task G5.7).
-2. `MEMD_SUBSTRATE_C5_HARNESS_ALLOW_SKIP` = 1 in CI only; stays off locally (C5 Task C5.4).
-3. `MEMD_LOOKUP_EXPLAIN_ROUTE` = 1 default once F5 lands; off only if production latency budget demands (F5 Task F5.1).
-4. `MEMD_SUBSTRATE_ALLOW_BELOW_TARGET` = 0 at all times in main; set only locally while iterating.
+1. `MEMD_SUBSTRATE_AGG_PARALLEL` = 1 default after G5 Task G5.7 7-day clean window.
+
+   This is window **1 of 5 total windows** needed for F4 corrections + F4.7 seed to graduate out of feature flags (V4 → V5 → V6 → ... → flag-gate completion). V5 owns this single window; V6 owns the next. See V4-INTEGRATION.md §6 for full 5-window calendar.
+
+Supporting flags (no graduation requirement):
+- `MEMD_SUBSTRATE_C5_HARNESS_ALLOW_SKIP` = 1 in CI only; stays off locally (C5 Task C5.4).
+- `MEMD_LOOKUP_EXPLAIN_ROUTE` = 1 default once F5 lands (F5 Task F5.1); intrinsic behavior, not guarded by graduation.
+- `MEMD_SUBSTRATE_ALLOW_BELOW_TARGET` = 0 at all times in main; set only locally while iterating.
 
 A graduation rollback does not re-open V5 — file a recovery phase.
 
@@ -199,6 +225,45 @@ V5 does not directly move LME/LoCoMo/MemBench/ConvoMem, but the shared runtime +
 - Post-G5 Task G5.6: full public + substrate sweep published in `MILESTONE-v5.md`.
 
 If any public bench regresses >3% canonical, hold the phase close and root-cause.
+
+## 9b. Scorecard regenerator strict-mode check (G5 Task G5.4)
+
+G5 Task G5.4 wires the SUBSTRATE_BENCHMARKS.md regenerator. Strict-mode rules (enforced by test harness):
+
+1. **Axis credit ceiling:** No axis in SUBSTRATE_BENCHMARKS may score higher than MILESTONE-v5.md contract allows. Regenerator fails loud if any axis exceeds ceiling.
+   - SC, TE, TP must stay at V4 post (4, 4, 3 respectively).
+   - CR must stay at 4 (B5 integrates, no credit).
+   - PR must not exceed 4. RR must not exceed 6. CH must not exceed 4.
+
+2. **Harness proof requirement:** Every axis lift claim must be backed by a harness fixture assertion in MILESTONE-v5.md per-axis table. G5 Task G5.5 verification gate runs per-axis assertions against regenerated scores; if any assertion fails, regenerator aborts and surfaces the failing fixture path.
+
+3. **Owned-axis-only regeneration:** G5 regenerator writes only axes V5 owns (PR, CH, RR). All other axes are preserved verbatim from the prior MEMD-10-STAR.md entry.
+
+Regeneration template post-G5 (aligned to MILESTONE-v5.md contract):
+
+```markdown
+## 10-Star Composite Scorecard
+
+| Axis | Weight | Score | Status |
+|------|--------|-------|--------|
+| Session continuity | 20% | 4/10 | V4 complete; no V5 work (non-goal per AXIS-OWNERSHIP.md) |
+| Correction retention | 15% | 4/10 | B5 measures C4 work; integrates only, no V5 credit |
+| Procedural reuse | 15% | 4/10 | F5 live-fire: routine invocation token savings ≥ baseline vs F4.7 observation-only |
+| Cross-harness continuity | 15% | 4/10 | C5 bench: claude-code writes stable in codex + round-trip |
+| Raw retrieval strength | 15% | 6/10 | 7-suite substrate aggregate (A5+D5+E5+F5+G5): recall@K coverage |
+| Token efficiency | 10% | 4/10 | V4 complete; no V5 work (non-goal per AXIS-OWNERSHIP.md) |
+| Trust + provenance | 10% | 3/10 | V4 complete; no V5 work (non-goal per AXIS-OWNERSHIP.md) |
+
+**Composite: 4.20 (V5 gate requirement) — regenerated YYYY-MM-DD by G5 substrate aggregator run <id>**
+
+Evidence: docs/verification/v5-runs/YYYY-MM-DD.ndjson
+```
+
+Regeneration rules (as per V4-INTEGRATION.md §5):
+- Never score an axis higher than the harness evidence supports.
+- If an axis has no V5 work, preserve its prior score verbatim.
+- Always link to the proof-run NDJSON.
+- Append a one-line delta history entry.
 
 ## 10. Commit strategy
 
@@ -269,11 +334,14 @@ Surface in TodoWrite or phase kickoff — do not silently assume:
 
 All seven phase exit criteria met AND G5 exit criteria met AND:
 
-- 10-STAR composite ≥ 5.5 written to `docs/verification/MEMD-10-STAR.md` by the G5 aggregator.
+- **No axis credit without harness proof** (per 0.1.0-CONTRACT.md): Every axis lift in MILESTONE-v5.md per-axis assertions table has a passing harness fixture. G5 Task G5.5 verification gate runs all three assertions (PR invocation, CH round-trip, RR recall@K aggregate); if any fails, milestone cannot close.
+- 10-STAR composite ≥ 4.20 written to `docs/verification/MEMD-10-STAR.md` by the G5 aggregator via strict-mode regenerator (§9b).
 - `docs/verification/SUBSTRATE_BENCHMARKS.md` regenerated, current run ≤ 7 days old.
-- `docs/verification/milestones/MILESTONE-v5.md` filled.
+- `docs/verification/milestones/MILESTONE-v5.md` filled with per-axis basis + assertion fixtures.
 - `ROADMAP.md` V5 → closed, V6 → in progress.
 - `scripts/substrate-bench-reproduce.sh` passes on fresh clone (±0.03 per metric).
 - `docs/verification/SUBSTRATE_COMPETITOR.md` template committed with sentinels intact.
-- No open backlog items tagged `axis: raw_retrieval` or `axis: trust_provenance` at severity `blocker`.
+- No open backlog items tagged `axis: procedural_reuse`, `axis: cross_harness`, or `axis: raw_retrieval` at severity `blocker`.
+- V5 owns 1 of 5 windows required for F4 flag graduation (§8): `MEMD_SUBSTRATE_AGG_PARALLEL` clean window runs post-G5, documented in flag-calendar notes.
+- Substrate schema/ordering locks (§5b) landed and covered by A5 unit tests.
 - Final handoff doc points at `docs/phases/v6/` (already created in this plan-spec phase).

@@ -8,7 +8,7 @@ opened: 2026-04-22
 depends_on: [V4]
 phase_doc: docs/phases/v5/phase-a5-cross-session-recall.md
 granularity: "one step = ≤1 agent session; TDD; commit per task"
-axis: session_continuity
+axis: raw_retrieval
 ---
 
 # Phase A5 — Implementation Plan

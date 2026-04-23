@@ -8,7 +8,7 @@ opened: 2026-04-22
 depends_on: [V4, A5]
 phase_doc: docs/phases/v5/phase-f5-typed-retrieval.md
 granularity: "one step = ≤1 agent session; TDD; commit per task"
-axis: raw_retrieval, typed_retrieval
+axis: raw_retrieval
 ---
 
 # Phase F5 — Implementation Plan
