@@ -247,12 +247,12 @@ fn fresh_database_stamped_at_current_schema_version() {
     let v: i64 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("read user_version");
-    assert_eq!(v as u32, crate::store::SCHEMA_VERSION_M5);
+    assert_eq!(v as u32, crate::store::SCHEMA_VERSION_M6);
     std::fs::remove_dir_all(dir).expect("cleanup temp dir");
 }
 
 #[test]
-fn m3_stamped_database_upgrades_to_m5_on_open() {
+fn m3_stamped_database_upgrades_to_m6_on_open() {
     let dir = std::env::temp_dir().join(format!("k28-upgrade-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let db = dir.join("state.sqlite");
@@ -282,11 +282,11 @@ fn m3_stamped_database_upgrades_to_m5_on_open() {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("read user_version");
-        assert_eq!(v as u32, crate::store::SCHEMA_VERSION_M5);
+        assert_eq!(v as u32, crate::store::SCHEMA_VERSION_M6);
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM memory_items", [], |r| r.get(0))
             .expect("count");
-        assert_eq!(count, 2, "M3 -> M5 upgrade must preserve data");
+        assert_eq!(count, 2, "M3 -> M6 upgrade must preserve data");
     }
 
     std::fs::remove_dir_all(dir).expect("cleanup temp dir");

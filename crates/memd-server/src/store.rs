@@ -36,7 +36,8 @@ use crate::store_hive::{
 use crate::store_migrations::{
     create_hive_session_identity_indexes, migrate_episodes_tables, migrate_fts5_index,
     migrate_hive_sessions_identity_columns, migrate_hive_sessions_last_wake_at,
-    migrate_lane_column, migrate_memory_items_embedding_model, migrate_memory_vectors_chunk_idx,
+    migrate_lane_column, migrate_memory_entities_indexed_lookups,
+    migrate_memory_items_embedding_model, migrate_memory_vectors_chunk_idx,
     migrate_memory_vectors_embedding_model, migrate_redundancy_key, migrate_version_column,
     migrate_visibility_column,
 };
@@ -50,12 +51,16 @@ mod store_divergence;
 // is treated as pre-M4 and idempotently upgraded. Any value <= current
 // runs the forward migration path (which today is no-op DDL — the column
 // shims run unconditionally via migrate_* helpers below). A value greater
-// than SCHEMA_VERSION_M5 means the file was written by a newer binary;
+// than SCHEMA_VERSION_M6 means the file was written by a newer binary;
 // we log a warning but still open so a rollback doesn't brick the deploy.
 pub(crate) const SCHEMA_VERSION_M3: u32 = 3;
 #[allow(dead_code)]
 pub(crate) const SCHEMA_VERSION_M4: u32 = 4;
+#[allow(dead_code)]
 pub(crate) const SCHEMA_VERSION_M5: u32 = 5;
+// V3/B3: add project_id generated column + memory_entity_aliases companion
+// table to kill `list_entities()` full-scan on the store hot path.
+pub(crate) const SCHEMA_VERSION_M6: u32 = 6;
 
 fn env_truthy(name: &str) -> bool {
     match std::env::var(name) {
@@ -116,28 +121,28 @@ fn stamp_schema_version(conn: &Connection) -> anyhow::Result<()> {
     match current {
         0 => {
             tracing::info!(
-                version = SCHEMA_VERSION_M5,
-                "stamping fresh database at schema version M5"
+                version = SCHEMA_VERSION_M6,
+                "stamping fresh database at schema version M6"
             );
         }
-        v if v == SCHEMA_VERSION_M5 => {}
-        v if v < SCHEMA_VERSION_M5 => {
+        v if v == SCHEMA_VERSION_M6 => {}
+        v if v < SCHEMA_VERSION_M6 => {
             tracing::info!(
                 from = v,
-                to = SCHEMA_VERSION_M5,
+                to = SCHEMA_VERSION_M6,
                 "upgrading database schema boundary marker (columns already migrated)"
             );
         }
         v => {
             tracing::warn!(
                 found = v,
-                expected = SCHEMA_VERSION_M5,
+                expected = SCHEMA_VERSION_M6,
                 "database was written by a newer binary; opening anyway — proceed carefully"
             );
             return Ok(());
         }
     }
-    conn.pragma_update(None, "user_version", SCHEMA_VERSION_M5)
+    conn.pragma_update(None, "user_version", SCHEMA_VERSION_M6)
         .context("write user_version")?;
     Ok(())
 }
@@ -563,6 +568,7 @@ impl SqliteStore {
         migrate_fts5_index(&conn)?;
         migrate_memory_vectors_chunk_idx(&conn)?;
         migrate_episodes_tables(&conn)?;
+        migrate_memory_entities_indexed_lookups(&mut conn)?;
 
         stamp_schema_version(&conn)?;
 
@@ -3449,8 +3455,16 @@ impl SqliteStore {
 
     fn upsert_entity(&self, entity_key: &str, record: &MemoryEntityRecord) -> anyhow::Result<()> {
         let payload_json = serde_json::to_string(record).context("serialize memory entity")?;
-        let conn = self.connect()?;
-        conn.execute(
+        let entity_id = record.id.to_string();
+        let project = record
+            .context
+            .as_ref()
+            .and_then(|ctx| ctx.project.clone());
+        let mut conn = self.connect()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .context("begin upsert_entity tx")?;
+        tx.execute(
             r#"
             INSERT INTO memory_entities (id, entity_key, entity_type, updated_at, payload_json)
             VALUES (?1, ?2, ?3, ?4, ?5)
@@ -3460,7 +3474,7 @@ impl SqliteStore {
               payload_json = excluded.payload_json
             "#,
             params![
-                record.id.to_string(),
+                entity_id,
                 entity_key,
                 record.entity_type,
                 record.updated_at.to_rfc3339(),
@@ -3468,7 +3482,144 @@ impl SqliteStore {
             ],
         )
         .context("upsert memory entity")?;
+
+        // Sync aliases companion table. `upsert_entity` may reference an
+        // existing row via `entity_key`; resolve the canonical id first so
+        // UPDATE and INSERT both converge on the same alias set.
+        let canonical_id: String = tx
+            .query_row(
+                "SELECT id FROM memory_entities WHERE entity_key = ?1",
+                params![entity_key],
+                |row| row.get::<_, String>(0),
+            )
+            .context("resolve canonical entity id for alias sync")?;
+        tx.execute(
+            "DELETE FROM memory_entity_aliases WHERE entity_id = ?1",
+            params![canonical_id],
+        )
+        .context("clear prior aliases for entity")?;
+        {
+            let mut insert = tx.prepare(
+                "INSERT OR IGNORE INTO memory_entity_aliases (entity_id, alias, project) \
+                 VALUES (?1, ?2, ?3)",
+            )?;
+            for alias in record.aliases.iter() {
+                if alias.trim().is_empty() {
+                    continue;
+                }
+                insert.execute(params![canonical_id, alias, project])?;
+            }
+        }
+        tx.commit().context("commit upsert_entity tx")?;
         Ok(())
+    }
+
+    /// V3/B3: project-scoped recent entities via `idx_memory_entities_project_updated`.
+    /// Replaces full-table `list_entities()` scan in `auto_link_entity`.
+    pub fn list_entities_by_project(
+        &self,
+        project: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<MemoryEntityRecord>> {
+        let conn = self.connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT payload_json FROM memory_entities \
+                 WHERE project_id = ?1 \
+                 ORDER BY updated_at DESC LIMIT ?2",
+            )
+            .context("prepare list_entities_by_project")?;
+        let rows = stmt.query_map(params![project, limit as i64], |row| row.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            let payload = row.context("read entity row")?;
+            let entity: MemoryEntityRecord =
+                serde_json::from_str(&payload).context("deserialize memory entity payload")?;
+            out.push(entity);
+        }
+        Ok(out)
+    }
+
+    /// V3/B3: exact (NOCASE) alias lookup via `idx_memory_entity_aliases_project_alias`.
+    /// Replaces the full scan in `create_named_entity_links`.
+    pub fn find_entities_by_alias_exact(
+        &self,
+        project: Option<&str>,
+        alias: &str,
+    ) -> anyhow::Result<Vec<MemoryEntityRecord>> {
+        let conn = self.connect()?;
+        let mut out = Vec::new();
+        let mut stmt = if project.is_some() {
+            conn.prepare(
+                "SELECT e.payload_json FROM memory_entities e \
+                 JOIN memory_entity_aliases a ON a.entity_id = e.id \
+                 WHERE a.project IS ?1 AND a.alias = ?2 \
+                 ORDER BY e.updated_at DESC",
+            )?
+        } else {
+            conn.prepare(
+                "SELECT e.payload_json FROM memory_entities e \
+                 JOIN memory_entity_aliases a ON a.entity_id = e.id \
+                 WHERE a.alias = ?1 \
+                 ORDER BY e.updated_at DESC",
+            )?
+        };
+        let mut rows = if let Some(p) = project {
+            stmt.query(params![p, alias])?
+        } else {
+            stmt.query(params![alias])?
+        };
+        while let Some(row) = rows.next()? {
+            let payload: String = row.get(0)?;
+            let entity: MemoryEntityRecord =
+                serde_json::from_str(&payload).context("deserialize memory entity payload")?;
+            out.push(entity);
+        }
+        Ok(out)
+    }
+
+    /// V3/B3: substring alias lookup for `create_wiki_links`. Optionally
+    /// project-scoped. Uses `LIKE '%token%'` over `memory_entity_aliases`,
+    /// so the scan cost is proportional to the alias table (one row per
+    /// alias) rather than to `memory_entities` full payload deserialization.
+    /// No LIMIT: the original `list_entities()` path considered every
+    /// entity, and dropping matches beyond a top-N window would silently
+    /// change wiki-link resolution.
+    pub fn find_entities_by_alias_contains(
+        &self,
+        project: Option<&str>,
+        needle: &str,
+    ) -> anyhow::Result<Vec<MemoryEntityRecord>> {
+        let conn = self.connect()?;
+        let pattern = format!("%{}%", needle);
+        let mut out = Vec::new();
+        let mut stmt = if project.is_some() {
+            conn.prepare(
+                "SELECT e.payload_json FROM memory_entities e \
+                 JOIN memory_entity_aliases a ON a.entity_id = e.id \
+                 WHERE a.project IS ?1 AND a.alias LIKE ?2 \
+                 ORDER BY e.updated_at DESC",
+            )?
+        } else {
+            conn.prepare(
+                "SELECT e.payload_json FROM memory_entities e \
+                 JOIN memory_entity_aliases a ON a.entity_id = e.id \
+                 WHERE a.alias LIKE ?1 \
+                 ORDER BY e.updated_at DESC",
+            )?
+        };
+        let mut rows = if let Some(p) = project {
+            stmt.query(params![p, pattern])?
+        } else {
+            stmt.query(params![pattern])?
+        };
+        while let Some(row) = rows.next()? {
+            let payload: String = row.get(0)?;
+            let entity: MemoryEntityRecord =
+                serde_json::from_str(&payload).context("deserialize memory entity payload")?;
+            out.push(entity);
+        }
+        Ok(out)
     }
 
     fn insert_event(

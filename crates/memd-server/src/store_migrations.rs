@@ -1,5 +1,5 @@
 use anyhow::Context;
-use memd_schema::{HiveSessionRecord, MemoryItem};
+use memd_schema::{HiveSessionRecord, MemoryEntityRecord, MemoryItem};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::redundancy_key;
@@ -501,6 +501,115 @@ pub(crate) fn migrate_episodes_tables(conn: &Connection) -> anyhow::Result<()> {
             "#,
         )
         .context("backfill episodes_fts")?;
+    }
+
+    Ok(())
+}
+
+/// V3/B3: kill the O(N) `list_entities()` scan on `/memory/store`.
+///
+/// `auto_link_entity`, `create_wiki_links`, and `create_named_entity_links`
+/// each scanned every row in `memory_entities` per store. At N=100 the LME
+/// ingest stalled. Fix:
+///   - Generated column `project_id` from `json_extract(payload_json, '$.context.project')`
+///     with an index on `(project_id, updated_at DESC)`.
+///   - Companion table `memory_entity_aliases(entity_id, alias, project)` with
+///     index on `(project, alias)` (NOCASE collation for case-insensitive
+///     exact match + LIKE substring scope).
+///   - Backfill both from existing `payload_json` rows on first run.
+///
+/// Idempotent: checks for existing column/table before creating.
+pub(crate) fn migrate_memory_entities_indexed_lookups(
+    conn: &mut Connection,
+) -> anyhow::Result<()> {
+    // `PRAGMA table_info` does NOT list generated columns; `table_xinfo` does.
+    // See https://www.sqlite.org/pragma.html#pragma_table_xinfo.
+    let existing_cols: Vec<String> = {
+        let mut stmt = conn.prepare("PRAGMA table_xinfo(memory_entities)")?;
+        stmt.query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let has_project_id = existing_cols.iter().any(|c| c == "project_id");
+    if !has_project_id {
+        conn.execute_batch(
+            "ALTER TABLE memory_entities ADD COLUMN project_id TEXT \
+             GENERATED ALWAYS AS (json_extract(payload_json, '$.context.project')) VIRTUAL;",
+        )
+        .context("add memory_entities.project_id generated column")?;
+    }
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_memory_entities_project_updated \
+         ON memory_entities(project_id, updated_at DESC);",
+    )
+    .context("create idx_memory_entities_project_updated")?;
+
+    let has_aliases_table = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memory_entity_aliases'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !has_aliases_table {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE memory_entity_aliases (
+              entity_id TEXT NOT NULL,
+              alias TEXT NOT NULL COLLATE NOCASE,
+              project TEXT,
+              PRIMARY KEY (entity_id, alias)
+            );
+            CREATE INDEX idx_memory_entity_aliases_project_alias
+              ON memory_entity_aliases(project, alias);
+            CREATE INDEX idx_memory_entity_aliases_alias
+              ON memory_entity_aliases(alias);
+            "#,
+        )
+        .context("create memory_entity_aliases table")?;
+    }
+
+    let aliases_empty = conn
+        .query_row("SELECT 1 FROM memory_entity_aliases LIMIT 1", [], |_| Ok(()))
+        .optional()?
+        .is_none();
+    let entities_present = conn
+        .query_row("SELECT 1 FROM memory_entities LIMIT 1", [], |_| Ok(()))
+        .optional()?
+        .is_some();
+    if aliases_empty && entities_present {
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .context("begin memory_entity_aliases backfill")?;
+        {
+            let mut rows = tx.prepare("SELECT id, payload_json FROM memory_entities")?;
+            let mut insert = tx.prepare(
+                "INSERT OR IGNORE INTO memory_entity_aliases (entity_id, alias, project) \
+                 VALUES (?1, ?2, ?3)",
+            )?;
+            let mut iter = rows.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in iter.by_ref() {
+                let (entity_id, payload) = row?;
+                let record: MemoryEntityRecord = match serde_json::from_str(&payload) {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+                let project = record
+                    .context
+                    .as_ref()
+                    .and_then(|ctx| ctx.project.clone());
+                for alias in record.aliases.iter() {
+                    if alias.trim().is_empty() {
+                        continue;
+                    }
+                    insert.execute(params![entity_id, alias, project])?;
+                }
+            }
+        }
+        tx.commit()
+            .context("commit memory_entity_aliases backfill")?;
     }
 
     Ok(())

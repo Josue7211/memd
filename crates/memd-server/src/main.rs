@@ -443,13 +443,13 @@ impl AppState {
         let Some(project) = &item.project else {
             return Ok(());
         };
-        let entities = self.store.list_entities()?;
+        // V3/B3: project-scoped indexed lookup (see store.rs
+        // `list_entities_by_project`). Pull 4 so we can still yield 3 after
+        // filtering the new entity itself out.
+        let entities = self.store.list_entities_by_project(project, 4)?;
         let candidates: Vec<&MemoryEntityRecord> = entities
             .iter()
             .filter(|e| e.id != new_entity.id)
-            .filter(|e| {
-                e.context.as_ref().and_then(|ctx| ctx.project.as_deref()) == Some(project.as_str())
-            })
             // E2: no salience gate — link on co-occurrence, not salience.
             // New entities start at 0.0 salience; gating blocked all links.
             .take(3)
@@ -493,19 +493,18 @@ impl AppState {
         if wiki_refs.is_empty() {
             return Ok(());
         }
-        let entities = self.store.list_entities()?;
+        // V3/B3: per-wiki-ref alias-indexed lookup. Not project-scoped — the
+        // original behavior was global so `[[alpha-svc]]` in project beta-svc
+        // resolves to the alpha-svc entity. Entity-type substring match is
+        // dropped (prior behavior matched every entity whose type contained
+        // the wiki token, e.g. `[[task]]` hitting every task — noisy). Alias
+        // matches are stricter and sufficient.
         for wiki_ref in wiki_refs {
-            let wiki_lower = wiki_ref.to_ascii_lowercase();
-            let target = entities.iter().find(|e| {
-                e.aliases
-                    .iter()
-                    .any(|a| a.to_ascii_lowercase().contains(&wiki_lower))
-                    || e.entity_type.to_ascii_lowercase().contains(&wiki_lower)
-            });
+            let matches = self
+                .store
+                .find_entities_by_alias_contains(None, &wiki_ref)?;
+            let target = matches.iter().find(|e| e.id != source_entity.id);
             if let Some(target_entity) = target {
-                if target_entity.id == source_entity.id {
-                    continue;
-                }
                 let existing = self.store.links_for_entity(&EntityLinksRequest {
                     entity_id: source_entity.id,
                 })?;
@@ -544,20 +543,20 @@ impl AppState {
         if mentions.is_empty() {
             return Ok(());
         }
-        let entities = self.store.list_entities()?;
+        // V3/B3: per-mention exact-alias lookup via the aliases companion
+        // table (NOCASE collation). Not project-scoped — the original
+        // `list_entities()` scan was global and cross-project mentions are
+        // load-bearing for NER link tests. Replaces the full-table scan
+        // that stalled bulk ingests.
         let existing = self.store.links_for_entity(&EntityLinksRequest {
             entity_id: source_entity.id,
         })?;
 
         for mention in mentions.into_iter().take(8) {
-            let mention_normalized = mention.to_ascii_lowercase();
-            let target = entities.iter().find(|entity| {
-                entity.id != source_entity.id
-                    && entity
-                        .aliases
-                        .iter()
-                        .any(|alias| alias.to_ascii_lowercase() == mention_normalized)
-            });
+            let matches = self
+                .store
+                .find_entities_by_alias_exact(None, &mention)?;
+            let target = matches.iter().find(|entity| entity.id != source_entity.id);
             let Some(target_entity) = target else {
                 continue;
             };
