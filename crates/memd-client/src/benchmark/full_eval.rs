@@ -147,12 +147,12 @@ pub(crate) fn resolve_generator_config(
     let model = args
         .generator_model
         .as_deref()
-        .unwrap_or("gpt-4o-mini")
+        .unwrap_or("gpt-5.4-mini")
         .to_string();
     let grader_model = args
         .grader_model
         .as_deref()
-        .unwrap_or("gpt-4o-2024-08-06")
+        .unwrap_or("gpt-5.4")
         .to_string();
     Ok(GeneratorConfig {
         base_url,

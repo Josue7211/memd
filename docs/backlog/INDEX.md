@@ -139,7 +139,7 @@
 
 ### Phase `K3 (post-J3)`
 
-- **[high]** [gpt-4o proxy route for public-bench judge + generator](v3/2026-04-21-gpt4o-proxy-route-for-judge.md) — `open` · opened 2026-04-21
+- **[high]** [gpt-5.4 proxy route for public-bench judge + generator](v3/2026-04-23-gpt5.4-proxy-route-for-judge.md) — `open` · opened 2026-04-21 · renamed 2026-04-23
 
 ### Phase `tbd`
 

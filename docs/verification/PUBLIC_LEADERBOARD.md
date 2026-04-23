@@ -10,11 +10,11 @@
 
 ## J3 V3 Floor Verdict — 2026-04-21
 
-Intrinsic floor gate (≥0.70) on the four canonical primaries: **proxy-gap-deferred**. One bench produced a canonical primary (MemBench `mc_accuracy=0.417`, below floor); three stayed `replay-pending` because the openclaw LiteLLM proxy does not route `gpt-4o-*`, which blocks both the LongMemEval judge and any free-form generator comparable to MemPalace's GPT-4o baseline. LoCoMo token_f1 and ConvoMem exact-match were measured against `haiku-manager` in smoke and confirmed verbosity-collapsed (30-token answers vs 3-token gold) — that is a generator-routing artifact, not a retrieval fact, so the numbers were not recorded as canonical. J3 records honest retrieval-diagnostic numbers per bench and files `docs/backlog/v3/2026-04-21-gpt4o-proxy-route-for-judge.md` as the single gate unblocking canonical-metric rows.
+Intrinsic floor gate (≥0.70) on the four canonical primaries: **proxy-gap-deferred**. One bench produced a canonical primary (MemBench `mc_accuracy=0.417`, below floor); three stayed `replay-pending` because the openclaw LiteLLM proxy does not route `gpt-5.4` / `gpt-5.4-mini` (codex-lb canonical), which blocks both the LongMemEval judge-swap (memd uses `gpt-5.4` in place of upstream `gpt-4o`) and any free-form generator comparable to MemPalace's upstream GPT-4o baseline. LoCoMo token_f1 and ConvoMem exact-match were measured against `haiku-manager` in smoke and confirmed verbosity-collapsed (30-token answers vs 3-token gold) — that is a generator-routing artifact, not a retrieval fact, so the numbers were not recorded as canonical. J3 records honest retrieval-diagnostic numbers per bench and files `docs/backlog/v3/2026-04-23-gpt5.4-proxy-route-for-judge.md` as the single gate unblocking canonical-metric rows.
 
 | Bench | Canonical Primary | J3 Run | Value | Verdict |
 | --- | --- | --- | --- | --- |
-| LongMemEval | `qa_accuracy` (GPT-4o judge) | not runnable (no gpt-4o route) | — | `replay-pending` — diagnostic `session_recall_any@5`=0.900 on 50/500 (`audit: pending`) |
+| LongMemEval | `qa_accuracy` (gpt-5.4 judge, judge-swap of upstream GPT-4o) | not runnable (no gpt-5.4 route on proxy) | — | `replay-pending` — diagnostic `session_recall_any@5`=0.900 on 50/500 (`audit: pending`) |
 | LoCoMo | `token_f1_avg` | generator verbosity-collapse on haiku-manager | — | `replay-pending` — diagnostic `evidence_hit_rate@5`=0.360 on 100/500 |
 | MemBench | `mc_accuracy` | stratified 60 items (10 per topic) | **0.417** | `recorded-unpinned` — first canonical run, below 0.70 floor |
 | ConvoMem | `accuracy` (exact-match) | generator verbosity-collapse on haiku-manager | — | `replay-pending` — diagnostic retrieval `recall@k`=0.950 on 100/150 (`audit: pending` — diagnostic not canonical) |
@@ -23,7 +23,7 @@ Intrinsic floor gate (≥0.70) on the four canonical primaries: **proxy-gap-defe
 
 | Benchmark | Canonical Primary | memd | MemPalace | Verification | Method Card |
 | --- | --- | --- | --- | --- | --- |
-| LongMemEval | `qa_accuracy` (GPT-4o judge) | — (replay-pending, J3 blocked on gpt-4o proxy route) | 96.6% ⚠ contested | replay-pending | [#longmemeval](#longmemeval-method-card) |
+| LongMemEval | `qa_accuracy` (gpt-5.4 judge, judge-swap of upstream GPT-4o) | — (replay-pending, J3 blocked on gpt-5.4 proxy route) | 96.6% ⚠ contested | replay-pending | [#longmemeval](#longmemeval-method-card) |
 | LoCoMo | `token_f1_avg` | — (replay-pending, J3 blocked on free-form generator routing) | — (no canonical replay yet) | replay-pending | [#locomo](#locomo-method-card) |
 | MemBench | `mc_accuracy` (MQI deferred) | 0.417 (J3 stratified 60, floor missed) | — (no canonical replay yet) | recorded-unpinned | [#membench](#membench-method-card) |
 | ConvoMem | `accuracy` (exact-match, first 150 conversations) | — (replay-pending, J3 blocked on concise-answer generator routing) | — (no canonical replay yet) | replay-pending | [#convomem](#convomem-method-card) |
@@ -62,10 +62,10 @@ Eight required fields per card: bench+split+SHA, canonical metric+formula, backe
 - **Benchmark / version / split**: LongMemEval (`longmemeval_s`, cleaned).
 - **Dataset fixture SHA**: `d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442`.
 - **Dataset path**: `.memd/benchmarks/datasets/longmemeval/longmemeval_s_cleaned.json`.
-- **Canonical metric**: `qa_accuracy` — GPT-4o binary correct/incorrect judge, 97% human-judge agreement per upstream.
+- **Canonical metric**: `qa_accuracy` — binary correct/incorrect judge. Upstream paper pins GPT-4o and reports 97% human-judge agreement; memd replays with a **judge-swap** to `gpt-5.4` via the codex-lb proxy (flat-rate, no per-token marginal cost). The swap is disclosed on every row; cross-judge agreement is tracked in the method card.
 - **Formula reference**: [xiaowu0162/LongMemEval README](https://github.com/xiaowu0162/LongMemEval) · ICLR 2025 [arXiv 2410.10813](https://arxiv.org/abs/2410.10813).
 - **Backend**: memd (per-item namespace dispatch via G3 `PublicBenchmarkBackend`).
-- **Judge model**: `gpt-4o-2024-08-06` (pinned).
+- **Judge model**: `gpt-5.4` (pinned; codex-lb judge-swap of upstream GPT-4o).
 - **Commit SHA**: `532c5163` (judge cache + cost bookkeeping + community-standard caching landed H3-1).
 - **Reproduction command**:
   ```
@@ -74,8 +74,8 @@ Eight required fields per card: bench+split+SHA, canonical metric+formula, backe
       --dataset longmemeval --write --record \
       --out .memd --retrieval-backend memd --full-eval
   ```
-- **Verification**: `replay-pending` (H3 code landed 2026-04-21; J3 attempt 2026-04-21 blocked on gpt-4o proxy route — see `docs/backlog/v3/2026-04-21-gpt4o-proxy-route-for-judge.md`).
-- **Primary value**: not runnable on openclaw LiteLLM proxy. Canonical number ships when gpt-4o route provisioned.
+- **Verification**: `replay-pending` (H3 code landed 2026-04-21; J3 attempt 2026-04-21 blocked on gpt-5.4 proxy route — see `docs/backlog/v3/2026-04-23-gpt5.4-proxy-route-for-judge.md`).
+- **Primary value**: not runnable on openclaw LiteLLM proxy. Canonical number ships when gpt-5.4 (or gpt-5.4-mini) route provisioned.
 - **Diagnostic secondary (J3, 2026-04-21)**: `session_recall_any@5 = 0.900` (50/500 items, retrieval-only, memd backend, `audit: pending` — diagnostic not canonical). Prior 0.936 retracted as primary; retained as diagnostic-only context (see retraction log). Retrieval diagnostic above 0.70 floor; canonical qa_accuracy floor unverifiable until judge routes.
 - **Cost ledger**: `judge_prompt_tokens`, `judge_completion_tokens`, `judge_cost_usd`, `judge_cache_hit_rate`, `judge_cache_hits`, `judge_cache_misses` emitted per run into `.memd/benchmarks/history/benchmark-runs.jsonl`. J3 run: n/a (judge not called).
 - **Competitor row**: Mem0 93.4% (`audit: upstream paper table, top_k disclosed, 2026-04-21`). Supermemory 81.6% GPT-4o / 84.6% GPT-5 (`audit: upstream blog method disclosed, 2026-04-21`). MemPalace 96.6% ⚠ contested (per MemPalace's own issue tracker — benchmark wraps ChromaDB instead of exercising MemPalace library code; `audit: pending`).
@@ -97,9 +97,9 @@ Eight required fields per card: bench+split+SHA, canonical metric+formula, backe
     --dataset locomo --write --record \
     --out .memd --retrieval-backend memd --full-eval
   ```
-- **Verification**: `replay-pending` (H3 scorer code landed; J3 attempt 2026-04-21 blocked on generator routing — haiku-manager verbosity-collapses token_f1; see `docs/backlog/v3/2026-04-21-gpt4o-proxy-route-for-judge.md`).
-- **Primary value**: not runnable with haiku-manager generator. Canonical `token_f1_avg` ships when gpt-4o route provisioned.
-- **Diagnostic secondary (J3, 2026-04-21)**: `evidence_hit_rate@5 = 0.360` (100/500 items, retrieval-only, memd backend). Floor (≥0.70) missed on retrieval diagnostic; canonical `token_f1_avg` floor unverifiable without free-form gpt-4o answers. Prior `0.709` retracted; see retraction log.
+- **Verification**: `replay-pending` (H3 scorer code landed; J3 attempt 2026-04-21 blocked on generator routing — haiku-manager verbosity-collapses token_f1; see `docs/backlog/v3/2026-04-23-gpt5.4-proxy-route-for-judge.md`).
+- **Primary value**: not runnable with haiku-manager generator. Canonical `token_f1_avg` ships when gpt-5.4 route provisioned.
+- **Diagnostic secondary (J3, 2026-04-21)**: `evidence_hit_rate@5 = 0.360` (100/500 items, retrieval-only, memd backend). Floor (≥0.70) missed on retrieval diagnostic; canonical `token_f1_avg` floor unverifiable without free-form gpt-5.4 answers. Prior `0.709` retracted; see retraction log.
 - **Cost ledger**: n/a (no judge call).
 - **Competitor row**: Mem0 91.6% (`audit: pending — upstream paper check`). MemMachine 91.69% (`audit: pending`). Letta 74.0% (`audit: pending`). All three exceed 0.90 gaming threshold without local replay → treated as recorded-unpinned until audit.
 
@@ -144,7 +144,7 @@ Eight required fields per card: bench+split+SHA, canonical metric+formula, backe
     --out .memd --retrieval-backend memd
   ```
 - **Verification**: `replay-pending` (H3 disclaimer landed; J3 attempt 2026-04-21 blocked on generator routing — haiku-manager emits ~30-token free-form answers that verbosity-collapse exact-match scoring; see `docs/backlog/v3/2026-04-21-gpt4o-proxy-route-for-judge.md`).
-- **Primary value**: not runnable with haiku-manager generator. Canonical `accuracy` (exact-match) ships when gpt-4o route provisioned.
+- **Primary value**: not runnable with haiku-manager generator. Canonical `accuracy` (exact-match) ships when gpt-5.4 route provisioned.
 - **Diagnostic secondary (J3, 2026-04-21)**: retrieval-mode `recall@k = 0.950` (100/150 items, memd backend, no generator, `audit: pending` — diagnostic not canonical, subject to the gaming-audit note below). Above the 0.70 floor on retrieval; canonical exact-match floor unverifiable without concise-answer generator.
 - **Cost ledger**: n/a (no judge call).
 - **Competitor row**: no competitor publishes ConvoMem numbers as of 2026-04-21. Recent (2025) bench.
