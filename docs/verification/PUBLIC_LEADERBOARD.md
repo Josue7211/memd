@@ -10,7 +10,7 @@
 
 ## J3 V3 Floor Verdict — 2026-04-21
 
-Intrinsic floor gate (≥0.70) on the four canonical primaries: **proxy-gap-deferred**. One bench produced a canonical primary (MemBench `mc_accuracy=0.417`, below floor); three stayed `replay-pending` because the openclaw LiteLLM proxy does not route `gpt-5.4` / `gpt-5.4-mini` (codex-lb canonical), which blocks both the LongMemEval judge-swap (memd uses `gpt-5.4` in place of upstream `gpt-4o`) and any free-form generator comparable to MemPalace's upstream GPT-4o baseline. LoCoMo token_f1 and ConvoMem exact-match were measured against `haiku-manager` in smoke and confirmed verbosity-collapsed (30-token answers vs 3-token gold) — that is a generator-routing artifact, not a retrieval fact, so the numbers were not recorded as canonical. J3 records honest retrieval-diagnostic numbers per bench and files `docs/backlog/v3/2026-04-23-gpt5.4-proxy-route-for-judge.md` as the single gate unblocking canonical-metric rows.
+Intrinsic floor gate (≥0.70) on the four canonical primaries: **proxy-gap-deferred**. One bench produced a canonical primary (MemBench `mc_accuracy=0.417`, below floor); three stayed `replay-pending` because the openclaw LiteLLM proxy does not route `gpt-5.4` (codex-lb canonical), which blocks both the LongMemEval judge-swap (memd uses `gpt-5.4` in place of upstream `gpt-4o`) and any free-form generator comparable to MemPalace's upstream GPT-4o baseline. LoCoMo token_f1 and ConvoMem exact-match were measured against `haiku-manager` in smoke and confirmed verbosity-collapsed (30-token answers vs 3-token gold) — that is a generator-routing artifact, not a retrieval fact, so the numbers were not recorded as canonical. J3 records honest retrieval-diagnostic numbers per bench and files `docs/backlog/v3/2026-04-23-gpt5.4-proxy-route-for-judge.md` as the single gate unblocking canonical-metric rows.
 
 | Bench | Canonical Primary | J3 Run | Value | Verdict |
 | --- | --- | --- | --- | --- |
@@ -75,7 +75,7 @@ Eight required fields per card: bench+split+SHA, canonical metric+formula, backe
       --out .memd --retrieval-backend memd --full-eval
   ```
 - **Verification**: `replay-pending` (H3 code landed 2026-04-21; J3 attempt 2026-04-21 blocked on gpt-5.4 proxy route — see `docs/backlog/v3/2026-04-23-gpt5.4-proxy-route-for-judge.md`).
-- **Primary value**: not runnable on openclaw LiteLLM proxy. Canonical number ships when gpt-5.4 (or gpt-5.4-mini) route provisioned.
+- **Primary value**: not runnable on openclaw LiteLLM proxy. Canonical number ships when gpt-5.4 route provisioned.
 - **Diagnostic secondary (J3, 2026-04-21)**: `session_recall_any@5 = 0.900` (50/500 items, retrieval-only, memd backend, `audit: pending` — diagnostic not canonical). Prior 0.936 retracted as primary; retained as diagnostic-only context (see retraction log). Retrieval diagnostic above 0.70 floor; canonical qa_accuracy floor unverifiable until judge routes.
 - **Cost ledger**: `judge_prompt_tokens`, `judge_completion_tokens`, `judge_cost_usd`, `judge_cache_hit_rate`, `judge_cache_hits`, `judge_cache_misses` emitted per run into `.memd/benchmarks/history/benchmark-runs.jsonl`. J3 run: n/a (judge not called).
 - **Competitor row**: Mem0 93.4% (`audit: upstream paper table, top_k disclosed, 2026-04-21`). Supermemory 81.6% GPT-4o / 84.6% GPT-5 (`audit: upstream blog method disclosed, 2026-04-21`). MemPalace 96.6% ⚠ contested (per MemPalace's own issue tracker — benchmark wraps ChromaDB instead of exercising MemPalace library code; `audit: pending`).

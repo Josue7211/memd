@@ -82,7 +82,7 @@ Each doc at `docs/phases/v4/phase-{id}-*.md` carries goal, why-exists, deliver, 
 
 **memd-server for dogfood/bench runs:** `MEMD_RATE_LIMIT_DISABLED=1 /tmp/memd-target/release/memd-server ...` — the SOFT=100/HARD=200/60s limiter in `crates/memd-server/src/rate_limit.rs` will 429 any real session ingest otherwise.
 
-**codex-lb proxy (for any LLM-judge test fixture generation):** OAuth-backed at `http://127.0.0.1:2455`; use `$CODEX_LB_API_KEY` not user's raw OpenAI key. Models available: `gpt-5.4`, `gpt-5.4-mini`. No `gpt-4o` routes (see `docs/backlog/v3/2026-04-21-gpt4o-proxy-route-for-judge.md`).
+**codex-lb proxy (for any LLM-judge test fixture generation):** OAuth-backed at `http://127.0.0.1:2455`; use `$CODEX_LB_API_KEY` not user's raw OpenAI key. Models available: `gpt-5.4`, `gpt-5.4`. No `gpt-4o` routes (see `docs/backlog/v3/2026-04-21-gpt4o-proxy-route-for-judge.md`).
 
 **Still-pending K3 work (separate, parallel):**
 - #29 update PUBLIC_LEADERBOARD.md with K3 judge-swap disclosure + new canonical numbers (LME 0.544, MemBench 0.533, ConvoMem 0.825)
@@ -95,7 +95,7 @@ These are K3 close-out items, not V4 planning items. The next agent should **not
 ## Known operational gotchas that bite V4 work
 
 - **tmpfs on CachyOS clears on reboot.** Any long-running bench output in `/tmp/` (including `/tmp/memd-target/`) vanishes. Persist state to `.memd/` or `docs/` before a reboot. Lost one LoCoMo 98/200 run this way on 2026-04-21.
-- **Grader cache miss on rerun.** gpt-5.4-mini is not fully deterministic at T=0; cache keys hash prompt+response+model, so rerunning the same bench does not replay the grader — it re-calls. Budget accordingly.
+- **Grader cache miss on rerun.** gpt-5.4 is not fully deterministic at T=0; cache keys hash prompt+response+model, so rerunning the same bench does not replay the grader — it re-calls. Budget accordingly.
 - **HARNESS_BRIDGES.md is currently wrong.** The report inverts reality (see backlog `2026-04-22-harness-bridges-report-inverted.md`). Do not trust its `wired: yes/no` columns when planning V4 hook-contract work — read `~/.claude/settings.json` and `~/.codex/hooks.json` directly.
 - **PUBLIC_LEADERBOARD.md auto-overwrite is disabled** (commit b244a7e landed this). Runtime no longer clobbers the hand-curated leaderboard. Do not re-introduce the auto-write path in any V4 code.
 

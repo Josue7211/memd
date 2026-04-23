@@ -21,7 +21,7 @@ Episodic alone is lateral. What moves canonical numbers on LME/LoCoMo/ConvoMem i
 
 ## Deliver
 
-1. **Extractor client.** `crates/memd-client/src/benchmark/typed_ingest/distiller.rs` — LLM-judge-style call to codex-lb (gpt-5.4-mini by default; gpt-5.4 for high-confidence pass). Input: episodic record + prior conversation window. Output: zero or more `SemanticCandidate { kind, content, provenance }`.
+1. **Extractor client.** `crates/memd-client/src/benchmark/typed_ingest/distiller.rs` — LLM-judge-style call to codex-lb (gpt-5.4 by default; gpt-5.4 for high-confidence pass). Input: episodic record + prior conversation window. Output: zero or more `SemanticCandidate { kind, content, provenance }`.
 2. **Prompt card.** `docs/contracts/semantic-distillation.md` — extraction prompt, expected output schema, kind-taxonomy cheatsheet.
 3. **Candidate store.** Distilled semantic records land as `stage: candidate` — not yet canonical. C6 promotes.
 4. **Dedupe.** Near-duplicate candidates collapse via `content_hash` + cosine similarity > 0.92.

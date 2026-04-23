@@ -1512,16 +1512,15 @@ pub(crate) async fn run_public_benchmark_command(
     if args.dry_run && args.full_eval {
         let est_calls = item_count * if args.dataset == "longmemeval" { 2 } else { 1 };
         let est_tokens = est_calls as f64 * 2200.0;
-        // gpt-5.4 + gpt-5.4-mini route through the codex-lb flat-rate proxy
-        // (no per-token marginal cost); the dry-run figures below are kept as
-        // commercial-OpenAI proxy estimates for reviewers unfamiliar with the
+        // gpt-5.4 routes through the codex-lb flat-rate proxy (no per-token
+        // marginal cost); the dry-run figure below is kept as a
+        // commercial-OpenAI proxy estimate for reviewers unfamiliar with the
         // flat-rate setup.
-        let est_cost_mini = est_tokens * 0.00000015;
         let est_cost_full = est_tokens * 0.0000025;
         eprintln!("Dry run: {item_count} items, ~{est_calls} API calls");
         eprintln!(
-            "Estimated cost: ${:.2} (gpt-5.4-mini OpenAI-proxy equiv) / ${:.2} (gpt-5.4 OpenAI-proxy equiv); codex-lb route is flat-rate",
-            est_cost_mini, est_cost_full
+            "Estimated cost: ${:.2} (gpt-5.4 OpenAI-proxy equiv); codex-lb route is flat-rate",
+            est_cost_full
         );
         let mut dry_manifest = build_public_benchmark_manifest(
             args,
@@ -1541,7 +1540,7 @@ pub(crate) async fn run_public_benchmark_command(
             obj.insert("full_eval".to_string(), json!(true));
             obj.insert(
                 "generator_model".to_string(),
-                json!(args.generator_model.as_deref().unwrap_or("gpt-5.4-mini")),
+                json!(args.generator_model.as_deref().unwrap_or("gpt-5.4")),
             );
         }
         return Ok(PublicBenchmarkRunReport {
@@ -1653,7 +1652,7 @@ pub(crate) async fn run_public_benchmark_command(
             obj.insert("full_eval".to_string(), json!(true));
             obj.insert(
                 "generator_model".to_string(),
-                json!(args.generator_model.as_deref().unwrap_or("gpt-5.4-mini")),
+                json!(args.generator_model.as_deref().unwrap_or("gpt-5.4")),
             );
         }
     }

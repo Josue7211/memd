@@ -147,7 +147,7 @@ pub(crate) fn resolve_generator_config(
     let model = args
         .generator_model
         .as_deref()
-        .unwrap_or("gpt-5.4-mini")
+        .unwrap_or("gpt-5.4")
         .to_string();
     let grader_model = args
         .grader_model

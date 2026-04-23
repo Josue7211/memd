@@ -67,7 +67,7 @@ scorer:
   primary: exact_match
   fallback: llm_judge
   llm_judge:
-    model: gpt-5.4-mini
+    model: gpt-5.4
     cache_dir: .memd/benchmarks/grader-cache/a5
     budget_usd_monthly: 2
 pass_gate:

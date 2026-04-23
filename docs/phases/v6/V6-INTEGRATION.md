@@ -120,7 +120,7 @@ F6 Task F6.3 writes four method cards at `docs/verification/method-cards/{bench}
 
 ## Hardware/env
 - cargo target: /tmp/memd-target
-- judge: codex-lb gpt-5.4-mini at 127.0.0.1:2455
+- judge: codex-lb gpt-5.4 at 127.0.0.1:2455
 - rate-limit env: MEMD_RATE_LIMIT_DISABLED=1
 
 ## Canonical numbers (V5 substrate baseline comparison)

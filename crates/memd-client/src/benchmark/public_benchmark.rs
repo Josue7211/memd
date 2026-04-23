@@ -1301,7 +1301,7 @@ pub(crate) fn estimate_judge_cost_usd(
         // codex-lb models route through the user's OAuth Codex subscription
         // (flat-rate, no per-token marginal cost). Report 0.0 so the ledger
         // reflects actual marginal spend; raw token counts still recorded.
-        "gpt-5.4" | "gpt-5.4-mini" | "gpt-5.3-codex" | "gpt-5.3-codex-spark"
+        "gpt-5.4" | "gpt-5.3-codex" | "gpt-5.3-codex-spark"
         | "gpt-5.2" | "gpt-oss-120b" | "gpt-oss-20b" | "codex-auto-review" => (0.0, 0.0),
         _ => (2.50, 10.00),
     };
@@ -4141,7 +4141,7 @@ pub(crate) fn convomem_retrieval_docs(
 /// k3-convomem: mirror of upstream `DefaultAnsweringEvaluation.getJudgePromptTemplate`.
 /// Upstream (Salesforce/ConvoMem, Scala) scores factual evidence via an LLM judge
 /// returning RIGHT/WRONG, not substring/exact match. We use the same prompt wording
-/// verbatim so judge-swap (ours = gpt-5.4-mini, upstream = Gemini 2.5 flash) is the
+/// verbatim so judge-swap (ours = gpt-5.4, upstream = Gemini 2.5 flash) is the
 /// only deviation. Disclose the judge-swap in the PUBLIC_LEADERBOARD method card.
 pub(crate) fn build_convomem_judge_prompt(question: &str, gold: &str, model_answer: &str) -> String {
     let guidelines = "**Crucial Guidelines for your judgment:**\n\n1.  **Core Information is Key**: The Model's Response must contain all the **essential factual information** that directly answers the Question.\n2.  **Equivalence Counts**: Phrasing doesn't need to be identical. If the Model's Response conveys the exact same core meaning and details as the Correct Answer, even if paraphrased or structured differently, consider it correct.\n3.  **Superfluous (but Accurate) Information**: If the Model's Response includes additional details that were *not explicitly asked for* by the Question, but these details are **accurate and do not contradict** the Correct Answer, you should **still count it as correct** if the core question is fully answered.\n4.  **Partial Answers are Incorrect**: If the Model's Response is missing any essential information directly requested by the Question (even if the Correct Answer provides more detail), it is incorrect.\n5.  **Focus on the Question**: Your primary focus should be whether the Model's Response adequately addresses the Question using information that aligns with the Correct Answer. Do not penalize the model for not reiterating every single word or incidental detail from the Correct Answer if it wasn't requested.";

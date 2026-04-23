@@ -25,7 +25,7 @@ Public benches measure flat RAG-over-transcript; none of them cut sessions, forc
 3. **Runner.** `memd bench substrate --suite cross-session-recall` invokes generator, runs sessions, collects metrics.
 4. **Metrics.** `recall@1`, `recall@3`, `answer-exact-match` per cut; token-cost-per-recall; median latency.
 5. **Baseline.** Run against memd current, lock canonical numbers as floor.
-6. **Scorer.** Deterministic exact-match + cached LLM-judge fallback (codex-lb gpt-5.4-mini).
+6. **Scorer.** Deterministic exact-match + cached LLM-judge fallback (codex-lb gpt-5.4).
 
 ## Pass Gate
 

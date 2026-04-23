@@ -82,7 +82,7 @@ These are the seams the phase plans share. Read `V4-INTEGRATION.md` §9 for the 
 - **Branch:** `research/mining`. V3 K3 close-out items (#26, #29, #30, #31) still pending — parallelizable with V4 execution.
 - **Rebuild:** `cargo build --release --target-dir /tmp/memd-target -p memd-client -p memd-server`.
 - **memd-server for dogfood:** `MEMD_RATE_LIMIT_DISABLED=1 /tmp/memd-target/release/memd-server …`.
-- **codex-lb for LLM-judge (C4 + F4):** `http://127.0.0.1:2455`, `$CODEX_LB_API_KEY`, models `gpt-5.4` / `gpt-5.4-mini`. No `gpt-4o` routes.
+- **codex-lb for LLM-judge (C4 + F4):** `http://127.0.0.1:2455`, `$CODEX_LB_API_KEY`, models `gpt-5.4` / `gpt-5.4`. No `gpt-4o` routes.
 - **Grader cache pattern:** reuse `.memd/benchmarks/grader-cache/<phase>/` namespace convention; C4 + F4 share a $5/mo budget pool.
 - **tmpfs wipe on reboot:** persist state to `.memd/` or `docs/` before a reboot. `/tmp/memd-target/` vanishes.
 - **MemoryKind `#[non_exhaustive]`:** verify before C4.1 — may already be annotated.

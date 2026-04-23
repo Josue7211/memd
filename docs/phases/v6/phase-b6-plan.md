@@ -61,7 +61,7 @@ Distiller output schema:
 
 ```
 memd bench public --bench lme --typed-ingest=episodic+semantic
-  [--distill-model gpt-5.4-mini]
+  [--distill-model gpt-5.4]
   [--distill-budget-milli-usd 100]
   [--distill-cache-dir .memd/benchmarks/public/cache/distill/]
 ```
@@ -92,7 +92,7 @@ Per-turn NDJSON: judge model, tokens, milli-USD, candidate count, cache hit/miss
 
 | Var | Default | Effect |
 | --- | --- | --- |
-| `MEMD_V6_DISTILL_MODEL` | `gpt-5.4-mini` | Override per run. |
+| `MEMD_V6_DISTILL_MODEL` | `gpt-5.4` | Override per run. |
 | `MEMD_V6_DISTILL_CACHE` | `1` | Disable only for forced re-extraction. |
 
 ## 8. Task list

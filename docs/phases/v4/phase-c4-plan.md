@@ -18,7 +18,7 @@ axis_delta_target: "+2 (2 → 4)"
 
 ## 0. Executive summary
 
-Today `memd hook capture --summary` exists and can be invoked manually. There is no **automatic detection** of a user's in-session correction, no **provenance linkage** to the record being corrected, no **correction-typed storage**, and no **E2E test**. C4 fixes all four in one phase. LLM-judge via codex-lb proxy (127.0.0.1:2455, `gpt-5.4-mini`) confirms marginal candidates, cached on (prompt, response, model) so rerun cost stays bounded.
+Today `memd hook capture --summary` exists and can be invoked manually. There is no **automatic detection** of a user's in-session correction, no **provenance linkage** to the record being corrected, no **correction-typed storage**, and no **E2E test**. C4 fixes all four in one phase. LLM-judge via codex-lb proxy (127.0.0.1:2455, `gpt-5.4`) confirms marginal candidates, cached on (prompt, response, model) so rerun cost stays bounded.
 
 Axis move: correction-retention 2 → 4 (V7 finishes the 8).
 
@@ -158,7 +158,7 @@ memd correction list \
 ### LLM-judge contract
 
 - Base URL: `${CODEX_LB_URL:-http://127.0.0.1:2455}`, API key: `$CODEX_LB_API_KEY`.
-- Model: `gpt-5.4-mini`. Temperature 0.
+- Model: `gpt-5.4`. Temperature 0.
 - Cache key: sha256(prompt + response + model + detector_score).
 - Cache path: `.memd/benchmarks/grader-cache/c4/<sha>.json`.
 - Cost guard: refuse call if month-to-date cost file (`.memd/logs/c4-cost.json`) exceeds `MEMD_C4_JUDGE_BUDGET_USD` (default 5).
@@ -240,7 +240,7 @@ cargo test --target-dir /tmp/memd-target -p memd-client correction_e2e
 | --- | --- | --- |
 | `MEMD_C4_CORRECTION_DETECT` | `0` → `1` post dogfood | Auto-detection inside `hook capture`. When off, manual `memd correction capture` path still works. |
 | `MEMD_C4_JUDGE_BUDGET_USD` | `5` | Monthly judge spend ceiling. |
-| `MEMD_C4_JUDGE_MODEL` | `gpt-5.4-mini` | Override for experiments. |
+| `MEMD_C4_JUDGE_MODEL` | `gpt-5.4` | Override for experiments. |
 | `MEMD_C4_JUDGE_DISABLED` | `0` | `1` → detector only, no proxy calls. |
 
 ---
