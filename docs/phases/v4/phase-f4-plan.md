@@ -240,3 +240,63 @@ cargo test --target-dir /tmp/memd-target -p memd-client preference_drift
 4. `MEMD_F4_PREF_DRIFT=1` default.
 5. 10-STAR correction_retention bumped.
 6. Atomic commits on `research/mining`.
+
+---
+
+## Revision 2026-04-22 — F4.7 procedural-detection seed
+
+> Appended after V4 audit. New intra-F4 task seeds the dormant
+> `RetrievalIntent::Procedural` path. Governed by
+> [[docs/verification/milestones/MILESTONE-v4.md]] procedural_reuse gate.
+> F4.7 claims **zero axis credit** — instrumentation only; no behavior
+> proof. The axis lift to 3+ is V5 scope.
+
+### F4.7 — routine-detection seed (new task)
+
+Wire the dead-code `RetrievalIntent::Procedural` path enough to emit
+metrics that V5 can later prove against.
+
+**Scope:**
+1. Add `memd_core::procedural::detect::observe_tool_sequence()` called
+   by B4's universal hook trace on every PostToolUse event.
+2. Detector observes (tool_name, target_prefix) tuples and counts
+   repetition within a sliding 20-turn window. Window advances per turn.
+3. When a tuple repeats ≥ 3 times with ≥ 2 distinct session_ids, emit
+   a `routine_candidate` event to `.memd/logs/routine-candidates.ndjson`:
+   ```json
+   {"ts":"...","tuple":["read","src/ledger"],"count":4,"sessions":["s1","s2"],"candidate_id":"..."}
+   ```
+4. Increment Prometheus-style counter `routine_candidates_observed`
+   (stored in `.memd/metrics/counters.json`, not a real Prometheus server).
+5. Add `memd procedural candidates` read-only CLI that prints the
+   log and counter.
+
+**Explicit non-scope:**
+- No promotion from candidate to procedural memory.
+- No retrieval-path consumption of `routine_candidates` (that path stays
+  dead in V4).
+- No behavior change — this is pure instrumentation.
+
+### F4.7 pass gate
+
+- Counter `routine_candidates_observed` ≥ 1 after the 25-turn G4
+  scenario completes.
+- NDJSON log contains at least one entry with `count ≥ 3` and
+  `sessions ≥ 2`.
+- `memd procedural candidates` returns the log without panicking.
+
+G4 asserts these at turns T16.5 and T25.5 (see V4-INTEGRATION §4).
+
+### F4.7 explicitly does not claim axis credit
+
+MILESTONE-v4's `procedural_reuse` axis goes 1 → 2 because
+instrumentation exists. **Any attempt to regenerate the scorecard with
+procedural_reuse > 2 while V5 routine-detection-live has not landed is
+invalid** and the G4 scorecard regenerator must reject it.
+
+### F4 axis credit
+
+F4 still claims CR +1 shared with C4 (preference drift is a correction-
+family surface) and the new F4.7 contributes procedural_reuse +1 with
+the strict no-credit-above-2 constraint.
+

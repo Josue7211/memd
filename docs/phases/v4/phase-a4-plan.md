@@ -393,3 +393,57 @@ Ordered, each must hold:
 7. All commits are on `research/mining`, atomic, one per task.
 
 If any fails: see `fail_conditions` in the phase doc. Do not close A4.
+
+---
+
+## Revision 2026-04-22 — schema locks + cross-harness prep
+
+> Appended after V4 audit. Governed by
+> [[docs/phases/v4/V4-INTEGRATION.md#11-schema--ordering-locks-v4-substrate-plumbing]]
+> and [[docs/verification/0.1.0-CONTRACT.md]]. A4 now owns three substrate-
+> plumbing additions beyond the original ledger-restore work. These land in
+> the A4 migration task (A4.2) and do not change A4's axis-delta claim.
+
+### A4.2 migration — new columns
+
+`memory_items` gains five columns in the same migration that introduces the
+PostCompact restore plumbing:
+
+- `lamport_node_id` TEXT NOT NULL — `{harness_preset}:{agent_id}` format
+- `lamport_seq` INTEGER NOT NULL — monotonic per `lamport_node_id`
+- `lamport_vector` TEXT — JSON-encoded observed-clock snapshot
+- `session_seq` INTEGER NOT NULL — monotonic per `session_id`
+- `content_hash` TEXT NOT NULL — sha256(normalize(content))[..16]
+
+Indexes:
+- UNIQUE (`agent_id`, `content_hash`) — same-agent dedup
+- (`session_id`, `session_seq`) — replay-at-cutoff
+- (`lamport_node_id`, `lamport_seq`) — per-node ordering
+
+### A4 test additions
+
+Add to A4 Task A4.7 integration tests:
+- `lamport_order_breaks_ties_deterministically`: two concurrent writes to
+  the same claim from different harnesses produce a stable order.
+- `session_seq_cutoff_filters_future_state`: query with `cutoff_seq=N`
+  never returns rows with `session_seq > N`.
+- `content_hash_dedupes_same_agent`: second insert of identical content
+  by same agent is rejected with `MEMD_ERR_DUP_CONTENT`.
+- `content_hash_coattributes_cross_agent`: second insert of identical
+  content by different agent succeeds and writes `memory_item_co_authors`.
+
+### A4 does not consume these
+
+The A4 ledger-restore path does not read Lamport vectors or session_seq.
+Schema plumbing lands here because A4 owns the migration; consumers are:
+- C4 (correction supersede uses Lamport for ordering)
+- D4 (wake compiler uses session_seq for cutoff replay)
+- E4 (recall uses content_hash for dedup in result set)
+- G4 (cross-harness flip test asserts Lamport ordering holds)
+
+### Axis credit unchanged
+
+A4 still claims SC +3 (1 → 4). Schema locks are structural plumbing for
+V4's cross-harness flip and V5+ work; they do not independently move an
+axis score.
+

@@ -292,3 +292,81 @@ Regen procedure: anonymize a real dogfood session via `scripts/dev/anonymize-ses
 5. `MEMD_D4_COMPILER=1` default.
 6. 10-STAR token_efficiency rescored.
 7. Atomic commits on `research/mining`.
+
+---
+
+## Revision 2026-04-22 — kinds coverage, cost ledger, 4-layer cap
+
+> Appended after V4 audit. Governed by
+> [[docs/verification/milestones/MILESTONE-v4.md]] (token_efficiency axis
+> gate) and
+> [[docs/phases/v4/V4-INTEGRATION.md#11-schema--ordering-locks-v4-substrate-plumbing]].
+
+### Kinds coverage gate
+
+The original D4 compiler admitted by score alone. New rule (Task D4.4
+admission policy):
+
+- **Minimum representation per kind-bucket** when wake budget allows:
+  - Working Context: ≤ 25% of budget
+  - Session Continuity: ≤ 20%
+  - Canonical (corrections + promoted facts): ≤ 25%
+  - Semantic + Episodic: ≤ 20%
+  - Procedural: ≤ 10% (reserved slot even though V4 table is empty;
+    keeps shape for V5+)
+- Budget unused by a starving bucket falls through to the next priority.
+- Admission decisions logged per-turn to `.memd/logs/wake-budget.ndjson`
+  with field `bucket_fill_ratio` per kind.
+
+This kills the kind-blind admission defect flagged in MEMD-10-STAR Pillar
+4. A wake packet that is 100% Status kind fails the gate even if the
+score math passes.
+
+### Cost ledger — required for TE axis lift
+
+D4 Task D4.6 (now renamed "cost ledger") writes per-wake cost metrics to
+`.memd/logs/wake-cost.ndjson`:
+
+```json
+{
+  "ts": "2026-04-22T12:00:00Z",
+  "session_id": "...",
+  "wake_token_count": 1847,
+  "budget_target": 2000,
+  "budget_utilization": 0.92,
+  "model_family": "claude-opus-4-7|gpt-5|...",
+  "estimated_cost_usd": 0.0028
+}
+```
+
+Without this ledger, the `token_efficiency 2 → 4` claim is phantom
+(budget enforced but cost unmeasured = 3/10, not 4/10). Ledger landing
+is a precondition for G4 regenerating the axis score.
+
+### 4-layer context cap (donor: mempalace)
+
+D4 compiler implements the mempalace L0..L3 cap:
+
+- **L0 (identity, always-resident):** ≤ 200 tokens. User role,
+  workspace, active focus stub.
+- **L1 (essential story):** ≤ 800 tokens. Last session summary,
+  outstanding corrections, pinned preferences.
+- **L2 (on-demand):** ≤ 1000 tokens. Recalled via wake compiler scoring.
+  Not always resident; appears when budget allows.
+- **L3 (deep search):** 0 tokens in wake. Available via
+  `memd lookup`/`memd resume`; compiler exposes hints, not content.
+
+Total budget ceiling: 2000 tokens (L0 + L1 + L2). L3 is out-of-wake.
+
+### Cutoff-seq replay (uses A4 `session_seq`)
+
+D4 Task D4.9 (new): `memd runtime resume --cutoff-seq N` replays wake
+compilation as it would have looked after sequence N. Used by G4 for
+post-mortem debugging of a failed wake.
+
+### Axis credit
+
+D4 still claims TE +2 (2 → 4) and SC contribution shared with A4/B4.
+Kinds coverage and cost ledger enforce the TE claim; without them, TE
+caps at 3.
+

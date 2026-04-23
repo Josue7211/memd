@@ -3,7 +3,9 @@ version: v4
 kind: integration-plan
 status: ready-to-execute
 opened: 2026-04-22
-scope: A4..G4
+revised: 2026-04-22
+scope: A4..G4 (F4 includes F4.7 seed)
+depends_on: [../../verification/0.1.0-CONTRACT.md, ../../verification/milestones/MILESTONE-v4.md]
 ---
 
 # V4 Integration — Cross-Phase Plan
@@ -122,34 +124,45 @@ Full canonical script; each turn tagged with the V4 phase it exercises.
 
 Cut 1 state snapshot assertions — see `phase-g4-plan.md` §4 Cut 1.
 
-### Session 2 — "continue" (10 turns)
+### Session 2 — "continue" on **codex harness** (10 turns — cross-harness flip)
+
+Session 2 runs on **codex**, not claude-code. Same workspace, same user,
+different harness preset. This is what makes `cross_harness 2→3` a real
+axis lift and not a phantom one (per 0.1.0-CONTRACT.md "no axis credit
+without harness proof").
 
 | Turn | Actor | Utterance | Phases |
 | --- | --- | --- | --- |
-| — | system | Wake via D4 compiler | D4 + F4 + A4 (PostCompact restore before T11) |
+| — | system | Wake via D4 compiler in codex preset | D4 + F4 + A4 (PostCompact restore before T11) + **CH**: beliefs from claude-code S1 observable |
 | T11 | agent | Read `migrations/0002.sql` | A4 |
-| T12 | user | "What's the primary ID?" → `memd lookup --query "primary ID"` | E4 + C4 |
-| T13 | agent | Touch file from session 1 | A4 |
+| T12 | user | "What's the primary ID?" → `memd lookup --query "primary ID"` | E4 + C4 + **CH flip**: must answer "ulid" (correction T3 was issued in claude-code) |
+| T13 | agent | Touch file from session 1 | A4 (cross-harness ledger handoff) |
 | T14 | agent | Touch another | A4 |
 | T15 | agent | Touch another | A4 |
 | T16 | user | "How are we doing?" | D4 (wake brief recall) |
+| T16.5 | system | **F4.7 assertion**: `routine_candidates_observed` metric incremented ≥1 from T13-T15 file-touch pattern (instrumentation only, no behavior) | F4.7 |
 | T17 | user | "Summarize what you found." | — |
-| T18 | user | "No, migration deadline is 2026-05-15." | C4 (second correction) |
+| T18 | user | "No, migration deadline is 2026-05-15." | C4 (second correction, codex-originated) |
 | T19 | agent | (seeded) verbose reply | F4 (drift trigger) |
 | T20 | system | SessionStop → PreCompact | A4 + B4 |
 
 Cut 2 state snapshot assertions — see G4 plan §4 Cut 2.
 
-### Session 3 — "honor" (5 turns)
+### Session 3 — "honor" on **claude-code** (5 turns — round-trip)
+
+Session 3 returns to claude-code (original harness). This proves
+corrections made in codex (S2) survive the cross-harness round-trip back
+to claude-code without re-export or manual sync.
 
 | Turn | Actor | Utterance | Phases |
 | --- | --- | --- | --- |
-| — | system | Wake (should include drift surface + corrections) | D4 + F4 |
-| T21 | user | "What's the migration deadline?" | E4 + C4 (must answer 2026-05-15) |
+| — | system | Wake (should include drift surface + both corrections, both harnesses) | D4 + F4 + CH round-trip |
+| T21 | user | "What's the migration deadline?" | E4 + C4 (must answer 2026-05-15 — **correction issued in codex must hold in claude-code**) |
 | T22 | user | "And the primary ID?" | E4 + C4 (must answer ulid) |
 | T23 | user | `memd preference confirm P1` | F4 |
 | T24 | agent | terse reply | F4 |
 | T25 | system | SessionStop | B4 |
+| T25.5 | system | **F4.7 assertion**: metric `routine_candidates_observed` total across 3 sessions ≥ 3 (instrumentation live, zero behavior credit) | F4.7 |
 
 Cut 3 assertions + scorecard regeneration — see G4 plan §4 Cut 3.
 
@@ -161,22 +174,24 @@ G4 Task G4.3 includes fault-injection variants: skip A4 restore → assert cut 2
 
 G4 Task G4.4 writes to `docs/verification/MEMD-10-STAR.md`. The regenerator replaces the composite scorecard table in place and appends a dated evidence block.
 
-Target table post-V4 (aspirational — actual numbers come from harness):
+Target table post-V4 (aligned to MILESTONE-v4.md axis contract — harness
+produces actual numbers and the regenerator fails if any score exceeds
+this table):
 
 ```markdown
 ## 10-Star Composite Scorecard
 
 | Axis | Weight | Score | Status |
 |------|--------|-------|--------|
-| Session continuity | 20% | 4/10 | A4 ledger survival + B4 enforced hooks; G4 proof runs 10/10 |
+| Session continuity | 20% | 4/10 | A4 ledger survival + B4 enforced hooks + D4 compiler |
 | Correction retention | 15% | 4/10 | C4 E2E + F4 preference drift; 7d dogfood precision ≥0.85 |
-| Procedural reuse | 15% | 1/10 | unchanged — V5+ scope |
-| Cross-harness continuity | 15% | 4/10 | E4 depth contract + B4 trace normalized cross-harness |
+| Procedural reuse | 15% | 2/10 | F4.7 seed — instrumentation live, no behavior credit |
+| Cross-harness continuity | 15% | 3/10 | G4 cross-harness flip: correction in claude-code observable in codex |
 | Raw retrieval strength | 15% | 4/10 | unchanged — V5 substrate bench target |
-| Token efficiency | 10% | 7/10 | D4 compiler + E4 depth; wake median ≤2000 tokens |
-| Trust + provenance | 10% | 6/10 | B4 trace + C4 provenance visible |
+| Token efficiency | 10% | 4/10 | D4 compiler + E4 depth; wake median ≤2000 tokens, cost measured |
+| Trust + provenance | 10% | 3/10 | B4 trace + C4 provenance visible; drilldown still partial |
 
-**Composite: ≥4.0 (V4 gate requirement) — regenerated YYYY-MM-DD by G4 harness run <id>**
+**Composite: 3.45 (V4 gate requirement) — regenerated YYYY-MM-DD by G4 harness run <id>**
 
 Evidence: docs/verification/v4-proof-runs/YYYY-MM-DD.ndjson
 ```
@@ -195,10 +210,24 @@ Flag-flip ordering (each flip = its own commit, each after a 7-day clean window)
 2. `MEMD_HOOK_ENFORCE` = 1 (Task B4.10)
 3. `MEMD_C4_CORRECTION_DETECT` = 1 (Task C4.9)
 4. `MEMD_D4_COMPILER` = 1 (Task D4.8)
-5. `MEMD_F4_PREF_DRIFT` = 1 (Task F4.7)
+5. `MEMD_F4_PREF_DRIFT` = 1 (Task F4.8)   — F4.7 seed ships flag-off always
 6. E4 flags ship on by default; no graduation needed.
 
-G4 runs with all flags at production defaults. A graduation rollback does not re-open V4 — file a recovery phase instead.
+**Calendar spillover:** 5 graduations × 7-day clean window = 35 days of
+post-G4 observation. V4 code-complete and G4 harness pass are the
+milestone-close bar; flag-graduation runs into the V5 planning window.
+V5 planning must account for the flag-ops work, but V5 phase A5 is **not**
+blocked on graduation completion — only on the handoff commit from V4's
+last code phase.
+
+F4.7 instrumentation ships always-on (flag-off would mean metric never
+populates; defeats the measurement). Instrumentation is zero-cost, zero-
+behavior, so no graduation needed.
+
+G4 runs with all flags at production defaults (on). A graduation rollback
+does not re-open V4 — file a recovery phase instead. If a flag flip
+surfaces a regression during the 7-day window, the recovery phase targets
+the specific axis that regressed and is named `v4-recovery-<axis>-<date>`.
 
 ## 7. Bench regression watch
 
@@ -268,12 +297,86 @@ Surface these in TodoWrite or phase kickoff notes; do not silently assume:
 - CI substrate — `.github/workflows/` vs other CI (e.g., Forgejo, Woodpecker). Confirm at G4 Task G4.5.
 - `MemoryKind` enum non-exhaustive annotation — may already be the case; verify before C4.1.
 
-## 11. Exit criteria for V4 as a milestone
+## 11. Schema + ordering locks (V4 substrate plumbing)
+
+Three schema-level locks land in V4 to unblock multi-harness and multi-
+agent use-cases in V5+. These are **structural**, not axis-credit-bearing.
+All three are A4 scope (read-state plumbing).
+
+### 11.1 Lamport vector clock per memory row
+
+Every write to `memory_items` stamps a `(node_id, sequence)` Lamport pair.
+`node_id` is derived from harness preset + agent id; `sequence` is monotonic
+per node. Two writes to the same claim from different harnesses are ordered
+by Lamport rule (max node_seen + 1), breaking ties by canonical node_id sort.
+
+Columns added (A4 Task A4.2 migration):
+- `memory_items.lamport_node_id` TEXT NOT NULL
+- `memory_items.lamport_seq`     INTEGER NOT NULL
+- `memory_items.lamport_vector`  TEXT (JSON-encoded observed-clock snapshot)
+
+Rationale: prevents the "codex supersede accidentally overwritten by stale
+claude-code write" class of bug in the V4 cross-harness flip scenario.
+Donor: Omegon (Rust reference implementation of Lamport-versioned memory).
+
+### 11.2 Sequence-based session isolation
+
+Each `memory_items` row carries `session_seq` (monotonic per session). All
+read paths accept a `cutoff_seq` parameter to replay-past-a-point for
+debugging and to prevent "future state" from leaking into reconstruction.
+
+Column added (A4 Task A4.3):
+- `memory_items.session_seq` INTEGER NOT NULL (monotonic per session_id)
+
+Rationale: debugging a corruption post-compaction without `cutoff_seq` means
+manually filtering by timestamp, which is lossy. Donor: Smriti sequence
+isolation.
+
+### 11.3 Content-hash deduplication
+
+Every `memory_items` row carries a normalized content hash. Dedup rule:
+normalize (trim + collapse whitespace + lowercase) → SHA256 → first 16 hex
+chars. Insert-time uniqueness index on `(agent_id, content_hash)` prevents
+same-agent dup; cross-agent dup falls through but gets co-attribution in
+`memory_item_co_authors` (new table, D4 scope).
+
+Column added (A4 Task A4.2):
+- `memory_items.content_hash` TEXT NOT NULL
+
+Rationale: the 3-session scenario has T2/T3 correction that could double-
+insert under noisy hook retries. Content hash makes dedup correctness a
+constraint not a best-effort. Donor: Omegon + mempalace.
+
+### 11.4 Why V4 owns these
+
+All three are read-state plumbing. A4 is the "read state across compaction"
+phase; plumbing lives where the schema migrations land. Later phases
+consume the new columns without owning the migration, which keeps phase
+boundaries clean.
+
+## 12. Exit criteria for V4 as a milestone
 
 All seven phase exit criteria met AND G4 exit criteria met AND:
 
-- 10-STAR composite ≥ 4.0 written to `docs/verification/MEMD-10-STAR.md` by the G4 scorecard regenerator.
-- `docs/verification/milestones/MILESTONE-v4.md` filled in.
+- 10-STAR composite ≥ 3.45 written to `docs/verification/MEMD-10-STAR.md` by the G4 scorecard regenerator.
+- No axis score above the targets in MILESTONE-v4.md (regenerator fails loud on over-claim).
+- `docs/verification/milestones/MILESTONE-v4.md` filled in with evidence paths.
 - `ROADMAP.md` V4 → closed, V5 → in progress.
-- No open backlog items tagged `axis: session_continuity` or `axis: correction_retention` at severity `blocker`.
+- No open backlog items tagged `axis: session_continuity`, `axis: correction_retention`, or `axis: cross_harness` at severity `blocker`.
+- Cross-harness flip test passing (claude-code S1 → codex S2 → claude-code S3 round-trip).
+- F4.7 metric `routine_candidates_observed` populated non-zero (instrumentation proven live, no behavior credit claimed).
+- Schema locks 11.1–11.3 landed and covered by unit tests.
+- `docs/contracts/federated-memory-visibility.md` referenced from V5 A5 kickoff (V9 enforcement precondition visible).
 - Final handoff doc points at `docs/phases/v5/` (to be created in the V5 plan-spec phase).
+
+## 13. Changelog
+
+- 2026-04-22 initial spec.
+- 2026-04-22 revision:
+  - Session 2 switched from claude-code to codex (real cross-harness flip).
+  - F4.7 seed added inside F4 (procedural instrumentation, no axis credit).
+  - Scorecard template aligned to MILESTONE-v4 post-axis targets (3.45 not 4.0).
+  - Flag-calendar spillover note added (5 × 7-day runs into V5 window).
+  - Schema locks section added (Lamport, sequence isolation, content hash)
+    — all A4 scope structural plumbing.
+  - Cross-harness, F4.7, and schema-lock exit criteria added.

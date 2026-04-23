@@ -341,3 +341,58 @@ cargo test --target-dir /tmp/memd-target -p memd-client correction_e2e
 4. `docs/contracts/correction-lane.md` exists.
 5. 10-STAR correction_retention bumped.
 6. Atomic commits on `research/mining`.
+
+---
+
+## Revision 2026-04-22 — sampling gate + dedup integration
+
+> Appended after V4 audit. Governed by
+> [[docs/verification/milestones/MILESTONE-v4.md]] (axis gate table) and
+> [[docs/phases/v4/V4-INTEGRATION.md#11-schema--ordering-locks-v4-substrate-plumbing]].
+
+### Sampling gate tightening
+
+The original C4 pass gate "correction detection works" was under-specified.
+New strict gate (Task C4.8 precision review):
+
+- **Precision ≥ 0.85** over a 40-correction sample set (20 aligned + 20
+  adversarial: "no, wait, actually" phrasings with and without genuine
+  correction intent).
+- **Recall ≥ 0.75** — missed corrections are recoverable via manual
+  `memd remember --kind correction` but the detector must not sleep.
+- **False-positive rate ≤ 0.10** — innocuous "no, I mean X also applies"
+  must not trigger supersede.
+- Sample set stored as fixture `shared/corrections/c4-sample-40.jsonl`.
+
+Failure on any of the three gates blocks C4 close. Re-training or
+threshold tuning is allowed; silencing the gate is not.
+
+### Integration with A4 schema locks
+
+C4 writes correction rows that consume A4's new columns:
+- `lamport_node_id` + `lamport_seq` populated from caller harness at
+  insert time. Supersede edge written to `memory_supersedes` must
+  Lamport-order `(superseder, superseded)`.
+- `content_hash` stamped on both the correction and the superseded row;
+  if the new correction's content_hash matches an already-superseded row
+  in the same belief chain, skip the write and log to
+  `.memd/logs/corrections.ndjson` as `action=dedup`.
+
+### Cross-harness correction test (feeds G4)
+
+Add C4 Task C4.10: cross-harness correction round-trip test.
+- Store belief B in claude-code preset.
+- Store correction C against B in codex preset (same workspace).
+- Query belief from claude-code preset.
+- Assert C wins per Lamport rule and provenance chain points at codex
+  agent id.
+
+This test is a prerequisite for G4's cross-harness flip scenario —
+without it, G4 can't isolate whether a flip failure is C4's or G4's
+fault.
+
+### Axis credit unchanged
+
+C4 still claims CR +3 (1 → 4). Sampling tightening and dedup integration
+enforce the score; they don't inflate it.
+

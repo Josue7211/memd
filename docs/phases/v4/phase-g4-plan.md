@@ -287,3 +287,88 @@ G4 is a bench. It is **the** V4 bench. Public benches: no direct impact — G4 m
 7. Atomic commits on `research/mining`.
 
 If any fails: V4 stays open. File recovery phase. Do not advance to V5.
+
+---
+
+## Revision 2026-04-22 — cross-harness flip + scorecard guardrails
+
+> Appended after V4 audit. Governed by
+> [[docs/verification/0.1.0-CONTRACT.md]],
+> [[docs/verification/milestones/MILESTONE-v4.md]] (axis assertions table),
+> and [[docs/phases/v4/V4-INTEGRATION.md#4-3-session-dogfood-scenario-g4-executes]].
+
+### Scenario is now multi-harness
+
+Session 1 runs on claude-code, Session 2 on codex, Session 3 on
+claude-code (see V4-INTEGRATION §4). G4 harness must invoke the right
+preset per session — single-harness runs are a spec violation.
+
+Harness invocation:
+- S1: `memd harness run --preset claude-code --session-id s1 --script ...`
+- S2: `memd harness run --preset codex --session-id s2 --script ...`
+- S3: `memd harness run --preset claude-code --session-id s3 --script ...`
+
+All three share `--workspace-id v4-dogfood` and `--agent-id g4-runner`.
+
+### G4 cross-harness flip assertion (new, axis-credit-bearing)
+
+Add G4 Task G4.2.3:
+
+**Assertion CH-FLIP-01:** at S2 turn T12 (codex preset), a `memd lookup`
+for "primary ID" in workspace `v4-dogfood` returns `ulid` (the value
+from T3 correction, issued in claude-code S1). The returned row's
+provenance chain shows: `(ulid, corrected-by=S1-T3, original-claim-agent=user,
+observing-agent=codex:g4-runner)`.
+
+**Assertion CH-FLIP-02:** at S3 turn T21 (back in claude-code), a lookup
+for "migration deadline" returns `2026-05-15` (corrected in S2 codex T18).
+
+Both assertions must pass for the `cross_harness 2 → 3` axis credit.
+Either failing = axis caps at 2 and milestone does not close.
+
+### G4 F4.7 assertions (new, zero-credit)
+
+Add G4 Task G4.2.4:
+
+**Assertion F47-01:** at S2 turn T16.5, counter
+`routine_candidates_observed ≥ 1`.
+**Assertion F47-02:** at S3 turn T25.5, counter
+`routine_candidates_observed ≥ 3` total across scenario.
+
+Both assertions must pass. They prove F4.7 instrumentation is live; they
+do **not** move procedural_reuse past 2.
+
+### G4 scorecard regenerator — strict mode
+
+Task G4.4 regenerator runs in strict mode:
+
+- Reads MILESTONE-v4.md axis targets.
+- Reads harness-produced NDJSON evidence.
+- Writes to MEMD-10-STAR.md only if `harness_observed_axis_score ≤
+  milestone_target_axis_score` for every axis.
+- If over-claim detected, regenerator exits non-zero with diff, no
+  write.
+- If any axis lift lacks its corresponding assertion (table in
+  MILESTONE-v4.md `Per-axis harness assertions`), regenerator refuses
+  that axis regardless of score.
+
+### G4 negative controls (expanded)
+
+Original Task G4.3 (fault-injection) expanded:
+
+1. Skip A4 restore → assert cut 2 wake fails (original).
+2. Inject B4 silent swallow → assert harness surfaces it (original).
+3. Drop C4 provenance → assert C4 assertion fires (original).
+4. **NEW:** Run S2 on claude-code instead of codex → assert CH-FLIP-01
+   still passes (proves assertion isn't harness-coincidental).
+5. **NEW:** Run S2 on codex but disable F4.7 instrumentation → assert
+   F47-01 fails (proves instrumentation is live-path, not mocked).
+6. **NEW:** Write a post-C4 row with stale Lamport seq → assert supersede
+   still orders correctly (proves Lamport plumbing from A4 works).
+
+### G4 axis claim
+
+G4 binds the axis credits from A4+B4+C4+D4+E4+F4+F4.7. G4 itself does
+not add axis lift; it **proves** the lift. A phase's axis-delta is only
+real after G4 assertions pass.
+

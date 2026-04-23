@@ -259,3 +259,59 @@ No graduation dance — flag defaults on at ship.
 4. 10-STAR axes 6 + 4 rescored.
 5. `docs/contracts/recall-depth.md` linked.
 6. Atomic commits on `research/mining`.
+
+---
+
+## Revision 2026-04-22 — FTS5 + RRF + query sanitization
+
+> Appended after V4 audit. Donor pattern lift from Omegon (FTS5+RRF) and
+> Smriti (query sanitization). Governed by
+> [[docs/phases/v4/V4-INTEGRATION.md#11-schema--ordering-locks-v4-substrate-plumbing]].
+
+### E4.7 — FTS5 + RRF hybrid retrieval (new task)
+
+E4 progressive-depth recall gains a hybrid retrieval path underneath
+the depth contract:
+
+- **FTS5 virtual table** `memory_items_fts` mirrors `memory_items.content`
+  with tokenizer `porter unicode61`. Indexed columns: content,
+  normalized_content, kind, tags.
+- **RRF fusion** of FTS5 rank + existing semantic score with default
+  `k=60`. Reciprocal rank formula:
+  `rrf(d) = sum_over_retrievers(1 / (k + rank_i(d)))`.
+- Configurable per-query weights via `memd lookup --fusion fts:0.5,sem:0.5`;
+  default 0.6/0.4 favoring FTS5 for exact-term recall.
+
+FTS5 migration is an additive table, not a column add on `memory_items`,
+so A4's migration is not disturbed. E4 owns the FTS5 migration directly.
+
+### Query sanitization (donor: Smriti)
+
+All query text entering the retrieval path passes through
+`memd_core::query::sanitize()`:
+
+- Strip FTS5 operators (`*`, `^`, `"`, `NEAR`) unless the caller passes
+  `--raw-fts` (CLI) or `raw_fts: true` (API).
+- Normalize whitespace and case for hashing.
+- Reject queries > 1024 chars with `MEMD_ERR_QUERY_TOO_LONG`.
+- Log sanitized-vs-raw diff to `.memd/logs/query-sanitize.ndjson` when
+  sanitization changed the query materially (non-whitespace edit).
+
+Rationale: avoid the Smriti-documented class of injection where a user
+query with a rogue `*` flips FTS5 into prefix-match-all mode.
+
+### Content-hash dedup in result sets
+
+After ranking, E4 deduplicates the result list by `content_hash`. When
+two rows share hash, keep the one with the highest trust tier; ties
+broken by newest `lamport_seq`. Losers drop to explain surface with
+`elided_as=dup` marker.
+
+### E4 axis credit
+
+E4 still contributes to SC +3 and TE +2 claims (shared with A4/D4).
+FTS5+RRF is the retrieval substrate uplift; without it, E4's "depth
+contract" is a policy wrapping an undifferentiated retrieval path.
+Raw_retrieval axis does **not** lift in V4 (that's V5's bench work);
+E4's contribution is to make the lift *possible* in V5.
+
