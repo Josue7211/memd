@@ -8,7 +8,7 @@ opened: 2026-04-22
 depends_on: [V5]
 phase_doc: docs/phases/v6/phase-a6-episodic-ingest.md
 granularity: "one step = ≤1 agent session; TDD; commit per task"
-axis: raw_retrieval, token_efficiency
+axis: raw_retrieval
 ---
 
 # Phase A6 — Implementation Plan

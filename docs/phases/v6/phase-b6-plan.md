@@ -8,7 +8,7 @@ opened: 2026-04-22
 depends_on: [A6]
 phase_doc: docs/phases/v6/phase-b6-semantic-distillation.md
 granularity: "one step = ≤1 agent session; TDD; commit per task"
-axis: raw_retrieval, token_efficiency
+axis: raw_retrieval
 ---
 
 # Phase B6 — Implementation Plan

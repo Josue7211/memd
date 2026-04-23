@@ -3,12 +3,24 @@ version: v6
 kind: integration-plan
 status: ready-to-execute
 opened: 2026-04-22
+revised: 2026-04-22
 scope: A6..F6
+depends_on: [../../verification/0.1.0-CONTRACT.md, ../../verification/0.1.0-AXIS-OWNERSHIP.md, ../../verification/milestones/MILESTONE-v6.md]
 ---
 
 # V6 Integration — Cross-Phase Plan
 
-> Read after all six `phase-{a6..f6}-plan.md` specs. Covers what no single phase owns: typed-ingest adapter layer architecture, shared per-bench fixtures, bench rerun matrix, method-card ritual, judge-cost governance, flag-graduation calendar, commit strategy, cross-phase API surface, V6 milestone exit criteria.
+> Read after all six `phase-{a6..f6}-plan.md` specs. Covers what no single phase owns: typed-ingest adapter layer architecture, shared per-bench fixtures, bench rerun matrix, method-card ritual, judge-cost governance, flag-graduation calendar, commit strategy, cross-phase API surface, V6 milestone exit criteria, axis-ownership enforcement, and scorecard regenerator strict-mode rules.
+
+## Axis Ownership & Enforcement
+
+**V6 owns:** RR +1 (6→7), TP +1 (3→4).
+
+**V6 integrates (no credit):** TE (D4 compiler re-applied to bench inputs per Overlap 2 in 0.1.0-AXIS-OWNERSHIP.md).
+
+**V6 non-goals:** SC, CR, PR, CH maintained at V5 baseline (4/4/4/4).
+
+Binding constraint (per 0.1.0-AXIS-OWNERSHIP.md §78–84): scorecard regenerator must refuse to write scores that violate ownership. If any phase plan within A6–F6 claims axis credit outside {RR, TP}, the plan fails review.
 
 ## 1. Execution-order discipline
 
@@ -96,9 +108,10 @@ F6 Task F6.3 writes four method cards at `docs/verification/method-cards/{bench}
 - exact invocation line
 
 ## memd ingest path
-- flags: `--typed-ingest=…`
+- flags: `--typed-ingest=…` (must align to MILESTONE-v6.md public-bench parity table)
 - budgets: link to compiler-budgets.yaml
 - reasoning: on/off
+- TE integration note: "D4 compiler re-applied, no TE-axis credit"
 
 ## Seeds
 - distill seed
@@ -110,15 +123,22 @@ F6 Task F6.3 writes four method cards at `docs/verification/method-cards/{bench}
 - judge: codex-lb gpt-5.4-mini at 127.0.0.1:2455
 - rate-limit env: MEMD_RATE_LIMIT_DISABLED=1
 
-## Canonical numbers
+## Canonical numbers (V5 substrate baseline comparison)
 - metric: value (sidecar OFF)
-- retrieval diagnostic: value
+- V5 baseline: value (for parity verification)
+- delta: ±N%
+- retrieval diagnostic: value (must maintain session_recall_any@5 ≥0.95)
+
+## Provenance drilldown
+- explain API version
+- multi-hop test case count
+- back-pointer resolution rate: N/N
 
 ## Judge cost
 - milli-USD per 1k turns
 
 ## Reproducibility
-- `bash scripts/public-bench-reproduce.sh --bench <name>`
+- `bash scripts/public-bench-reproduce.sh --bench <name> --v6-flags <...>`
 - tolerance: ±0.03
 ```
 
@@ -127,17 +147,24 @@ Rules:
 - Every non-memd number (competitor) has a primary-source link or stays empty.
 - One card per bench. Never merged.
 - Regenerate on every phase close; prior cards archived under `method-cards/archive/v6/`.
+- **RR parity assertion required:** delta column must show ±2% vs V5 substrate for parity claim (per MILESTONE-v6.md table).
+- **TP back-pointer assertion required:** explain API test case count and resolution rate must be explicit; zero failures allowed.
 
-## 6. `PUBLIC_BENCHMARKS.md` regeneration ritual
+## 6. `PUBLIC_BENCHMARKS.md` regeneration ritual (strict-mode scorecard regenerator)
 
-F6 owns the regenerator. Rules mirror V5's SUBSTRATE regen but tighter:
+F6 owns the regenerator with **strict-mode enforcement** (per 0.1.0-AXIS-OWNERSHIP.md §78–84):
 
 - File path: `docs/verification/PUBLIC_BENCHMARKS.md`.
-- Regenerator emits header with run-date, seed-base, memd commit hash.
-- Per-bench section: current canonical number, delta vs V5 baseline, method-card link, NDJSON link.
-- History section: one line per regeneration (date → LME/LoCoMo/MemBench/ConvoMem quad).
+- Regenerator emits header with run-date, seed-base, memd commit hash, strict-mode flag.
+- Per-bench section: current canonical number, delta vs V5 baseline, method-card link, NDJSON link, parity status (PASS/FAIL).
+- History section: one line per regeneration (date → LME/LoCoMo/MemBench/ConvoMem quad + parity deltas).
 - Never hand-edited.
-- A regen that would fail a canonical gate aborts and emits reason to stderr — does not write.
+- **Strict-mode rules (enforced, cannot be overridden):**
+  - RR lift claim requires all four benches within ±2% vs V5 substrate baseline; otherwise RR stays at 6, no lift written.
+  - TP lift claim requires explain API test passing 100% (zero back-pointer failures); otherwise TP stays at 3, no lift written.
+  - TE score must remain 4 (D4 owner, V6 integrates only); regenerator fails hard if any code attempts to write TE > 4 for V6.
+  - SC, CR, PR, CH must remain at V5 values (4/4/4/4); regenerator fails hard on any attempt to change these.
+- A regen that would fail strict-mode checks aborts and emits reason to stderr with axis name — does not write.
 
 ## 7. Judge-cost governance
 
@@ -155,12 +182,13 @@ Flag-flip ordering (each flip = own commit, each after a 7-day clean window):
 1. `MEMD_V6_TYPED_INGEST = 1` (A6.9)
 2. `MEMD_V6_DISTILL_CACHE = 1` (B6 — already default, confirm 7-day clean)
 3. `MEMD_V6_PROMOTION_DRY_RUN = 0` (C6 — flip from any safety default)
-4. `MEMD_V6_COMPILER = 1` (D6.7)
+4. `MEMD_V6_COMPILER = 1` (D6.7) — **integration note:** D6 wraps D4 compiler, no TE-axis credit
 5. `MEMD_V6_DEPTH_ROUTING = 1` (E6.7)
 6. `MEMD_V6_REASONING = 1` (F6.7)
 7. `MEMD_V6_ALLOW_BELOW_TARGET = 0` — permanent; never flipped to 1 in main.
+8. `MEMD_V6_STRICT_MODE_REGEN = 1` (F6.8) — scorecard regenerator strict-mode enforcement.
 
-F6 runs with all flags at production defaults. Graduation rollback does not re-open V6.
+F6 runs with all flags at production defaults including strict-mode regen. Graduation rollback does not re-open V6.
 
 ## 9. Commit strategy
 
@@ -198,22 +226,22 @@ Content: `docs/handoff/YYYY-MM-DD-v5-v6-plan-spec-complete-next-execute.md`.
 
 ## 10. Cross-phase API surface summary
 
-| Introduced in | Symbol / Path | Consumed by |
-| --- | --- | --- |
-| A6 | `typed_ingest::bench_loaders::*` | all V6 phases |
-| A6 | `MemoryRecord{kind:Episodic}` provenance schema | B6, C6, D6, E6, F6 |
-| A6 | `docs/contracts/public-bench-ingest.md` | B6 (prompt references) |
-| B6 | `typed_ingest::distiller::*` + cache | C6 (candidate source), F6 (regen uses cache) |
-| B6 | `docs/contracts/semantic-distillation.md` | C6 (rule engine references kinds) |
-| C6 | `typed_ingest::promotion::*` + canonical index | D6 (priority input), E6 (canonical-only depth), F6 |
-| C6 | `docs/contracts/canonical-promotion.md` | D6 (priority rationale), F6 |
-| D6 | `typed_ingest::compiler::*` | E6 (depth-call output re-compiles), F6 |
-| D6 | `.memd/benchmarks/public/compiler-budgets.yaml` | E6, F6 |
-| E6 | `typed_ingest::depth_router::*` | F6 (reasoning chains depth calls) |
-| E6 | `docs/contracts/bench-depth-routing.md` | F6 |
-| F6 | `PUBLIC_BENCHMARKS.md` + method cards | V7 entry gate |
-| F6 | `MEMD-10-STAR.md` composite ≥7.0 | V7 entry gate |
-| F6 | `scripts/public-bench-reproduce.sh` | external reproducibility |
+| Introduced in | Symbol / Path | Consumed by | Axis-ownership note |
+| --- | --- | --- | --- |
+| A6 | `typed_ingest::bench_loaders::*` | all V6 phases | RR lift infrastructure |
+| A6 | `MemoryRecord{kind:Episodic}` provenance schema | B6, C6, D6, E6, F6 | TP lift requirement |
+| A6 | `docs/contracts/public-bench-ingest.md` | B6 (prompt references) | RR lift scope definition |
+| B6 | `typed_ingest::distiller::*` + cache | C6 (candidate source), F6 (regen uses cache) | RR lift infrastructure |
+| B6 | `docs/contracts/semantic-distillation.md` | C6 (rule engine references kinds) | RR lift infrastructure |
+| C6 | `typed_ingest::promotion::*` + canonical index | D6 (priority input), E6 (canonical-only depth), F6 | RR lift infrastructure |
+| C6 | `docs/contracts/canonical-promotion.md` | D6 (priority rationale), F6 | RR lift infrastructure |
+| D6 | `typed_ingest::compiler::*` (wraps D4) | E6 (depth-call output re-compiles), F6 | TE integration (no credit); no TE-axis logic should be added here |
+| D6 | `.memd/benchmarks/public/compiler-budgets.yaml` | E6, F6 | D4 integration artifact |
+| E6 | `typed_ingest::depth_router::*` | F6 (reasoning chains depth calls) | RR lift infrastructure |
+| E6 | `docs/contracts/bench-depth-routing.md` | F6 | RR lift infrastructure |
+| F6 | `PUBLIC_BENCHMARKS.md` + method cards (strict-mode regen) | V7 entry gate | RR + TP lift proof |
+| F6 | `MEMD-10-STAR.md` composite ≥4.45 (strict-mode enforced) | V7 entry gate | Contract gate enforcement |
+| F6 | `scripts/public-bench-reproduce.sh` | external reproducibility | parity assertion evidence |
 
 ## 11. Open questions for next executor
 
@@ -227,17 +255,33 @@ Content: `docs/handoff/YYYY-MM-DD-v5-v6-plan-spec-complete-next-execute.md`.
 
 All six phase exit criteria met AND F6 exit criteria met AND:
 
-- Canonical numbers (sidecar OFF):
-  - LME `qa_accuracy` ≥ 0.85
-  - LoCoMo `token_f1_avg` ≥ 0.75
-  - MemBench `mc_accuracy` ≥ 0.75
-  - ConvoMem LLM-judge `accuracy` ≥ 0.90
-  - LME `session_recall_any@5` ≥ 0.95 (no regression)
-- 10-STAR composite ≥ 7.0.
-- All four method cards committed; PUBLIC_BENCHMARKS.md regenerated.
-- `scripts/public-bench-reproduce.sh` passes on fresh clone (±0.03).
-- `MILESTONE-v6.md` filled.
+### Axis-ownership compliance (binding)
+
+- RR lift (6→7): all four public benches within ±2% vs V5 substrate baseline (per MILESTONE-v6.md parity table).
+  - LME `qa_accuracy` ≥ 0.85 (V5: ≥0.83)
+  - LoCoMo `token_f1_avg` ≥ 0.75 (V5: ≥0.73)
+  - MemBench `mc_accuracy` ≥ 0.75 (V5: ≥0.73)
+  - ConvoMem LLM-judge `accuracy` ≥ 0.90 (V5: ≥0.88)
+  - LME `session_recall_any@5` ≥ 0.95 (no regression allowed).
+- TP lift (3→4): explain API test harness passes 100%; each multi-hop reasoning chain resolves back-pointers without error.
+- TE integration (no credit): scorecard regenerator rejects any attempt to write TE > 4; D6 wrapping D4 compiler is documented as integration-only.
+- SC, CR, PR, CH baseline maintained: scorecard regenerator enforces 4/4/4/4 (V5 post values).
+
+### Composite & milestone closure
+
+- 10-STAR composite ≥ 4.45 written to `docs/verification/MEMD-10-STAR.md` via **strict-mode scorecard regenerator** (enforces all four constraints above).
+- No axis score exceeds ownership table limits (regenerator fails hard if violated).
+- All four method cards committed with RR parity + TP drilldown assertions explicit.
+- `PUBLIC_BENCHMARKS.md` regenerated with strict-mode flag and parity status per bench.
+- `scripts/public-bench-reproduce.sh --v6-flags <...>` passes on fresh clone (±0.03).
+- `MILESTONE-v6.md` filled with evidence paths.
 - `ROADMAP.md` V6 → closed, V7 → in progress.
 - Judge-cost totals within per-bench ceilings.
-- No open backlog items tagged `axis: raw_retrieval` or `axis: token_efficiency` at severity `blocker`.
+- No open backlog items tagged `axis: raw_retrieval` or `axis: trust_provenance` at severity `blocker`.
+- No backlog items claiming TE-axis work for V6 (enforcement: any such item fails triage).
 - Handoff doc points at `docs/phases/v7/` (to be created in V7 plan-spec phase).
+
+## 13. Changelog
+
+- 2026-04-22 opened.
+- 2026-04-22 revised: axis-ownership binding enforcement added (RR +1, TP +1 only); TE integration rule + no-credit constraint added; strict-mode scorecard regenerator rules added (composite 4.45 target, parity enforcement, TE/SC/CR/PR/CH baseline locks); method-card ritual updated to require parity + provenance assertions; cross-phase API surface annotated with axis-ownership notes; exit criteria rewritten to enforce binding ownership constraints.

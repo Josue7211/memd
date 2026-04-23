@@ -8,7 +8,7 @@ opened: 2026-04-22
 depends_on: [A6, B6, C6, D6, E6]
 phase_doc: docs/phases/v6/phase-f6-iterative-reasoning-harness.md
 granularity: "one step = ≤1 agent session; TDD; commit per task"
-axis: raw_retrieval, token_efficiency, trust_provenance, V6 completion gate
+axis: raw_retrieval, trust_provenance
 ---
 
 # Phase F6 — Implementation Plan

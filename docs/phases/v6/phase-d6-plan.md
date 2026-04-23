@@ -8,7 +8,7 @@ opened: 2026-04-22
 depends_on: [C6]
 phase_doc: docs/phases/v6/phase-d6-compiler-on-bench.md
 granularity: "one step = ≤1 agent session; TDD; commit per task"
-axis: token_efficiency, raw_retrieval
+axis: raw_retrieval, trust_provenance (integrates token_efficiency; no credit per 0.1.0-AXIS-OWNERSHIP overlap 2 — V4 D4 owns TE 2→4)
 ---
 
 # Phase D6 — Implementation Plan

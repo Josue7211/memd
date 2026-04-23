@@ -8,7 +8,7 @@ opened: 2026-04-22
 depends_on: [D6]
 phase_doc: docs/phases/v6/phase-e6-progressive-depth-routing.md
 granularity: "one step = ≤1 agent session; TDD; commit per task"
-axis: token_efficiency, raw_retrieval
+axis: raw_retrieval (integrates token_efficiency; no credit per 0.1.0-AXIS-OWNERSHIP overlap 3)
 ---
 
 # Phase E6 — Implementation Plan
