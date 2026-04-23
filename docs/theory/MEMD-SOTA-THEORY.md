@@ -213,27 +213,55 @@ correction was applied without revealing the correction content).
 **Benchmark.** V7 F7 user-visible surface → V8 D8 provenance browser →
 V12 TP work → V13 export + third-party replay harness.
 
-## Why the roadmap ends at V13
+## Why 0.1.0 ships at V13 and 1.0.0 ships at V20
 
 V4–V10 deliver production floor (every axis ≥3). V11–V13 deliver SOTA
-(every axis ≥7). 0.1.0 tag lands at V13 close. Everything beyond — cross-
-user routine economy, zero-knowledge provenance, self-tuning compiler,
-cross-device sync at scale — is 0.2.0+ territory, driven by real user
-telemetry, not pre-planned at release time.
+(every axis ≥7). **0.1.0 tag lands at V13 close — SOTA launch**. V14–V20
+deliver the 10-STAR ceiling (every axis 10/10). **1.0.0 tag lands at
+V20 close — SOTA ceiling**.
 
-V13 is the SOTA ceiling that current memd theory can commit to with high
-confidence before release. Anything higher requires the dataset of real
-usage that only a released product generates.
+V13 is the highest target memd can commit to pre-release with deterministic
+spec. V14+ lifts require real-user telemetry, multi-month deployment data,
+and cross-user interaction patterns — the 10/10 definitions per axis
+explicitly call this out ("multi-month dormant projects," "cross-user
+routine economy," "zero-knowledge provenance," "self-tuning compiler,"
+"cross-device sync at scale"). These cannot be fabricated; they have to
+be earned from deployment.
 
-## What is not in scope for 0.1.0 (even at SOTA)
+The 10-STAR scorecard is not aspirational filler. It was designed to be
+hit exactly — 10/10 means "no further measurable improvement possible on
+this axis by existing benchmarks." That ceiling is a commitment, not a
+theoretical upper bound. See `docs/verification/1.0.0-CONTRACT.md` for
+the per-milestone V14–V20 chain locking composite 8.50 → 10.00.
 
-- Multi-device mobile app (desktop + mac + CLI is enough for 0.1.0)
-- Cloud-hosted memd (0.1.0 is self-hosted / local + optional sync)
-- Non-English language optimization (English first, i18n is 0.2.x)
-- GUI for non-operators (the user is a developer; the UI is CLI +
-  `memd configure` + operator surfaces from V8)
-- Regulated-industry compliance audits (HIPAA, SOC2) — post-release work
-  with real deployment partners
+### V14–V20 ceiling push (post-0.1.0)
+
+| V | Name | Axis lifts | Composite |
+|---|---|---|---|
+| V14 | Telemetry + Observability Foundation | TE 7→8 | 8.60 |
+| V15 | Self-Tuning Compiler | TE 8→9 | 8.70 |
+| V16 | Cross-Device Sync at Scale | SC 9→10, CH 8→9 | 9.05 |
+| V17 | Cross-User Routine Economy | PR 9→10, CH 9→10 | 9.35 |
+| V18 | Correction Graph + Silent Detection | CR 8→9 | 9.50 |
+| V19 | Zero-Knowledge Provenance + Crypto Audit | TP 9→10, CR 9→10 | 9.75 |
+| V20 | Info-Theoretic TE + Bench Ceiling (**1.0.0**) | RR 9→10, TE 9→10 | **10.00** |
+
++11 axis deltas distributed as: TE +3 (hardest; telemetry chain), CR +2
+(graph → crypto), CH +2 (device-scale → user-scale), SC +1, PR +1, RR +1,
+TP +1. 1.0.0 ships at V20 close with every axis at ceiling, zero margin
+anywhere.
+
+## What is not in scope for 1.0.0 (even at ceiling)
+
+- AGI-like planning memory (memd stays substrate-level; planning lives
+  in the harness)
+- Memory-backed tool invocation chains (harness territory)
+- Regulated-industry certification audits (HIPAA / SOC2 / PCI) —
+  deployment partner work, not substrate work; 2.0.0+
+- Non-English language optimization (English first, i18n is 2.0.x)
+- Hardware-assisted memory isolation (TEE, enclaves) — post-1.0.0
+- Post-quantum cryptography (ed25519 + current ZK primitives enough
+  for 1.0.0)
 
 ## How this doc is used
 
