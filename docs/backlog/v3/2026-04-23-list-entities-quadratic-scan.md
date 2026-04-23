@@ -57,3 +57,33 @@ Callers switched (`crates/memd-server/src/main.rs:438-577`):
 - Pre-fix self-documenting comment at `crates/memd-server/src/main.rs:116-129`.
 - Bench wrapper `scripts/bench-server.sh` (2026-04-23) unblocked LME runs
   before the real fix landed.
+
+### Scale validation (post-M6, 2026-04-23)
+
+LongMemEval `s_cleaned` `--limit 30 --retrieval-backend memd` with
+`MEMD_STORE_AUTO_LINK_DISABLED=0` (real indexed path, fresh bench DB,
+auto-link helpers ON). 1482 stores / 500-item haystack sessions, per-100-
+store means:
+
+```
+[    1-  100] mean= 206.2ms
+[  101-  200] mean= 221.9ms
+[  201-  300] mean= 238.4ms
+[  301-  400] mean= 244.4ms
+[  401-  500] mean= 257.5ms
+[  501-  600] mean= 251.6ms
+[  601-  700] mean= 246.5ms
+[  701-  800] mean= 259.4ms
+[  801-  900] mean= 200.6ms
+[  901- 1000] mean=  92.4ms
+[ 1001- 1100] mean=  86.0ms
+[ 1101- 1200] mean=  87.6ms
+[ 1201- 1300] mean=  90.9ms
+[ 1301- 1400] mean=  87.2ms
+[ 1401- 1482] mean=  91.0ms
+```
+
+Overall: 1482 stores, mean 178.5ms, max 882ms. Drift in windows 1-8 is
+session-corpus-size variance, not cost growth; windows 9-15 drop to ~87ms as
+smaller-corpus sessions dominate. No quadratic climb over 20× the pre-fix
+stall point (N=100 pre-fix → 283ms at N=75; post-fix → 91ms at N=1500).
