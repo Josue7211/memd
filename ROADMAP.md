@@ -11,7 +11,7 @@ milestone_status: in_progress
 current_phase: J3
 phase_status: complete_proxy_gap_deferred
 next_milestone: V3
-post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 (see V4–V13 block below; 10-STAR composite target **8.50 at V13** per docs/verification/0.1.0-CONTRACT.md — V10 is the production-floor milestone, V13 is the 0.1.0 release gate; release gate is composite ≥8.0 AND every axis ≥7 at SOTA per docs/theory/MEMD-SOTA-THEORY.md; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
+post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 → V14 → V15 → V16 → V17 → V18 → V19 → V20 (see V4–V20 block below; composite **8.50 at V13** = 0.1.0 release gate per docs/verification/0.1.0-CONTRACT.md; composite **10.00 at V20** = 1.0.0 release gate per docs/verification/1.0.0-CONTRACT.md; V10 production-floor, V13 ships 0.1.0, V14-V20 ceiling push pulls every axis to 10/10, V20 ships 1.0.0; 0.1.0 gate = composite ≥8.0 AND every axis ≥7; 1.0.0 gate = composite =10.00 AND every axis =10 per docs/theory/MEMD-SOTA-THEORY.md; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
 next_step: K3 — provision gpt-4o on openclaw LiteLLM proxy + rerun J3 canonical primaries for LongMemEval/LoCoMo/ConvoMem. J3 closed 2026-04-21 with proxy-gap-deferred verdict: MemBench canonical `mc_accuracy=0.417` (below 0.70 floor, recorded-unpinned); LongMemEval/LoCoMo/ConvoMem canonical primaries unreachable until gpt-4o routes (judge + free-form generator). Diagnostic retrieval numbers captured — LongMemEval 0.900, LoCoMo 0.360, ConvoMem 0.950.
 active_blockers: ["docs/backlog/v3/2026-04-21-gpt4o-proxy-route-for-judge.md"]
 v1_status: frozen_architecture_complete
@@ -241,11 +241,13 @@ Phase IDs are in execution order (A3 first, J3 last). Reshuffled 2026-04-17 to i
 
 **Demo**: "Same query, before and after — show the score AND hand the user the memory surface. They should want to use it."
 
-### V4–V10: The Path to 10-STAR
+### V4–V20: The Path to 10-STAR (0.1.0 at V13, 1.0.0 at V20)
 
 V3 shipped retrieval honesty. Public benches expose the generator reasoning cap, not a memd cap — retrieval diagnostics sit ≥0.95 on every bench. Six of seven 10-STAR axes (session continuity, correction retention, procedural reuse, cross-harness, token efficiency, trust+provenance) haven't moved since 2026-04-14 because V3 didn't touch them. Current composite (zero-generosity regrade, reconciled 2026-04-22): **1.80/10**.
 
-Path forward is substrate-native: V4 fixes memd in real sessions, V5 builds benches that measure what memd is actually for, V6 ports typed ingest to public benches, V7–V10 ship correction E2E + operator surfaces + multi-user + self-improvement (production floor at V10 close — composite 6.40, every axis ≥3). V11–V13 push to SOTA: V11 Compiler SOTA (dynamic per-turn compiler, cross-project continuity, silent correction detection), V12 Interop SOTA (universal harness protocol, curated routine library, cryptographic provenance), V13 Evidence + Release (bench domination ≥5pp margin, cross-device sync, third-party provenance replay). Every milestone owns a specific 10-STAR axis delta per [[docs/verification/0.1.0-CONTRACT.md]]; total lift targets **composite ≥8.0 AND every axis ≥7** by V13 (0.1.0 release gate). Theory binds: [[docs/theory/MEMD-SOTA-THEORY.md]] — "best SOTA memory OS for any harness."
+Path forward is substrate-native: V4 fixes memd in real sessions, V5 builds benches that measure what memd is actually for, V6 ports typed ingest to public benches, V7–V10 ship correction E2E + operator surfaces + multi-user + self-improvement (production floor at V10 close — composite 6.40, every axis ≥3). V11–V13 push to SOTA: V11 Compiler SOTA (dynamic per-turn compiler, cross-project continuity, silent correction detection), V12 Interop SOTA (universal harness protocol, curated routine library, cryptographic provenance), V13 Evidence + 0.1.0 Release (bench domination ≥5pp margin, cross-device sync, third-party provenance replay). Every V4–V13 milestone owns a specific 10-STAR axis delta per [[docs/verification/0.1.0-CONTRACT.md]]; total lift targets **composite ≥8.0 AND every axis ≥7** by V13 (0.1.0 release gate).
+
+V14–V20 push to ceiling: V14 Telemetry Foundation (real-user bench substrate), V15 Self-Tuning Compiler (per-user learned compiler), V16 Cross-Device Sync (CRDT, SC 10-close), V17 Cross-User Routine Economy (marketplace + federation at scale), V18 Correction Graph (multi-hop + silent detection ≥0.90 precision), V19 ZK Provenance (replayable correction proofs + compliance audit), V20 Info-Theoretic TE + Bench Ceiling + **1.0.0 Release** (every axis = 10, composite = 10.00, ≥10pp public-bench margin). V14–V20 axis deltas locked in [[docs/verification/1.0.0-AXIS-OWNERSHIP.md]]; release gate in [[docs/verification/1.0.0-CONTRACT.md]]. Theory binds: [[docs/theory/MEMD-SOTA-THEORY.md]] — "best SOTA memory OS for any harness" at 0.1.0, "ceiling-closed memory OS" at 1.0.0.
 
 Status: all phase docs below are `planned`. Milestone audit docs stubbed at `docs/verification/milestones/MILESTONE-v{N}.md`. V4 phase docs are drafted; V5–V10 phase docs drafted at milestone-open to avoid stale content.
 
@@ -419,6 +421,119 @@ Goal: bench domination (not parity) — beat published SOTA by ≥5pp on LoCoMo,
 5. Head-to-head SOTA proof: ≥1 public bench per applicable axis, ≥5pp margin vs published best
 
 **TE zero-margin flag:** TE closes at 7 (floor 7, zero margin). Any TE regression during V13 close blocks 0.1.0 tag. Contingency: roll back V13 other-axis credits, file V13.5 TE-recovery phase, re-run harness, tag only when TE≥7.
+
+### V14–V20: Ceiling Push to 1.0.0 (composite 8.50 → 10.00)
+
+Post-0.1.0 ceiling work. Every axis must reach 10/10. V14 lays the real-user telemetry substrate that V15/V20 need; V16/V17 close session_continuity + procedural_reuse + cross_harness through sync + federation; V18/V19 close correction_retention + trust_provenance via correction graph + ZK proofs; V20 proves info-theoretic TE optimality + bench domination ≥10pp margin and ships **1.0.0**. Axis ownership grid: [[docs/verification/1.0.0-AXIS-OWNERSHIP.md]]. Release contract: [[docs/verification/1.0.0-CONTRACT.md]].
+
+#### V14: Telemetry Foundation — Axis Lift: TE 7→8
+
+Real-user telemetry + bench-regression canary feeding V15/V20 compiler self-tuning. Composite: 8.50 → **8.60**. Milestone: [[docs/verification/milestones/MILESTONE-v14.md]].
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| A14 | Opt-in telemetry substrate (consent + schema + `.memd/telemetry.jsonl`) | `planned` |
+| B14 | Per-turn compile-outcome metrics (tokens-in, tokens-compiled, ablation deltas) | `planned` |
+| C14 | Real-user bench adapter (LME-like 30-turn workload from telemetry) | `planned` |
+| D14 | Canary harness (nightly regression detection; slack/webhook alert) | `planned` |
+| E14 | Privacy proof (PII-free aggregate rollup; user-reviewable) | `planned` |
+| F14 | Cohort replay tooling (`memd telemetry replay --cohort N`) | `planned` |
+| G14 | V14 gate harness (TE 7→8 assertion; ≥30-day dogfood) | `planned` |
+
+#### V15: Self-Tuning Compiler — Axis Lift: TE 8→9
+
+Per-user learned compiler: reads V14 telemetry, proposes compile-strategy deltas, auto-applies within safety envelope. Composite: 8.60 → **8.70**. Milestone: [[docs/verification/milestones/MILESTONE-v15.md]].
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| A15 | Compile-strategy delta proposer (per-user profile from V14 data) | `planned` |
+| B15 | Safety envelope + rollback (no quality regression beyond 2pp) | `planned` |
+| C15 | A/B harness (shadow-compile; reversible) | `planned` |
+| D15 | Per-user profile storage + explain (`memd compiler explain`) | `planned` |
+| E15 | Cross-user anonymized learnings (opt-in federation feed) | `planned` |
+| F15 | V15 gate harness (TE 8→9; ≥90-day dogfood with ≥5 profiles) | `planned` |
+
+#### V16: Cross-Device Sync — Axis Lift: SC 9→10, CH 8→9
+
+CRDT sync across desktop/mac/mobile with offline merge + conflict UX. Closes session_continuity at ceiling. Composite: 8.70 → **9.05**. Milestone: [[docs/verification/milestones/MILESTONE-v16.md]].
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| A16 | CRDT state schema (Automerge or custom Yjs-equivalent) | `planned` |
+| B16 | Sync transport (end-to-end encrypted; libp2p or WireGuard-based) | `planned` |
+| C16 | Offline merge (two devices write offline → deterministic merge) | `planned` |
+| D16 | Conflict UX (user sees divergence, picks winner, audit trail) | `planned` |
+| E16 | Mobile client (iOS + Android read-only first) | `planned` |
+| F16 | Sync chaos test (network partitions, concurrent writes, clock drift) | `planned` |
+| G16 | V16 gate harness (SC=10, CH=9 assertions; ≥3-device dogfood) | `planned` |
+
+#### V17: Cross-User Routine Economy — Axis Lift: PR 9→10, CH 9→10
+
+Routine marketplace with trust + provenance + per-user reputation. Closes procedural_reuse and cross_harness at ceiling. Composite: 9.05 → **9.35**. Milestone: [[docs/verification/milestones/MILESTONE-v17.md]].
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| A17 | Routine marketplace schema (content-addressed + author + version) | `planned` |
+| B17 | Trust layer (reputation + allowlist/blocklist) | `planned` |
+| C17 | Parameterized routine generalization (infer variable bindings from ≥3 traces) | `planned` |
+| D17 | Discovery UI (`memd routines marketplace search/browse/install`) | `planned` |
+| E17 | Federation scale test (≥1000 users; per-user isolation preserved) | `planned` |
+| F17 | Zero-data-leakage proof (adversarial: shared routine strips private citations) | `planned` |
+| G17 | V17 gate harness (≥30-day marketplace dogfood; ≥5 cross-user installs) | `planned` |
+
+#### V18: Correction Graph + Silent Detection — Axis Lift: CR 8→9
+
+Multi-hop correction graph + silent detection ≥0.90 precision / ≥0.85 recall. Composite: 9.35 → **9.50**. Milestone: [[docs/verification/milestones/MILESTONE-v18.md]].
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| A18 | Correction graph data structure (edges: cites/supersedes/affects) | `planned` |
+| B18 | Multi-hop propagation engine | `planned` |
+| C18 | Silent correction detector v2 (LLM-judged + heuristic ensemble) | `planned` |
+| D18 | Downstream-effect surfacing (affected-by chain in query result) | `planned` |
+| E18 | Correction-graph export format (deterministic replay input) | `planned` |
+| F18 | Third-party replay harness | `planned` |
+| G18 | V18 gate harness (≥3-month dogfood; ≥50 multi-hop chains; detector metrics) | `planned` |
+
+#### V19: Zero-Knowledge Provenance — Axis Lift: TP 9→10, CR 9→10
+
+ZK proofs for correction-applied claims + compliance-grade audit UI + multi-party attestation. Closes correction_retention + trust_provenance at ceiling. Composite: 9.50 → **9.75**. Milestone: [[docs/verification/milestones/MILESTONE-v19.md]].
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| A19 | ZK proof system selection (groth16 / plonk / custom) | `planned` |
+| B19 | Circuit implementation for correction-applied claim | `planned` |
+| C19 | Standalone verifier (`memd audit verify-zk <proof>`) | `planned` |
+| D19 | Multi-party attestation (two-of-three signing for high-stakes corrections) | `planned` |
+| E19 | Compliance audit UI (SOC2-lite scenario dogfood) | `planned` |
+| F19 | Third-party ZK replay (auditor verifies without seeing content) | `planned` |
+| G19 | V19 gate harness (≥10 ZK proofs externally verified; TP=10, CR=10) | `planned` |
+
+#### V20: Info-Theoretic TE + Bench Ceiling + 1.0.0 Release — Axis Lift: RR 9→10, TE 9→10 (**1.0.0 release gate**)
+
+Info-theoretic optimal compiler (no token removable without quality loss) + ≥10pp public-bench margin + memd-authored harder benches + zero-shot domain generalization. Composite: 9.75 → **10.00**. Milestone: [[docs/verification/milestones/MILESTONE-v20.md]].
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| A20 | Info-theoretic TE prover (removal harness; optimal iff all deltas ≥ threshold) | `planned` |
+| B20 | Bench-domination sweep (≥10pp on LoCoMo, LME, MemBench, ConvoMem) | `planned` |
+| C20 | memd-published harder benches (SOTA competitors ≥15pp below memd) | `planned` |
+| D20 | Zero-shot domain generalization (≤5pp delta vs tuned baseline) | `planned` |
+| E20 | 1.0.0 release harness (every-axis=10 aggregate; zero-generosity regenerator) | `planned` |
+| F20 | Third-party replay for every axis (external reviewer reproduces all proofs) | `planned` |
+| G20 | 1.0.0 release tag + full proof bundle in `docs/verification/release-1-0-0/` | `planned` |
+
+**1.0.0 release gate (V20 close):**
+1. Composite = 10.00 exactly; every axis = 10
+2. Info-theoretic TE proof: every token removal test fails quality threshold
+3. ≥10pp margin on all four public benches simultaneously
+4. memd-authored harder bench with SOTA competitors ≥15pp below memd
+5. Zero-shot domain test: retrieval quality delta ≤5pp vs tuned
+6. Third-party replay reproduces every axis proof from export
+7. Reproducible proof bundle at `docs/verification/release-1-0-0/`
+8. 1.0.0 tag on main
+
+**V20 zero-margin flag:** Every axis has zero margin at V20 close. Any regression blocks 1.0.0 tag. **V20.5 recovery reserve** is pre-declared: if V20 misses any axis, V20.5 files a recovery phase scoped to that axis before 1.0.0 tags. Recovery phase may not claim new axis credit — it restores the axis to its V20 target.
 
 ## Benchmarks
 
