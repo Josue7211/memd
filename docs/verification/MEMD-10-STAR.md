@@ -1,7 +1,10 @@
 # memd 10-Star Target
 
-> Authoritative 10-star contract. Updated 2026-04-13 from full codebase audit.
-> For execution truth: [[ROADMAP.md]]. For audit findings: [[docs/audits/2026-04-13-full-codebase-audit.md]].
+> Authoritative 10-star contract. Updated 2026-04-13 from full codebase audit,
+> zero-generosity regrade 2026-04-14, scorecard table reconciled 2026-04-22.
+> For execution truth: [[ROADMAP.md]].
+> For audit findings: [[docs/audits/2026-04-13-full-codebase-audit.md]].
+> For release gate: [[docs/verification/0.1.0-CONTRACT.md]].
 
 ## Product Promise
 
@@ -32,20 +35,22 @@ If it can't do those things reliably, it doesn't deserve the product claim.
 
 ## 10-Star Composite Scorecard
 
-Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock-v1.md|evaluation theory lock]]:
+Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock-v1.md|evaluation theory lock]], zero-generosity regrade:
 
 | Axis | Weight | Score | Status |
 |------|--------|-------|--------|
-| Session continuity | 20% | 2/10 | broken — ghost refs, expired inbox, status noise |
-| Correction retention | 15% | 2/10 | mechanics exist, no UX flow, never proven in practice |
-| Procedural reuse | 15% | 1/10 | code complete, detect never triggers, table empty |
-| Cross-harness continuity | 15% | 3/10 | 6 presets, wake works, content is status noise, never cross-tested |
-| Raw retrieval strength | 15% | 4/10 | search works, but wake/working excludes most kinds, no LongMemEval |
-| Token efficiency | 10% | 6/10 | 78% boot reduction, budget enforced, no cost measurement |
-| Trust + provenance | 10% | 5/10 | explain surfaces exist, source trust scoring, drilldown partial |
+| Session continuity | 20% | 1/10 | ghost refs, expired inbox, status noise — no behavior proof |
+| Correction retention | 15% | 1/10 | mechanics exist, no end-to-end flow, never proven in a session |
+| Procedural reuse | 15% | 1/10 | detect dead code, RetrievalIntent::Procedural unreachable, table empty |
+| Cross-harness continuity | 15% | 2/10 | 6 presets, never cross-tested, handoff unverified |
+| Raw retrieval strength | 15% | 4/10 | search works, wake/working excludes most kinds, no LongMemEval |
+| Token efficiency | 10% | 2/10 | budget enforced, no cost measurement, noise burns budget |
+| Trust + provenance | 10% | 2/10 | explain exists, trust hierarchy unproven, drilldown partial |
 
-**Composite: ~1.8/10 (zero-generosity regrade 2026-04-14)**
-*Previously reported 2.9 — that counted "code exists" as partial credit. Regrade counts only "user gets value."*
+**Composite: 1.80/10 (zero-generosity regrade 2026-04-14, table reconciled 2026-04-22)**
+*Prior composite 2.9 counted "code exists" as partial credit; regrade counts only "user gets value."*
+*Prior axis table (scores 2,2,1,3,4,6,5) summed to 3.0 but reported 1.8 — reconciled 2026-04-22 to the pessimistic axis row that actually yields 1.80.*
+*MILESTONE-v4's historical `composite_pre: 2.15` is superseded — see 0.1.0-CONTRACT.md baseline.*
 
 ## 11 Pillars — Current Reality
 
@@ -283,7 +288,11 @@ Proof needed:
 - dashboards surfacing regressions before users do
 - functional human-facing UI
 
-## Complete Gap Inventory (27 items)
+## Complete Gap Inventory (35 items)
+
+> 35 gaps total; see COVERAGE-MATRIX.md for milestone ownership. Gap-25
+> (live memory contract) closed 2026-04-22 by
+> [[docs/contracts/federated-memory-visibility.md]].
 
 ### Operational Pipeline (fix to reach functional)
 
@@ -342,17 +351,26 @@ Proof needed:
 
 ## Path to 10-Star
 
-### Tier 1: Make it work (3.0 → 6.0)
-Fix operational pipeline (gaps 1-9). Run `memd eval --fail-below 65`.
+> Authoritative pipeline: [[docs/verification/0.1.0-CONTRACT.md]]. Tiers below
+> are the superset roadmap past 0.1.0. 0.1.0 ships at composite ≥ 6.0 AND
+> every axis ≥ 3. Tiers 2–4 describe the 0.2.0+ trajectory.
 
-### Tier 2: Make it correct (6.0 → 7.5)
-Fix architectural gaps (gaps 10-17). Prove correction flow, behavior change, navigation.
+### Tier 0: 0.1.0 release bar (1.8 → 6.4)
+V4–V10 per-milestone axis deltas per 0.1.0-CONTRACT.md. Every axis ≥ 3,
+composite ≥ 6.0 by V10 gate.
 
-### Tier 3: Make it provable (7.5 → 8.5)
-Fix measurement gaps (gaps 18-23). Run public benchmarks, calibrate decay, prove quality.
+### Tier 1: Make it work (landed by V5)
+Operational pipeline gaps (1-9). Run `memd eval --fail-below 65`.
 
-### Tier 4: Make it 10-star (8.5 → 10.0)
-Fix product gaps (gaps 24-35). Overnight evolution, human surface, team support, observability.
+### Tier 2: Make it correct (landed by V7)
+Architectural gaps (10-17). Correction flow, behavior change, navigation.
+
+### Tier 3: Make it provable (landed by V8)
+Measurement gaps (18-23). Public benchmarks, decay calibration, consolidation.
+
+### Tier 4: Make it 10-star (post 0.1.0)
+Product gaps (24-35, except 25 already closed). Overnight evolution, human
+surface, team, observability.
 
 ## Bottom Line
 
@@ -361,7 +379,8 @@ memd has the right architecture. 7 crates, 15 tables, 207 types, 90 client metho
 control functions. The infrastructure is ahead of any competitor.
 
 But the product doesn't work. The live loop is broken at 5 of 7 steps. The 10-star
-score is ~2.9. No correction flow, no behavior proof, no navigation, no human surface.
+score is 1.80 zero-generosity. No correction flow, no behavior proof, no navigation,
+no human surface.
 
 The fix is not more features. The fix is making what exists actually work, then proving
 it works, then shipping the product surfaces that make it usable.

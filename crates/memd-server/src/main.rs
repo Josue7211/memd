@@ -1,18 +1,32 @@
 mod atlas;
+mod backup;
+mod decay_calibration;
+mod embed;
+mod episodes;
+mod errors;
 mod helpers;
 mod inspection;
 mod keys;
+mod latency;
 mod procedural;
+mod query_sanitize;
+mod rag_bridge;
+mod rate_limit;
 mod repair;
 mod routes;
 mod routing;
+mod status;
 mod store;
+mod store_dedup;
 mod store_entities;
+mod store_episodes;
 mod store_hive;
 mod store_hive_lifecycle;
+mod store_ingestion;
 mod store_migrations;
 mod store_runtime_maintenance;
 mod store_skill_policy;
+mod token_headers;
 mod ui;
 mod working;
 
@@ -21,6 +35,7 @@ mod working;
 mod tests;
 
 pub(crate) use helpers::*;
+pub(crate) use rag_bridge::*;
 pub(crate) use routes::*;
 pub(crate) use store::{DuplicateMatch, RecordEventArgs, SqliteStore};
 
@@ -36,15 +51,18 @@ use axum::{
 };
 use chrono::Utc;
 pub(crate) use keys::{apply_lifecycle, canonical_key, redundancy_key, validate_source_quality};
+use memd_rag::RagClient;
 use memd_schema::{
-    AtlasExpandRequest, AtlasExpandResponse, AtlasExploreRequest, AtlasExploreResponse,
-    AtlasListTrailsRequest, AtlasListTrailsResponse, AtlasRegionsRequest, AtlasRegionsResponse,
-    AtlasRenameRegionRequest, AtlasRenameRegionResponse, AtlasSaveTrailRequest,
-    AtlasSaveTrailResponse,
     AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest, AssociativeRecallHit,
-    AssociativeRecallRequest, AssociativeRecallResponse, CandidateMemoryRequest,
-    CandidateMemoryResponse, CompactContextResponse, CompactMemoryRecord, ContextRequest,
-    ContextResponse, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
+    AssociativeRecallRequest, AssociativeRecallResponse, AtlasExpandRequest, AtlasExpandResponse,
+    AtlasExploreRequest, AtlasExploreResponse, AtlasListTrailsRequest, AtlasListTrailsResponse,
+    AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest, AtlasRenameRegionResponse,
+    AtlasSaveTrailRequest, AtlasSaveTrailResponse, CandidateMemoryRequest, CandidateMemoryResponse,
+    CompactContextResponse, CompactMemoryRecord, ContextRequest, ContextResponse,
+    ConsolidateEpisodesRequest, ConsolidateEpisodesResponse, CorrectMemoryRequest, DedupScanRequest,
+    DedupScanResponse,
+    CorrectMemoryResponse, DecayDiagnosticsResponse, DivergenceRequest, DivergenceSummary,
+    EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
     EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
     EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
     ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveBoardRequest,
@@ -56,34 +74,58 @@ use memd_schema::{
     HiveQueenActionResponse, HiveRosterRequest, HiveRosterResponse, HiveSessionAutoRetireRequest,
     HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
     HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
-    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxMemoryItem, MaintainReport,
+    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxDismissRequest,
+    InboxDismissResponse, InboxMemoryItem, IngestLanesRequest, IngestLanesResponse,
+    ListEpisodesRequest, ListEpisodesResponse, MaintainReport,
     MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
     MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse, MemoryDrainRequest,
-    MemoryDrainResponse, InboxDismissRequest, InboxDismissResponse, MemoryEntityLinkRecord,
-    MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem,
-    MemoryKind, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
-    MemoryPolicyResponse, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility,
-    PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse,
-    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SearchMemoryResponse,
-    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
-    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
-    SkillPolicyApplyResponse, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
-    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
-    VerifyMemoryRequest, VerifyMemoryResponse, VisibleMemoryArtifactDetailResponse,
-    ProcedureDetectRequest, ProcedureDetectResponse, ProcedureListRequest, ProcedureListResponse,
-    ProcedureMatchRequest, ProcedureMatchResponse, ProcedurePromoteRequest,
-    ProcedurePromoteResponse, ProcedureRecordRequest, ProcedureRecordResponse,
-    ProcedureRetireRequest, ProcedureRetireResponse, ProcedureUseRequest, ProcedureUseResponse,
-    VisibleMemorySnapshotResponse, VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse,
-    WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    MemoryDrainResponse, MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord,
+    MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
+    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
+    MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, ProcedureDetectRequest,
+    ProcedureDetectResponse, ProcedureListRequest, ProcedureListResponse, ProcedureMatchRequest,
+    ProcedureMatchResponse, ProcedurePromoteRequest, ProcedurePromoteResponse,
+    ProcedureRecordRequest, ProcedureRecordResponse, ProcedureRetireRequest,
+    ProcedureRetireResponse, ProcedureUseRequest, ProcedureUseResponse, PromoteMemoryRequest,
+    PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, RetrievalIntent,
+    RetrievalRoute, SearchMemoryRequest, SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
+    SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
+    SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
+    SourceMemoryRequest, SourceMemoryResponse, SourceQuality, StoreMemoryRequest,
+    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
+    VerifyMemoryResponse, VisibleMemoryArtifactDetailResponse, VisibleMemorySnapshotResponse,
+    VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse, WorkingMemoryRequest,
+    WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 pub(crate) use routing::RetrievalPlan;
 use serde::Deserialize;
+use tower_http::trace::TraceLayer;
+use tracing::{error, warn};
+use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 #[derive(Clone)]
 struct AppState {
     store: SqliteStore,
+    latency: std::sync::Arc<latency::LatencyHistogram>,
+    rate_limiter: std::sync::Arc<rate_limit::RateLimiter>,
+    rag: Option<std::sync::Arc<RagClient>>,
+    embedder: Option<std::sync::Arc<embed::Embedder>>,
+}
+
+// B3-Part2-prereq: kill-switch for quadratic entity auto-link on the store hot path.
+// When set, `auto_link_entity` and `create_wiki_links` are skipped in `store_item`.
+// Motivation: both run `list_entities()` (full table scan + JSON deserialize per row),
+// which stalls bulk ingest sweeps (e.g. LongMemEval ~26.5k stores) at ~100 items.
+// Bench opts in; product keeps link graph by default.
+fn store_auto_link_disabled() -> bool {
+    match std::env::var("MEMD_STORE_AUTO_LINK_DISABLED") {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            matches!(v.as_str(), "1" | "true" | "on" | "yes")
+        }
+        Err(_) => false,
+    }
 }
 
 impl AppState {
@@ -94,6 +136,9 @@ impl AppState {
     ) -> anyhow::Result<(MemoryItem, Option<DuplicateMatch>)> {
         validate_source_quality(req.source_quality)?;
         let now = Utc::now();
+        let lane = req
+            .lane
+            .or_else(|| detect_content_lane(&req.content, req.source_path.as_deref(), &req.tags));
         let item = MemoryItem {
             id: Uuid::new_v4(),
             content: req.content.trim().to_string(),
@@ -119,6 +164,8 @@ impl AppState {
             status: req.status.unwrap_or(MemoryStatus::Active),
             source_quality: req.source_quality.or(Some(SourceQuality::Canonical)),
             stage,
+            lane,
+            version: 1,
         };
 
         let canonical_key = canonical_key(&item);
@@ -127,7 +174,37 @@ impl AppState {
             redundancy_key: Some(redundancy_key.clone()),
             ..item
         };
-        let entity = self.store.resolve_entity_for_item(&item, &canonical_key)?;
+
+        // E3-D1: storage-time near-duplicate guard. Gated on
+        // MEMD_STORE_DEDUP=1; requires a live embedder in scope.
+        if store_dedup::store_dedup_enabled()
+            && let Some(existing) = self.find_near_duplicate_for_item(&item)?
+        {
+            let mut reinforced = existing.clone();
+            reinforced.updated_at = Utc::now();
+            reinforced.confidence = (reinforced.confidence + 0.05).min(1.0);
+            for tag in &item.tags {
+                if !reinforced.tags.iter().any(|t| t == tag) {
+                    reinforced.tags.push(tag.clone());
+                }
+            }
+            let existing_ck = crate::keys::canonical_key(&reinforced);
+            let existing_rk = reinforced
+                .redundancy_key
+                .clone()
+                .unwrap_or_else(|| crate::keys::redundancy_key(&reinforced));
+            self.store.update(&reinforced, &existing_ck, &existing_rk)?;
+            if let Err(e) = self.record_item_event(
+                &reinforced,
+                "reinforced",
+                "near-duplicate store (cosine) reinforced existing item".to_string(),
+            ) {
+                warn!(error = %format_args!("{e:#}"), "record_item_event (cosine-reinforced)");
+            }
+            self.fanout_rag_ingest(reinforced.clone());
+            return Ok((reinforced, None));
+        }
+
         let duplicate =
             self.store
                 .insert_or_get_duplicate(&item, &canonical_key, &redundancy_key)?;
@@ -137,18 +214,44 @@ impl AppState {
                 &item,
                 &canonical_key,
                 &redundancy_key,
-            )? {
-                if let Err(e) = self.record_item_event(
-                    &revived,
-                    "restored",
-                    "duplicate memory item restored to active canonical state".to_string(),
-                ) {
-                    eprintln!("warn: record_item_event (restored): {e:#}");
-                }
-                return Ok((revived, None));
-            }
-        if duplicate.is_none() {
+            )?
+        {
             if let Err(e) = self.record_item_event(
+                &revived,
+                "restored",
+                "duplicate memory item restored to active canonical state".to_string(),
+            ) {
+                warn!(error = %format_args!("{e:#}"), "record_item_event (restored)");
+            }
+            self.fanout_rag_ingest(revived.clone());
+            self.maybe_upsert_vector(&revived);
+            return Ok((revived, None));
+        }
+        if let Some(found) = duplicate.as_ref() {
+            let mut reinforced = found.item.clone();
+            reinforced.updated_at = Utc::now();
+            reinforced.confidence = (reinforced.confidence + 0.05).min(1.0);
+            let rk = found
+                .item
+                .redundancy_key
+                .as_deref()
+                .unwrap_or(&redundancy_key);
+            self.store.update(&reinforced, &canonical_key, rk)?;
+            if let Err(e) = self.record_item_event(
+                &reinforced,
+                "reinforced",
+                "duplicate store reinforced existing item".to_string(),
+            ) {
+                warn!(error = %format_args!("{e:#}"), "record_item_event (reinforced)");
+            }
+            self.fanout_rag_ingest(reinforced.clone());
+            self.maybe_upsert_vector(&reinforced);
+            return Ok((reinforced, Some(found.clone())));
+        }
+        if duplicate.is_none() {
+            let entity = self.store.resolve_entity_for_item(&item, &canonical_key)?;
+            if let Err(e) = self.record_item_event_for_entity(
+                &entity.record,
                 &item,
                 event_type_for_stage(stage),
                 format!(
@@ -159,24 +262,134 @@ impl AppState {
                     }
                 ),
             ) {
-                eprintln!("warn: record_item_event (stored): {e:#}");
+                warn!(error = %format_args!("{e:#}"), "record_item_event (stored)");
             }
 
             // Auto-expire excess status items to prevent noise accumulation
             if item.kind == MemoryKind::Status {
                 if let Err(e) = self.expire_excess_status_items(&item, 4) {
-                    eprintln!("warn: expire_excess_status_items: {e:#}");
+                    warn!(error = %format_args!("{e:#}"), "expire_excess_status_items");
                 }
             }
 
-            // Auto-link co-occurring entities within the same project
-            if item.kind != MemoryKind::Status {
-                if let Err(e) = self.auto_link_entity(&entity.record, &item) {
-                    eprintln!("warn: auto_link_entity: {e:#}");
+            // Auto-link co-occurring entities within the same project.
+            // Gated by MEMD_STORE_AUTO_LINK_DISABLED: both branches here run
+            // `list_entities()` (O(N) scan + JSON parse), which is quadratic
+            // on bulk ingest. Bench sweeps set the flag to keep throughput flat.
+            if !store_auto_link_disabled() {
+                if item.kind != MemoryKind::Status {
+                    if let Err(e) = self.auto_link_entity(&entity.record, &item) {
+                        warn!(error = %format_args!("{e:#}"), "auto_link_entity");
+                    }
+                    if let Err(e) = self.create_named_entity_links(&entity.record, &item) {
+                        warn!(error = %format_args!("{e:#}"), "create_named_entity_links");
+                    }
+                }
+
+                // E2: Parse [[wiki links]] in content and create entity links
+                if let Err(e) = self.create_wiki_links(&entity.record, &item) {
+                    warn!(error = %format_args!("{e:#}"), "create_wiki_links");
                 }
             }
         }
+        self.fanout_rag_ingest(item.clone());
+        self.maybe_upsert_vector(&item);
         Ok((item, duplicate))
+    }
+
+    fn find_near_duplicate_for_item(
+        &self,
+        item: &MemoryItem,
+    ) -> anyhow::Result<Option<MemoryItem>> {
+        let Some(embedder) = self.embedder.as_deref() else {
+            return Ok(None);
+        };
+        let chunks = embed::chunk_text(
+            &item.content,
+            embed::chunk_max_chars(),
+            embed::chunk_overlap_chars(),
+        );
+        if chunks.is_empty() {
+            return Ok(None);
+        }
+        let vectors = match embedder.embed_batch_normalized(&chunks) {
+            Ok(v) => v,
+            Err(err) => {
+                warn!(error = %format_args!("{err:#}"), "dedup embed failed");
+                return Ok(None);
+            }
+        };
+        let Some(first) = vectors.first() else {
+            return Ok(None);
+        };
+        let hit = self.store.find_near_duplicate(
+            item.project.as_deref(),
+            item.namespace.as_deref(),
+            embedder.model_code(),
+            first,
+            store_dedup::DEFAULT_DEDUP_COSINE_DISTANCE,
+        )?;
+        let Some(hit) = hit else { return Ok(None) };
+        self.store.get(hit.existing_id)
+    }
+
+    fn maybe_upsert_vector(&self, item: &MemoryItem) {
+        let Some(embedder) = self.embedder.as_deref() else {
+            return;
+        };
+        let chunks = embed::chunk_text(
+            &item.content,
+            embed::chunk_max_chars(),
+            embed::chunk_overlap_chars(),
+        );
+        if chunks.is_empty() {
+            return;
+        }
+        let vectors = match embedder.embed_batch_normalized(&chunks) {
+            Ok(v) => v,
+            Err(err) => {
+                warn!(error = %format_args!("{err:#}"), "embed batch failed");
+                return;
+            }
+        };
+        let rows: Vec<(i64, Vec<u8>)> = vectors
+            .into_iter()
+            .enumerate()
+            .map(|(idx, v)| (idx as i64, embed::vec_to_bytes(&v)))
+            .collect();
+        if rows.is_empty() {
+            return;
+        }
+        if let Err(err) = self.store.replace_memory_vector_chunks(
+            item.id,
+            item.project.as_deref(),
+            item.namespace.as_deref(),
+            embedder.model_code(),
+            embedder.dim(),
+            &rows,
+        ) {
+            warn!(error = %format_args!("{err:#}"), "replace_memory_vector_chunks failed");
+        }
+    }
+
+    fn fanout_rag_ingest(&self, item: MemoryItem) {
+        if let Some(rag) = self.rag.clone() {
+            rag_bridge::spawn_ingest(rag, item);
+        }
+    }
+
+    async fn rag_dense_candidates(
+        &self,
+        req: &SearchMemoryRequest,
+    ) -> anyhow::Result<Vec<(Uuid, f64)>> {
+        let Some(rag) = self.rag.as_deref() else {
+            return Ok(Vec::new());
+        };
+        rag_bridge::fetch_dense_candidates(rag, req).await
+    }
+
+    async fn rag_health_surface(&self) -> memd_schema::RagHealthStatus {
+        rag_bridge::health_surface(self.rag.as_deref()).await
     }
 
     fn revive_duplicate_on_explicit_store(
@@ -235,12 +448,10 @@ impl AppState {
             .iter()
             .filter(|e| e.id != new_entity.id)
             .filter(|e| {
-                e.context
-                    .as_ref()
-                    .and_then(|ctx| ctx.project.as_deref())
-                    == Some(project.as_str())
+                e.context.as_ref().and_then(|ctx| ctx.project.as_deref()) == Some(project.as_str())
             })
-            .filter(|e| e.salience_score > 0.1)
+            // E2: no salience gate — link on co-occurrence, not salience.
+            // New entities start at 0.0 salience; gating blocked all links.
             .take(3)
             .collect();
 
@@ -261,9 +472,122 @@ impl AppState {
                 relation_kind: memd_schema::EntityRelationKind::Related,
                 confidence: 0.5,
                 created_at: Utc::now(),
+                valid_from: Some(item.updated_at),
+                valid_to: None,
+                source_item_id: Some(item.id),
                 note: Some("auto-linked by co-occurrence".to_string()),
                 context: None,
                 tags: vec!["auto".to_string()],
+            };
+            self.store.upsert_entity_link(&link)?;
+        }
+        Ok(())
+    }
+
+    fn create_wiki_links(
+        &self,
+        source_entity: &MemoryEntityRecord,
+        item: &MemoryItem,
+    ) -> anyhow::Result<()> {
+        let wiki_refs = parse_wiki_links(&item.content);
+        if wiki_refs.is_empty() {
+            return Ok(());
+        }
+        let entities = self.store.list_entities()?;
+        for wiki_ref in wiki_refs {
+            let wiki_lower = wiki_ref.to_ascii_lowercase();
+            let target = entities.iter().find(|e| {
+                e.aliases
+                    .iter()
+                    .any(|a| a.to_ascii_lowercase().contains(&wiki_lower))
+                    || e.entity_type.to_ascii_lowercase().contains(&wiki_lower)
+            });
+            if let Some(target_entity) = target {
+                if target_entity.id == source_entity.id {
+                    continue;
+                }
+                let existing = self.store.links_for_entity(&EntityLinksRequest {
+                    entity_id: source_entity.id,
+                })?;
+                let already_linked = existing.iter().any(|link| {
+                    link.from_entity_id == target_entity.id || link.to_entity_id == target_entity.id
+                });
+                if already_linked {
+                    continue;
+                }
+                let link = MemoryEntityLinkRecord {
+                    id: Uuid::new_v4(),
+                    from_entity_id: source_entity.id,
+                    to_entity_id: target_entity.id,
+                    relation_kind: memd_schema::EntityRelationKind::Related,
+                    confidence: 0.7,
+                    created_at: Utc::now(),
+                    valid_from: Some(item.updated_at),
+                    valid_to: None,
+                    source_item_id: Some(item.id),
+                    note: Some(format!("wiki link: [[{}]]", wiki_ref)),
+                    context: None,
+                    tags: vec!["wiki-link".to_string(), "auto".to_string()],
+                };
+                self.store.upsert_entity_link(&link)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn create_named_entity_links(
+        &self,
+        source_entity: &MemoryEntityRecord,
+        item: &MemoryItem,
+    ) -> anyhow::Result<()> {
+        let mentions = crate::store_entities::extract_named_entity_aliases(&item.content);
+        if mentions.is_empty() {
+            return Ok(());
+        }
+        let entities = self.store.list_entities()?;
+        let existing = self.store.links_for_entity(&EntityLinksRequest {
+            entity_id: source_entity.id,
+        })?;
+
+        for mention in mentions.into_iter().take(8) {
+            let mention_normalized = mention.to_ascii_lowercase();
+            let target = entities.iter().find(|entity| {
+                entity.id != source_entity.id
+                    && entity
+                        .aliases
+                        .iter()
+                        .any(|alias| alias.to_ascii_lowercase() == mention_normalized)
+            });
+            let Some(target_entity) = target else {
+                continue;
+            };
+            let already_linked = existing.iter().any(|link| {
+                (link.from_entity_id == target_entity.id || link.to_entity_id == target_entity.id)
+                    && link.relation_kind == memd_schema::EntityRelationKind::Related
+            });
+            if already_linked
+                && !existing.iter().any(|link| {
+                    (link.from_entity_id == target_entity.id
+                        || link.to_entity_id == target_entity.id)
+                        && link.tags.iter().any(|tag| tag == "auto")
+                })
+            {
+                continue;
+            }
+
+            let link = MemoryEntityLinkRecord {
+                id: Uuid::new_v4(),
+                from_entity_id: source_entity.id,
+                to_entity_id: target_entity.id,
+                relation_kind: memd_schema::EntityRelationKind::Related,
+                confidence: 0.65,
+                created_at: Utc::now(),
+                valid_from: Some(item.updated_at),
+                valid_to: None,
+                source_item_id: Some(item.id),
+                note: Some(format!("named entity mention: {mention}")),
+                context: None,
+                tags: vec!["ner".to_string(), "auto".to_string()],
             };
             self.store.upsert_entity_link(&link)?;
         }
@@ -305,6 +629,28 @@ impl AppState {
 
     fn snapshot(&self) -> anyhow::Result<Vec<MemoryItem>> {
         let items = self.store.list()?;
+        let mut hydrated = Vec::with_capacity(items.len());
+        for item in items {
+            let (item, changed) = apply_lifecycle(item);
+            if changed {
+                let canonical_key = canonical_key(&item);
+                let redundancy_key = redundancy_key(&item);
+                self.store.update(&item, &canonical_key, &redundancy_key)?;
+            }
+            hydrated.push(item);
+        }
+        Ok(hydrated)
+    }
+
+    /// Scoped snapshot — hydrates only items matching the given project
+    /// and/or namespace. Hot path for bench search where each question
+    /// pins a fresh namespace; avoids global-corpus scan.
+    pub(crate) fn snapshot_for_scope(
+        &self,
+        project: Option<&str>,
+        namespace: Option<&str>,
+    ) -> anyhow::Result<Vec<MemoryItem>> {
+        let items = self.store.list_for_scope(project, namespace)?;
         let mut hydrated = Vec::with_capacity(items.len());
         for item in items {
             let (item, changed) = apply_lifecycle(item);
@@ -365,7 +711,7 @@ impl AppState {
             "promoted",
             "memory item promoted to canonical stage".to_string(),
         ) {
-            eprintln!("warn: record_item_event (promoted): {e:#}");
+            warn!(error = %format_args!("{e:#}"), "record_item_event (promoted)");
         }
         Ok((item, None))
     }
@@ -378,9 +724,19 @@ impl AppState {
     ) -> anyhow::Result<MemoryEventRecord> {
         let canonical_key = canonical_key(item);
         let entity = self.store.resolve_entity_for_item(item, &canonical_key)?;
-        let context = Some(entity_context_frame(&entity.record, item));
+        self.record_item_event_for_entity(&entity.record, item, event_type, summary)
+    }
+
+    fn record_item_event_for_entity(
+        &self,
+        entity: &MemoryEntityRecord,
+        item: &MemoryItem,
+        event_type: &str,
+        summary: String,
+    ) -> anyhow::Result<MemoryEventRecord> {
+        let context = Some(entity_context_frame(entity, item));
         self.store.record_event(
-            &entity.record,
+            entity,
             item.id,
             RecordEventArgs {
                 event_type: event_type.to_string(),
@@ -396,37 +752,172 @@ impl AppState {
                 tags: item.tags.clone(),
                 context,
                 confidence: item.confidence,
-                salience_score: entity.record.salience_score,
+                salience_score: entity.salience_score,
             },
         )
     }
 }
 
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,memd_server=debug,tower_http=info"));
+    let format = std::env::var("MEMD_LOG_FORMAT").unwrap_or_else(|_| "pretty".to_string());
+    let builder = tracing_subscriber::fmt().with_env_filter(filter);
+    match format.as_str() {
+        "json" => builder.json().init(),
+        _ => builder.compact().init(),
+    }
+}
+
+// K2.7: CLI subcommands for operating the on-disk store out-of-band.
+//   memd-server backup [out.db]    -> write a snapshot of $MEMD_DB_PATH
+//   memd-server restore <in.db>    -> restore $MEMD_DB_PATH from a snapshot
+// When no subcommand is supplied we fall through to the HTTP server path.
+// Subcommands deliberately run before binding the listener so no handler
+// is racing the file swap during restore.
+fn handle_cli_subcommand(db_path: &str) -> Option<i32> {
+    let mut args = std::env::args().skip(1);
+    let cmd = args.next()?;
+    match cmd.as_str() {
+        "backup" => {
+            let out = args
+                .next()
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| {
+                    let dir = backup::snapshots_dir(std::path::Path::new(db_path));
+                    dir.join(backup::snapshot_filename_now())
+                });
+            let db = std::path::Path::new(db_path);
+            match backup::write_snapshot(db, &out) {
+                Ok(bytes) => {
+                    println!(
+                        "backup: wrote {} ({} bytes) from {}",
+                        out.display(),
+                        bytes,
+                        db.display()
+                    );
+                    if let Some(parent) = out.parent() {
+                        if let Err(e) = backup::rotate_snapshots(parent, 5) {
+                            warn!(error = %format_args!("{e:#}"), "rotate snapshots failed");
+                        }
+                    }
+                    Some(0)
+                }
+                Err(e) => {
+                    error!(error = %format_args!("{e:#}"), "backup failed");
+                    Some(1)
+                }
+            }
+        }
+        "restore" => {
+            let Some(src) = args.next() else {
+                error!("restore requires a snapshot path argument");
+                return Some(2);
+            };
+            match backup::restore_from(std::path::Path::new(&src), std::path::Path::new(db_path)) {
+                Ok(()) => {
+                    println!("restore: {} -> {}", src, db_path);
+                    Some(0)
+                }
+                Err(e) => {
+                    error!(error = %format_args!("{e:#}"), "restore failed");
+                    Some(1)
+                }
+            }
+        }
+        other => {
+            error!(cmd = %other, "unknown subcommand (expected: backup | restore)");
+            Some(2)
+        }
+    }
+}
+
+fn schedule_reembed_sweep(state: AppState) {
+    let Some(embedder) = state.embedder.clone() else {
+        return;
+    };
+    let target_model = embedder.model_code().to_string();
+    let _ = std::thread::Builder::new()
+        .name("memd-reembed-sweep".to_string())
+        .spawn(move || {
+            loop {
+                let items = match state.store.items_needing_reembed(&target_model, 64) {
+                    Ok(items) => items,
+                    Err(error) => {
+                        warn!(error = %format_args!("{error:#}"), "items_needing_reembed failed");
+                        break;
+                    }
+                };
+                if items.is_empty() {
+                    break;
+                }
+                for item in items {
+                    state.maybe_upsert_vector(&item);
+                }
+            }
+        });
+}
+
 #[tokio::main]
 async fn main() {
+    init_tracing();
     let db_path = std::env::var("MEMD_DB_PATH").unwrap_or_else(|_| ".memd/memd.db".to_string());
+    if let Some(code) = handle_cli_subcommand(&db_path) {
+        std::process::exit(code);
+    }
     let bind_addr =
         std::env::var("MEMD_BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".to_string());
     let store = match SqliteStore::open(&db_path) {
         Ok(store) => store,
         Err(e) => {
-            eprintln!("error: failed to open database at {db_path}: {e:#}");
+            error!(error = %format_args!("{e:#}"), %db_path, "failed to open database");
             std::process::exit(1);
         }
     };
-    let state = AppState { store };
+    let embedder = if embed::intrinsic_dense_enabled() {
+        let cache_dir = embed::default_cache_dir();
+        match embed::Embedder::try_new(&cache_dir) {
+            Ok(e) => {
+                tracing::info!(
+                    model = %e.model_code(),
+                    cache_dir = %cache_dir.display(),
+                    "intrinsic dense embedder ready"
+                );
+                Some(std::sync::Arc::new(e))
+            }
+            Err(err) => {
+                error!(error = %format_args!("{err:#}"), "failed to init fastembed; intrinsic dense disabled");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let state = AppState {
+        store,
+        latency: latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(rate_limit::RateLimiter::new()),
+        rag: rag_bridge::build_rag_client(),
+        embedder,
+    };
+    schedule_reembed_sweep(state.clone());
     let app = Router::new()
         .route("/", get(dashboard))
         .route("/ui/snapshot", get(get_visible_memory_snapshot))
         .route("/ui/artifact", get(get_visible_memory_artifact))
         .route("/ui/action", post(post_visible_memory_action))
         .route("/healthz", get(healthz))
+        .route("/api/status", get(status::get_harness_status))
+        .route("/api/memory/search", get(search_memory_get))
+        .route("/api/diagnostics/spine/verify", get(status::verify_spine))
+        .route("/api/diagnostics/latency", get(status::get_latency))
         .route("/memory/store", post(store_memory))
         .route("/memory/candidates", post(store_candidate))
         .route("/memory/promote", post(promote_memory))
         .route("/memory/expire", post(expire_memory))
         .route("/memory/verify", post(verify_memory))
         .route("/memory/repair", post(repair_memory))
+        .route("/memory/correct", post(correct_memory))
         .route("/memory/search", post(search_memory))
         .route("/memory/context", get(get_context))
         .route("/memory/context/compact", get(get_compact_context))
@@ -498,6 +989,7 @@ async fn main() {
         .route("/hive/board", get(get_hive_board))
         .route("/hive/roster", get(get_hive_roster))
         .route("/hive/follow", get(get_hive_follow))
+        .route("/hive/divergence", get(get_hive_divergence))
         .route("/hive/queen/deny", post(post_hive_queen_deny))
         .route("/hive/queen/reroute", post(post_hive_queen_reroute))
         .route("/hive/queen/handoff", post(post_hive_queen_handoff))
@@ -506,6 +998,9 @@ async fn main() {
         .route("/coordination/tasks", get(get_hive_tasks))
         .route("/memory/maintenance/decay", post(decay_memory))
         .route("/memory/maintenance/consolidate", post(consolidate_memory))
+        .route("/episodes/consolidate", post(consolidate_episodes_handler))
+        .route("/episodes/list", get(list_episodes_handler))
+        .route("/memory/dedup/scan", post(dedup_scan_handler))
         .route("/memory/maintenance/drain", post(drain_memory))
         .route("/memory/maintenance/report", get(get_maintenance_report))
         .route("/memory/inbox/dismiss", post(dismiss_inbox))
@@ -525,18 +1020,81 @@ async fn main() {
         .route("/procedures/use", post(post_procedure_use))
         .route("/procedures/retire", post(post_procedure_retire))
         .route("/procedures/detect", post(post_procedure_detect))
+        .route("/ingest/lanes", post(post_ingest_lanes))
+        .route("/api/diagnostics/decay", post(decay_diagnostics))
+        .route(
+            "/api/diagnostics/token-efficiency",
+            post(token_efficiency_diagnostics),
+        )
+        .layer(axum::middleware::from_fn(
+            token_headers::token_headers_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            rate_limit::rate_limit_middleware,
+        ))
+        .layer(TraceLayer::new_for_http())
         .with_state(state);
+
+    // K2.7: periodic snapshot loop. MEMD_SNAPSHOT_INTERVAL_SECS=0 disables.
+    // Runs off the hot path in a background tokio task, rotating to keep
+    // the most recent MEMD_SNAPSHOT_KEEP (default 5).
+    let snapshot_interval = std::env::var("MEMD_SNAPSHOT_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(300);
+    let snapshot_keep = std::env::var("MEMD_SNAPSHOT_KEEP")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(5);
+    if snapshot_interval > 0 {
+        let db_path_bg = db_path.clone();
+        tokio::spawn(async move {
+            let mut ticker =
+                tokio::time::interval(std::time::Duration::from_secs(snapshot_interval));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            // First tick fires immediately — skip it so startup isn't double-slow.
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let db_path = db_path_bg.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    let db = std::path::Path::new(&db_path);
+                    let dir = backup::snapshots_dir(db);
+                    let out = dir.join(backup::snapshot_filename_now());
+                    let bytes = backup::write_snapshot(db, &out)?;
+                    let pruned = backup::rotate_snapshots(&dir, snapshot_keep)?;
+                    Ok::<_, anyhow::Error>((out, bytes, pruned.len()))
+                })
+                .await;
+                match result {
+                    Ok(Ok((out, bytes, pruned))) => tracing::info!(
+                        snapshot = %out.display(),
+                        bytes,
+                        pruned,
+                        "periodic snapshot written"
+                    ),
+                    Ok(Err(e)) => warn!(error = %format_args!("{e:#}"), "snapshot task failed"),
+                    Err(e) => warn!(error = %e, "snapshot task panicked"),
+                }
+            }
+        });
+    }
 
     let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
         Ok(listener) => listener,
         Err(e) => {
-            eprintln!("error: failed to bind to {bind_addr}: {e:#}");
-            eprintln!("hint: port may be in use, set MEMD_BIND_ADDR to change");
+            error!(
+                error = %format_args!("{e:#}"),
+                %bind_addr,
+                "failed to bind (hint: port may be in use, set MEMD_BIND_ADDR to change)"
+            );
             std::process::exit(1);
         }
     };
+    tracing::info!(%bind_addr, %db_path, "memd-server listening");
     if let Err(e) = axum::serve(listener, app).await {
-        eprintln!("error: server exited unexpectedly: {e:#}");
+        error!(error = %format_args!("{e:#}"), "server exited unexpectedly");
         std::process::exit(1);
     }
 }

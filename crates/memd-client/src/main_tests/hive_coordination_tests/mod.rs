@@ -1,5 +1,111 @@
 use super::*;
 
+fn commit_all_test_changes(root: &Path, message: &str) {
+    let _ = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("add")
+        .arg(".")
+        .status()
+        .expect("git add");
+    let _ = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("commit")
+        .arg("-m")
+        .arg(message)
+        .status()
+        .expect("git commit");
+}
+
+fn assert_bundle_state_contract(state: &serde_json::Value) {
+    assert!(
+        state
+            .get("bundle")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+    );
+    assert!(state.get("live_truth").is_some());
+    assert!(state.get("session").is_some());
+    assert!(state.get("claims").is_some());
+    assert!(state.get("freshness").is_some());
+    assert!(state.get("divergence").is_some());
+    assert!(state.get("memory_health").is_some());
+    assert!(
+        state
+            .get("warnings")
+            .and_then(serde_json::Value::as_array)
+            .is_some()
+    );
+    assert!(state.get("runtime").is_some());
+
+    let freshness = state.get("freshness").expect("freshness");
+    assert!(
+        freshness
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+    );
+    assert!(
+        freshness
+            .get("changed")
+            .and_then(serde_json::Value::as_bool)
+            .is_some()
+    );
+    assert!(
+        freshness
+            .get("change_count")
+            .and_then(serde_json::Value::as_u64)
+            .is_some()
+    );
+    assert!(
+        freshness
+            .get("repo_change_count")
+            .and_then(serde_json::Value::as_u64)
+            .is_some()
+    );
+
+    let claims = state.get("claims").expect("claims");
+    assert!(
+        claims
+            .get("active_count")
+            .and_then(serde_json::Value::as_u64)
+            .is_some()
+    );
+    assert!(
+        claims
+            .get("expired_count")
+            .and_then(serde_json::Value::as_u64)
+            .is_some()
+    );
+    assert!(
+        claims
+            .get("active")
+            .and_then(serde_json::Value::as_array)
+            .is_some()
+    );
+    assert!(
+        claims
+            .get("conflicts")
+            .and_then(serde_json::Value::as_array)
+            .is_some()
+    );
+
+    let divergence = state.get("divergence").expect("divergence");
+    assert!(
+        divergence
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+    );
+    assert!(
+        divergence
+            .get("items")
+            .and_then(serde_json::Value::as_array)
+            .is_some()
+    );
+}
+
 #[tokio::test]
 async fn hive_join_forces_shared_base_url_for_stale_bundle() {
     let dir = std::env::temp_dir().join(format!("memd-hive-join-{}", uuid::Uuid::new_v4()));
@@ -239,6 +345,889 @@ async fn hive_command_propagates_hive_metadata_to_active_sibling_bundles() {
     );
 
     fs::remove_dir_all(root).expect("cleanup project root");
+}
+
+#[tokio::test]
+async fn read_bundle_state_surfaces_claim_conflict_and_divergence() {
+    let root = std::env::temp_dir().join(format!("memd-state-{}", uuid::Uuid::new_v4()));
+    let current_project = root.join("alpha");
+    let sibling_project = root.join("beta");
+    let current_bundle = current_project.join(".memd");
+    let sibling_bundle = sibling_project.join(".memd");
+    fs::create_dir_all(current_bundle.join("state")).expect("create current state dir");
+    fs::create_dir_all(sibling_bundle.join("state")).expect("create sibling state dir");
+
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+
+    write_test_bundle_config(&current_bundle, &base_url);
+    fs::write(current_bundle.join("env"), "MEMD_BASE_URL=test\n").expect("write env");
+    fs::write(
+        current_bundle.join("env.ps1"),
+        "$env:MEMD_BASE_URL='test'\n",
+    )
+    .expect("write env ps1");
+
+    fs::write(
+        sibling_bundle.join("config.json"),
+        format!(
+            r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-b",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+            base_url
+        ),
+    )
+    .expect("write sibling config");
+
+    let mut current_heartbeat =
+        test_hive_heartbeat_state("codex-a", "codex", "tab-a", "live", Utc::now());
+    current_heartbeat.repo_root = Some(root.display().to_string());
+    current_heartbeat.worktree_root = Some(current_project.display().to_string());
+    current_heartbeat.branch = Some("feature/k2-state".to_string());
+    current_heartbeat.scope_claims = vec!["task:k2-l2-state".to_string()];
+    current_heartbeat.focus = Some("Assemble canonical memd state".to_string());
+    write_test_bundle_heartbeat(&current_bundle, &current_heartbeat);
+
+    let mut sibling_heartbeat =
+        test_hive_heartbeat_state("codex-b", "codex", "tab-b", "live", Utc::now());
+    sibling_heartbeat.repo_root = Some(root.display().to_string());
+    sibling_heartbeat.worktree_root = Some(sibling_project.display().to_string());
+    sibling_heartbeat.branch = Some("feature/l2-claims".to_string());
+    sibling_heartbeat.scope_claims = vec!["task:k2-l2-state".to_string()];
+    sibling_heartbeat.focus = Some("Add claim freshness signal".to_string());
+    write_test_bundle_heartbeat(&sibling_bundle, &sibling_heartbeat);
+
+    {
+        let mut claims = state.claims.lock().expect("lock claims");
+        claims.push(HiveClaimRecord {
+            scope: "task:k2-l2-state".to_string(),
+            session: "codex-a".to_string(),
+            tab_id: Some("tab-a".to_string()),
+            agent: Some("codex".to_string()),
+            effective_agent: Some("codex@codex-a".to_string()),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            host: None,
+            pid: None,
+            acquired_at: Utc::now(),
+            expires_at: Utc::now() + chrono::TimeDelta::minutes(20),
+        });
+        claims.push(HiveClaimRecord {
+            scope: "task:k2-l2-state".to_string(),
+            session: "codex-b".to_string(),
+            tab_id: Some("tab-b".to_string()),
+            agent: Some("codex".to_string()),
+            effective_agent: Some("codex@codex-b".to_string()),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            host: None,
+            pid: None,
+            acquired_at: Utc::now(),
+            expires_at: Utc::now() + chrono::TimeDelta::minutes(20),
+        });
+    }
+
+    let state = read_bundle_state(&current_bundle, SHARED_MEMD_BASE_URL)
+        .await
+        .expect("read bundle state");
+
+    assert_eq!(
+        state["claims"]["active_count"].as_u64(),
+        Some(2),
+        "expected both active claims in canonical state"
+    );
+    assert_eq!(
+        state["claims"]["conflicts"]
+            .as_array()
+            .map(std::vec::Vec::len),
+        Some(1),
+        "expected one conflicting scope in canonical state"
+    );
+    assert_eq!(
+        state["divergence"]["status"].as_str(),
+        Some("warning"),
+        "expected divergence warning when sibling work overlaps"
+    );
+    assert!(
+        state["divergence"]["items"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| {
+                item["kind"].as_str() == Some("work_overlap")
+                    && item["severity"].as_str() == Some("medium")
+                    && item["scope"]
+                        .as_str()
+                        .is_some_and(|scope| scope.contains("task:k2-l2-state"))
+                    && item["sessions"]
+                        .as_array()
+                        .is_some_and(|sessions| sessions.len() == 2)
+                    && item["summary"]
+                        .as_str()
+                        .is_some_and(|summary| summary.contains("task:k2-l2-state"))
+            })),
+        "expected work-overlap divergence item"
+    );
+    assert!(
+        state["warnings"]
+            .as_array()
+            .is_some_and(|warnings| warnings.iter().any(|value| {
+                value
+                    .as_str()
+                    .is_some_and(|warning| warning.contains("task:k2-l2-state"))
+            })),
+        "expected warnings to mention the contested claim scope"
+    );
+
+    fs::remove_dir_all(root).expect("cleanup state root");
+}
+
+#[tokio::test]
+async fn read_bundle_state_surfaces_expired_claims_and_branch_collision() {
+    let root = std::env::temp_dir().join(format!(
+        "memd-state-branch-collision-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let current_project = root.join("alpha");
+    let sibling_project = root.join("beta");
+    let current_bundle = current_project.join(".memd");
+    let sibling_bundle = sibling_project.join(".memd");
+    fs::create_dir_all(current_bundle.join("state")).expect("create current state dir");
+    fs::create_dir_all(sibling_bundle.join("state")).expect("create sibling state dir");
+
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+
+    write_test_bundle_config(&current_bundle, &base_url);
+    fs::write(current_bundle.join("env"), "MEMD_BASE_URL=test\n").expect("write env");
+    fs::write(
+        current_bundle.join("env.ps1"),
+        "$env:MEMD_BASE_URL='test'\n",
+    )
+    .expect("write env ps1");
+
+    fs::write(
+        sibling_bundle.join("config.json"),
+        format!(
+            r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-b",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+            base_url
+        ),
+    )
+    .expect("write sibling config");
+
+    let mut current_heartbeat =
+        test_hive_heartbeat_state("codex-a", "codex", "tab-a", "live", Utc::now());
+    current_heartbeat.repo_root = Some(root.display().to_string());
+    current_heartbeat.worktree_root = Some(current_project.display().to_string());
+    current_heartbeat.branch = Some("feature/shared-branch".to_string());
+    write_test_bundle_heartbeat(&current_bundle, &current_heartbeat);
+
+    let mut sibling_heartbeat =
+        test_hive_heartbeat_state("codex-b", "codex", "tab-b", "live", Utc::now());
+    sibling_heartbeat.repo_root = Some(root.display().to_string());
+    sibling_heartbeat.worktree_root = Some(sibling_project.display().to_string());
+    sibling_heartbeat.branch = Some("feature/shared-branch".to_string());
+    write_test_bundle_heartbeat(&sibling_bundle, &sibling_heartbeat);
+
+    {
+        let mut claims = state.claims.lock().expect("lock claims");
+        claims.push(HiveClaimRecord {
+            scope: "task:expired".to_string(),
+            session: "codex-a".to_string(),
+            tab_id: Some("tab-a".to_string()),
+            agent: Some("codex".to_string()),
+            effective_agent: Some("codex@codex-a".to_string()),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            host: None,
+            pid: None,
+            acquired_at: Utc::now() - chrono::TimeDelta::minutes(30),
+            expires_at: Utc::now() - chrono::TimeDelta::minutes(5),
+        });
+    }
+    fs::write(
+        current_bundle.join("state/claims.json"),
+        serde_json::to_string_pretty(&SessionClaimsState {
+            claims: vec![SessionClaim {
+                scope: "task:expired".to_string(),
+                session: Some("codex-a".to_string()),
+                tab_id: Some("tab-a".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-a".to_string()),
+                project: Some("demo".to_string()),
+                workspace: Some("shared".to_string()),
+                host: None,
+                pid: None,
+                acquired_at: Utc::now() - chrono::TimeDelta::minutes(30),
+                expires_at: Utc::now() - chrono::TimeDelta::minutes(5),
+            }],
+        })
+        .expect("serialize cached claims"),
+    )
+    .expect("write cached claims");
+
+    let state = read_bundle_state(&current_bundle, SHARED_MEMD_BASE_URL)
+        .await
+        .expect("read bundle state");
+
+    assert_eq!(state["claims"]["expired_count"].as_u64(), Some(1));
+    assert!(state["claims"]["expired"].as_array().is_some_and(|items| {
+        items
+            .iter()
+            .any(|item| item["scope"].as_str() == Some("task:expired"))
+    }));
+    assert!(
+        state["divergence"]["items"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| {
+                item["kind"].as_str() == Some("endpoint_overlap")
+                    && item["severity"].as_str() == Some("medium")
+                    && item["summary"].as_str().is_some_and(|summary| {
+                        summary.contains("used by 2 bundles") && summary.contains("base_url")
+                    })
+                    && item["endpoint"].as_str() == Some(base_url.as_str())
+                    && item["sessions"]
+                        .as_array()
+                        .is_some_and(|sessions| sessions.is_empty())
+            })),
+        "expected structured endpoint overlap item"
+    );
+
+    fs::remove_dir_all(root).expect("cleanup state root");
+}
+
+#[test]
+fn render_bundle_state_summary_surfaces_freshness_and_divergence_details() {
+    let state = serde_json::json!({
+        "live_truth": {
+            "truth": "current",
+            "epistemic_state": "verified",
+            "freshness": "changed",
+            "retrieval_tier": "hot",
+            "confidence": 0.98,
+            "records": []
+        },
+        "session": {
+            "project": "demo",
+            "namespace": "main",
+            "workspace": "shared",
+            "visibility": "workspace",
+            "agent": "codex",
+            "session": "codex-a",
+            "branch": "feature/k2-state"
+        },
+        "freshness": {
+            "status": "changed",
+            "since_checkpoint_minutes": 7,
+            "refresh_recommended": false,
+            "change_count": 1,
+            "repo_change_count": 2
+        },
+        "claims": {
+            "active_count": 2,
+            "expired_count": 0,
+            "conflicts": [],
+            "active": []
+        },
+        "divergence": {
+            "status": "warning",
+            "items": [{
+                "kind": "work_overlap",
+                "severity": "medium",
+                "scope": "task:k2-l2-state",
+                "sessions": ["codex-a", "codex-b"],
+                "summary": "possible_work_overlap touches=task:k2-l2-state sessions=codex-a,codex-b"
+            }]
+        },
+        "memory_health": {
+            "pressure": "low",
+            "estimated_prompt_tokens": 120,
+            "redundant_context_items": 0,
+            "inbox_items": 0,
+            "rehydration_queue": 0,
+            "degraded": false
+        },
+        "warnings": []
+    });
+
+    let summary = render_bundle_state_summary(&state);
+    assert!(summary.contains("freshness status=changed"));
+    assert!(summary.contains("changes=1"));
+    assert!(summary.contains("repo_changes=2"));
+    assert!(summary.contains("divergence status=warning items=1"));
+    assert!(summary.contains("severity=medium"));
+    assert!(summary.contains("scope=task:k2-l2-state"));
+    assert!(summary.contains("sessions=codex-a,codex-b"));
+}
+
+#[test]
+fn render_bundle_state_summary_surfaces_branch_collision_details() {
+    let state = serde_json::json!({
+        "live_truth": {
+            "truth": "current",
+            "epistemic_state": "verified",
+            "freshness": "changed",
+            "retrieval_tier": "hot",
+            "confidence": 0.98,
+            "records": []
+        },
+        "session": {
+            "project": "demo",
+            "namespace": "main",
+            "workspace": "shared",
+            "visibility": "workspace",
+            "agent": "codex",
+            "session": "codex-a",
+            "branch": "feature/shared-branch"
+        },
+        "freshness": {
+            "status": "changed",
+            "since_checkpoint_minutes": 4,
+            "refresh_recommended": false,
+            "change_count": 1,
+            "repo_change_count": 0
+        },
+        "claims": {
+            "active_count": 1,
+            "expired_count": 1,
+            "conflicts": [],
+            "active": []
+        },
+        "divergence": {
+            "status": "warning",
+            "items": [{
+                "kind": "branch_collision",
+                "severity": "high",
+                "branch": "feature/shared-branch",
+                "sessions": ["codex-a", "codex-b"],
+                "summary": "unsafe_same_branch branch=feature/shared-branch sessions=codex-a,codex-b"
+            }]
+        },
+        "memory_health": {
+            "pressure": "low",
+            "estimated_prompt_tokens": 120,
+            "redundant_context_items": 0,
+            "inbox_items": 0,
+            "rehydration_queue": 0,
+            "degraded": false
+        },
+        "warnings": []
+    });
+
+    let summary = render_bundle_state_summary(&state);
+    assert!(summary.contains("divergence status=warning items=1"));
+    assert!(summary.contains("branch_collision"));
+    assert!(summary.contains("severity=high"));
+    assert!(summary.contains("branch=feature/shared-branch"));
+    assert!(summary.contains("sessions=codex-a,codex-b"));
+}
+
+#[test]
+fn render_bundle_state_summary_matches_fixture_snapshot() {
+    let state = serde_json::json!({
+        "live_truth": {
+            "truth": "current",
+            "epistemic_state": "verified",
+            "freshness": "changed",
+            "retrieval_tier": "hot",
+            "confidence": 0.98,
+            "records": [{
+                "lane": "live_truth",
+                "preview": "resume_delta: focus -> lock K2 state"
+            }]
+        },
+        "focus": "Lock K2/L2 operator state surface",
+        "session": {
+            "project": "demo",
+            "namespace": "main",
+            "workspace": "shared",
+            "visibility": "workspace",
+            "agent": "codex",
+            "session": "codex-a",
+            "branch": "feature/k2-state"
+        },
+        "freshness": {
+            "status": "changed",
+            "since_checkpoint_minutes": 7,
+            "refresh_recommended": false,
+            "change_count": 1,
+            "repo_change_count": 2
+        },
+        "claims": {
+            "active_count": 1,
+            "expired_count": 0,
+            "conflicts": [],
+            "active": [{
+                "scope": "task:k2-l2-state",
+                "holder": "codex@codex-a",
+                "expires_at": "2026-04-14T17:00:00Z"
+            }]
+        },
+        "divergence": {
+            "status": "warning",
+            "items": [{
+                "kind": "work_overlap",
+                "severity": "medium",
+                "scope": "task:k2-l2-state",
+                "sessions": ["codex-a", "codex-b"],
+                "summary": "possible_work_overlap touches=task:k2-l2-state sessions=codex-a,codex-b"
+            }]
+        },
+        "memory_health": {
+            "pressure": "low",
+            "estimated_prompt_tokens": 120,
+            "redundant_context_items": 0,
+            "inbox_items": 0,
+            "rehydration_queue": 0,
+            "degraded": false
+        },
+        "warnings": ["claim conflict on task:k2-l2-state across 2 holders"]
+    });
+
+    let summary = render_bundle_state_summary(&state);
+    let expected = [
+        "state bundle=none truth=current freshness=changed claims=1 conflicts=0 divergence=warning warnings=1",
+        "live_truth lane=live_truth preview=\"resume_delta: focus -> lock K2 state\"",
+        "focus Lock K2/L2 operator state surface",
+        "session project=demo namespace=main workspace=shared visibility=workspace agent=codex session=codex-a branch=feature/k2-state",
+        "freshness status=changed age_minutes=7 refresh=false changes=1 repo_changes=2",
+        "claims active=1 expired=0 conflicts=0",
+        "- claim task:k2-l2-state holder=codex@codex-a expires_at=2026-04-14T17:00:00Z",
+        "divergence status=warning items=1",
+        "- divergence work_overlap severity=medium scope=task:k2-l2-state sessions=codex-a,codex-b possible_work_overlap touches=task:k2-l2-state sessions=codex-a,codex-b",
+        "memory pressure=low tok=120 redundant=0 inbox=0 rehydrate=0 degraded=false",
+        "- warning claim conflict on task:k2-l2-state across 2 holders",
+    ]
+    .join("\n");
+
+    assert_eq!(summary, expected);
+}
+
+#[tokio::test]
+async fn claim_wrapper_round_trips_against_runtime_claims() {
+    let output = std::env::temp_dir().join(format!("memd-claim-wrapper-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(output.join("state")).expect("create temp state dir");
+
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+    write_test_bundle_config(&output, &base_url);
+
+    let created = run_claims_command(
+        &ClaimsArgs::from(ClaimCreateArgs {
+            output: output.clone(),
+            scope: "task:k2-l2-state".to_string(),
+            ttl_secs: 1800,
+            summary: false,
+        }),
+        &base_url,
+    )
+    .await
+    .expect("create claim through wrapper args");
+
+    assert_eq!(created.claims.len(), 1);
+    assert_eq!(created.claims[0].scope, "task:k2-l2-state");
+    assert_eq!(created.claims[0].workspace.as_deref(), Some("shared"));
+
+    let listed = run_claims_command(
+        &ClaimsArgs::from(ClaimListArgs {
+            output: output.clone(),
+            summary: false,
+        }),
+        &base_url,
+    )
+    .await
+    .expect("list claims through wrapper args");
+
+    assert_eq!(listed.claims.len(), 1);
+    assert_eq!(listed.claims[0].scope, "task:k2-l2-state");
+
+    let closed = run_claims_command(
+        &ClaimsArgs::from(ClaimCloseArgs {
+            output: output.clone(),
+            scope: "task:k2-l2-state".to_string(),
+            summary: false,
+        }),
+        &base_url,
+    )
+    .await
+    .expect("close claim through wrapper args");
+
+    assert_eq!(closed.claims.len(), 1);
+    assert_eq!(closed.claims[0].scope, "task:k2-l2-state");
+
+    let claims = state.claims.lock().expect("lock runtime claims");
+    assert!(claims.is_empty(), "claim should be removed after close");
+
+    fs::remove_dir_all(output).expect("cleanup temp dir");
+}
+
+#[tokio::test]
+async fn read_bundle_state_matches_json_contract_fixture() {
+    let root = std::env::temp_dir().join(format!("memd-state-contract-{}", uuid::Uuid::new_v4()));
+    let current_project = root.join("alpha");
+    let sibling_project = root.join("beta");
+    let current_bundle = current_project.join(".memd");
+    let sibling_bundle = sibling_project.join(".memd");
+    fs::create_dir_all(current_bundle.join("state")).expect("create current state dir");
+    fs::create_dir_all(sibling_bundle.join("state")).expect("create sibling state dir");
+
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+
+    write_test_bundle_config(&current_bundle, &base_url);
+    fs::write(current_bundle.join("env"), "MEMD_BASE_URL=test\n").expect("write env");
+    fs::write(
+        current_bundle.join("env.ps1"),
+        "$env:MEMD_BASE_URL='test'\n",
+    )
+    .expect("write env ps1");
+
+    fs::write(
+        sibling_bundle.join("config.json"),
+        format!(
+            r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-b",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+            base_url
+        ),
+    )
+    .expect("write sibling config");
+
+    let mut current_heartbeat =
+        test_hive_heartbeat_state("codex-a", "codex", "tab-a", "live", Utc::now());
+    current_heartbeat.repo_root = Some(root.display().to_string());
+    current_heartbeat.worktree_root = Some(current_project.display().to_string());
+    current_heartbeat.branch = Some("feature/k2-state".to_string());
+    current_heartbeat.scope_claims = vec!["task:k2-l2-state".to_string()];
+    current_heartbeat.focus = Some("Assemble canonical memd state".to_string());
+    write_test_bundle_heartbeat(&current_bundle, &current_heartbeat);
+
+    let mut sibling_heartbeat =
+        test_hive_heartbeat_state("codex-b", "codex", "tab-b", "live", Utc::now());
+    sibling_heartbeat.repo_root = Some(root.display().to_string());
+    sibling_heartbeat.worktree_root = Some(sibling_project.display().to_string());
+    sibling_heartbeat.branch = Some("feature/l2-claims".to_string());
+    sibling_heartbeat.scope_claims = vec!["task:k2-l2-state".to_string()];
+    write_test_bundle_heartbeat(&sibling_bundle, &sibling_heartbeat);
+
+    {
+        let mut claims = state.claims.lock().expect("lock claims");
+        claims.push(HiveClaimRecord {
+            scope: "task:k2-l2-state".to_string(),
+            session: "codex-a".to_string(),
+            tab_id: Some("tab-a".to_string()),
+            agent: Some("codex".to_string()),
+            effective_agent: Some("codex@codex-a".to_string()),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            host: None,
+            pid: None,
+            acquired_at: Utc::now(),
+            expires_at: Utc::now() + chrono::TimeDelta::minutes(20),
+        });
+        claims.push(HiveClaimRecord {
+            scope: "task:k2-l2-state".to_string(),
+            session: "codex-b".to_string(),
+            tab_id: Some("tab-b".to_string()),
+            agent: Some("codex".to_string()),
+            effective_agent: Some("codex@codex-b".to_string()),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            host: None,
+            pid: None,
+            acquired_at: Utc::now(),
+            expires_at: Utc::now() + chrono::TimeDelta::minutes(20),
+        });
+    }
+
+    let state = read_bundle_state(&current_bundle, SHARED_MEMD_BASE_URL)
+        .await
+        .expect("read bundle state");
+
+    assert_bundle_state_contract(&state);
+    assert_eq!(state["claims"]["active_count"].as_u64(), Some(2));
+    assert_eq!(state["divergence"]["status"].as_str(), Some("warning"));
+    assert_eq!(state["freshness"]["status"].as_str(), Some("unchanged"));
+
+    fs::remove_dir_all(root).expect("cleanup state root");
+}
+
+#[tokio::test]
+async fn read_bundle_state_reports_freshness_changed_when_repo_dirty() {
+    let root = std::env::temp_dir().join(format!(
+        "memd-state-freshness-changed-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let output = root.join(".memd");
+    fs::create_dir_all(output.join("state")).expect("create temp state dir");
+    init_test_git_repo(&root);
+
+    let state = MockRuntimeState::default();
+    {
+        let mut context = state
+            .context_compact_response
+            .lock()
+            .expect("lock context response");
+        *context = Some(memd_schema::CompactContextResponse {
+            route: memd_schema::RetrievalRoute::Auto,
+            intent: memd_schema::RetrievalIntent::General,
+            retrieval_order: vec![memd_schema::MemoryScope::Project],
+            records: Vec::new(),
+        });
+    }
+    {
+        let mut working = state
+            .working_response
+            .lock()
+            .expect("lock working response");
+        *working = Some(memd_schema::WorkingMemoryResponse {
+            route: memd_schema::RetrievalRoute::Auto,
+            intent: memd_schema::RetrievalIntent::General,
+            retrieval_order: vec![memd_schema::MemoryScope::Project],
+            budget_chars: 1600,
+            used_chars: 0,
+            remaining_chars: 1600,
+            truncated: false,
+            policy: memd_schema::WorkingMemoryPolicyState {
+                admission_limit: 8,
+                max_chars_per_item: 220,
+                budget_chars: 1600,
+                rehydration_limit: 4,
+            },
+            records: Vec::new(),
+            evicted: Vec::new(),
+            rehydration_queue: Vec::new(),
+            traces: Vec::new(),
+            semantic_consolidation: None,
+            procedures: vec![],
+
+            compaction_quality: None,
+        });
+    }
+    let base_url = spawn_mock_runtime_server(state, false).await;
+    write_test_bundle_config(&output, &base_url);
+    commit_all_test_changes(&root, "baseline");
+
+    fs::write(root.join("dirty.txt"), "pending change\n").expect("write dirty file");
+
+    let state = read_bundle_state(&output, &base_url)
+        .await
+        .expect("read bundle state");
+
+    assert_eq!(state["freshness"]["status"].as_str(), Some("changed"));
+    assert_eq!(state["freshness"]["changed"].as_bool(), Some(true));
+    assert!(
+        state["freshness"]["repo_change_count"]
+            .as_u64()
+            .is_some_and(|count| count >= 1)
+    );
+
+    fs::remove_dir_all(root).expect("cleanup temp dir");
+}
+
+#[tokio::test]
+async fn read_bundle_state_reports_freshness_unchanged_when_repo_clean() {
+    let root = std::env::temp_dir().join(format!(
+        "memd-state-freshness-unchanged-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let output = root.join(".memd");
+    fs::create_dir_all(output.join("state")).expect("create temp state dir");
+    init_test_git_repo(&root);
+
+    let state = MockRuntimeState::default();
+    {
+        let mut context = state
+            .context_compact_response
+            .lock()
+            .expect("lock context response");
+        *context = Some(memd_schema::CompactContextResponse {
+            route: memd_schema::RetrievalRoute::Auto,
+            intent: memd_schema::RetrievalIntent::General,
+            retrieval_order: vec![memd_schema::MemoryScope::Project],
+            records: Vec::new(),
+        });
+    }
+    {
+        let mut working = state
+            .working_response
+            .lock()
+            .expect("lock working response");
+        *working = Some(memd_schema::WorkingMemoryResponse {
+            route: memd_schema::RetrievalRoute::Auto,
+            intent: memd_schema::RetrievalIntent::General,
+            retrieval_order: vec![memd_schema::MemoryScope::Project],
+            budget_chars: 1600,
+            used_chars: 0,
+            remaining_chars: 1600,
+            truncated: false,
+            policy: memd_schema::WorkingMemoryPolicyState {
+                admission_limit: 8,
+                max_chars_per_item: 220,
+                budget_chars: 1600,
+                rehydration_limit: 4,
+            },
+            records: Vec::new(),
+            evicted: Vec::new(),
+            rehydration_queue: Vec::new(),
+            traces: Vec::new(),
+            semantic_consolidation: None,
+            procedures: vec![],
+
+            compaction_quality: None,
+        });
+    }
+    let base_url = spawn_mock_runtime_server(state, false).await;
+    write_test_bundle_config(&output, &base_url);
+
+    let snapshot = BundleResumeState {
+        focus: None,
+        pressure: None,
+        next_recovery: None,
+        lane: Some("demo / main / team-alpha".to_string()),
+        working_records: 0,
+        inbox_items: 0,
+        rehydration_items: 0,
+        recorded_at: Utc::now(),
+    };
+    fs::write(
+        output.join("state/last-resume.json"),
+        serde_json::to_string_pretty(&snapshot).expect("serialize resume"),
+    )
+    .expect("write resume");
+    commit_all_test_changes(&root, "baseline");
+
+    let state = read_bundle_state(&output, &base_url)
+        .await
+        .expect("read bundle state");
+
+    assert_eq!(state["freshness"]["status"].as_str(), Some("unchanged"));
+    assert_eq!(state["freshness"]["changed"].as_bool(), Some(false));
+    assert_eq!(state["freshness"]["repo_change_count"].as_u64(), Some(0));
+
+    fs::remove_dir_all(root).expect("cleanup temp dir");
+}
+
+#[tokio::test]
+async fn read_bundle_state_reports_freshness_stale_when_resume_state_is_old() {
+    let root = std::env::temp_dir().join(format!(
+        "memd-state-freshness-stale-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let output = root.join(".memd");
+    fs::create_dir_all(output.join("state")).expect("create temp state dir");
+    init_test_git_repo(&root);
+
+    let state = MockRuntimeState::default();
+    {
+        let mut context = state
+            .context_compact_response
+            .lock()
+            .expect("lock context response");
+        *context = Some(memd_schema::CompactContextResponse {
+            route: memd_schema::RetrievalRoute::Auto,
+            intent: memd_schema::RetrievalIntent::General,
+            retrieval_order: vec![memd_schema::MemoryScope::Project],
+            records: Vec::new(),
+        });
+    }
+    {
+        let mut working = state
+            .working_response
+            .lock()
+            .expect("lock working response");
+        *working = Some(memd_schema::WorkingMemoryResponse {
+            route: memd_schema::RetrievalRoute::Auto,
+            intent: memd_schema::RetrievalIntent::General,
+            retrieval_order: vec![memd_schema::MemoryScope::Project],
+            budget_chars: 1600,
+            used_chars: 0,
+            remaining_chars: 1600,
+            truncated: false,
+            policy: memd_schema::WorkingMemoryPolicyState {
+                admission_limit: 8,
+                max_chars_per_item: 220,
+                budget_chars: 1600,
+                rehydration_limit: 4,
+            },
+            records: Vec::new(),
+            evicted: Vec::new(),
+            rehydration_queue: Vec::new(),
+            traces: Vec::new(),
+            semantic_consolidation: None,
+            procedures: vec![],
+
+            compaction_quality: None,
+        });
+    }
+    let base_url = spawn_mock_runtime_server(state, false).await;
+    write_test_bundle_config(&output, &base_url);
+
+    let snapshot = BundleResumeState {
+        focus: None,
+        pressure: None,
+        next_recovery: None,
+        lane: Some("demo / main / team-alpha".to_string()),
+        working_records: 0,
+        inbox_items: 0,
+        rehydration_items: 0,
+        recorded_at: Utc::now() - chrono::TimeDelta::minutes(45),
+    };
+    fs::write(
+        output.join("state/last-resume.json"),
+        serde_json::to_string_pretty(&snapshot).expect("serialize resume"),
+    )
+    .expect("write resume");
+    commit_all_test_changes(&root, "baseline");
+
+    let state = read_bundle_state(&output, &base_url)
+        .await
+        .expect("read bundle state");
+
+    assert_eq!(state["freshness"]["status"].as_str(), Some("stale"));
+    assert_eq!(state["freshness"]["changed"].as_bool(), Some(false));
+    assert!(
+        state["freshness"]["since_checkpoint_minutes"]
+            .as_i64()
+            .is_some_and(|age| age >= 45)
+    );
+
+    fs::remove_dir_all(root).expect("cleanup temp dir");
 }
 
 #[tokio::test]
@@ -728,11 +1717,7 @@ fn wake_packet_cross_harness_profiles_keep_same_bundle_defaults() {
     fs::write(bundle.join("backend.env"), "").expect("write backend env");
     fs::write(bundle.join("env.ps1"), "").expect("write env.ps1");
     fs::create_dir_all(bundle.join("agents")).expect("create agents dir");
-    fs::write(
-        bundle.join("wake.md"),
-        "# codex wakeup\n",
-    )
-    .expect("write codex wakeup");
+    fs::write(bundle.join("wake.md"), "# codex wakeup\n").expect("write codex wakeup");
     fs::write(
         bundle.join("agents").join("watch.sh"),
         "#!/usr/bin/env bash\nexit 0\n",

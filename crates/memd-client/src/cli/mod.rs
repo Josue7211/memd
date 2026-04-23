@@ -24,6 +24,9 @@ pub(crate) use cli_obsidian_runtime::*;
 mod cli_hook_runtime;
 pub(crate) use cli_hook_runtime::*;
 
+pub(crate) mod cli_gate_runtime;
+pub(crate) use cli_gate_runtime::*;
+
 mod cli_rag_runtime;
 pub(crate) use cli_rag_runtime::*;
 
@@ -32,6 +35,12 @@ pub(crate) use cli_utility_runtime::*;
 
 mod cli_inspection_runtime;
 pub(crate) use cli_inspection_runtime::*;
+
+mod cli_lifecycle_probe_runtime;
+pub(crate) use cli_lifecycle_probe_runtime::*;
+
+mod cli_contract_runtime;
+pub(crate) use cli_contract_runtime::*;
 
 pub(crate) mod skill_catalog;
 
@@ -48,6 +57,27 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                 println!("{}", render_bundle_status_summary(&status));
             } else {
                 print_json(&status)?;
+            }
+        }
+        Commands::State(args) => {
+            let state = read_bundle_state(&args.output, &base_url).await?;
+            if args.json {
+                print_json(&state)?;
+            } else {
+                println!("{}", render_bundle_state_summary(&state));
+            }
+        }
+        Commands::Claim(args) => {
+            let args = match args.command {
+                ClaimSubcommand::Create(args) => ClaimsArgs::from(args),
+                ClaimSubcommand::List(args) => ClaimsArgs::from(args),
+                ClaimSubcommand::Close(args) => ClaimsArgs::from(args),
+            };
+            let response = run_claims_command(&args, &base_url).await?;
+            if args.summary {
+                println!("{}", render_claims_summary(&response));
+            } else {
+                print_json(&response)?;
             }
         }
         Commands::Capabilities(args) => {
@@ -470,8 +500,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                         || opencode_pack
                         || openclaw_pack =>
                 {
-                    if let Some(markdown) =
-                        read_codex_pack_local_markdown(&args.output, "mem.md")?
+                    if let Some(markdown) = read_codex_pack_local_markdown(&args.output, "mem.md")?
                     {
                         write_bundle_turn_fallback_artifacts(
                             &args.output,
@@ -630,6 +659,45 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             }
         }
         Commands::Checkpoint(args) => {
+            // Update ROADMAP_STATE before auto-commit so changes are included
+            if !args.roadmap_set.is_empty() {
+                let updates: Vec<(String, String)> = args
+                    .roadmap_set
+                    .iter()
+                    .filter_map(|pair| {
+                        let (key, value) = pair.split_once('=')?;
+                        Some((key.trim().to_string(), value.trim().to_string()))
+                    })
+                    .collect();
+                match crate::runtime::update_roadmap_state(&updates) {
+                    Ok(true) => {
+                        eprintln!("memd: updated ROADMAP_STATE ({} keys)", updates.len());
+                    }
+                    Ok(false) => {} // no changes needed
+                    Err(err) => {
+                        eprintln!("memd: roadmap-set failed (non-fatal): {}", err);
+                    }
+                }
+            }
+            // Auto-commit tracked dirty files before checkpointing
+            if args.auto_commit {
+                let commit_msg = match args.content.as_deref() {
+                    Some(content) => {
+                        let summary: String = content.chars().take(72).collect();
+                        format!("memd auto-commit: {}", summary)
+                    }
+                    None => "memd auto-commit: checkpoint".to_string(),
+                };
+                match crate::runtime::git_auto_commit_if_dirty(&commit_msg) {
+                    Ok(Some(hash)) => {
+                        eprintln!("memd: auto-committed dirty tree ({})", hash);
+                    }
+                    Ok(None) => {} // clean tree, nothing to do
+                    Err(err) => {
+                        eprintln!("memd: auto-commit failed (non-fatal): {}", err);
+                    }
+                }
+            }
             let (default_project, default_namespace) = infer_bundle_identity_defaults(&args.output);
             let response = match checkpoint_with_bundle_defaults(&args, &base_url).await {
                 Ok(response) => response,
@@ -711,7 +779,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             run_multimodal_mode(args).await?;
         }
         Commands::Inspiration(args) => {
-            run_inspiration_command(args)?;
+            run_inspiration_command(args, &base_url).await?;
         }
         Commands::Skills(args) => {
             run_skill_catalog_command(args)?;
@@ -737,6 +805,9 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::Ingest(args) => {
             run_ingest_command(&client, &args).await?;
         }
+        Commands::IngestSources(args) => {
+            run_ingest_sources_command(&client, &args).await?;
+        }
         Commands::Store(input) => {
             run_store_command(&client, &input).await?;
         }
@@ -754,6 +825,9 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         }
         Commands::Repair(args) => {
             run_repair_command(&client, args).await?;
+        }
+        Commands::Correct(args) => {
+            run_correct_command(&client, args).await?;
         }
         Commands::Search(args) => {
             run_search_command(&client, args).await?;
@@ -811,6 +885,9 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         }
         Commands::Consolidate(args) => {
             run_consolidate_command(&client, args).await?;
+        }
+        Commands::Dedup(args) => {
+            run_dedup_command(&client, args).await?;
         }
         Commands::MaintenanceReport(args) => {
             run_maintenance_report_command(&client, args).await?;
@@ -879,6 +956,335 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::Autoresearch(args) => {
             run_autoresearch_command(args, &base_url).await?;
         }
+        Commands::Diagnostics(args) => {
+            run_diagnostics_command(args).await?;
+        }
+        Commands::PrimeReads(args) => {
+            run_prime_reads(&args)?;
+        }
+        Commands::Contract(args) => match args.command {
+            ContractCommand::Verify(v) => run_contract_verify(&v)?,
+            ContractCommand::Generate(g) => run_contract_generate(&g)?,
+        },
+    }
+
+    Ok(())
+}
+
+pub(crate) fn run_prime_reads(args: &PrimeReadsArgs) -> anyhow::Result<()> {
+    use memd_core::file_ledger::FileInteractionLedger;
+    let paths = if let Some(session) = &args.since_session {
+        let p = args
+            .output
+            .join("state")
+            .join(format!("session-{session}"))
+            .join("file_interactions.json");
+        FileInteractionLedger::load_from_path(&p)
+            .map(|l| l.distinct_paths())
+            .unwrap_or_default()
+    } else {
+        crate::runtime::collect_files_touched(&args.output)
+    };
+    for p in paths {
+        println!("{p}");
+    }
+    Ok(())
+}
+
+async fn run_diagnostics_command(args: DiagnosticsArgs) -> anyhow::Result<()> {
+    match args.command {
+        DiagnosticsCommand::Report(report_args) => {
+            run_diagnostics_report(&args.base_url, &report_args).await
+        }
+        DiagnosticsCommand::TokenEfficiency(te_args) => {
+            run_diagnostics_token_efficiency(&args.base_url, &te_args).await
+        }
+        DiagnosticsCommand::LifecycleProbe(probe_args) => {
+            run_diagnostics_lifecycle_probe(&args.base_url, &probe_args).await
+        }
+    }
+}
+
+async fn run_diagnostics_lifecycle_probe(
+    base_url: &str,
+    args: &DiagnosticsLifecycleProbeArgs,
+) -> anyhow::Result<()> {
+    let client = MemdClient::new(base_url)?;
+    let report = run_lifecycle_probe(&client).await;
+    if args.summary {
+        println!(
+            "lifecycle-probe {} probe_id={} steps={}",
+            report.status,
+            report.probe_id,
+            report.steps.len()
+        );
+        for step in &report.steps {
+            let mark = if step.ok { "ok" } else { "FAIL" };
+            let detail = step.detail.as_deref().unwrap_or("");
+            println!("  - {mark} {} {detail}", step.name);
+        }
+    } else {
+        print_json(&report)?;
+    }
+    if report.is_green() {
+        Ok(())
+    } else {
+        anyhow::bail!("lifecycle probe red: {:?}", report.steps);
+    }
+}
+
+async fn run_diagnostics_token_efficiency(
+    base_url: &str,
+    args: &DiagnosticsTokenEfficiencyArgs,
+) -> anyhow::Result<()> {
+    let client = reqwest::Client::new();
+    let req = serde_json::json!({
+        "project": args.project.as_deref().unwrap_or("default"),
+        "namespace": args.namespace.as_deref().unwrap_or("main"),
+        "agent": args.agent,
+        "route": "auto",
+        "intent": "current_task",
+    });
+
+    let resp = client
+        .post(format!("{base_url}/api/diagnostics/token-efficiency"))
+        .json(&req)
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("token-efficiency endpoint returned {status}: {body}");
+    }
+
+    let report: memd_schema::OperationTokenReport = resp.json().await?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!("## Token Efficiency: {}", report.operation);
+        println!();
+        println!(
+            "Budget: {} chars | Used: {} chars | Utilization: {:.1}%",
+            report.budget_chars, report.used_chars, report.utilization_pct
+        );
+        println!();
+        println!("### Per-Kind Breakdown");
+        println!();
+        println!("{:<20} {:>8} {:>8}", "Kind", "Items", "Chars");
+        println!("{}", "-".repeat(40));
+        for (kind, items) in &report.per_kind.items_per_kind {
+            let chars = report.per_kind.chars_per_kind.get(kind).unwrap_or(&0);
+            println!("{:<20} {:>8} {:>8}", kind, items, chars);
+        }
+        println!("{}", "-".repeat(40));
+        println!(
+            "{:<20} {:>8} {:>8}",
+            "TOTAL", report.per_kind.total_items, report.per_kind.total_chars
+        );
+    }
+
+    Ok(())
+}
+
+async fn run_diagnostics_report(
+    base_url: &str,
+    args: &DiagnosticsReportArgs,
+) -> anyhow::Result<()> {
+    let client = reqwest::Client::new();
+
+    // 1. Fetch token efficiency (working memory)
+    let te_req = serde_json::json!({
+        "project": args.project.as_deref().unwrap_or("default"),
+        "namespace": args.namespace.as_deref().unwrap_or("main"),
+        "agent": args.agent,
+        "route": "auto",
+        "intent": "current_task",
+    });
+
+    let te_resp = client
+        .post(format!("{base_url}/api/diagnostics/token-efficiency"))
+        .json(&te_req)
+        .send()
+        .await;
+
+    let token_report: Option<memd_schema::OperationTokenReport> = match te_resp {
+        Ok(r) if r.status().is_success() => r.json().await.ok(),
+        _ => None,
+    };
+
+    // 2. Fetch decay diagnostics
+    let decay_req = serde_json::json!({
+        "project": args.project.as_deref().unwrap_or("default"),
+        "namespace": args.namespace.as_deref().unwrap_or("main"),
+    });
+
+    let decay_resp = client
+        .post(format!("{base_url}/api/diagnostics/decay"))
+        .json(&decay_req)
+        .send()
+        .await;
+
+    let decay_report: Option<serde_json::Value> = match decay_resp {
+        Ok(r) if r.status().is_success() => r.json().await.ok(),
+        _ => None,
+    };
+
+    // 3. Fetch health for compaction/consolidation info
+    let health_resp = client.get(format!("{base_url}/healthz")).send().await;
+
+    let health: Option<serde_json::Value> = match health_resp {
+        Ok(r) if r.status().is_success() => r.json().await.ok(),
+        _ => None,
+    };
+
+    // P2: Read cached wake token metrics from bundle output if available.
+    let wake_token_report: Option<memd_schema::OperationTokenReport> = args
+        .output
+        .as_ref()
+        .and_then(|dir| std::fs::read_to_string(dir.join("wake-token-metrics.json")).ok())
+        .and_then(|json| serde_json::from_str(&json).ok());
+
+    if args.json {
+        let combined = serde_json::json!({
+            "token_efficiency_working_memory": token_report,
+            "token_efficiency_wake": wake_token_report,
+            "decay": decay_report,
+            "health": health,
+            "timestamp": chrono::Utc::now().timestamp(),
+        });
+        println!("{}", serde_json::to_string_pretty(&combined)?);
+    } else {
+        println!("# memd Diagnostics Report");
+        println!();
+        println!(
+            "Timestamp: {}",
+            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+        );
+        println!();
+
+        // Token efficiency section
+        println!("## 1. Token Efficiency");
+
+        // 1a. Working memory operation (from server)
+        if let Some(ref te) = token_report {
+            println!(
+                "- Operation: {} | Budget: {} | Used: {} | Utilization: {:.1}%",
+                te.operation, te.budget_chars, te.used_chars, te.utilization_pct
+            );
+            for (kind, items) in &te.per_kind.items_per_kind {
+                let chars = te.per_kind.chars_per_kind.get(kind).unwrap_or(&0);
+                println!("  - {}: {} items, {} chars", kind, items, chars);
+            }
+        } else {
+            println!("- working_memory: N/A (server unreachable or no data)");
+        }
+
+        // 1b. Wake operation (from cached bundle metrics)
+        if let Some(ref wte) = wake_token_report {
+            println!(
+                "- Operation: {} | Budget: {} | Used: {} | Utilization: {:.1}%",
+                wte.operation, wte.budget_chars, wte.used_chars, wte.utilization_pct
+            );
+            for (kind, items) in &wte.per_kind.items_per_kind {
+                let chars = wte.per_kind.chars_per_kind.get(kind).unwrap_or(&0);
+                println!("  - {}: {} items, {} chars", kind, items, chars);
+            }
+        } else {
+            println!("- wake: N/A (run `memd wake --write` first to generate metrics)");
+        }
+        println!();
+
+        // Decay section
+        println!("## 2. Decay Diagnostics");
+        if let Some(ref decay) = decay_report {
+            if let Some(metrics) = decay.get("metrics") {
+                println!(
+                    "- Items inspected: {}",
+                    metrics
+                        .get("items_inspected")
+                        .unwrap_or(&serde_json::Value::Null)
+                );
+                println!(
+                    "- Items decayed: {}",
+                    metrics
+                        .get("items_decayed")
+                        .unwrap_or(&serde_json::Value::Null)
+                );
+                println!(
+                    "- Items expired: {}",
+                    metrics
+                        .get("items_expired")
+                        .unwrap_or(&serde_json::Value::Null)
+                );
+            }
+            println!(
+                "- Inactive days: {}",
+                decay
+                    .get("inactive_days")
+                    .unwrap_or(&serde_json::Value::Null)
+            );
+            println!(
+                "- Max decay: {}",
+                decay.get("max_decay").unwrap_or(&serde_json::Value::Null)
+            );
+            println!(
+                "- Decay divisor: {}",
+                decay
+                    .get("decay_divisor")
+                    .unwrap_or(&serde_json::Value::Null)
+            );
+        } else {
+            println!("- N/A (server unreachable or no data)");
+        }
+        println!();
+
+        // Health section
+        println!("## 3. System Health");
+        if let Some(ref h) = health {
+            println!(
+                "- Status: {}",
+                h.get("status").unwrap_or(&serde_json::Value::Null)
+            );
+            if let Some(items) = h.get("item_count") {
+                println!("- Total items: {}", items);
+            }
+            if let Some(entities) = h.get("entity_count") {
+                println!("- Total entities: {}", entities);
+            }
+        } else {
+            println!("- N/A (server unreachable)");
+        }
+        println!();
+
+        // Measurement dimensions summary
+        println!("## 4. Measurement Completeness");
+        let te_wm_ok = token_report.is_some();
+        let te_wake_ok = wake_token_report.is_some();
+        let decay_ok = decay_report.is_some();
+        let health_ok = health.is_some();
+        println!(
+            "- [{}] Token efficiency: working_memory (per-kind, server)",
+            if te_wm_ok { "✓" } else { " " }
+        );
+        println!(
+            "- [{}] Token efficiency: wake (per-kind, bundle)",
+            if te_wake_ok { "✓" } else { " " }
+        );
+        println!(
+            "- [{}] Decay diagnostics (calibrated parameters)",
+            if decay_ok { "✓" } else { " " }
+        );
+        println!(
+            "- [{}] System health (item/entity counts)",
+            if health_ok { "✓" } else { " " }
+        );
+        println!("- [✓] Compaction quality (per working memory build — CompactionQualityReport)");
+        println!(
+            "- [✓] Handoff quality (per resume — HandoffQualityScore from CompactionQualityReport)"
+        );
+        println!("- [ ] Benchmark results (run `memd benchmark public --ci --record`)");
     }
 
     Ok(())

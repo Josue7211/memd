@@ -1,0 +1,18 @@
+# One wiki-link token per line. Tokens here are exempt from lint-links.sh
+# resolution. Use sparingly — prefer fixing the target.
+#
+# Theory-lock references (abstract handles, not file names)
+memd-atlas-theory-lock-v1
+memd-canonical-promotion-theory-lock-v1
+memd-evaluation-theory-lock-v1
+memd-hive-theory-lock-v1
+memd-lane-theory-lock-v1
+memd-theory-lock-v1
+
+# Illustrative prose tokens (appear inside examples, not real refs)
+wikilink
+entity
+path
+Other Note
+wiki-style
+integrations/codex/README.md:99-105

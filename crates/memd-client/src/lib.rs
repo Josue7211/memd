@@ -1,10 +1,11 @@
 use anyhow::Context;
 use memd_schema::{
-    AtlasExpandRequest, AtlasExpandResponse, AtlasExploreRequest, AtlasExploreResponse,
-    AtlasRegionsRequest, AtlasRegionsResponse,
     AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest, AssociativeRecallRequest,
-    AssociativeRecallResponse, CandidateMemoryRequest, CandidateMemoryResponse,
-    CompactContextResponse, ContextRequest, ContextResponse, EntityLinkRequest, EntityLinkResponse,
+    AssociativeRecallResponse, AtlasExpandRequest, AtlasExpandResponse, AtlasExploreRequest,
+    AtlasExploreResponse, AtlasRegionsRequest, AtlasRegionsResponse, CandidateMemoryRequest,
+    CandidateMemoryResponse, CompactContextResponse, ConsolidateEpisodesRequest,
+    ConsolidateEpisodesResponse, ContextRequest, ContextResponse, CorrectMemoryRequest, DedupScanRequest, DedupScanResponse,
+    CorrectMemoryResponse, EntityLinkRequest, EntityLinkResponse,
     EntityLinksRequest, EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse,
     EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
     ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveBoardRequest,
@@ -13,16 +14,19 @@ use memd_schema::{
     HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
     HiveCoordinationReceiptsResponse, HiveFollowRequest, HiveFollowResponse, HiveMessageAckRequest,
     HiveMessageInboxRequest, HiveMessageSendRequest, HiveMessagesResponse, HiveQueenActionRequest,
-    HiveQueenActionResponse, HiveRosterRequest,
-    HiveRosterResponse, HiveSessionAutoRetireRequest, HiveSessionAutoRetireResponse,
-    HiveSessionRetireRequest, HiveSessionRetireResponse, HiveSessionUpsertRequest,
-    HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskUpsertRequest,
-    HiveTasksRequest, HiveTasksResponse, MaintainReport, MaintainReportRequest,
-    InboxDismissRequest, InboxDismissResponse,
-    MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryDecayRequest,
-    MemoryDecayResponse, MemoryDrainRequest, MemoryDrainResponse,
+    HiveQueenActionResponse, HiveRosterRequest, HiveRosterResponse, HiveSessionAutoRetireRequest,
+    HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
+    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
+    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxDismissRequest,
+    InboxDismissResponse, IngestLanesRequest, IngestLanesResponse, MaintainReport,
+    MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
+    MemoryDecayRequest, MemoryDecayResponse, MemoryDrainRequest, MemoryDrainResponse,
     MemoryInboxRequest, MemoryInboxResponse, MemoryMaintenanceReportRequest,
-    MemoryMaintenanceReportResponse, MemoryPolicyResponse, PromoteMemoryRequest,
+    MemoryMaintenanceReportResponse, MemoryPolicyResponse, ProcedureDetectRequest,
+    ProcedureDetectResponse, ProcedureListRequest, ProcedureListResponse, ProcedureMatchRequest,
+    ProcedureMatchResponse, ProcedurePromoteRequest, ProcedurePromoteResponse,
+    ProcedureRecordRequest, ProcedureRecordResponse, ProcedureRetireRequest,
+    ProcedureRetireResponse, ProcedureUseRequest, ProcedureUseResponse, PromoteMemoryRequest,
     PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, SearchMemoryRequest,
     SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
     SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
@@ -30,10 +34,6 @@ use memd_schema::{
     SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
     TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
     VisibleMemoryArtifactDetailResponse, VisibleMemorySnapshotResponse,
-    ProcedureDetectRequest, ProcedureDetectResponse, ProcedureListRequest, ProcedureListResponse,
-    ProcedureMatchRequest, ProcedureMatchResponse, ProcedurePromoteRequest,
-    ProcedurePromoteResponse, ProcedureRecordRequest, ProcedureRecordResponse,
-    ProcedureRetireRequest, ProcedureRetireResponse, ProcedureUseRequest, ProcedureUseResponse,
     VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse, WorkingMemoryRequest,
     WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
@@ -98,6 +98,13 @@ impl MemdClient {
 
     pub async fn repair(&self, req: &RepairMemoryRequest) -> anyhow::Result<RepairMemoryResponse> {
         self.post_json("/memory/repair", req).await
+    }
+
+    pub async fn correct(
+        &self,
+        req: &CorrectMemoryRequest,
+    ) -> anyhow::Result<CorrectMemoryResponse> {
+        self.post_json("/memory/correct", req).await
     }
 
     pub async fn search(&self, req: &SearchMemoryRequest) -> anyhow::Result<SearchMemoryResponse> {
@@ -262,6 +269,20 @@ impl MemdClient {
 
     pub async fn drain(&self, req: &MemoryDrainRequest) -> anyhow::Result<MemoryDrainResponse> {
         self.post_json("/memory/maintenance/drain", req).await
+    }
+
+    pub async fn consolidate_episodes(
+        &self,
+        req: &ConsolidateEpisodesRequest,
+    ) -> anyhow::Result<ConsolidateEpisodesResponse> {
+        self.post_json("/episodes/consolidate", req).await
+    }
+
+    pub async fn dedup_scan(
+        &self,
+        req: &DedupScanRequest,
+    ) -> anyhow::Result<DedupScanResponse> {
+        self.post_json("/memory/dedup/scan", req).await
     }
 
     pub async fn dismiss_inbox(
@@ -516,6 +537,13 @@ impl MemdClient {
     ) -> anyhow::Result<HiveSessionAutoRetireResponse> {
         self.post_json("/coordination/sessions/auto-retire", req)
             .await
+    }
+
+    pub async fn ingest_lanes(
+        &self,
+        req: &IngestLanesRequest,
+    ) -> anyhow::Result<IngestLanesResponse> {
+        self.post_json("/ingest/lanes", req).await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>

@@ -42,9 +42,9 @@ pub(crate) fn collect_gap_plan_evidence(project_root: &Path) -> Vec<String> {
         && let Some(core) = project
             .lines()
             .find(|line| line.starts_with("##") && line.contains("Core"))
-        {
-            evidence.push(format!("project: {core}"));
-        }
+    {
+        evidence.push(format!("project: {core}"));
+    }
 
     evidence.append(&mut repo_evidence);
     evidence
@@ -433,6 +433,7 @@ pub(crate) async fn search_live_truth_record(
             visibility,
             belief_branch: None,
             source_agent: Some("memd".to_string()),
+            region: None,
             tags: vec!["live_truth".to_string()],
             stages: vec![MemoryStage::Canonical],
             limit: Some(1),
@@ -545,6 +546,7 @@ pub(crate) async fn store_live_truth_record(
         supersedes: Vec::new(),
         tags: tags.clone(),
         status: Some(MemoryStatus::Active),
+        lane: None,
     };
 
     match client.store(&request).await {

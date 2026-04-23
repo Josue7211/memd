@@ -1,13 +1,13 @@
 use axum::http::StatusCode;
 use memd_schema::{
-    ExplainBranchSiblingRecord, ExplainMemoryRequest, ExplainMemoryResponse, MemoryEventRecord,
-    MemoryItem, MemoryRehydrationRecord, MemoryStage, MemoryStatus, RetrievalFeedbackSummary,
-    RetrievalFeedbackSurfaceCount, RetrievalIntent, RetrievalRoute, SourceMemoryRecord,
-    SourceMemoryRequest,
+    ConfidenceSample, CorrectionChainEntry, ExplainBranchSiblingRecord, ExplainMemoryRequest,
+    ExplainMemoryResponse, MemoryEventRecord, MemoryItem, MemoryRehydrationRecord, MemoryStage,
+    MemoryStatus, RetrievalFeedbackSummary, RetrievalFeedbackSurfaceCount, RetrievalIntent,
+    RetrievalRoute, SourceMemoryRecord, SourceMemoryRequest, TrustRankSample,
 };
 use std::collections::BTreeMap;
 
-use super::{AppState, canonical_key, internal_error, redundancy_key};
+use super::{AppState, canonical_key, errors::MemdError, internal_error, redundancy_key};
 
 pub(crate) fn explain_memory(
     state: &AppState,
@@ -18,13 +18,13 @@ pub(crate) fn explain_memory(
         .store
         .get(req.id)
         .map_err(internal_error)?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "memory item not found".to_string()))?;
+        .ok_or_else(|| MemdError::not_found("memory item", req.id).into_wire())?;
     if req
         .belief_branch
         .as_ref()
         .is_some_and(|branch| item.belief_branch.as_ref() != Some(branch))
     {
-        return Err((StatusCode::NOT_FOUND, "memory item not found".to_string()));
+        return Err(MemdError::not_found("memory item", req.id).into_wire());
     }
 
     let reasons = explain_reasons(&item, &plan);
@@ -59,6 +59,9 @@ pub(crate) fn explain_memory(
     let branch_siblings = build_branch_siblings(state, &item).map_err(internal_error)?;
     let rehydration = build_rehydration(&item, &events, &sources);
     let policy_hooks = build_policy_hooks(&item, &plan, &sources, &branch_siblings);
+    let corrections_chain = build_corrections_chain(state, &item).map_err(internal_error)?;
+    let confidence_timeline = build_confidence_timeline(&item, &events);
+    let trust_rank_history = build_trust_rank_history(&events);
 
     Ok(ExplainMemoryResponse {
         route: plan.route,
@@ -74,7 +77,104 @@ pub(crate) fn explain_memory(
         branch_siblings,
         rehydration,
         policy_hooks,
+        corrections_chain,
+        confidence_timeline,
+        trust_rank_history,
     })
+}
+
+// K2.3: walk the `supersedes` ancestry so callers see the full correction trail
+// (capped at 8 hops to stop pathological cycles from turning this into a DOS).
+fn build_corrections_chain(
+    state: &AppState,
+    item: &MemoryItem,
+) -> anyhow::Result<Vec<CorrectionChainEntry>> {
+    const MAX_HOPS: usize = 8;
+    let mut chain = Vec::new();
+    let mut frontier: Vec<uuid::Uuid> = item.supersedes.clone();
+    let mut seen: std::collections::HashSet<uuid::Uuid> = std::collections::HashSet::new();
+    seen.insert(item.id);
+
+    while let Some(id) = frontier.pop() {
+        if chain.len() >= MAX_HOPS {
+            break;
+        }
+        if !seen.insert(id) {
+            continue;
+        }
+        let Some(predecessor) = state.store.get(id)? else {
+            continue;
+        };
+        let preview: String = predecessor.content.chars().take(120).collect();
+        chain.push(CorrectionChainEntry {
+            id: predecessor.id,
+            content_preview: preview,
+            confidence: predecessor.confidence,
+            stage: predecessor.stage,
+            status: predecessor.status,
+            updated_at: predecessor.updated_at,
+            supersedes: predecessor.supersedes.clone(),
+        });
+        frontier.extend(predecessor.supersedes);
+    }
+
+    chain.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(chain)
+}
+
+// K2.3: collapse creation + correction/verify events into a confidence-over-time
+// series, sorted oldest→newest so dashboards can render without re-sorting.
+fn build_confidence_timeline(
+    item: &MemoryItem,
+    events: &[MemoryEventRecord],
+) -> Vec<ConfidenceSample> {
+    let mut samples = vec![ConfidenceSample {
+        at: item.created_at,
+        confidence: item.confidence,
+        source: "created".to_string(),
+    }];
+
+    for event in events {
+        let tag = event.event_type.as_str();
+        if tag.starts_with("correction") || tag.starts_with("verify") || tag.starts_with("contest")
+        {
+            samples.push(ConfidenceSample {
+                at: event.recorded_at,
+                confidence: event.confidence,
+                source: format!("event:{tag}"),
+            });
+        }
+    }
+
+    if item.updated_at != item.created_at {
+        samples.push(ConfidenceSample {
+            at: item.updated_at,
+            confidence: item.confidence,
+            source: "updated".to_string(),
+        });
+    }
+
+    samples.sort_by(|a, b| a.at.cmp(&b.at));
+    samples
+}
+
+// K2.3: derive trust-rank history from events that carry source identity.
+// Richer per-source trust curves land once M4 phase N2 wires source-trust
+// event types; this surface is the minimum viable contract.
+fn build_trust_rank_history(events: &[MemoryEventRecord]) -> Vec<TrustRankSample> {
+    let mut samples: Vec<TrustRankSample> = events
+        .iter()
+        .filter(|event| event.source_agent.is_some() || event.source_system.is_some())
+        .map(|event| TrustRankSample {
+            at: event.recorded_at,
+            source_agent: event.source_agent.clone(),
+            source_system: event.source_system.clone(),
+            event_type: event.event_type.clone(),
+            confidence: event.confidence,
+        })
+        .collect();
+    samples.sort_by(|a, b| a.at.cmp(&b.at));
+    samples
 }
 
 fn build_retrieval_feedback(

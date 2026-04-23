@@ -1,4 +1,6 @@
 use super::*;
+use std::os::unix::fs::PermissionsExt;
+use std::process::{Command, Stdio};
 
 #[test]
 fn derives_help_request_message_from_scope() {
@@ -67,6 +69,90 @@ fn derives_assignment_message_from_assign_scope() {
 }
 
 #[test]
+fn cli_parses_state_command() {
+    let cli = Cli::try_parse_from(["memd", "state", "--output", ".memd"])
+        .expect("state command should parse");
+
+    match cli.command {
+        Commands::State(args) => {
+            assert_eq!(args.output, PathBuf::from(".memd"));
+            assert!(!args.json);
+        }
+        other => panic!("expected state command, got {other:?}"),
+    }
+}
+
+#[test]
+fn cli_parses_claim_create_command() {
+    let cli = Cli::try_parse_from([
+        "memd",
+        "claim",
+        "create",
+        "--output",
+        ".memd",
+        "--scope",
+        "task:k2-l2-state",
+        "--ttl-secs",
+        "1800",
+    ])
+    .expect("claim create command should parse");
+
+    match cli.command {
+        Commands::Claim(args) => match args.command {
+            ClaimSubcommand::Create(args) => {
+                assert_eq!(args.output, PathBuf::from(".memd"));
+                assert_eq!(args.scope, "task:k2-l2-state");
+                assert_eq!(args.ttl_secs, 1800);
+            }
+            other => panic!("expected claim create command, got {other:?}"),
+        },
+        other => panic!("expected claim command, got {other:?}"),
+    }
+}
+
+#[test]
+fn cli_parses_claim_list_command() {
+    let cli = Cli::try_parse_from(["memd", "claim", "list", "--output", ".memd", "--summary"])
+        .expect("claim list command should parse");
+
+    match cli.command {
+        Commands::Claim(args) => match args.command {
+            ClaimSubcommand::List(args) => {
+                assert_eq!(args.output, PathBuf::from(".memd"));
+                assert!(args.summary);
+            }
+            other => panic!("expected claim list command, got {other:?}"),
+        },
+        other => panic!("expected claim command, got {other:?}"),
+    }
+}
+
+#[test]
+fn cli_parses_claim_close_command() {
+    let cli = Cli::try_parse_from([
+        "memd",
+        "claim",
+        "close",
+        "--output",
+        ".memd",
+        "--scope",
+        "task:k2-l2-state",
+    ])
+    .expect("claim close command should parse");
+
+    match cli.command {
+        Commands::Claim(args) => match args.command {
+            ClaimSubcommand::Close(args) => {
+                assert_eq!(args.output, PathBuf::from(".memd"));
+                assert_eq!(args.scope, "task:k2-l2-state");
+            }
+            other => panic!("expected claim close command, got {other:?}"),
+        },
+        other => panic!("expected claim command, got {other:?}"),
+    }
+}
+
+#[test]
 fn resolves_nested_bundle_rag_config() {
     let config = BundleConfigFile {
         project: None,
@@ -99,6 +185,7 @@ fn resolves_nested_bundle_rag_config() {
                 enabled: Some(true),
                 url: Some("http://127.0.0.1:9000".to_string()),
             }),
+            embedding_model: None,
         }),
     };
 
@@ -181,6 +268,7 @@ fn serializes_bundle_config_with_nested_rag_state() {
                 provider: "lightrag-compatible".to_string(),
                 url: Some("http://127.0.0.1:9000".to_string()),
             },
+            embedding_model: None,
         },
         hooks: BundleHooksConfig {
             context: "hooks/memd-context.sh".to_string(),
@@ -243,6 +331,7 @@ fn writes_bundle_memory_placeholder_with_hot_path_guidance() {
                 provider: "lightrag-compatible".to_string(),
                 url: Some("http://127.0.0.1:9000".to_string()),
             },
+            embedding_model: None,
         },
         hooks: BundleHooksConfig {
             context: "hooks/memd-context.sh".to_string(),
@@ -319,6 +408,7 @@ fn writes_bundle_memory_placeholder_with_normal_voice_mode() {
                 provider: "lightrag-compatible".to_string(),
                 url: Some("http://127.0.0.1:9000".to_string()),
             },
+            embedding_model: None,
         },
         hooks: BundleHooksConfig {
             context: "hooks/memd-context.sh".to_string(),
@@ -363,6 +453,7 @@ fn writes_bundle_memory_placeholder_with_normal_voice_mode() {
                     enabled: Some(true),
                     url: Some("http://127.0.0.1:9000".to_string()),
                 }),
+                embedding_model: None,
             }),
             authority_policy: BundleAuthorityPolicy::default(),
             authority_state: BundleAuthorityState::default(),
@@ -420,6 +511,7 @@ fn writes_bundle_memory_placeholder_with_caveman_lite_voice_mode() {
                 provider: "lightrag-compatible".to_string(),
                 url: Some("http://127.0.0.1:9000".to_string()),
             },
+            embedding_model: None,
         },
         hooks: BundleHooksConfig {
             context: "hooks/memd-context.sh".to_string(),
@@ -464,6 +556,7 @@ fn writes_bundle_memory_placeholder_with_caveman_lite_voice_mode() {
                     enabled: Some(true),
                     url: Some("http://127.0.0.1:9000".to_string()),
                 }),
+                embedding_model: None,
             }),
             authority_policy: BundleAuthorityPolicy::default(),
             authority_state: BundleAuthorityState::default(),
@@ -481,6 +574,68 @@ fn writes_bundle_memory_placeholder_with_caveman_lite_voice_mode() {
     assert!(memory.contains("no filler/hedging"));
     assert!(claude_imports.contains("memd resume"));
     assert!(codex_agents.contains("`caveman-lite`"));
+
+    fs::remove_dir_all(dir).expect("cleanup temp bundle");
+}
+
+#[test]
+fn write_bundle_backend_env_includes_embed_model_when_configured() {
+    let dir = std::env::temp_dir().join(format!(
+        "memd-bundle-backend-embed-model-{}",
+        uuid::Uuid::new_v4()
+    ));
+    fs::create_dir_all(&dir).expect("create temp bundle");
+    let config = BundleConfig {
+        schema_version: 2,
+        project: "demo".to_string(),
+        namespace: Some("main".to_string()),
+        agent: "codex".to_string(),
+        session: "session-demo".to_string(),
+        tab_id: None,
+        hive_system: Some("codex".to_string()),
+        hive_role: Some("agent".to_string()),
+        capabilities: vec!["memory".to_string()],
+        hive_groups: Vec::new(),
+        hive_group_goal: None,
+        hive_project_enabled: false,
+        hive_project_anchor: None,
+        hive_project_joined_at: None,
+        authority: Some("participant".to_string()),
+        base_url: "http://127.0.0.1:8787".to_string(),
+        route: "auto".to_string(),
+        intent: "general".to_string(),
+        workspace: None,
+        visibility: None,
+        heartbeat_model: default_heartbeat_model(),
+        voice_mode: default_voice_mode(),
+        auto_short_term_capture: true,
+        authority_policy: BundleAuthorityPolicy::default(),
+        authority_state: BundleAuthorityState::default(),
+        backend: BundleBackendConfig {
+            rag: BundleRagConfig {
+                enabled: false,
+                provider: "lightrag-compatible".to_string(),
+                url: None,
+            },
+            embedding_model: Some("bge-large-en-v1.5".to_string()),
+        },
+        hooks: BundleHooksConfig {
+            context: "hooks/memd-context.sh".to_string(),
+            capture: "hooks/memd-capture.sh".to_string(),
+            spill: "hooks/memd-spill.sh".to_string(),
+            context_ps1: "hooks/memd-context.ps1".to_string(),
+            capture_ps1: "hooks/memd-capture.ps1".to_string(),
+            spill_ps1: "hooks/memd-spill.ps1".to_string(),
+        },
+        rag_url: None,
+    };
+
+    write_bundle_backend_env(&dir, &config).expect("write backend env");
+
+    let shell = fs::read_to_string(dir.join("backend.env")).expect("read backend env");
+    let ps1 = fs::read_to_string(dir.join("backend.env.ps1")).expect("read backend env ps1");
+    assert!(shell.contains("MEMD_EMBED_MODEL=bge-large-en-v1.5"));
+    assert!(ps1.contains("$env:MEMD_EMBED_MODEL = \"bge-large-en-v1.5\""));
 
     fs::remove_dir_all(dir).expect("cleanup temp bundle");
 }
@@ -790,12 +945,7 @@ fn claude_code_pack_manifest_exposes_native_bridge_and_files() {
         crate::harness::claude_code::build_claude_code_harness_pack(&bundle_root, "demo", "main");
 
     assert_eq!(manifest.agent, "claude-code");
-    assert!(
-        manifest
-            .files
-            .iter()
-            .any(|path| path.ends_with("wake.md"))
-    );
+    assert!(manifest.files.iter().any(|path| path.ends_with("wake.md")));
     assert!(
         manifest
             .files
@@ -850,11 +1000,36 @@ fn command_catalog_includes_slash_and_skill_commands() {
             .iter()
             .any(|entry| entry.name == ".memd/agents/claude-code.sh")
     );
+    assert!(
+        catalog
+            .commands
+            .iter()
+            .any(|entry| entry.name == "memd state")
+    );
+    assert!(
+        catalog
+            .commands
+            .iter()
+            .any(|entry| entry.name == "memd claim create")
+    );
+    assert!(
+        catalog
+            .commands
+            .iter()
+            .any(|entry| entry.name == "memd claim list")
+    );
+    assert!(
+        catalog
+            .commands
+            .iter()
+            .any(|entry| entry.name == "memd claim close")
+    );
 
     let summary = render_command_catalog_summary(&catalog, None);
     assert!(summary.contains("commands root="));
     assert!(summary.contains("commands="));
     assert!(summary.contains("/memory"));
+    assert!(summary.contains("memd state"));
 
     let markdown = render_command_catalog_markdown(&catalog);
     assert!(markdown.contains("# memd commands"));
@@ -866,6 +1041,10 @@ fn command_catalog_includes_slash_and_skill_commands() {
     assert!(markdown.contains("bundle-root-present"));
     assert!(markdown.contains("codex-skill-installed"));
     assert!(markdown.contains(".memd/agents/claude-code.sh"));
+    assert!(markdown.contains("memd state"));
+    assert!(markdown.contains("memd claim create"));
+    assert!(markdown.contains("memd claim list"));
+    assert!(markdown.contains("memd claim close"));
 }
 
 #[test]
@@ -974,8 +1153,16 @@ fn claude_manifest_stays_wake_only_and_bridge_only() {
 
     assert_eq!(file_names.len(), 3);
     assert!(file_names.iter().any(|path| path.ends_with("wake.md")));
-    assert!(file_names.iter().any(|path| path.ends_with("agents/CLAUDE_IMPORTS.md")));
-    assert!(file_names.iter().any(|path| path.ends_with("agents/CLAUDE.md.example")));
+    assert!(
+        file_names
+            .iter()
+            .any(|path| path.ends_with("agents/CLAUDE_IMPORTS.md"))
+    );
+    assert!(
+        file_names
+            .iter()
+            .any(|path| path.ends_with("agents/CLAUDE.md.example"))
+    );
     assert!(!file_names.iter().any(|path| path.ends_with("mem.md")));
     assert!(!file_names.iter().any(|path| path.ends_with("events.md")));
 }
@@ -1093,8 +1280,7 @@ async fn provenance_source_path_survives_across_codex_and_openclaw_memory_surfac
     .await
     .expect("refresh harness pack files");
 
-    let shared_memory =
-        fs::read_to_string(bundle_root.join("mem.md")).expect("read shared memory");
+    let shared_memory = fs::read_to_string(bundle_root.join("mem.md")).expect("read shared memory");
 
     let expected_source = "codex@test / hook-capture / notes/provenance.md";
     assert!(shared_memory.contains(expected_source));
@@ -1144,6 +1330,123 @@ fn codex_pack_backend_failure_falls_back_to_local_bundle_truth() {
     assert!(memory.contains("local memory"));
 
     fs::remove_dir_all(bundle_root).expect("cleanup codex fallback temp dir");
+}
+
+fn write_executable(path: &Path, content: &str) {
+    fs::write(path, content).expect("write executable");
+    let mut perms = fs::metadata(path).expect("read metadata").permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(path, perms).expect("set executable permissions");
+}
+
+fn run_bootstrap_hook(
+    script: &Path,
+    input: &str,
+    path_override: Option<&str>,
+) -> std::process::Output {
+    let mut command = Command::new("bash");
+    command
+        .arg(script)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
+    if let Some(path) = path_override {
+        command.env("PATH", path);
+    }
+    let mut child = command.spawn().expect("spawn bootstrap hook");
+    {
+        let stdin = child.stdin.as_mut().expect("open stdin");
+        use std::io::Write;
+        stdin
+            .write_all(input.as_bytes())
+            .expect("write bootstrap hook stdin");
+    }
+    child.wait_with_output().expect("wait for bootstrap hook")
+}
+
+#[test]
+fn bootstrap_hook_refuses_cached_wake_without_session_receipt() {
+    let _env_lock = lock_env_mutation();
+    let temp_root = std::env::temp_dir().join(format!(
+        "memd-bootstrap-session-gate-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let project_root = temp_root.join("project");
+    let bundle_root = project_root.join(".memd");
+    let fake_bin = temp_root.join("bin");
+    fs::create_dir_all(&bundle_root).expect("create bundle root");
+    fs::create_dir_all(&fake_bin).expect("create fake bin");
+    fs::write(bundle_root.join("config.json"), "{}\n").expect("write config");
+    fs::write(bundle_root.join("wake.md"), "# cached wake\n").expect("write wake");
+    fs::write(
+        bundle_root.join(".last-wake"),
+        format!("{}\n", chrono::Utc::now().timestamp()),
+    )
+    .expect("write last wake");
+
+    let fake_memd = fake_bin.join("memd");
+    write_executable(&fake_memd, "#!/usr/bin/env bash\nexit 1\n");
+
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../");
+    let script = repo_root.join("integrations/hooks/memd-bootstrap.sh");
+    let input = format!(
+        "{{\"cwd\":\"{}\",\"session_id\":\"session-a\"}}",
+        project_root.display()
+    );
+    let original_path = std::env::var("PATH").unwrap_or_default();
+    let output = run_bootstrap_hook(
+        &script,
+        &input,
+        Some(&format!("{}:{}", fake_bin.display(), original_path)),
+    );
+
+    assert!(output.status.success(), "hook should emit failure context");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("live wake required for this session"));
+    assert!(!stdout.contains("memd bootstrap (cached"));
+
+    fs::remove_dir_all(temp_root).expect("cleanup temp root");
+}
+
+#[test]
+fn bootstrap_hook_allows_cached_wake_after_session_receipt() {
+    let _env_lock = lock_env_mutation();
+    let temp_root = std::env::temp_dir().join(format!(
+        "memd-bootstrap-session-cache-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let project_root = temp_root.join("project");
+    let bundle_root = project_root.join(".memd");
+    fs::create_dir_all(bundle_root.join("state/bootstrap-sessions"))
+        .expect("create bootstrap session state");
+    fs::write(bundle_root.join("config.json"), "{}\n").expect("write config");
+    fs::write(bundle_root.join("wake.md"), "# cached wake\n").expect("write wake");
+    fs::write(
+        bundle_root.join(".last-wake"),
+        format!("{}\n", chrono::Utc::now().timestamp()),
+    )
+    .expect("write last wake");
+    fs::write(
+        bundle_root
+            .join("state/bootstrap-sessions")
+            .join("session-b"),
+        "1\n",
+    )
+    .expect("write session receipt");
+
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../");
+    let script = repo_root.join("integrations/hooks/memd-bootstrap.sh");
+    let input = format!(
+        "{{\"cwd\":\"{}\",\"session_id\":\"session-b\"}}",
+        project_root.display()
+    );
+    let output = run_bootstrap_hook(&script, &input, None);
+
+    assert!(output.status.success(), "hook should emit cached context");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("memd bootstrap (cached"));
+    assert!(stdout.contains("# cached wake"));
+
+    fs::remove_dir_all(temp_root).expect("cleanup temp root");
 }
 
 #[test]
@@ -2424,6 +2727,8 @@ fn checkpoint_translation_sets_short_term_defaults() {
         content: Some("remember current blocker".to_string()),
         input: None,
         stdin: false,
+        auto_commit: false,
+        roadmap_set: vec![],
     };
 
     let translated = checkpoint_as_remember_args(&args);
@@ -2488,6 +2793,8 @@ fn bundle_memory_markdown_surfaces_current_task_snapshot() {
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,
@@ -2514,6 +2821,8 @@ fn bundle_memory_markdown_surfaces_current_task_snapshot() {
                     created_at: chrono::Utc::now(),
                     status: memd_schema::MemoryStatus::Active,
                     stage: memd_schema::MemoryStage::Candidate,
+                    lane: None,
+                    version: 1,
                     last_verified_at: None,
                     supersedes: Vec::new(),
                     updated_at: chrono::Utc::now(),
@@ -2548,6 +2857,11 @@ fn bundle_memory_markdown_surfaces_current_task_snapshot() {
         change_summary: vec!["focus -> Finish the resume snapshot renderer".to_string()],
         resume_state_age_minutes: None,
         refresh_recommended: false,
+        atlas_region_hints: Vec::new(),
+        handoff_quality: None,
+        files_touched: Vec::new(),
+        un_read_paths: Vec::new(),
+        preferences: Vec::new(),
     };
 
     let markdown = render_bundle_memory_markdown(Path::new(".memd"), &snapshot, None, None);

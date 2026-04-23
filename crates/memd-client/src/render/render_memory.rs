@@ -613,6 +613,7 @@ mod tests {
                 max_items: 128,
                 inactive_days: 21,
                 max_decay: 0.12,
+                decay_divisor: 14.0,
                 record_events: true,
             },
             consolidation: MemoryPolicyConsolidation {
@@ -690,6 +691,7 @@ mod tests {
                 max_items: 128,
                 inactive_days: 21,
                 max_decay: 0.12,
+                decay_divisor: 14.0,
                 record_events: true,
             },
             consolidation: MemoryPolicyConsolidation {
@@ -728,6 +730,16 @@ mod tests {
             "bundle": "/tmp/memd",
             "setup_ready": true,
             "server": { "status": "ok" },
+            "server": {
+                "status": "ok",
+                "atlas": {
+                    "edges_active": 8,
+                    "region_count": 3,
+                    "edge_item_ratio": 0.67,
+                    "dormant": false,
+                    "warning": null
+                }
+            },
             "rag": { "healthy": true },
             "missing": [],
             "defaults": {
@@ -766,6 +778,10 @@ mod tests {
         assert!(summary.contains("voice=normal"));
         assert!(summary.contains("server=ok"));
         assert!(summary.contains("rag=ready"));
+        assert!(summary.contains("atlas_edges=8"));
+        assert!(summary.contains("atlas_regions=3"));
+        assert!(summary.contains("atlas_ratio=0.67"));
+        assert!(summary.contains("atlas_state=active"));
         assert!(summary.contains("prompt_pressure=high"));
         assert!(summary.contains("tok=1842"));
         assert!(summary.contains("drivers=duplicates,inbox,refresh,rehydration,semantic,tokens"));

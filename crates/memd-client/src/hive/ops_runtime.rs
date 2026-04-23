@@ -485,6 +485,7 @@ pub(crate) async fn run_hive_handoff_command(
         blocker: args.blocker.clone(),
         note: args.note.clone(),
         created_at: Utc::now(),
+        working_context: None,
     };
 
     let receipt_summary = format_hive_handoff_receipt_summary(&packet);
@@ -913,7 +914,9 @@ pub(crate) async fn run_hive_board_command(
         response
             .tasks
             .into_iter()
-            .filter(|task| task.review_requested || task.coordination_mode == "shared_review")
+            .filter(|task| {
+                task.review_requested || task.coordination_mode == CoordinationMode::SharedReview
+            })
             .map(|task| {
                 format!(
                     "{} -> {}",

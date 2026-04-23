@@ -429,7 +429,7 @@
                 title: "Refine parser overlap flow".to_string(),
                 description: None,
                 status: "active".to_string(),
-                coordination_mode: "exclusive_write".to_string(),
+                coordination_mode: CoordinationMode::ExclusiveWrite,
                 session: Some("bee-1".to_string()),
                 agent: Some("codex".to_string()),
                 effective_agent: Some("codex@bee-1".to_string()),
@@ -1000,6 +1000,8 @@
                 content: Some("refresh live event pages".to_string()),
                 input: None,
                 stdin: false,
+                auto_commit: false,
+                roadmap_set: vec![],
             },
             &base_url,
         )

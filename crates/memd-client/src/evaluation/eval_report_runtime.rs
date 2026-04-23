@@ -69,7 +69,9 @@ pub(crate) async fn eval_bundle_memory(
     let has_non_status = total_working > status_record_count;
     if total_working > 0 && !has_non_status {
         score -= 15;
-        findings.push("working memory contains only status records; no user facts/decisions".to_string());
+        findings.push(
+            "working memory contains only status records; no user facts/decisions".to_string(),
+        );
     }
     if total_working >= 4 && status_record_count * 2 > total_working {
         score -= 10;
@@ -94,6 +96,48 @@ pub(crate) async fn eval_bundle_memory(
     if snapshot.working.procedures.is_empty() {
         score -= 5;
         findings.push("procedure table is empty; no auto-detected procedures".to_string());
+    }
+
+    // H2: correction retention — superseded items must never leak into working memory.
+    let superseded_leak_count = snapshot
+        .working
+        .records
+        .iter()
+        .filter(|r| r.record.contains("status=superseded"))
+        .count();
+    if superseded_leak_count > 0 {
+        score -= 15;
+        findings.push(format!(
+            "H2: {} superseded item(s) leaked into working memory — correction filter broken",
+            superseded_leak_count
+        ));
+    }
+
+    // H2: lane diversity — if working memory has items, check they aren't all from one lane.
+    if total_working >= 4 {
+        let lane_values: Vec<&str> = snapshot
+            .working
+            .records
+            .iter()
+            .filter_map(|r| {
+                r.record
+                    .split(" | ")
+                    .find(|part| part.starts_with("lane="))
+                    .map(|part| part.trim_start_matches("lane="))
+            })
+            .collect();
+        let has_lanes = !lane_values.is_empty();
+        if has_lanes {
+            let unique_lanes: std::collections::HashSet<&&str> = lane_values.iter().collect();
+            if unique_lanes.len() == 1 && lane_values.len() >= 4 {
+                score -= 5;
+                findings.push(format!(
+                    "H2: all {} lane-tagged working records share lane '{}' — lane diversity weak",
+                    lane_values.len(),
+                    lane_values[0]
+                ));
+            }
+        }
     }
 
     let score = score.clamp(0, 100) as u8;
@@ -236,12 +280,13 @@ pub(crate) fn eval_failure_reason(
     fail_on_regression: bool,
 ) -> Option<String> {
     if let Some(threshold) = fail_below
-        && response.score < threshold {
-            return Some(format!(
-                "bundle evaluation score {} fell below required threshold {}",
-                response.score, threshold
-            ));
-        }
+        && response.score < threshold
+    {
+        return Some(format!(
+            "bundle evaluation score {} fell below required threshold {}",
+            response.score, threshold
+        ));
+    }
 
     if fail_on_regression && response.score_delta.is_some_and(|delta| delta < 0) {
         let baseline = response

@@ -316,32 +316,33 @@ pub(crate) fn render_bundle_memory_object_markdown(
     }
 
     if matches!(lane, MemoryObjectLane::Workspace)
-        && let Some(hive) = hive {
-            markdown.push_str("\n## Hive\n\n");
+        && let Some(hive) = hive
+    {
+        markdown.push_str("\n## Hive\n\n");
+        markdown.push_str(&format!(
+            "- queen={} active={} stale={} review={} overlap={}\n",
+            hive.board.queen_session.as_deref().unwrap_or("none"),
+            hive.board.active_bees.len(),
+            hive.board.stale_bees.len(),
+            hive.board.review_queue.len(),
+            hive.board.overlap_risks.len(),
+        ));
+        for bee in hive.board.active_bees.iter().take(6) {
             markdown.push_str(&format!(
-                "- queen={} active={} stale={} review={} overlap={}\n",
-                hive.board.queen_session.as_deref().unwrap_or("none"),
-                hive.board.active_bees.len(),
-                hive.board.stale_bees.len(),
-                hive.board.review_queue.len(),
-                hive.board.overlap_risks.len(),
+                "- bee {} ({}) lane={} task={}\n",
+                bee.worker_name
+                    .as_deref()
+                    .or(bee.agent.as_deref())
+                    .unwrap_or("unnamed"),
+                bee.session,
+                bee.lane_id
+                    .as_deref()
+                    .or(bee.branch.as_deref())
+                    .unwrap_or("none"),
+                bee.task_id.as_deref().unwrap_or("none"),
             ));
-            for bee in hive.board.active_bees.iter().take(6) {
-                markdown.push_str(&format!(
-                    "- bee {} ({}) lane={} task={}\n",
-                    bee.worker_name
-                        .as_deref()
-                        .or(bee.agent.as_deref())
-                        .unwrap_or("unnamed"),
-                    bee.session,
-                    bee.lane_id
-                        .as_deref()
-                        .or(bee.branch.as_deref())
-                        .unwrap_or("none"),
-                    bee.task_id.as_deref().unwrap_or("none"),
-                ));
-            }
         }
+    }
 
     markdown.push_str("\n## Items\n\n");
     let item_count = memory_object_lane_item_count(snapshot, lane);
@@ -491,29 +492,30 @@ pub(crate) fn render_bundle_memory_object_item_markdown(
     }
 
     if matches!(lane, MemoryObjectLane::Workspace)
-        && let Some(hive) = hive {
-            markdown.push_str("\n## Hive\n\n");
+        && let Some(hive) = hive
+    {
+        markdown.push_str("\n## Hive\n\n");
+        markdown.push_str(&format!(
+            "- queen={} active={} overlap={} stale={}\n",
+            hive.board.queen_session.as_deref().unwrap_or("none"),
+            hive.board.active_bees.len(),
+            hive.board.overlap_risks.len(),
+            hive.board.stale_bees.len(),
+        ));
+        if let Some(follow) = hive.follow.as_ref() {
             markdown.push_str(&format!(
-                "- queen={} active={} overlap={} stale={}\n",
-                hive.board.queen_session.as_deref().unwrap_or("none"),
-                hive.board.active_bees.len(),
-                hive.board.overlap_risks.len(),
-                hive.board.stale_bees.len(),
+                "- focus={} work=\"{}\" next=\"{}\"\n",
+                follow
+                    .target
+                    .worker_name
+                    .as_deref()
+                    .or(follow.target.agent.as_deref())
+                    .unwrap_or(follow.target.session.as_str()),
+                compact_inline(&follow.work_summary, 160),
+                follow.next_action.as_deref().unwrap_or("none"),
             ));
-            if let Some(follow) = hive.follow.as_ref() {
-                markdown.push_str(&format!(
-                    "- focus={} work=\"{}\" next=\"{}\"\n",
-                    follow
-                        .target
-                        .worker_name
-                        .as_deref()
-                        .or(follow.target.agent.as_deref())
-                        .unwrap_or(follow.target.session.as_str()),
-                    compact_inline(&follow.work_summary, 160),
-                    follow.next_action.as_deref().unwrap_or("none"),
-                ));
-            }
         }
+    }
 
     Some(markdown)
 }

@@ -2,11 +2,12 @@ use chrono::Utc;
 use memd_schema::{
     AtlasExpandRequest, AtlasExpandResponse, AtlasExploreRequest, AtlasExploreResponse, AtlasLink,
     AtlasLinkKind, AtlasListTrailsRequest, AtlasListTrailsResponse, AtlasNode, AtlasRegion,
-    AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest,
-    AtlasRenameRegionResponse, AtlasSaveTrailRequest, AtlasSaveTrailResponse, AtlasSavedTrail,
-    MemoryEventRecord, MemoryItem, MemoryKind, MemoryStatus,
+    AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest, AtlasRenameRegionResponse,
+    AtlasSaveTrailRequest, AtlasSaveTrailResponse, AtlasSavedTrail, MemoryEventRecord, MemoryItem,
+    MemoryKind, MemoryStatus,
 };
 use rusqlite::params;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::SqliteStore;
@@ -17,9 +18,7 @@ impl SqliteStore {
         req: &AtlasRegionsRequest,
     ) -> anyhow::Result<AtlasRegionsResponse> {
         let conn = self.connect()?;
-        let mut sql = String::from(
-            "SELECT id, payload_json FROM atlas_regions WHERE 1=1",
-        );
+        let mut sql = String::from("SELECT id, payload_json FROM atlas_regions WHERE 1=1");
         let mut bind_values: Vec<String> = Vec::new();
 
         if let Some(project) = &req.project {
@@ -48,8 +47,15 @@ impl SqliteStore {
                 let payload: String = row.get(1)?;
                 Ok(payload)
             })?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: atlas region row read: {e}")).ok())
-            .filter_map(|payload| serde_json::from_str::<AtlasRegion>(&payload).inspect_err(|e| eprintln!("warn: atlas region json parse: {e}")).ok())
+            .filter_map(|r| {
+                r.inspect_err(|e| warn!(error = %e, "atlas region row read"))
+                    .ok()
+            })
+            .filter_map(|payload| {
+                serde_json::from_str::<AtlasRegion>(&payload)
+                    .inspect_err(|e| warn!(error = %e, "atlas region json parse"))
+                    .ok()
+            })
             .collect();
 
         Ok(AtlasRegionsResponse { regions })
@@ -106,15 +112,21 @@ impl SqliteStore {
 
     pub(crate) fn get_region_member_ids(&self, region_id: Uuid) -> anyhow::Result<Vec<Uuid>> {
         let conn = self.connect()?;
-        let mut stmt = conn.prepare(
-            "SELECT memory_id FROM atlas_region_members WHERE region_id = ?1",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT memory_id FROM atlas_region_members WHERE region_id = ?1")?;
         let ids = stmt
             .query_map(params![region_id.to_string()], |row| {
                 row.get::<_, String>(0)
             })?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: region member row read: {e}")).ok())
-            .filter_map(|s| s.parse::<Uuid>().inspect_err(|e| eprintln!("warn: region member uuid parse: {e}")).ok())
+            .filter_map(|r| {
+                r.inspect_err(|e| warn!(error = %e, "region member row read"))
+                    .ok()
+            })
+            .filter_map(|s| {
+                s.parse::<Uuid>()
+                    .inspect_err(|e| warn!(error = %e, "region member uuid parse"))
+                    .ok()
+            })
             .collect();
         Ok(ids)
     }
@@ -134,10 +146,8 @@ impl SqliteStore {
         } else if let Some(node_id) = req.node_id {
             (None, vec![node_id])
         } else if req.from_working {
-            let working_ids = self.working_memory_item_ids(
-                req.project.as_deref(),
-                req.namespace.as_deref(),
-            )?;
+            let working_ids =
+                self.working_memory_item_ids(req.project.as_deref(), req.namespace.as_deref())?;
             (None, working_ids)
         } else {
             // No anchor — generate regions on the fly for the project
@@ -182,49 +192,41 @@ impl SqliteStore {
         let mut links = Vec::new();
         if depth > 0 {
             let mut found_via_entity = false;
+            let pivot_time = req.pivot_time.unwrap_or_else(Utc::now);
             for seed_id in &seed_ids {
-                let entity_links = self.get_entity_links_for_item(*seed_id)?;
-                for el in entity_links {
-                    let neighbor_id = if el.from_entity_id == *seed_id {
-                        el.to_entity_id
-                    } else {
-                        el.from_entity_id
-                    };
-                    if let Some(neighbor_item) = self.get(neighbor_id)? {
-                        if !passes_pivot_filters(&neighbor_item, req) {
-                            continue;
-                        }
-                        if seen.insert(neighbor_item.id) {
-                            found_via_entity = true;
-                            let entity = self.entity_for_item(neighbor_item.id)?;
-                            let evidence_count =
-                                self.event_count_for_item(neighbor_item.id)?;
-                            nodes.push(item_to_atlas_node(
-                                &neighbor_item,
-                                region.as_ref().map(|r| r.id),
-                                1,
-                                entity.as_ref().map(|e| e.id),
-                                evidence_count,
-                            ));
-                        }
-                        links.push(AtlasLink {
-                            from_node_id: *seed_id,
-                            to_node_id: neighbor_item.id,
-                            link_kind: entity_relation_to_atlas_link(el.relation_kind),
-                            weight: el.confidence,
-                            label: el.note.clone(),
-                        });
+                for (neighbor_item, el) in
+                    self.linked_neighbor_items_for_seed_item(*seed_id, None, pivot_time)?
+                {
+                    if !passes_pivot_filters(&neighbor_item, req) {
+                        continue;
                     }
+                    if seen.insert(neighbor_item.id) {
+                        found_via_entity = true;
+                        let entity = self.entity_for_item(neighbor_item.id)?;
+                        let evidence_count = self.event_count_for_item(neighbor_item.id)?;
+                        nodes.push(item_to_atlas_node(
+                            &neighbor_item,
+                            region.as_ref().map(|r| r.id),
+                            1,
+                            entity.as_ref().map(|e| e.id),
+                            evidence_count,
+                        ));
+                    }
+                    links.push(AtlasLink {
+                        from_node_id: *seed_id,
+                        to_node_id: neighbor_item.id,
+                        link_kind: entity_relation_to_atlas_link(el.relation_kind),
+                        weight: el.confidence,
+                        label: el.note.clone(),
+                    });
                 }
             }
 
             // Tag-overlap fallback: if no entity links found, find neighbors
             // sharing tags with seed items
             if !found_via_entity {
-                let seed_tags: std::collections::HashSet<String> = nodes
-                    .iter()
-                    .flat_map(|n| n.tags.iter().cloned())
-                    .collect();
+                let seed_tags: std::collections::HashSet<String> =
+                    nodes.iter().flat_map(|n| n.tags.iter().cloned()).collect();
                 if !seed_tags.is_empty() {
                     let all_items = self.list()?;
                     let mut tag_neighbors: Vec<(usize, MemoryItem)> = all_items
@@ -406,13 +408,15 @@ impl SqliteStore {
                 continue;
             }
             if let Some(p) = project
-                && item.project.as_deref() != Some(p) {
-                    continue;
-                }
+                && item.project.as_deref() != Some(p)
+            {
+                continue;
+            }
             if let Some(ns) = namespace
-                && item.namespace.as_deref() != Some(ns) {
-                    continue;
-                }
+                && item.namespace.as_deref() != Some(ns)
+            {
+                continue;
+            }
 
             let bucket_key = region_bucket_key(&item, lane_filter);
             if let Some(key) = bucket_key {
@@ -441,11 +445,11 @@ impl SqliteStore {
             };
             // Persist the generated region
             if let Err(e) = self.upsert_atlas_region(&region) {
-                eprintln!("warn: upsert_atlas_region: {e:#}");
+                warn!(error = %format_args!("{e:#}"), "upsert_atlas_region");
             }
             let member_ids: Vec<Uuid> = members.iter().map(|m| m.id).collect();
             if let Err(e) = self.set_region_members(region_id, &member_ids) {
-                eprintln!("warn: set_region_members: {e:#}");
+                warn!(error = %format_args!("{e:#}"), "set_region_members");
             }
             regions.push(region);
         }
@@ -463,43 +467,39 @@ impl SqliteStore {
         let mut expanded_nodes = Vec::new();
         let mut links = Vec::new();
         let mut seen: std::collections::HashSet<Uuid> = req.memory_ids.iter().copied().collect();
+        let pivot_time = Utc::now();
 
         if depth > 0 {
             for seed_id in &req.memory_ids {
-                let entity_links = self.get_entity_links_for_item(*seed_id)?;
-                for el in entity_links {
-                    let neighbor_id = if el.from_entity_id == *seed_id {
-                        el.to_entity_id
-                    } else {
-                        el.from_entity_id
-                    };
-                    if let Some(item) = self.get(neighbor_id)? {
-                        if item.status != MemoryStatus::Active {
-                            continue;
-                        }
-                        if let Some(p) = &req.project
-                            && item.project.as_deref() != Some(p) {
-                                continue;
-                            }
-                        if seen.insert(item.id) {
-                            let entity = self.entity_for_item(item.id)?;
-                            let evidence_count = self.event_count_for_item(item.id)?;
-                            expanded_nodes.push(item_to_atlas_node(
-                                &item,
-                                None,
-                                1,
-                                entity.as_ref().map(|e| e.id),
-                                evidence_count,
-                            ));
-                        }
-                        links.push(AtlasLink {
-                            from_node_id: *seed_id,
-                            to_node_id: item.id,
-                            link_kind: entity_relation_to_atlas_link(el.relation_kind),
-                            weight: el.confidence,
-                            label: el.note.clone(),
-                        });
+                for (item, el) in
+                    self.linked_neighbor_items_for_seed_item(*seed_id, Some(limit), pivot_time)?
+                {
+                    if item.status != MemoryStatus::Active {
+                        continue;
                     }
+                    if let Some(p) = &req.project
+                        && item.project.as_deref() != Some(p)
+                    {
+                        continue;
+                    }
+                    if seen.insert(item.id) {
+                        let entity = self.entity_for_item(item.id)?;
+                        let evidence_count = self.event_count_for_item(item.id)?;
+                        expanded_nodes.push(item_to_atlas_node(
+                            &item,
+                            None,
+                            1,
+                            entity.as_ref().map(|e| e.id),
+                            evidence_count,
+                        ));
+                    }
+                    links.push(AtlasLink {
+                        from_node_id: *seed_id,
+                        to_node_id: item.id,
+                        link_kind: entity_relation_to_atlas_link(el.relation_kind),
+                        weight: el.confidence,
+                        label: el.note.clone(),
+                    });
                     if expanded_nodes.len() >= limit {
                         break;
                     }
@@ -586,8 +586,15 @@ impl SqliteStore {
             .collect();
         let trails = stmt
             .query_map(params.as_slice(), |row| row.get::<_, String>(0))?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: atlas trail row read: {e}")).ok())
-            .filter_map(|json| serde_json::from_str::<AtlasSavedTrail>(&json).inspect_err(|e| eprintln!("warn: atlas trail json parse: {e}")).ok())
+            .filter_map(|r| {
+                r.inspect_err(|e| warn!(error = %e, "atlas trail row read"))
+                    .ok()
+            })
+            .filter_map(|json| {
+                serde_json::from_str::<AtlasSavedTrail>(&json)
+                    .inspect_err(|e| warn!(error = %e, "atlas trail json parse"))
+                    .ok()
+            })
             .collect();
         Ok(AtlasListTrailsResponse { trails })
     }
@@ -634,7 +641,10 @@ impl SqliteStore {
                     row.get::<_, Option<String>>(4)?,
                 ))
             })?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: atlas link row read: {e}")).ok())
+            .filter_map(|r| {
+                r.inspect_err(|e| warn!(error = %e, "atlas link row read"))
+                    .ok()
+            })
             .filter_map(|(from, to, kind, weight, label)| {
                 Some(AtlasLink {
                     from_node_id: from.parse().ok()?,
@@ -662,12 +672,8 @@ impl SqliteStore {
                     || item.kind == MemoryKind::LiveTruth
                     || item.kind == MemoryKind::Pattern
             })
-            .filter(|item| {
-                project.is_none() || item.project.as_deref() == project
-            })
-            .filter(|item| {
-                namespace.is_none() || item.namespace.as_deref() == namespace
-            })
+            .filter(|item| project.is_none() || item.project.as_deref() == project)
+            .filter(|item| namespace.is_none() || item.namespace.as_deref() == namespace)
             .collect();
         working.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         working.truncate(10);
@@ -689,20 +695,19 @@ impl SqliteStore {
         Ok(AtlasRenameRegionResponse { region })
     }
 
-    pub(crate) fn events_for_item(
-        &self,
-        item_id: Uuid,
-    ) -> anyhow::Result<Vec<MemoryEventRecord>> {
+    pub(crate) fn events_for_item(&self, item_id: Uuid) -> anyhow::Result<Vec<MemoryEventRecord>> {
         let conn = self.connect()?;
         let mut stmt = conn.prepare(
             "SELECT payload_json FROM memory_events WHERE memory_item_id = ?1 ORDER BY recorded_at DESC LIMIT 10",
         )?;
         let events = stmt
-            .query_map(params![item_id.to_string()], |row| {
-                row.get::<_, String>(0)
-            })?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: event row read: {e}")).ok())
-            .filter_map(|json| serde_json::from_str::<MemoryEventRecord>(&json).inspect_err(|e| eprintln!("warn: event json parse: {e}")).ok())
+            .query_map(params![item_id.to_string()], |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.inspect_err(|e| warn!(error = %e, "event row read")).ok())
+            .filter_map(|json| {
+                serde_json::from_str::<MemoryEventRecord>(&json)
+                    .inspect_err(|e| warn!(error = %e, "event json parse"))
+                    .ok()
+            })
             .collect();
         Ok(events)
     }
@@ -719,29 +724,102 @@ impl SqliteStore {
         Ok(count as usize)
     }
 
+    /// B3-T6: 1-hop atlas neighbors as retrieval hints (item-space).
+    /// For each seed item, collects entity-link counterparts (from/to),
+    /// dedupes, drops the seeds themselves, caps at `limit` neighbors.
+    /// Returns empty vec on error — callers should treat this as best-effort.
+    pub(crate) fn one_hop_neighbors_for_items(&self, seeds: &[Uuid], limit: usize) -> Vec<Uuid> {
+        if limit == 0 || seeds.is_empty() {
+            return Vec::new();
+        }
+        let mut out: Vec<Uuid> = Vec::new();
+        let mut seen: std::collections::HashSet<Uuid> = seeds.iter().copied().collect();
+        let now = Utc::now();
+        for seed_id in seeds {
+            let neighbors =
+                match self.linked_neighbor_items_for_seed_item(*seed_id, Some(limit), now) {
+                    Ok(neighbors) => neighbors,
+                    Err(_) => continue,
+                };
+            for (neighbor, _) in neighbors {
+                if seen.insert(neighbor.id) {
+                    out.push(neighbor.id);
+                    if out.len() >= limit {
+                        return out;
+                    }
+                }
+            }
+        }
+        out
+    }
+
     fn get_entity_links_for_item(
         &self,
         item_id: Uuid,
     ) -> anyhow::Result<Vec<memd_schema::MemoryEntityLinkRecord>> {
-        let conn = self.connect()?;
-        let id_str = item_id.to_string();
-        let mut stmt = conn.prepare(
-            "SELECT payload_json FROM memory_entity_links WHERE from_entity_id = ?1 OR to_entity_id = ?1",
-        )?;
-        let links = stmt
-            .query_map(params![id_str], |row| row.get::<_, String>(0))?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: entity link row read: {e}")).ok())
-            .filter_map(|json| serde_json::from_str(&json).inspect_err(|e| eprintln!("warn: entity link json parse: {e}")).ok())
-            .collect();
-        Ok(links)
+        let Some(entity) = self.entity_for_item(item_id)? else {
+            return Ok(Vec::new());
+        };
+        self.links_for_entity(&memd_schema::EntityLinksRequest {
+            entity_id: entity.id,
+        })
+    }
+
+    fn linked_neighbor_items_for_seed_item(
+        &self,
+        item_id: Uuid,
+        limit: Option<usize>,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> anyhow::Result<Vec<(MemoryItem, memd_schema::MemoryEntityLinkRecord)>> {
+        let Some(entity) = self.entity_for_item(item_id)? else {
+            return Ok(Vec::new());
+        };
+        let links = self.get_entity_links_for_item(item_id)?;
+        let mut out = Vec::new();
+        let mut seen: std::collections::HashSet<Uuid> = std::iter::once(item_id).collect();
+        let cap = limit.unwrap_or(usize::MAX);
+
+        for link in links {
+            if !atlas_link_is_traversable(&link, at) {
+                continue;
+            }
+            let neighbor_entity_id = if link.from_entity_id == entity.id {
+                link.to_entity_id
+            } else {
+                link.from_entity_id
+            };
+            let neighbor_items = self.items_for_entity(neighbor_entity_id)?;
+            for item in neighbor_items {
+                if seen.insert(item.id) {
+                    out.push((item, link.clone()));
+                    if out.len() >= cap {
+                        return Ok(out);
+                    }
+                }
+            }
+        }
+        Ok(out)
     }
 }
 
-fn deterministic_region_id(
-    project: Option<&str>,
-    namespace: Option<&str>,
-    key: &str,
-) -> Uuid {
+fn atlas_link_is_traversable(
+    link: &memd_schema::MemoryEntityLinkRecord,
+    at: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    if link.valid_from.is_some_and(|valid_from| at < valid_from) {
+        return false;
+    }
+    if link.valid_to.is_some_and(|valid_to| at > valid_to) {
+        return false;
+    }
+    // The legacy "same project, therefore related" links are too weak for
+    // recall expansion and drown the graph in noise. Keep stronger links:
+    // wiki links, corrective/manual links, and any non-generic relation.
+    !(link.relation_kind == memd_schema::EntityRelationKind::Related
+        && link.tags.iter().all(|tag| tag == "auto"))
+}
+
+fn deterministic_region_id(project: Option<&str>, namespace: Option<&str>, key: &str) -> Uuid {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     project.hash(&mut hasher);
@@ -758,13 +836,14 @@ fn deterministic_region_id(
     Uuid::from_bytes(uuid_bytes)
 }
 
-fn region_bucket_key(item: &MemoryItem, lane_filter: Option<&str>) -> Option<String> {
+pub(crate) fn region_bucket_key(item: &MemoryItem, lane_filter: Option<&str>) -> Option<String> {
     // Group by lane_id if present
     if let Some(lane) = item_lane(item) {
         if let Some(filter) = lane_filter
-            && lane != filter {
-                return None;
-            }
+            && lane != filter
+        {
+            return None;
+        }
         return Some(lane);
     }
 
@@ -794,7 +873,14 @@ fn item_lane(item: &MemoryItem) -> Option<String> {
     }
     // Check source_path for lane hints
     if let Some(path) = item.source_path.as_deref() {
-        for prefix in &["design", "architecture", "research", "workflow", "preference", "inspiration"] {
+        for prefix in &[
+            "design",
+            "architecture",
+            "research",
+            "workflow",
+            "preference",
+            "inspiration",
+        ] {
             if path.contains(prefix) {
                 return Some(prefix.to_string());
             }
@@ -813,41 +899,46 @@ fn passes_pivot_filters_with_entity(
     req: &AtlasExploreRequest,
 ) -> bool {
     if let Some(min_trust) = req.min_trust
-        && item.confidence < min_trust {
-            return false;
-        }
+        && item.confidence < min_trust
+    {
+        return false;
+    }
     if let Some(min_salience) = req.min_salience {
-        let salience = entity
-            .map(|e| e.salience_score)
-            .unwrap_or(item.confidence);
+        let salience = entity.map(|e| e.salience_score).unwrap_or(item.confidence);
         if salience < min_salience {
             return false;
         }
     }
     if let Some(pivot_kind) = req.pivot_kind
-        && item.kind != pivot_kind {
-            return false;
-        }
+        && item.kind != pivot_kind
+    {
+        return false;
+    }
     if let Some(pivot_scope) = req.pivot_scope
-        && item.scope != pivot_scope {
-            return false;
-        }
+        && item.scope != pivot_scope
+    {
+        return false;
+    }
     if let Some(ref agent) = req.pivot_source_agent
-        && item.source_agent.as_deref() != Some(agent) {
-            return false;
-        }
+        && item.source_agent.as_deref() != Some(agent)
+    {
+        return false;
+    }
     if let Some(ref system) = req.pivot_source_system
-        && item.source_system.as_deref() != Some(system) {
-            return false;
-        }
+        && item.source_system.as_deref() != Some(system)
+    {
+        return false;
+    }
     if let Some(project) = &req.project
-        && item.project.as_deref() != Some(project) {
-            return false;
-        }
+        && item.project.as_deref() != Some(project)
+    {
+        return false;
+    }
     if let Some(namespace) = &req.namespace
-        && item.namespace.as_deref() != Some(namespace) {
-            return false;
-        }
+        && item.namespace.as_deref() != Some(namespace)
+    {
+        return false;
+    }
     true
 }
 
@@ -880,7 +971,11 @@ fn compact_label(content: &str) -> String {
     if first_line.len() <= 80 {
         first_line.to_string()
     } else {
-        format!("{}...", &first_line[..77])
+        let mut end = 77;
+        while end > 0 && !first_line.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &first_line[..end])
     }
 }
 
@@ -927,13 +1022,10 @@ fn trail_links_for_sequence(node_ids: &[Uuid], all_links: &[AtlasLink]) -> Vec<A
     for pair in node_ids.windows(2) {
         let (from, to) = (pair[0], pair[1]);
         // Find existing link between these nodes
-        if let Some(link) = all_links
-            .iter()
-            .find(|l| {
-                (l.from_node_id == from && l.to_node_id == to)
-                    || (l.from_node_id == to && l.to_node_id == from)
-            })
-        {
+        if let Some(link) = all_links.iter().find(|l| {
+            (l.from_node_id == from && l.to_node_id == to)
+                || (l.from_node_id == to && l.to_node_id == from)
+        }) {
             trail_links.push(link.clone());
         } else {
             // Synthesize a temporal link for adjacency
@@ -961,9 +1053,7 @@ fn parse_link_kind(value: &str) -> Option<AtlasLinkKind> {
     }
 }
 
-fn entity_relation_to_atlas_link(
-    kind: memd_schema::EntityRelationKind,
-) -> AtlasLinkKind {
+fn entity_relation_to_atlas_link(kind: memd_schema::EntityRelationKind) -> AtlasLinkKind {
     match kind {
         memd_schema::EntityRelationKind::SameAs => AtlasLinkKind::Semantic,
         memd_schema::EntityRelationKind::DerivedFrom => AtlasLinkKind::Causal,

@@ -78,6 +78,7 @@ fn write_skill_policy_artifacts_writes_batch_and_activate_queue() {
             max_items: 0,
             inactive_days: 0,
             max_decay: 0.0,
+            decay_divisor: 14.0,
             record_events: false,
         },
         consolidation: memd_schema::MemoryPolicyConsolidation {

@@ -1,6 +1,31 @@
 use super::*;
+use memd_schema::IngestLanesRequest;
 
 pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> anyhow::Result<()> {
+    // F2: Re-ingest lane source files on every wake so modified files are picked up.
+    if let Some(project_root) = infer_bundle_project_root(&args.output) {
+        let runtime = read_bundle_runtime_config(&args.output).ok().flatten();
+        let resolved_url = resolve_bundle_command_base_url(
+            base_url,
+            runtime.as_ref().and_then(|c| c.base_url.as_deref()),
+        );
+        if let Ok(client) = MemdClient::new(&resolved_url) {
+            let _ = client
+                .ingest_lanes(&IngestLanesRequest {
+                    root: project_root.display().to_string(),
+                    project: args
+                        .project
+                        .clone()
+                        .or_else(|| runtime.as_ref().and_then(|c| c.project.clone())),
+                    namespace: args
+                        .namespace
+                        .clone()
+                        .or_else(|| runtime.as_ref().and_then(|c| c.namespace.clone())),
+                })
+                .await;
+        }
+    }
+
     if let Some(tab_id) = default_bundle_tab_id() {
         let existing_tab_id = read_bundle_runtime_config(&args.output)
             .ok()
@@ -41,8 +66,7 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
         Err(err)
             if codex_pack || agent_zero_pack || hermes_pack || opencode_pack || openclaw_pack =>
         {
-            if let Some(markdown) = read_codex_pack_local_markdown(&args.output, "wake.md")?
-            {
+            if let Some(markdown) = read_codex_pack_local_markdown(&args.output, "wake.md")? {
                 if args.write {
                     write_bundle_turn_fallback_artifacts(
                         &args.output,
@@ -76,10 +100,27 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
         Err(err) => return Err(err),
     };
     let wakeup = render_bundle_wakeup_markdown(&args.output, &snapshot, args.verbose);
+    let wake_token_metrics =
+        crate::runtime::compute_wake_token_metrics(&args.output, &snapshot, &wakeup);
     if args.write {
         write_bundle_memory_files(&args.output, &snapshot, None, false).await?;
         auto_checkpoint_live_snapshot(&args.output, base_url, &snapshot, "wake").await?;
         update_hive_session_wake_timestamp(&args.output, base_url).await?;
+        // P2: Persist wake token metrics for diagnostics report consumption.
+        if let Ok(json) = serde_json::to_string_pretty(&wake_token_metrics) {
+            let metrics_path = args.output.join("wake-token-metrics.json");
+            let _ = std::fs::write(&metrics_path, json);
+        }
+    }
+    if args.verbose {
+        eprintln!(
+            "[memd] wake token efficiency: {}/{} chars ({:.1}%), {} items across {} kinds",
+            wake_token_metrics.used_chars,
+            wake_token_metrics.budget_chars,
+            wake_token_metrics.utilization_pct,
+            wake_token_metrics.per_kind.total_items,
+            wake_token_metrics.per_kind.chars_per_kind.len(),
+        );
     }
     if codex_pack || agent_zero_pack || openclaw_pack || hermes_pack || opencode_pack {
         let _ = refresh_harness_pack_files_for_snapshot(

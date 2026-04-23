@@ -548,11 +548,11 @@ fn compiled_memory_page_group(page: &str) -> Option<(String, String)> {
         && parent
             .components()
             .any(|component| component.as_os_str() == "items")
-        {
-            let lane = path.parent()?.file_name()?.to_str()?.to_string();
-            let label = path.file_stem()?.to_str()?.to_string();
-            return Some((lane, label));
-        }
+    {
+        let lane = path.parent()?.file_name()?.to_str()?.to_string();
+        let label = path.file_stem()?.to_str()?.to_string();
+        return Some((lane, label));
+    }
 
     let stem = Path::new(&file_name).file_stem()?.to_str()?.to_string();
     let title = lane_title(&stem);

@@ -12,7 +12,7 @@ use memd_schema::{
 };
 use uuid::Uuid;
 
-use crate::{AppState, canonical_key, internal_error, redundancy_key};
+use crate::{AppState, canonical_key, errors::MemdError, internal_error, redundancy_key};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum UiPage {
@@ -44,7 +44,6 @@ impl UiPage {
         }
     }
 }
-
 
 pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse, page: UiPage) -> String {
     let focus = &snapshot.home.focus_artifact;
@@ -1255,7 +1254,7 @@ pub(crate) fn build_visible_memory_artifact_detail(
         .iter()
         .find(|item| item.id == id)
         .cloned()
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "memory item not found".to_string()))?;
+        .ok_or_else(|| MemdError::not_found("memory item", id).into_wire())?;
     build_visible_memory_artifact_detail_from_item(state, focus_item, &items)
 }
 
@@ -1267,7 +1266,7 @@ pub(crate) fn perform_visible_memory_action(
         .store
         .get(req.id)
         .map_err(internal_error)?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "memory item not found".to_string()))?;
+        .ok_or_else(|| MemdError::not_found("memory item", req.id).into_wire())?;
 
     let action = req.action;
     let snapshot = state.snapshot().map_err(internal_error)?;
@@ -1932,6 +1931,7 @@ pub(crate) fn test_insert_visible_item(
         supersedes: Vec::new(),
         tags: vec!["visible-memory".to_string()],
         status: Some(MemoryStatus::Active),
+        lane: None,
     };
     let (mut item, _) = state.store_item(req, MemoryStage::Canonical)?;
     item.preferred = preferred;
@@ -1950,6 +1950,10 @@ mod tests {
         let path = std::env::temp_dir().join(format!("memd-visible-ui-{}.db", Uuid::new_v4()));
         AppState {
             store: crate::SqliteStore::open(&path).unwrap(),
+            latency: crate::latency::LatencyHistogram::new(),
+            rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+            rag: None,
+            embedder: None,
         }
     }
 
@@ -2168,6 +2172,7 @@ mod tests {
                     supersedes: Vec::new(),
                     tags: vec!["visible-memory".to_string()],
                     status: Some(MemoryStatus::Active),
+                    lane: None,
                 },
                 MemoryStage::Canonical,
             )
@@ -2215,6 +2220,7 @@ mod tests {
                     supersedes: Vec::new(),
                     tags: vec!["visible-memory".to_string()],
                     status: Some(MemoryStatus::Active),
+                    lane: None,
                 },
                 MemoryStage::Canonical,
             )
@@ -2241,6 +2247,7 @@ mod tests {
                     supersedes: Vec::new(),
                     tags: vec!["visible-memory".to_string()],
                     status: Some(MemoryStatus::Active),
+                    lane: None,
                 },
                 MemoryStage::Canonical,
             )
@@ -2283,6 +2290,7 @@ mod tests {
                     supersedes: Vec::new(),
                     tags: vec!["visible-memory".to_string()],
                     status: Some(MemoryStatus::Active),
+                    lane: None,
                 },
                 MemoryStage::Candidate,
             )?
@@ -2316,6 +2324,7 @@ mod tests {
                     supersedes: Vec::new(),
                     tags: vec!["visible-memory".to_string()],
                     status: Some(MemoryStatus::Stale),
+                    lane: None,
                 },
                 MemoryStage::Canonical,
             )?

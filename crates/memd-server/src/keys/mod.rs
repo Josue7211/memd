@@ -1,7 +1,21 @@
 use chrono::{Duration, Utc};
-use memd_schema::{MemoryItem, MemoryStatus};
+use memd_schema::{MemoryItem, MemoryKind, MemoryStatus};
+use sha2::{Digest, Sha256};
 
-const STALE_AFTER_DAYS: i64 = 30;
+/// Per-kind freshness windows from lifecycle contract §3.
+fn freshness_window_days(kind: MemoryKind) -> i64 {
+    match kind {
+        MemoryKind::LiveTruth => 1,
+        MemoryKind::Status => 2,
+        MemoryKind::Pattern => 7,
+        MemoryKind::Fact | MemoryKind::Decision | MemoryKind::Procedural => 14,
+        MemoryKind::Preference
+        | MemoryKind::Constraint
+        | MemoryKind::Runbook
+        | MemoryKind::SelfModel
+        | MemoryKind::Topology => 30,
+    }
+}
 
 pub fn validate_source_quality(
     source_quality: Option<memd_schema::SourceQuality>,
@@ -111,19 +125,30 @@ pub fn apply_lifecycle(mut item: MemoryItem) -> (MemoryItem, bool) {
     let now = Utc::now();
 
     if item.status != MemoryStatus::Expired
-        && let Some(ttl_seconds) = item.ttl_seconds {
-            let ttl_expired = item.created_at + Duration::seconds(ttl_seconds as i64) <= now;
-            if ttl_expired {
-                item.status = MemoryStatus::Expired;
-                item.updated_at = now;
-                return (item, true);
-            }
+        && let Some(ttl_seconds) = item.ttl_seconds
+    {
+        let ttl_expired = item.created_at + Duration::seconds(ttl_seconds as i64) <= now;
+        if ttl_expired {
+            item.status = MemoryStatus::Expired;
+            item.updated_at = now;
+            return (item, true);
         }
+    }
+
+    let window = freshness_window_days(item.kind);
+    let reference_time = item.last_verified_at.unwrap_or(item.updated_at);
 
     if item.status == MemoryStatus::Active && item.stage == memd_schema::MemoryStage::Canonical {
-        let reference_time = item.last_verified_at.unwrap_or(item.updated_at);
-        if reference_time + Duration::days(STALE_AFTER_DAYS) <= now {
+        if reference_time + Duration::days(window) <= now {
             item.status = MemoryStatus::Stale;
+            item.updated_at = now;
+            return (item, true);
+        }
+    }
+
+    if item.status == MemoryStatus::Stale {
+        if reference_time + Duration::days(window * 2) <= now {
+            item.status = MemoryStatus::Expired;
             item.updated_at = now;
             return (item, true);
         }
@@ -146,6 +171,24 @@ fn normalized_tags(tags: &[String]) -> String {
     tags.sort();
     tags.dedup();
     tags.join(",")
+}
+
+/// Normalize content for hashing: trim, strip leading "- ", lowercase, collapse whitespace.
+pub fn normalize_for_hash(s: &str) -> String {
+    let s = s.trim();
+    let s = s.strip_prefix("- ").unwrap_or(s);
+    s.to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// SHA-256 content hash, first 16 hex chars. Used for ingestion dedup.
+pub fn content_hash(content: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(normalize_for_hash(content).as_bytes());
+    let result = hasher.finalize();
+    hex::encode(&result[..8])
 }
 
 #[cfg(test)]
@@ -183,6 +226,8 @@ mod tests {
             tags: vec!["alpha".into(), "beta".into()],
             status: MemoryStatus::Active,
             stage: MemoryStage::Candidate,
+            lane: None,
+            version: 1,
         }
     }
 
@@ -214,5 +259,113 @@ mod tests {
     fn synthetic_source_quality_is_rejected() {
         assert!(validate_source_quality(Some(SourceQuality::Synthetic)).is_err());
         assert!(validate_source_quality(Some(SourceQuality::Derived)).is_ok());
+    }
+
+    #[test]
+    fn freshness_window_matches_lifecycle_contract() {
+        assert_eq!(freshness_window_days(MemoryKind::LiveTruth), 1);
+        assert_eq!(freshness_window_days(MemoryKind::Status), 2);
+        assert_eq!(freshness_window_days(MemoryKind::Pattern), 7);
+        assert_eq!(freshness_window_days(MemoryKind::Fact), 14);
+        assert_eq!(freshness_window_days(MemoryKind::Decision), 14);
+        assert_eq!(freshness_window_days(MemoryKind::Procedural), 14);
+        assert_eq!(freshness_window_days(MemoryKind::Preference), 30);
+        assert_eq!(freshness_window_days(MemoryKind::Constraint), 30);
+        assert_eq!(freshness_window_days(MemoryKind::Runbook), 30);
+        assert_eq!(freshness_window_days(MemoryKind::SelfModel), 30);
+        assert_eq!(freshness_window_days(MemoryKind::Topology), 30);
+    }
+
+    #[test]
+    fn staleness_marks_fact_stale_after_14_days() {
+        let mut item = test_item("the server runs debian");
+        item.stage = MemoryStage::Canonical;
+        item.kind = MemoryKind::Fact;
+        item.updated_at = Utc::now() - Duration::days(15);
+        let (result, changed) = apply_lifecycle(item);
+        assert!(changed);
+        assert_eq!(result.status, MemoryStatus::Stale);
+    }
+
+    #[test]
+    fn staleness_does_not_trigger_within_window() {
+        let mut item = test_item("the server runs debian");
+        item.stage = MemoryStage::Canonical;
+        item.kind = MemoryKind::Fact;
+        item.updated_at = Utc::now() - Duration::days(10);
+        let (result, changed) = apply_lifecycle(item);
+        assert!(!changed);
+        assert_eq!(result.status, MemoryStatus::Active);
+    }
+
+    #[test]
+    fn staleness_uses_last_verified_at_when_present() {
+        let mut item = test_item("the server runs debian");
+        item.stage = MemoryStage::Canonical;
+        item.kind = MemoryKind::Fact;
+        item.updated_at = Utc::now() - Duration::days(30);
+        item.last_verified_at = Some(Utc::now() - Duration::days(5));
+        let (result, changed) = apply_lifecycle(item);
+        assert!(!changed);
+        assert_eq!(result.status, MemoryStatus::Active);
+    }
+
+    #[test]
+    fn live_truth_goes_stale_after_1_day() {
+        let mut item = test_item("build is green");
+        item.stage = MemoryStage::Canonical;
+        item.kind = MemoryKind::LiveTruth;
+        item.updated_at = Utc::now() - Duration::days(2);
+        let (result, changed) = apply_lifecycle(item);
+        assert!(changed);
+        assert_eq!(result.status, MemoryStatus::Stale);
+    }
+
+    #[test]
+    fn double_window_expires_stale_fact() {
+        let mut item = test_item("the server runs debian");
+        item.stage = MemoryStage::Canonical;
+        item.kind = MemoryKind::Fact;
+        item.status = MemoryStatus::Stale;
+        item.updated_at = Utc::now() - Duration::days(29);
+        let (result, changed) = apply_lifecycle(item);
+        assert!(changed);
+        assert_eq!(result.status, MemoryStatus::Expired);
+    }
+
+    #[test]
+    fn double_window_does_not_expire_within_range() {
+        let mut item = test_item("the server runs debian");
+        item.stage = MemoryStage::Canonical;
+        item.kind = MemoryKind::Fact;
+        item.status = MemoryStatus::Stale;
+        item.updated_at = Utc::now() - Duration::days(20);
+        let (result, changed) = apply_lifecycle(item);
+        assert!(!changed);
+        assert_eq!(result.status, MemoryStatus::Stale);
+    }
+
+    #[test]
+    fn ttl_takes_precedence_over_staleness() {
+        let mut item = test_item("ephemeral note");
+        item.stage = MemoryStage::Canonical;
+        item.kind = MemoryKind::Fact;
+        item.ttl_seconds = Some(60);
+        item.created_at = Utc::now() - Duration::seconds(120);
+        item.updated_at = Utc::now();
+        let (result, changed) = apply_lifecycle(item);
+        assert!(changed);
+        assert_eq!(result.status, MemoryStatus::Expired);
+    }
+
+    #[test]
+    fn candidate_stage_skips_staleness() {
+        let mut item = test_item("candidate note");
+        item.stage = MemoryStage::Candidate;
+        item.kind = MemoryKind::Fact;
+        item.updated_at = Utc::now() - Duration::days(30);
+        let (result, changed) = apply_lifecycle(item);
+        assert!(!changed);
+        assert_eq!(result.status, MemoryStatus::Active);
     }
 }

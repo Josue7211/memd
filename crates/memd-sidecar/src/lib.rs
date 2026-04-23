@@ -84,6 +84,35 @@ pub struct SidecarRetrieveResponse {
     pub items: Vec<SidecarRetrieveItem>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SidecarRerankCandidate {
+    pub id: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SidecarRerankRequest {
+    pub query: String,
+    pub candidates: Vec<SidecarRerankCandidate>,
+    #[serde(default)]
+    pub top_k: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SidecarRerankItem {
+    pub id: String,
+    pub score: f32,
+    #[serde(default)]
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SidecarRerankResponse {
+    pub status: String,
+    pub model: String,
+    pub items: Vec<SidecarRerankItem>,
+}
+
 pub mod fixtures;
 
 impl SidecarClient {
@@ -111,6 +140,13 @@ impl SidecarClient {
         req: &SidecarRetrieveRequest,
     ) -> anyhow::Result<SidecarRetrieveResponse> {
         self.post_json("/v1/retrieve", req).await
+    }
+
+    pub async fn rerank(
+        &self,
+        req: &SidecarRerankRequest,
+    ) -> anyhow::Result<SidecarRerankResponse> {
+        self.post_json("/v1/rerank", req).await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>

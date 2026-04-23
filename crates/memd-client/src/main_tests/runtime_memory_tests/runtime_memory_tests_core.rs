@@ -23,6 +23,7 @@ async fn lookup_with_fallbacks_retries_until_match() {
         visibility: None,
         belief_branch: None,
         source_agent: None,
+        region: None,
         tags: vec!["caveman-ultra".to_string()],
         stages: vec![
             memd_schema::MemoryStage::Canonical,
@@ -122,6 +123,8 @@ fn lookup_markdown_mentions_pre_answer_protocol() {
             tags: vec!["10-star".to_string()],
             status: memd_schema::MemoryStatus::Active,
             stage: memd_schema::MemoryStage::Canonical,
+            lane: None,
+            version: 1,
         }],
     };
 
@@ -379,6 +382,8 @@ fn resume_prompt_surfaces_current_task_snapshot() {
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,
@@ -409,6 +414,8 @@ fn resume_prompt_surfaces_current_task_snapshot() {
                     tags: Vec::new(),
                     status: memd_schema::MemoryStatus::Active,
                     stage: memd_schema::MemoryStage::Candidate,
+                    lane: None,
+                    version: 1,
                 },
                 reasons: vec!["same".to_string()],
             }],
@@ -425,6 +432,11 @@ fn resume_prompt_surfaces_current_task_snapshot() {
         change_summary: Vec::new(),
         resume_state_age_minutes: None,
         refresh_recommended: false,
+        atlas_region_hints: Vec::new(),
+        handoff_quality: None,
+        files_touched: Vec::new(),
+        un_read_paths: Vec::new(),
+        preferences: Vec::new(),
     };
 
     let base = snapshot;
@@ -474,7 +486,9 @@ fn working_summary_surfaces_typed_trace_trail() {
             salience_score: 0.82,
         }],
         semantic_consolidation: None,
-            procedures: vec![],
+        procedures: vec![],
+
+        compaction_quality: None,
     };
 
     let summary = render_working_summary(&response, true);

@@ -701,6 +701,132 @@ pub(crate) fn build_hive_heartbeat(
     })
 }
 
+/// Refresh live truth items by detecting changed files in `.memd/lanes/`.
+/// Computes content hashes, compares against cached state, and stores
+/// changed files via the store API with `kind = LiveTruth`.
+pub(crate) async fn refresh_live_truth(output: &Path, base_url: &str) -> anyhow::Result<usize> {
+    let lanes_dir = output.join("lanes");
+    if !lanes_dir.is_dir() {
+        return Ok(0);
+    }
+    let hash_cache_path = output.join("live_truth_hashes.json");
+    let cached: std::collections::HashMap<String, String> = if hash_cache_path.is_file() {
+        serde_json::from_str(&fs::read_to_string(&hash_cache_path).unwrap_or_default())
+            .unwrap_or_default()
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    let runtime = read_bundle_runtime_config(output)?;
+    let project = runtime
+        .as_ref()
+        .and_then(|c| c.project.clone())
+        .unwrap_or_else(|| "unknown".to_string());
+    let namespace = runtime.as_ref().and_then(|c| c.namespace.clone());
+    let agent = runtime.as_ref().and_then(|c| c.agent.clone());
+
+    let mut updated: std::collections::HashMap<String, String> = cached.clone();
+    let mut refreshed = 0usize;
+    let client = MemdClient::new(base_url)?;
+
+    for entry in walkdir_lanes(&lanes_dir)? {
+        let content = match fs::read_to_string(&entry) {
+            Ok(c) if !c.trim().is_empty() => c,
+            _ => continue,
+        };
+        let rel = entry
+            .strip_prefix(output)
+            .unwrap_or(&entry)
+            .to_string_lossy()
+            .to_string();
+        let hash = format!("{:x}", content_hash(content.as_bytes()));
+        if cached.get(&rel).map(|h| h.as_str()) == Some(&hash) {
+            updated.insert(rel, hash);
+            continue;
+        }
+        let summary = if content.len() > 300 {
+            let truncated: String = content.chars().take(300).collect();
+            format!("{truncated}...")
+        } else {
+            content.clone()
+        };
+        let req = memd_schema::StoreMemoryRequest {
+            content: summary,
+            kind: memd_schema::MemoryKind::LiveTruth,
+            scope: memd_schema::MemoryScope::Project,
+            project: Some(project.clone()),
+            namespace: namespace.clone(),
+            workspace: None,
+            visibility: None,
+            source_agent: agent.clone(),
+            source_system: Some("heartbeat-refresh".to_string()),
+            source_path: Some(rel.clone()),
+            source_quality: Some(memd_schema::SourceQuality::Derived),
+            confidence: Some(0.8),
+            ttl_seconds: None,
+            last_verified_at: Some(Utc::now()),
+            supersedes: Vec::new(),
+            tags: vec!["live-truth".to_string(), "lane-refresh".to_string()],
+            belief_branch: None,
+            status: None,
+            lane: None,
+        };
+        match client.store(&req).await {
+            Ok(_) => {
+                refreshed += 1;
+                updated.insert(rel, hash);
+            }
+            Err(e) => {
+                eprintln!(
+                    "warn: refresh_live_truth store failed for {}: {e:#}",
+                    entry.display()
+                );
+            }
+        }
+    }
+    if let Ok(json) = serde_json::to_string_pretty(&updated) {
+        let _ = fs::write(&hash_cache_path, json);
+    }
+    Ok(refreshed)
+}
+
+fn walkdir_lanes(lanes_dir: &Path) -> anyhow::Result<Vec<std::path::PathBuf>> {
+    let mut files = Vec::new();
+    if !lanes_dir.is_dir() {
+        return Ok(files);
+    }
+    for lane_entry in fs::read_dir(lanes_dir)? {
+        let lane_entry = lane_entry?;
+        let lane_path = lane_entry.path();
+        if !lane_path.is_dir() {
+            continue;
+        }
+        for file_entry in fs::read_dir(&lane_path)? {
+            let file_entry = file_entry?;
+            let file_path = file_entry.path();
+            if file_path.is_file()
+                && file_path
+                    .extension()
+                    .map(|e| e == "md" || e == "txt")
+                    .unwrap_or(false)
+            {
+                files.push(file_path);
+            }
+        }
+    }
+    Ok(files)
+}
+
+fn content_hash(data: &[u8]) -> u128 {
+    // Simple FNV-1a-based content hash (not cryptographic, just change detection)
+    let mut hash: u128 = 0xcbf29ce484222325u128;
+    for &byte in data {
+        hash ^= byte as u128;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
 pub(crate) async fn write_bundle_heartbeat(
     output: &Path,
     snapshot: Option<&ResumeSnapshot>,
@@ -715,6 +841,14 @@ pub(crate) async fn write_bundle_heartbeat(
     enrich_hive_heartbeat_with_runtime_intent(&mut state).await?;
     if probe_base_url && let Some(url) = state.base_url.as_deref() {
         state.base_url_healthy = Some(MemdClient::new(url)?.healthz().await.is_ok());
+    }
+    // Refresh live truth items from lane files on each heartbeat cycle
+    if let Some(url) = state.base_url.as_deref()
+        && state.base_url_healthy == Some(true)
+    {
+        if let Err(e) = refresh_live_truth(output, url).await {
+            eprintln!("warn: refresh_live_truth: {e:#}");
+        }
     }
     fs::write(&path, serde_json::to_string_pretty(&state)? + "\n")
         .with_context(|| format!("write {}", path.display()))?;

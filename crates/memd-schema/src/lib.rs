@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -242,6 +244,17 @@ pub struct MemoryItem {
     pub tags: Vec<String>,
     pub status: MemoryStatus,
     pub stage: MemoryStage,
+    #[serde(default)]
+    pub lane: Option<String>,
+    /// Lamport version — incremented on every server-side mutation.
+    /// Foreign imports with `version <= stored.version` are rejected as
+    /// `Conflict`, giving timestamp-independent resolution across harnesses.
+    #[serde(default = "default_memory_item_version")]
+    pub version: u64,
+}
+
+pub fn default_memory_item_version() -> u64 {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -264,6 +277,8 @@ pub struct StoreMemoryRequest {
     pub supersedes: Vec<Uuid>,
     pub tags: Vec<String>,
     pub status: Option<MemoryStatus>,
+    #[serde(default)]
+    pub lane: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -290,6 +305,8 @@ pub struct CandidateMemoryRequest {
     pub last_verified_at: Option<DateTime<Utc>>,
     pub supersedes: Vec<Uuid>,
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub lane: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -377,6 +394,25 @@ pub struct RepairMemoryResponse {
     pub reasons: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorrectMemoryRequest {
+    pub id: Uuid,
+    pub content: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub confidence: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorrectMemoryResponse {
+    pub old_item: MemoryItem,
+    pub new_item: MemoryItem,
+    pub contested: Vec<Uuid>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SearchMemoryRequest {
     pub query: Option<String>,
@@ -391,6 +427,8 @@ pub struct SearchMemoryRequest {
     pub visibility: Option<MemoryVisibility>,
     pub belief_branch: Option<String>,
     pub source_agent: Option<String>,
+    #[serde(default)]
+    pub region: Option<String>,
     pub tags: Vec<String>,
     pub stages: Vec<MemoryStage>,
     pub limit: Option<usize>,
@@ -451,6 +489,10 @@ pub struct WorkingMemoryRequest {
     pub max_total_chars: Option<usize>,
     pub rehydration_limit: Option<usize>,
     pub auto_consolidate: Option<bool>,
+    /// Optional query text for lane-aware scoring (G2.2).
+    /// When provided, items whose lane matches the query's detected lane
+    /// get a higher boost than items with a different lane.
+    pub query: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -471,6 +513,9 @@ pub struct WorkingMemoryResponse {
     /// Procedures matched against current working context (Phase G).
     #[serde(default)]
     pub procedures: Vec<Procedure>,
+    /// Admission cycle quality metrics for M3/J2 observability.
+    #[serde(default)]
+    pub compaction_quality: Option<CompactionQualityReport>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -479,6 +524,56 @@ pub struct WorkingMemoryPolicyState {
     pub max_chars_per_item: usize,
     pub budget_chars: usize,
     pub rehydration_limit: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompactionQualityReport {
+    pub admitted: usize,
+    pub evicted: usize,
+    pub per_kind_admitted: BTreeMap<String, usize>,
+    pub per_kind_evicted: BTreeMap<String, usize>,
+    /// Per-kind character counts for admitted items.
+    #[serde(default)]
+    pub chars_per_kind_admitted: BTreeMap<String, usize>,
+    pub budget_chars: usize,
+    pub used_chars: usize,
+}
+
+/// Per-kind character and item counts for a single operation.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PerKindTokenMetrics {
+    /// Map of kind name → character count consumed by that kind.
+    pub chars_per_kind: BTreeMap<String, usize>,
+    /// Map of kind name → item count for that kind.
+    pub items_per_kind: BTreeMap<String, usize>,
+    /// Total characters consumed across all kinds.
+    pub total_chars: usize,
+    /// Total items across all kinds.
+    pub total_items: usize,
+}
+
+/// Token efficiency report for a single operation (wake, recall, handoff, working memory).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperationTokenReport {
+    /// Which operation produced this report.
+    pub operation: String,
+    /// Total character budget available for this operation.
+    pub budget_chars: usize,
+    /// Characters actually used.
+    pub used_chars: usize,
+    /// Budget utilization as a percentage (0.0–100.0).
+    pub utilization_pct: f64,
+    /// Per-kind breakdown.
+    pub per_kind: PerKindTokenMetrics,
+}
+
+/// Combined token efficiency report across all measured operations.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TokenEfficiencyReport {
+    /// One entry per measured operation.
+    pub operations: Vec<OperationTokenReport>,
+    /// Timestamp of this report (seconds since epoch).
+    pub timestamp: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1012,6 +1107,10 @@ pub struct HiveQueenActionRequest {
     pub workspace: Option<String>,
     pub scope: Option<String>,
     pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_lane: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1038,6 +1137,135 @@ pub struct HiveHandoffPacket {
     pub blocker: Option<String>,
     pub note: Option<String>,
     pub created_at: DateTime<Utc>,
+    /// L2.4: compact snapshot of outgoing-bee working memory, continuity
+    /// fields, and unresolved procedures. Optional so legacy payloads
+    /// decode; serialized only when populated so receipts stay compact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_context: Option<WorkingContextSnapshot>,
+}
+
+/// L2.4: carrier for the outgoing bee's in-flight context on handoff.
+///
+/// Hard-capped at 8 working-memory slots to mirror the wake working-set
+/// cap. Procedures are included only when `status != done` in the source
+/// session so the receiver sees what is still open.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WorkingContextSnapshot {
+    #[serde(default)]
+    pub working_records: Vec<CompactMemoryRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doing: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left_off: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocker: Option<String>,
+    #[serde(default)]
+    pub unresolved_procedures: Vec<Procedure>,
+    /// Lamport stamp of the snapshot — the outgoing session's `version` at
+    /// capture time. Lets the receiver detect a stale handoff packet
+    /// arriving after a newer one.
+    #[serde(default)]
+    pub version: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured_at: Option<DateTime<Utc>>,
+}
+
+/// L2.5: per-branch divergence summary. Kept bounded so the human
+/// dashboard can render it without paging — at most 2 branches with 3
+/// decisions each. Decisions are normalized (trim + lowercase + collapse
+/// whitespace) and deduplicated so the dashboard sees the distinct set.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DivergenceSummary {
+    pub branches: Vec<DivergenceBranch>,
+    pub truncated_branches: bool,
+}
+
+impl DivergenceSummary {
+    pub const MAX_BRANCHES: usize = 2;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DivergenceBranch {
+    pub branch_name: String,
+    pub decisions: Vec<DivergenceDecision>,
+    pub truncated_decisions: bool,
+}
+
+impl DivergenceBranch {
+    pub const MAX_DECISIONS: usize = 3;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DivergenceDecision {
+    pub id: Uuid,
+    /// Raw decision text (first 280 chars, untrimmed).
+    pub text: String,
+    /// Normalized form used for dedup + diff at the caller.
+    pub normalized: String,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DivergenceRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+}
+
+impl WorkingContextSnapshot {
+    /// Cap on the working-records slice — matches the 8-slot working-set
+    /// budget applied at retrieval time. Callers should pass already-trimmed
+    /// data, but we enforce it here defensively so packets never balloon.
+    pub const MAX_WORKING_RECORDS: usize = 8;
+
+    pub fn truncate_to_cap(mut self) -> Self {
+        if self.working_records.len() > Self::MAX_WORKING_RECORDS {
+            self.working_records.truncate(Self::MAX_WORKING_RECORDS);
+        }
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CoordinationMode {
+    #[default]
+    ExclusiveWrite,
+    SharedReview,
+    HelpOnly,
+    Solo,
+}
+
+impl CoordinationMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CoordinationMode::ExclusiveWrite => "exclusive_write",
+            CoordinationMode::SharedReview => "shared_review",
+            CoordinationMode::HelpOnly => "help_only",
+            CoordinationMode::Solo => "solo",
+        }
+    }
+}
+
+impl std::fmt::Display for CoordinationMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for CoordinationMode {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "exclusive_write" => Ok(CoordinationMode::ExclusiveWrite),
+            "shared_review" => Ok(CoordinationMode::SharedReview),
+            "help_only" => Ok(CoordinationMode::HelpOnly),
+            "solo" => Ok(CoordinationMode::Solo),
+            other => Err(format!("unknown coordination_mode: {other}")),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1046,8 +1274,8 @@ pub struct HiveTaskRecord {
     pub title: String,
     pub description: Option<String>,
     pub status: String,
-    #[serde(default = "default_coordination_mode")]
-    pub coordination_mode: String,
+    #[serde(default)]
+    pub coordination_mode: CoordinationMode,
     pub session: Option<String>,
     pub agent: Option<String>,
     pub effective_agent: Option<String>,
@@ -1067,7 +1295,7 @@ pub struct HiveTaskUpsertRequest {
     pub title: String,
     pub description: Option<String>,
     pub status: Option<String>,
-    pub coordination_mode: Option<String>,
+    pub coordination_mode: Option<CoordinationMode>,
     pub session: Option<String>,
     pub agent: Option<String>,
     pub effective_agent: Option<String>,
@@ -1102,10 +1330,6 @@ pub struct HiveTasksRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HiveTasksResponse {
     pub tasks: Vec<HiveTaskRecord>,
-}
-
-fn default_coordination_mode() -> String {
-    "exclusive_write".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1438,6 +1662,12 @@ pub struct MemoryEntityLinkRecord {
     pub relation_kind: EntityRelationKind,
     pub confidence: f32,
     pub created_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_from: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_to: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_item_id: Option<Uuid>,
     pub note: Option<String>,
     pub context: Option<MemoryContextFrame>,
     pub tags: Vec<String>,
@@ -1449,6 +1679,12 @@ pub struct EntityLinkRequest {
     pub to_entity_id: Uuid,
     pub relation_kind: EntityRelationKind,
     pub confidence: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_from: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_to: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_item_id: Option<Uuid>,
     pub note: Option<String>,
     pub context: Option<MemoryContextFrame>,
     pub tags: Vec<String>,
@@ -1871,6 +2107,61 @@ pub struct MemoryDecayRequest {
     pub inactive_days: Option<i64>,
     pub max_decay: Option<f32>,
     pub record_events: Option<bool>,
+    /// Divisor controlling decay acceleration past inactive threshold.
+    /// decay = (idle_days_over / decay_divisor).min(1.0) * max_decay
+    /// Defaults to 14.0.
+    #[serde(default)]
+    pub decay_divisor: Option<f32>,
+}
+
+/// Age distribution of entities scanned during a decay pass.
+/// Buckets are based on idle_days (days since last access/seen/updated).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DecayAgeDistribution {
+    pub under_7d: usize,
+    pub d7_to_14: usize,
+    pub d14_to_21: usize,
+    pub d21_to_30: usize,
+    pub over_30d: usize,
+}
+
+/// Salience distribution: 10 buckets [0.0,0.1), [0.1,0.2), ..., [0.9,1.0].
+/// Index i covers salience in [i*0.1, (i+1)*0.1).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SalienceHistogram {
+    pub buckets: Vec<usize>,
+}
+
+impl SalienceHistogram {
+    pub fn new() -> Self {
+        Self {
+            buckets: vec![0; 10],
+        }
+    }
+
+    pub fn record(&mut self, salience: f32) {
+        let idx = ((salience * 10.0) as usize).min(9);
+        self.buckets[idx] += 1;
+    }
+}
+
+/// Metrics collected during a single decay run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecayRunMetrics {
+    /// Items read and evaluated.
+    pub inspected: usize,
+    /// Items that had salience reduced.
+    pub decayed: usize,
+    /// Items that reached salience == 0.0 after decay.
+    pub zeroed: usize,
+    /// Sum of all decay deltas applied across all items.
+    pub total_decay_applied: f32,
+    /// Distribution of idle age across inspected items.
+    pub age_distribution: DecayAgeDistribution,
+    /// Salience distribution before decay was applied.
+    pub salience_pre: SalienceHistogram,
+    /// Salience distribution after decay was applied (for items that changed).
+    pub salience_post: SalienceHistogram,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1878,6 +2169,17 @@ pub struct MemoryDecayResponse {
     pub scanned: usize,
     pub updated: usize,
     pub events: usize,
+    #[serde(default)]
+    pub metrics: Option<DecayRunMetrics>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecayDiagnosticsResponse {
+    pub metrics: DecayRunMetrics,
+    pub inactive_days: usize,
+    pub max_decay: f32,
+    pub decay_divisor: f32,
+    pub max_items: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1891,6 +2193,23 @@ pub struct MemoryConsolidationRequest {
     pub record_events: Option<bool>,
 }
 
+/// Per-item quality score computed after a consolidation write.
+/// Scores are in [0.0, 1.0] and reflect how well the generated item preserves
+/// source fidelity across four dimensions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsolidationQualityScore {
+    /// Entity type present in consolidated content (semantic coherence).
+    pub semantic_coherence: f32,
+    /// Clause/sentence density vs event count (information preservation).
+    pub information_preservation: f32,
+    /// Consolidated kind matches expected kind from entity type (1.0 or 0.0).
+    pub kind_preserved: f32,
+    /// Consolidated visibility matches most-restrictive source visibility (1.0 or 0.0).
+    pub visibility_preserved: f32,
+    /// Average of the four dimension scores.
+    pub overall: f32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConsolidationResponse {
     pub scanned: usize,
@@ -1899,6 +2218,12 @@ pub struct MemoryConsolidationResponse {
     pub duplicates: usize,
     pub events: usize,
     pub highlights: Vec<String>,
+    /// Mean quality score across all consolidated items in this run.
+    #[serde(default)]
+    pub mean_quality: Option<f32>,
+    /// Per-item quality scores (one per consolidated item, in consolidation order).
+    #[serde(default)]
+    pub quality_scores: Vec<ConsolidationQualityScore>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -2030,6 +2355,8 @@ pub struct MemoryPolicyDecay {
     pub inactive_days: i64,
     pub max_decay: f32,
     pub record_events: bool,
+    /// Divisor controlling decay acceleration past inactive threshold. Default: 14.0.
+    pub decay_divisor: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2041,8 +2368,7 @@ pub struct MemoryPolicyConsolidation {
     pub record_events: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryPolicyRuntime {
     pub live_truth: MemoryPolicyLiveTruth,
     pub memory_compilation: MemoryPolicyMemoryCompilation,
@@ -2050,9 +2376,7 @@ pub struct MemoryPolicyRuntime {
     pub skill_gating: MemoryPolicySkillGating,
 }
 
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryPolicyLiveTruth {
     pub read_once_sources: bool,
     pub raw_reopen_requires_change_or_doubt: bool,
@@ -2060,9 +2384,7 @@ pub struct MemoryPolicyLiveTruth {
     pub compile_from_events: bool,
 }
 
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryPolicyMemoryCompilation {
     pub event_driven_updates: bool,
     pub patch_not_rewrite: bool,
@@ -2070,9 +2392,7 @@ pub struct MemoryPolicyMemoryCompilation {
     pub source_on_demand: bool,
 }
 
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryPolicySemanticFallback {
     pub enabled: bool,
     pub source_of_truth: bool,
@@ -2080,9 +2400,7 @@ pub struct MemoryPolicySemanticFallback {
     pub rerank_with_visible_memory: bool,
 }
 
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryPolicySkillGating {
     pub propose_from_repeated_patterns: bool,
     pub sandboxed_evaluation: bool,
@@ -2091,7 +2409,6 @@ pub struct MemoryPolicySkillGating {
     pub require_evaluation: bool,
     pub require_policy_approval: bool,
 }
-
 
 fn default_rehydration_limit() -> usize {
     3
@@ -2112,6 +2429,39 @@ pub struct ExplainMemoryResponse {
     pub branch_siblings: Vec<ExplainBranchSiblingRecord>,
     pub rehydration: Vec<MemoryRehydrationRecord>,
     pub policy_hooks: Vec<String>,
+    #[serde(default)]
+    pub corrections_chain: Vec<CorrectionChainEntry>,
+    #[serde(default)]
+    pub confidence_timeline: Vec<ConfidenceSample>,
+    #[serde(default)]
+    pub trust_rank_history: Vec<TrustRankSample>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorrectionChainEntry {
+    pub id: Uuid,
+    pub content_preview: String,
+    pub confidence: f32,
+    pub stage: MemoryStage,
+    pub status: MemoryStatus,
+    pub updated_at: DateTime<Utc>,
+    pub supersedes: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfidenceSample {
+    pub at: DateTime<Utc>,
+    pub confidence: f32,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrustRankSample {
+    pub at: DateTime<Utc>,
+    pub source_agent: Option<String>,
+    pub source_system: Option<String>,
+    pub event_type: String,
+    pub confidence: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2199,9 +2549,113 @@ pub struct CompactionSpillResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PressureMetrics {
+    pub inbox: usize,
+    pub candidates: usize,
+    pub stale: usize,
+    pub expired: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagHealthStatus {
+    pub enabled: bool,
+    pub reachable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub recent_failures: u64,
+}
+
+fn is_zero_u64(v: &u64) -> bool {
+    *v == 0
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasHealthStatus {
+    pub edges_total: usize,
+    pub edges_active: usize,
+    pub edges_dormant: usize,
+    pub region_count: usize,
+    pub edge_item_ratio: f64,
+    pub dormant: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
     pub status: String,
     pub items: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eval_score: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pressure: Option<PressureMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rag: Option<RagHealthStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub atlas: Option<AtlasHealthStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryHealthBreakdown {
+    pub total: usize,
+    pub active: usize,
+    pub stale: usize,
+    pub superseded: usize,
+    pub contested: usize,
+    pub expired: usize,
+    pub candidates: usize,
+    pub canonical: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LatencyBucket {
+    pub upper_ms: u64,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LatencyDiagnosticsResponse {
+    pub surface: String,
+    pub total: u64,
+    pub mean_ms: f64,
+    pub max_ms: u64,
+    pub p50_ms: f64,
+    pub p95_ms: f64,
+    pub p99_ms: f64,
+    pub buckets: Vec<LatencyBucket>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpineViolation {
+    pub entity_id: Uuid,
+    pub earlier_event_id: Uuid,
+    pub later_event_id: Uuid,
+    pub earlier_recorded_at: DateTime<Utc>,
+    pub later_recorded_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpineVerifyResponse {
+    pub scanned: u64,
+    pub monotonic_violations: u64,
+    pub first_violation: Option<SpineViolation>,
+    pub rolling_sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HarnessStatus {
+    pub git_branch: String,
+    pub git_commit: String,
+    pub git_dirty: String,
+    pub memory: MemoryHealthBreakdown,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latency_p95_ms: Option<f64>,
+    pub benchmark_gate: String,
+    #[serde(default)]
+    pub schema_version: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub atlas: Option<AtlasHealthStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -2516,6 +2970,154 @@ pub struct ContinuityJourneyReport {
     pub generated_at: Option<DateTime<Utc>>,
 }
 
+// ── Ingestion Pipeline (F2) ──────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IngestLanesRequest {
+    pub root: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IngestLanesResponse {
+    pub files_scanned: usize,
+    pub files_ingested: usize,
+    pub files_skipped: usize,
+    pub files_stale: usize,
+}
+
+/// E3-D2: session boundaries derived from event-spine gaps.
+/// A new session starts when the idle gap between consecutive events
+/// exceeds `session_gap_seconds` (default 30min = 1800s).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionSpan {
+    pub id: Uuid,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub started_at: DateTime<Utc>,
+    pub ended_at: DateTime<Utc>,
+    pub event_count: usize,
+    pub memory_ids: Vec<Uuid>,
+}
+
+/// E3-D2: episode = a session's events consolidated into a narrative.
+/// `narrative` is prose — subject to FTS5 index for cross-session recall.
+/// `session_id` scopes the episode to one boundary; `fact_count` = number
+/// of linked memory items in `episode_facts`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Episode {
+    pub id: Uuid,
+    pub mind: Option<String>,
+    pub title: String,
+    pub narrative: String,
+    pub session_id: Uuid,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub started_at: DateTime<Utc>,
+    pub ended_at: DateTime<Utc>,
+    pub fact_count: usize,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EpisodeFactRelation {
+    Origin,
+    Evidence,
+    Reference,
+    Outcome,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EpisodeFactLink {
+    pub episode_id: Uuid,
+    pub fact_id: Uuid,
+    pub relation: EpisodeFactRelation,
+}
+
+/// E3-D2 request: consolidate recent sessions into episodes.
+/// - `since`: only consider events after this timestamp (default = last 24h)
+/// - `session_gap_seconds`: gap threshold for session boundaries (default 1800)
+/// - `dry_run`: detect sessions but do not persist episodes
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConsolidateEpisodesRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub since: Option<DateTime<Utc>>,
+    pub session_gap_seconds: Option<u64>,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// E3-D2 response. `idempotent_skipped` = sessions already consolidated
+/// (same session_id already has an episode). Must be non-zero on second
+/// run of the same window for idempotency proof.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConsolidateEpisodesResponse {
+    pub sessions_detected: usize,
+    pub episodes_created: Vec<Episode>,
+    pub idempotent_skipped: usize,
+    pub total_events_scanned: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ListEpisodesRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub limit: Option<usize>,
+    pub query: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ListEpisodesResponse {
+    pub episodes: Vec<Episode>,
+}
+
+/// E3-D5 request: scan existing vectors in scope, cluster near-duplicates
+/// by cosine distance, preview which rows would be merged under
+/// `MEMD_STORE_DEDUP=1`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DedupScanRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    /// Cosine distance threshold (default: 0.15).
+    pub threshold_cosine_distance: Option<f32>,
+    /// Cap on clusters returned (default: 50).
+    pub limit: Option<usize>,
+    /// Reserved: when false, the server would actually merge. For now
+    /// D5 only supports dry_run=true.
+    #[serde(default = "default_dry_run_true")]
+    pub dry_run: bool,
+}
+
+fn default_dry_run_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DedupDuplicate {
+    pub id: Uuid,
+    pub similarity: f32,
+    pub preview: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DedupCluster {
+    /// Richest survivor (highest confidence, ties broken by updated_at desc).
+    pub survivor_id: Uuid,
+    pub survivor_preview: String,
+    pub duplicates: Vec<DedupDuplicate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DedupScanResponse {
+    pub clusters: Vec<DedupCluster>,
+    pub vectors_scanned: usize,
+    pub threshold_cosine_distance: f32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2610,6 +3212,7 @@ mod tests {
             handoff_state: Some("none".to_string()),
             confidence: Some("high".to_string()),
             risk: Some("low".to_string()),
+            last_wake_at: None,
             last_seen: Utc::now(),
         };
 
@@ -2888,6 +3491,9 @@ mod tests {
             relation_kind: EntityRelationKind::DerivedFrom,
             confidence: 0.84,
             created_at: Utc::now(),
+            valid_from: Some(Utc::now()),
+            valid_to: None,
+            source_item_id: Some(Uuid::new_v4()),
             note: Some("rolled up from repeated traces".to_string()),
             context: Some(MemoryContextFrame {
                 at: Some(Utc::now()),
@@ -2907,6 +3513,9 @@ mod tests {
             to_entity_id: link.to_entity_id,
             relation_kind: link.relation_kind,
             confidence: Some(link.confidence),
+            valid_from: link.valid_from,
+            valid_to: link.valid_to,
+            source_item_id: link.source_item_id,
             note: link.note.clone(),
             context: link.context.clone(),
             tags: link.tags.clone(),
@@ -2965,6 +3574,9 @@ mod tests {
             relation_kind: EntityRelationKind::Related,
             confidence: 0.7,
             created_at: Utc::now(),
+            valid_from: Some(Utc::now()),
+            valid_to: None,
+            source_item_id: Some(Uuid::new_v4()),
             note: Some("adjacent memory".to_string()),
             context: root.context.clone(),
             tags: vec!["graph".to_string()],
@@ -3027,6 +3639,8 @@ mod tests {
             duplicates: 1,
             events: 3,
             highlights: vec!["repo:3 events".to_string()],
+            mean_quality: None,
+            quality_scores: vec![],
         };
 
         let json = serde_json::to_string(&response).unwrap();
@@ -3147,6 +3761,8 @@ mod tests {
                 tags: vec!["decision".to_string()],
                 status: MemoryStatus::Active,
                 stage: MemoryStage::Canonical,
+                lane: None,
+                version: 1,
             },
             canonical_key: "decision:bundle-first".to_string(),
             redundancy_key: "decision:bundle-first".to_string(),
@@ -3215,6 +3831,27 @@ mod tests {
                 "intent=decision".to_string(),
                 "source_trust_floor=0.60".to_string(),
             ],
+            corrections_chain: vec![CorrectionChainEntry {
+                id: Uuid::new_v4(),
+                content_preview: "prior revision of decision".to_string(),
+                confidence: 0.81,
+                stage: MemoryStage::Canonical,
+                status: MemoryStatus::Superseded,
+                updated_at: now,
+                supersedes: vec![],
+            }],
+            confidence_timeline: vec![ConfidenceSample {
+                at: now,
+                confidence: 0.92,
+                source: "created".to_string(),
+            }],
+            trust_rank_history: vec![TrustRankSample {
+                at: now,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                event_type: "verify".to_string(),
+                confidence: 0.9,
+            }],
         };
 
         let json = serde_json::to_string(&response).unwrap();
@@ -3225,6 +3862,9 @@ mod tests {
         assert_eq!(decoded.rehydration.len(), 1);
         assert_eq!(decoded.policy_hooks.len(), 3);
         assert_eq!(decoded.sources[0].trust_score, 0.95);
+        assert_eq!(decoded.corrections_chain.len(), 1);
+        assert_eq!(decoded.confidence_timeline.len(), 1);
+        assert_eq!(decoded.trust_rank_history.len(), 1);
     }
 
     #[test]
@@ -3301,6 +3941,7 @@ mod tests {
                 max_items: 128,
                 inactive_days: 21,
                 max_decay: 0.12,
+                decay_divisor: 14.0,
                 record_events: true,
             },
             consolidation: MemoryPolicyConsolidation {
@@ -3339,6 +3980,7 @@ mod tests {
             max_total_chars: Some(900),
             rehydration_limit: Some(2),
             auto_consolidate: Some(true),
+            query: Some("system architecture".to_string()),
         };
 
         let response = WorkingMemoryResponse {
@@ -3394,8 +4036,11 @@ mod tests {
                 duplicates: 0,
                 events: 1,
                 highlights: vec!["working-set replay".to_string()],
+                mean_quality: None,
+                quality_scores: vec![],
             }),
             procedures: vec![],
+            compaction_quality: None,
         };
 
         let request_json = serde_json::to_string(&request).unwrap();
@@ -3599,6 +4244,8 @@ mod tests {
                 tags: vec!["repair".to_string(), "audit".to_string()],
                 status: MemoryStatus::Active,
                 stage: MemoryStage::Canonical,
+                lane: None,
+                version: 1,
             },
             mode: request.mode,
             reasons: vec![
@@ -3862,5 +4509,123 @@ mod tests {
         assert_eq!(decoded.memory_kind, MemoryKind::Status);
         assert_eq!(decoded.memory_stage, MemoryStage::Canonical);
         assert_eq!(decoded.typed_memory, "session_continuity+canonical");
+    }
+
+    #[test]
+    fn coordination_mode_wire_format_is_snake_case() {
+        use std::str::FromStr;
+        for (variant, wire) in [
+            (CoordinationMode::ExclusiveWrite, "exclusive_write"),
+            (CoordinationMode::SharedReview, "shared_review"),
+            (CoordinationMode::HelpOnly, "help_only"),
+            (CoordinationMode::Solo, "solo"),
+        ] {
+            let encoded = serde_json::to_string(&variant).unwrap();
+            assert_eq!(encoded, format!("\"{wire}\""));
+            let decoded: CoordinationMode = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(decoded, variant);
+            assert_eq!(variant.as_str(), wire);
+            assert_eq!(variant.to_string(), wire);
+            assert_eq!(CoordinationMode::from_str(wire).unwrap(), variant);
+        }
+        assert_eq!(
+            CoordinationMode::default(),
+            CoordinationMode::ExclusiveWrite
+        );
+        assert!(CoordinationMode::from_str("bogus").is_err());
+    }
+
+    #[test]
+    fn hive_task_record_default_coordination_mode_matches_legacy_payload() {
+        let legacy = serde_json::json!({
+            "task_id": "legacy-task",
+            "title": "legacy",
+            "description": null,
+            "status": "open",
+            "session": null,
+            "agent": null,
+            "effective_agent": null,
+            "project": null,
+            "namespace": null,
+            "workspace": null,
+            "claim_scopes": [],
+            "help_requested": false,
+            "review_requested": false,
+            "created_at": "2025-01-01T00:00:00Z",
+            "updated_at": "2025-01-01T00:00:00Z",
+        });
+        let decoded: HiveTaskRecord = serde_json::from_value(legacy).unwrap();
+        assert_eq!(decoded.coordination_mode, CoordinationMode::ExclusiveWrite);
+    }
+
+    #[test]
+    fn hive_handoff_packet_without_working_context_decodes_as_legacy() {
+        let legacy = serde_json::json!({
+            "from_session": "bee-1",
+            "from_worker": null,
+            "to_session": "bee-2",
+            "to_worker": null,
+            "task_id": null,
+            "topic_claim": null,
+            "scope_claims": [],
+            "next_action": null,
+            "blocker": null,
+            "note": null,
+            "created_at": "2025-01-01T00:00:00Z",
+        });
+        let decoded: HiveHandoffPacket = serde_json::from_value(legacy).unwrap();
+        assert!(decoded.working_context.is_none());
+        let re_encoded = serde_json::to_value(&decoded).unwrap();
+        assert!(
+            re_encoded.get("working_context").is_none(),
+            "absent working_context must serialize-skip"
+        );
+    }
+
+    #[test]
+    fn working_context_snapshot_truncates_to_cap() {
+        let bulky: Vec<CompactMemoryRecord> = (0..16)
+            .map(|n| CompactMemoryRecord {
+                id: Uuid::new_v4(),
+                record: format!("row-{n}"),
+            })
+            .collect();
+        let snap = WorkingContextSnapshot {
+            working_records: bulky,
+            doing: Some("building L2.4".to_string()),
+            version: 7,
+            ..Default::default()
+        }
+        .truncate_to_cap();
+        assert_eq!(
+            snap.working_records.len(),
+            WorkingContextSnapshot::MAX_WORKING_RECORDS
+        );
+
+        let packet = HiveHandoffPacket {
+            from_session: "bee-a".to_string(),
+            from_worker: None,
+            to_session: "bee-b".to_string(),
+            to_worker: None,
+            task_id: Some("task-1".to_string()),
+            topic_claim: None,
+            scope_claims: Vec::new(),
+            next_action: None,
+            blocker: None,
+            note: None,
+            created_at: DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            working_context: Some(snap),
+        };
+        let round: HiveHandoffPacket =
+            serde_json::from_str(&serde_json::to_string(&packet).unwrap()).unwrap();
+        let wc = round.working_context.expect("working_context survives");
+        assert_eq!(
+            wc.working_records.len(),
+            WorkingContextSnapshot::MAX_WORKING_RECORDS
+        );
+        assert_eq!(wc.version, 7);
+        assert_eq!(wc.doing.as_deref(), Some("building L2.4"));
     }
 }

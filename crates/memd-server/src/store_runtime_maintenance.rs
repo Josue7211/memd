@@ -9,7 +9,7 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::SqliteStore;
+use crate::{SqliteStore, canonical_key, detect_content_lane, redundancy_key};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MaintainReportRecordPayload {
@@ -28,6 +28,7 @@ impl SqliteStore {
             max_items: Some(256),
             inactive_days: request.inactive_days,
             max_decay: request.max_decay,
+            decay_divisor: None,
             record_events: Some(false),
         })?;
         let consolidated_candidates =
@@ -124,8 +125,26 @@ impl SqliteStore {
                 skipped
             ),
         ];
+        // GC pass: remove expired items past the grace period (1 hour).
+        let gc_removed = if request.apply {
+            self.gc_expired_items(3600).unwrap_or(0)
+        } else {
+            0
+        };
         if request.apply {
             findings.push("apply requested".to_string());
+        }
+        if gc_removed > 0 {
+            findings.push(format!("gc: removed {gc_removed} expired items"));
+        }
+        // Lane backfill: apply lanes to items stored before lane detection existed
+        let lanes_backfilled = if request.apply && (mode == "full" || mode == "repair") {
+            self.backfill_null_lanes().unwrap_or(0)
+        } else {
+            0
+        };
+        if lanes_backfilled > 0 {
+            findings.push(format!("lanes: backfilled {lanes_backfilled} items"));
         }
         findings.extend(
             highlights
@@ -222,10 +241,57 @@ impl SqliteStore {
                 continue;
             }
             if let Some(source_path) = &item.source_path
-                && Path::new(source_path).exists() {
-                    count += 1;
-                }
+                && Path::new(source_path).exists()
+            {
+                count += 1;
+            }
         }
         Ok(count)
+    }
+
+    /// Backfill lane column on items where lane IS NULL.
+    /// Runs detect_content_lane on each and updates items that get a lane.
+    /// Returns the number of items backfilled.
+    pub fn backfill_null_lanes(&self) -> anyhow::Result<usize> {
+        let items = self.list()?;
+        let mut backfilled = 0usize;
+        for mut item in items {
+            if item.lane.is_some() {
+                continue;
+            }
+            let detected =
+                detect_content_lane(&item.content, item.source_path.as_deref(), &item.tags);
+            if let Some(lane) = detected {
+                item.lane = Some(lane);
+                item.updated_at = chrono::Utc::now();
+                let ck = canonical_key(&item);
+                let rk = redundancy_key(&item);
+                let item = memd_schema::MemoryItem {
+                    redundancy_key: Some(rk.clone()),
+                    ..item
+                };
+                self.update(&item, &ck, &rk)?;
+                backfilled += 1;
+            }
+        }
+        Ok(backfilled)
+    }
+
+    /// Delete expired memory items older than `grace_seconds` from the DB.
+    /// Returns the number of rows removed.
+    pub fn gc_expired_items(&self, grace_seconds: i64) -> anyhow::Result<usize> {
+        let conn = self.connect()?;
+        let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(grace_seconds)).to_rfc3339();
+        let deleted = conn
+            .execute(
+                r#"
+                DELETE FROM memory_items
+                WHERE status = ?1
+                  AND updated_at < ?2
+                "#,
+                params![serde_json::to_string(&MemoryStatus::Expired)?, cutoff,],
+            )
+            .context("gc expired memory items")?;
+        Ok(deleted)
     }
 }

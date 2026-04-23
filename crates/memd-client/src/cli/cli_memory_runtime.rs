@@ -138,6 +138,15 @@ pub(crate) async fn run_ingest_command(
     Ok(())
 }
 
+pub(crate) async fn run_ingest_sources_command(
+    client: &MemdClient,
+    args: &IngestSourcesArgs,
+) -> anyhow::Result<()> {
+    let result = ingest_sources(client, args).await?;
+    print_json(&result)?;
+    Ok(())
+}
+
 pub(crate) async fn run_store_command(
     client: &MemdClient,
     input: &RequestInput,
@@ -230,6 +239,26 @@ pub(crate) async fn run_repair_command(
     Ok(())
 }
 
+pub(crate) async fn run_correct_command(
+    client: &MemdClient,
+    args: CorrectArgs,
+) -> anyhow::Result<()> {
+    let req = CorrectMemoryRequest {
+        id: args.id.parse()?,
+        content: args.content.clone(),
+        reason: args.reason.clone(),
+        tags: if args.tag.is_empty() {
+            None
+        } else {
+            Some(args.tag.clone())
+        },
+        confidence: args.confidence,
+    };
+    let response = client.correct(&req).await?;
+    print_json(&response)?;
+    Ok(())
+}
+
 pub(crate) async fn run_search_command(
     client: &MemdClient,
     args: SearchArgs,
@@ -291,6 +320,7 @@ mod tests {
                 project: None,
                 namespace: None,
                 workspace: None,
+                region: None,
                 visibility: None,
                 route: None,
                 intent: None,
@@ -370,6 +400,7 @@ pub(crate) async fn run_working_command(
             max_total_chars: args.max_total_chars,
             rehydration_limit: args.rehydration_limit,
             auto_consolidate: Some(args.auto_consolidate),
+            query: args.query,
         })
         .await?;
     if args.summary {

@@ -7,12 +7,13 @@ use anyhow::Context;
 use chrono::Utc;
 use memd_schema::{
     Procedure, ProcedureDetectRequest, ProcedureDetectResponse, ProcedureKind,
-    ProcedureListRequest, ProcedureListResponse, ProcedureMatchRequest,
-    ProcedureMatchResponse, ProcedurePromoteRequest, ProcedurePromoteResponse,
-    ProcedureRecordRequest, ProcedureRecordResponse, ProcedureRetireRequest,
-    ProcedureRetireResponse, ProcedureStatus, ProcedureUseRequest, ProcedureUseResponse,
+    ProcedureListRequest, ProcedureListResponse, ProcedureMatchRequest, ProcedureMatchResponse,
+    ProcedurePromoteRequest, ProcedurePromoteResponse, ProcedureRecordRequest,
+    ProcedureRecordResponse, ProcedureRetireRequest, ProcedureRetireResponse, ProcedureStatus,
+    ProcedureUseRequest, ProcedureUseResponse,
 };
 use rusqlite::params;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::store::SqliteStore;
@@ -24,8 +25,7 @@ impl SqliteStore {
         req: &ProcedureListRequest,
     ) -> anyhow::Result<ProcedureListResponse> {
         let conn = self.connect()?;
-        let mut sql =
-            String::from("SELECT id, payload_json FROM procedures WHERE 1=1");
+        let mut sql = String::from("SELECT id, payload_json FROM procedures WHERE 1=1");
         let mut bind_values: Vec<String> = Vec::new();
 
         if let Some(project) = &req.project {
@@ -66,8 +66,15 @@ impl SqliteStore {
                 let payload: String = row.get(1)?;
                 Ok(payload)
             })?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: procedure row read: {e}")).ok())
-            .filter_map(|payload| serde_json::from_str::<Procedure>(&payload).inspect_err(|e| eprintln!("warn: procedure json parse: {e}")).ok())
+            .filter_map(|r| {
+                r.inspect_err(|e| warn!(error = %e, "procedure row read"))
+                    .ok()
+            })
+            .filter_map(|payload| {
+                serde_json::from_str::<Procedure>(&payload)
+                    .inspect_err(|e| warn!(error = %e, "procedure json parse"))
+                    .ok()
+            })
             .collect();
 
         Ok(ProcedureListResponse { procedures })
@@ -144,8 +151,15 @@ impl SqliteStore {
                     let p: String = row.get(0)?;
                     Ok(p)
                 })?
-                .filter_map(|r| r.inspect_err(|e| eprintln!("warn: procedure row read: {e}")).ok())
-                .filter_map(|p| serde_json::from_str::<Procedure>(&p).inspect_err(|e| eprintln!("warn: procedure json parse: {e}")).ok())
+                .filter_map(|r| {
+                    r.inspect_err(|e| warn!(error = %e, "procedure row read"))
+                        .ok()
+                })
+                .filter_map(|p| {
+                    serde_json::from_str::<Procedure>(&p)
+                        .inspect_err(|e| warn!(error = %e, "procedure json parse"))
+                        .ok()
+                })
                 .collect();
             for existing in promoted {
                 let existing_trigger = existing.trigger.to_lowercase();
@@ -179,7 +193,10 @@ impl SqliteStore {
             .query_map(params![cutoff.to_rfc3339()], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: stale procedure row read: {e}")).ok())
+            .filter_map(|r| {
+                r.inspect_err(|e| warn!(error = %e, "stale procedure row read"))
+                    .ok()
+            })
             .collect();
         drop(stmt);
 
@@ -194,7 +211,7 @@ impl SqliteStore {
                         "UPDATE procedures SET status = 'retired', updated_at = ?1, payload_json = ?2 WHERE id = ?3",
                         params![now.to_rfc3339(), new_payload, id_str],
                     ) {
-                        eprintln!("warn: auto_retire_stale_procedures update: {e:#}");
+                        warn!(error = %format_args!("{e:#}"), "auto_retire_stale_procedures update");
                     }
                     retired += 1;
                 }
@@ -213,12 +230,11 @@ impl SqliteStore {
     ) -> anyhow::Result<ProcedureMatchResponse> {
         // G6: Auto-retire stale procedures before matching.
         if let Err(e) = self.auto_retire_stale_procedures() {
-            eprintln!("warn: auto_retire_stale_procedures: {e:#}");
+            warn!(error = %format_args!("{e:#}"), "auto_retire_stale_procedures");
         }
         let conn = self.connect()?;
-        let mut sql = String::from(
-            "SELECT id, payload_json FROM procedures WHERE status = 'promoted'",
-        );
+        let mut sql =
+            String::from("SELECT id, payload_json FROM procedures WHERE status = 'promoted'");
         let mut bind_values: Vec<String> = Vec::new();
 
         if let Some(project) = &req.project {
@@ -243,8 +259,15 @@ impl SqliteStore {
                 let payload: String = row.get(1)?;
                 Ok(payload)
             })?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: procedure row read: {e}")).ok())
-            .filter_map(|payload| serde_json::from_str::<Procedure>(&payload).inspect_err(|e| eprintln!("warn: procedure json parse: {e}")).ok())
+            .filter_map(|r| {
+                r.inspect_err(|e| warn!(error = %e, "procedure row read"))
+                    .ok()
+            })
+            .filter_map(|payload| {
+                serde_json::from_str::<Procedure>(&payload)
+                    .inspect_err(|e| warn!(error = %e, "procedure json parse"))
+                    .ok()
+            })
             .collect();
 
         // Score each procedure against the context string.
@@ -287,8 +310,7 @@ impl SqliteStore {
             )
             .context("procedure not found")?;
 
-        let mut procedure: Procedure =
-            serde_json::from_str(&payload).context("parse procedure")?;
+        let mut procedure: Procedure = serde_json::from_str(&payload).context("parse procedure")?;
         procedure.status = ProcedureStatus::Promoted;
         procedure.confidence = (procedure.confidence + 0.2).min(1.0);
         procedure.updated_at = now;
@@ -300,12 +322,7 @@ impl SqliteStore {
                                   updated_at = ?2, payload_json = ?3
             WHERE id = ?4
             "#,
-            params![
-                procedure.confidence,
-                now.to_rfc3339(),
-                new_payload,
-                id_str,
-            ],
+            params![procedure.confidence, now.to_rfc3339(), new_payload, id_str,],
         )
         .context("promote procedure")?;
 
@@ -329,8 +346,7 @@ impl SqliteStore {
             )
             .context("procedure not found")?;
 
-        let mut procedure: Procedure =
-            serde_json::from_str(&payload).context("parse procedure")?;
+        let mut procedure: Procedure = serde_json::from_str(&payload).context("parse procedure")?;
         procedure.use_count += 1;
         procedure.confidence = (procedure.confidence + 0.05).min(1.0);
         procedure.updated_at = now;
@@ -359,7 +375,9 @@ impl SqliteStore {
         }
 
         let new_payload = serde_json::to_string(&procedure)?;
-        let status_str = if auto_promoted { "promoted" } else {
+        let status_str = if auto_promoted {
+            "promoted"
+        } else {
             match procedure.status {
                 ProcedureStatus::Candidate => "candidate",
                 ProcedureStatus::Promoted => "promoted",
@@ -406,8 +424,7 @@ impl SqliteStore {
             )
             .context("procedure not found")?;
 
-        let mut procedure: Procedure =
-            serde_json::from_str(&payload).context("parse procedure")?;
+        let mut procedure: Procedure = serde_json::from_str(&payload).context("parse procedure")?;
         procedure.status = ProcedureStatus::Retired;
         procedure.updated_at = now;
 
@@ -460,7 +477,10 @@ impl SqliteStore {
                 ],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
             )?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: detect candidate row read: {e}")).ok())
+            .filter_map(|r| {
+                r.inspect_err(|e| warn!(error = %e, "detect candidate row read"))
+                    .ok()
+            })
             .collect();
         drop(stmt);
         drop(conn);
@@ -486,19 +506,13 @@ impl SqliteStore {
 
             // Check project/namespace filters.
             if let Some(project) = &req.project {
-                let entity_project = entity
-                    .context
-                    .as_ref()
-                    .and_then(|c| c.project.as_ref());
+                let entity_project = entity.context.as_ref().and_then(|c| c.project.as_ref());
                 if entity_project != Some(project) {
                     continue;
                 }
             }
             if let Some(namespace) = &req.namespace {
-                let entity_ns = entity
-                    .context
-                    .as_ref()
-                    .and_then(|c| c.namespace.as_ref());
+                let entity_ns = entity.context.as_ref().and_then(|c| c.namespace.as_ref());
                 if entity_ns != Some(namespace) {
                     continue;
                 }
@@ -511,11 +525,9 @@ impl SqliteStore {
             }
 
             // Derive a name from the entity.
-            let procedure_name = entity
-                .aliases
-                .first()
-                .cloned()
-                .unwrap_or_else(|| format!("{}:{}", entity.entity_type, &entity.id.to_string()[..8]));
+            let procedure_name = entity.aliases.first().cloned().unwrap_or_else(|| {
+                format!("{}:{}", entity.entity_type, &entity.id.to_string()[..8])
+            });
 
             // Check if a procedure already exists for this entity.
             let already_exists = {
@@ -551,14 +563,8 @@ impl SqliteStore {
             }
 
             let entity_type = &entity.entity_type;
-            let project = entity
-                .context
-                .as_ref()
-                .and_then(|c| c.project.clone());
-            let namespace = entity
-                .context
-                .as_ref()
-                .and_then(|c| c.namespace.clone());
+            let project = entity.context.as_ref().and_then(|c| c.project.clone());
+            let namespace = entity.context.as_ref().and_then(|c| c.namespace.clone());
 
             // X1: Filter out events whose entities have been superseded.
             let source_ids: Vec<Uuid> = events
@@ -636,8 +642,7 @@ mod tests {
     use super::*;
 
     fn temp_store() -> SqliteStore {
-        let path = std::env::temp_dir()
-            .join(format!("memd-proc-test-{}.db", uuid::Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("memd-proc-test-{}.db", uuid::Uuid::new_v4()));
         SqliteStore::open(&path).unwrap()
     }
 
@@ -927,10 +932,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(used1.procedure.session_count, 1);
-        assert_eq!(
-            used1.procedure.last_session.as_deref(),
-            Some("session-aaa")
-        );
+        assert_eq!(used1.procedure.last_session.as_deref(), Some("session-aaa"));
 
         // Second use same session — session_count stays 1.
         let used2 = store
@@ -951,10 +953,7 @@ mod tests {
             .unwrap();
         assert_eq!(used3.procedure.session_count, 2);
         assert_eq!(used3.procedure.use_count, 3);
-        assert_eq!(
-            used3.procedure.last_session.as_deref(),
-            Some("session-bbb")
-        );
+        assert_eq!(used3.procedure.last_session.as_deref(), Some("session-bbb"));
     }
 
     #[test]
@@ -1034,9 +1033,14 @@ mod tests {
 
         // Record 4 events for this entity.
         use crate::store::RecordEventArgs;
-        for (i, summary) in ["run tests", "build release", "deploy via portainer", "verify health"]
-            .iter()
-            .enumerate()
+        for (i, summary) in [
+            "run tests",
+            "build release",
+            "deploy via portainer",
+            "verify health",
+        ]
+        .iter()
+        .enumerate()
         {
             store
                 .record_event(
@@ -1045,8 +1049,7 @@ mod tests {
                     RecordEventArgs {
                         event_type: "workflow_step".to_string(),
                         summary: summary.to_string(),
-                        occurred_at: chrono::Utc::now()
-                            + chrono::Duration::seconds(i as i64),
+                        occurred_at: chrono::Utc::now() + chrono::Duration::seconds(i as i64),
                         project: Some("memd".to_string()),
                         namespace: Some("main".to_string()),
                         workspace: None,
@@ -1078,7 +1081,11 @@ mod tests {
         assert_eq!(detected.created, 1);
         assert_eq!(detected.procedures[0].name, "deploy-workflow");
         assert_eq!(detected.procedures[0].status, ProcedureStatus::Candidate);
-        assert!(detected.procedures[0].tags.contains(&"auto-detected".to_string()));
+        assert!(
+            detected.procedures[0]
+                .tags
+                .contains(&"auto-detected".to_string())
+        );
         assert!(detected.procedures[0].steps.len() >= 3);
 
         // Running detect again should NOT create duplicates.
@@ -1277,7 +1284,11 @@ mod tests {
         let list = store
             .list_procedures(&ProcedureListRequest::default())
             .unwrap();
-        let found = list.procedures.iter().find(|p| p.name == "updated workflow").unwrap();
+        let found = list
+            .procedures
+            .iter()
+            .find(|p| p.name == "updated workflow")
+            .unwrap();
         assert_eq!(found.supersedes, Some(rec1.procedure.id));
     }
 }

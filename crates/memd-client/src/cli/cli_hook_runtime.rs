@@ -1,5 +1,6 @@
 use super::*;
 use crate::append_raw_spine_record;
+use memd_core::file_ledger::{append_file_interaction, seal_session_ledger};
 
 pub(crate) async fn run_hook_mode(
     client: &MemdClient,
@@ -90,6 +91,8 @@ pub(crate) async fn run_hook_mode(
                     },
                     content: Some(content.clone()),
                     input: None,
+                    auto_commit: false,
+                    roadmap_set: vec![],
                     stdin: false,
                 },
                 base_url,
@@ -193,6 +196,39 @@ pub(crate) async fn run_hook_mode(
                 }))?;
             }
         }
+        HookMode::FileInteraction(args) => {
+            let payload = if let Some(content) = &args.content {
+                content.clone()
+            } else if args.stdin {
+                let mut buf = String::new();
+                io::stdin()
+                    .read_to_string(&mut buf)
+                    .context("read file-interaction payload from stdin")?;
+                buf
+            } else {
+                return Ok(());
+            };
+            let payload_trim = payload.trim();
+            if payload_trim.is_empty() {
+                return Ok(());
+            }
+            let value: serde_json::Value = serde_json::from_str(payload_trim)
+                .context("parse file-interaction payload as JSON")?;
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            append_file_interaction(&value, args.session_id.as_deref(), &args.output, now_ms)
+                .context("append file-interaction ledger")?;
+        }
+        HookMode::SealLedger(args) => {
+            match seal_session_ledger(&args.session_id, &args.output) {
+                Ok(sealed) => {
+                    println!("{}", sealed.display());
+                }
+                Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                    // No ledger to seal — treat as no-op for idempotent precompact hook.
+                }
+                Err(err) => return Err(anyhow::Error::from(err)),
+            }
+        }
         HookMode::Spill(args) => {
             let output = resolve_default_bundle_root()?
                 .unwrap_or_else(crate::bundle::default_bundle_root_path);
@@ -243,7 +279,135 @@ pub(crate) async fn run_hook_mode(
                 print_json(&spill)?;
             }
         }
+        HookMode::Gate(gate_args) => {
+            cli_gate_runtime::run_gate_cli(&gate_args).await?;
+        }
+        HookMode::Doctor(doctor_args) => {
+            run_hook_doctor(&doctor_args)?;
+        }
     }
 
+    Ok(())
+}
+
+pub(crate) fn run_hook_doctor(args: &HookDoctorArgs) -> anyhow::Result<()> {
+    use sha2::{Digest, Sha256};
+    use std::fs;
+
+    let root = args
+        .project_root
+        .clone()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let hooks_dir = root.join(".memd").join("hooks");
+    let manifest_path = hooks_dir.join("MANIFEST.json");
+
+    let manifest_raw = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("read {}", manifest_path.display()))?;
+    let manifest: serde_json::Value = serde_json::from_str(&manifest_raw)
+        .with_context(|| format!("parse {}", manifest_path.display()))?;
+
+    let entries = manifest
+        .get("hooks")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow::anyhow!("MANIFEST.json missing `hooks` array"))?;
+
+    let mut ok: Vec<String> = Vec::new();
+    let mut mismatched: Vec<(String, String, String)> = Vec::new();
+    let mut missing: Vec<String> = Vec::new();
+    let mut unknown: Vec<String> = Vec::new();
+
+    let mut known_paths: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+
+    for entry in entries {
+        let name = entry
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<unnamed>");
+        let path = entry
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("manifest entry {} missing `path`", name))?;
+        let expected = entry
+            .get("sha256")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("manifest entry {} missing `sha256`", name))?;
+
+        let abs = root.join(path);
+        known_paths.insert(abs.clone());
+        match fs::read(&abs) {
+            Ok(bytes) => {
+                let actual = format!("{:x}", Sha256::digest(&bytes));
+                if actual == expected {
+                    ok.push(name.to_string());
+                } else {
+                    mismatched.push((name.to_string(), expected.to_string(), actual));
+                }
+            }
+            Err(_) => missing.push(name.to_string()),
+        }
+    }
+
+    if let Ok(read_dir) = fs::read_dir(&hooks_dir) {
+        for entry in read_dir.flatten() {
+            let p = entry.path();
+            if !p.is_file() {
+                continue;
+            }
+            let is_script = p
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|ext| matches!(ext, "sh" | "ps1"))
+                .unwrap_or(false);
+            if is_script && !known_paths.contains(&p) {
+                unknown.push(
+                    p.strip_prefix(&root)
+                        .unwrap_or(&p)
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+            }
+        }
+    }
+
+    let green = mismatched.is_empty() && missing.is_empty() && unknown.is_empty();
+
+    if args.json {
+        print_json(&json!({
+            "ok": ok,
+            "mismatched": mismatched.iter().map(|(n, e, a)| json!({"name": n, "expected": e, "actual": a})).collect::<Vec<_>>(),
+            "missing": missing,
+            "unknown": unknown,
+            "green": green,
+        }))?;
+    } else if green {
+        println!(
+            "hooks doctor: green — {} hooks verified against MANIFEST.json",
+            ok.len()
+        );
+    } else {
+        println!("hooks doctor: RED");
+        if !mismatched.is_empty() {
+            println!("  sha256 mismatch:");
+            for (n, expected, actual) in &mismatched {
+                println!("    - {n}: expected {expected}, got {actual}");
+            }
+        }
+        if !missing.is_empty() {
+            println!("  missing:");
+            for n in &missing {
+                println!("    - {n}");
+            }
+        }
+        if !unknown.is_empty() {
+            println!("  untracked (not in MANIFEST.json):");
+            for n in &unknown {
+                println!("    - {n}");
+            }
+        }
+    }
+
+    if !green {
+        anyhow::bail!("hooks doctor: manifest verification failed");
+    }
     Ok(())
 }

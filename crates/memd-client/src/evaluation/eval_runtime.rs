@@ -41,6 +41,61 @@ pub(crate) fn simplify_awareness_work_text(value: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn normalize_resume_record(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn compact_record_kind(record: &str) -> Option<&'static str> {
+    if record.contains("| kind=status |") {
+        Some("status")
+    } else if record.contains("| kind=live_truth |") {
+        Some("live_truth")
+    } else {
+        None
+    }
+}
+
+fn trim_resume_context_records(
+    context: &mut memd_schema::CompactContextResponse,
+    working: &memd_schema::WorkingMemoryResponse,
+) {
+    let working_records = working
+        .records
+        .iter()
+        .map(|record| normalize_resume_record(&record.record))
+        .collect::<std::collections::HashSet<_>>();
+    let has_non_status_records = context
+        .records
+        .iter()
+        .any(|record| compact_record_kind(&record.record) != Some("status"));
+    let mut kept = Vec::with_capacity(context.records.len());
+    let mut seen = std::collections::HashSet::<String>::new();
+    let mut kept_live_truth = false;
+
+    for record in context.records.drain(..) {
+        let normalized = normalize_resume_record(&record.record);
+        if normalized.is_empty() || !seen.insert(normalized.clone()) {
+            continue;
+        }
+        if working_records.contains(&normalized) {
+            continue;
+        }
+        match compact_record_kind(&record.record) {
+            Some("status") if has_non_status_records => continue,
+            Some("live_truth") if kept_live_truth => continue,
+            Some("live_truth") => kept_live_truth = true,
+            _ => {}
+        }
+        kept.push(record);
+    }
+
+    context.records = kept;
+}
+
 pub(crate) async fn resolve_target_session_bundle(
     output: &Path,
     target_session: &str,
@@ -137,7 +192,7 @@ pub(crate) async fn read_bundle_resume(
     .await?;
 
     let client = MemdClient::new(&base_url)?;
-    let context = client
+    let mut context = client
         .context_compact(&memd_schema::ContextRequest {
             project: project.clone(),
             agent: agent.clone(),
@@ -162,8 +217,10 @@ pub(crate) async fn read_bundle_resume(
             max_total_chars: Some(1600),
             rehydration_limit,
             auto_consolidate: Some(false),
+            query: None,
         })
         .await?;
+    trim_resume_context_records(&mut context, &working);
     let inbox = client
         .inbox(&memd_schema::MemoryInboxRequest {
             project: project.clone(),
@@ -261,6 +318,11 @@ pub(crate) async fn read_bundle_resume(
         || context.records.len() >= 6;
     let claims = read_bundle_claims(&args.output).unwrap_or_default();
 
+    let un_read_paths = session
+        .as_deref()
+        .map(|sid| collect_un_read_paths(&args.output, sid))
+        .unwrap_or_default();
+
     let snapshot = ResumeSnapshot {
         project,
         namespace,
@@ -283,6 +345,11 @@ pub(crate) async fn read_bundle_resume(
         change_summary,
         resume_state_age_minutes,
         refresh_recommended,
+        atlas_region_hints: Vec::new(),
+        handoff_quality: None,
+        files_touched: Vec::new(),
+        un_read_paths,
+        preferences: Vec::new(),
     };
 
     sync_resume_state_record(

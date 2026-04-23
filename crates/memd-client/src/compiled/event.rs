@@ -482,9 +482,10 @@ pub(crate) fn render_compiled_event_index_markdown(
     }
 
     if let Ok(raw_spine) = render_raw_spine_markdown(bundle_root)
-        && !raw_spine.is_empty() {
-            output.push_str(&raw_spine);
-        }
+        && !raw_spine.is_empty()
+    {
+        output.push_str(&raw_spine);
+    }
     output
 }
 
@@ -609,7 +610,9 @@ mod tests {
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
+
+                compaction_quality: None,
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: memd_schema::RetrievalRoute::ProjectFirst,
@@ -628,6 +631,11 @@ mod tests {
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
             refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+            handoff_quality: None,
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         }
     }
 

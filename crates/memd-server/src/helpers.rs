@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeSet;
 
 pub(crate) fn enrich_with_entities(
     state: &AppState,
@@ -54,6 +55,7 @@ pub(crate) fn build_context(
             req.visibility
                 .is_none_or(|visibility| entry.item.visibility == visibility)
         })
+        .filter(|entry| visibility_allows(&req.agent, &entry.item))
         .cloned()
         .collect();
     live_truth.sort_by(|a, b| b.item.updated_at.cmp(&a.item.updated_at));
@@ -82,6 +84,7 @@ pub(crate) fn build_context(
             req.visibility
                 .is_none_or(|visibility| entry.item.visibility == visibility)
         })
+        .filter(|entry| visibility_allows(&req.agent, &entry.item))
         .cloned()
         .collect();
 
@@ -147,17 +150,25 @@ pub(crate) fn filter_items(
     items: &[MemoryViewItem],
     req: &SearchMemoryRequest,
     plan: &RetrievalPlan,
+    fts_ranks: &[(Uuid, f64)],
 ) -> Vec<MemoryItem> {
     let query = req.query.as_ref().map(|q| q.to_ascii_lowercase());
     let limit = req.limit.unwrap_or(10).min(100);
     let max_chars = req.max_chars_per_item.unwrap_or(420).clamp(120, 4000);
+    let fts_ids: std::collections::HashSet<Uuid> = fts_ranks.iter().map(|(id, _)| *id).collect();
 
     let mut filtered: Vec<MemoryViewItem> = items
         .iter()
         .filter(|entry| req.scopes.is_empty() || req.scopes.contains(&entry.item.scope))
         .filter(|entry| plan.allows(entry.item.scope))
         .filter(|entry| req.kinds.is_empty() || req.kinds.contains(&entry.item.kind))
-        .filter(|entry| req.statuses.is_empty() || req.statuses.contains(&entry.item.status))
+        .filter(|entry| {
+            if req.statuses.is_empty() {
+                entry.item.status != MemoryStatus::Expired
+            } else {
+                req.statuses.contains(&entry.item.status)
+            }
+        })
         .filter(|entry| req.stages.is_empty() || req.stages.contains(&entry.item.stage))
         .filter(|entry| matches_requested_project(&req.project, &entry.item))
         .filter(|entry| {
@@ -174,6 +185,7 @@ pub(crate) fn filter_items(
             req.visibility
                 .is_none_or(|visibility| entry.item.visibility == visibility)
         })
+        .filter(|entry| visibility_allows(&req.source_agent, &entry.item))
         .filter(|entry| {
             req.belief_branch
                 .as_ref()
@@ -199,11 +211,13 @@ pub(crate) fn filter_items(
                         .tags
                         .iter()
                         .any(|tag| tag.to_ascii_lowercase().contains(query))
+                    || (!fts_ids.is_empty() && fts_ids.contains(&entry.item.id))
             })
         })
         .cloned()
         .collect();
 
+    // Sort by search_score first to establish the metadata-based ranking
     filtered.sort_by(|a, b| {
         search_score(
             &b.item,
@@ -232,11 +246,52 @@ pub(crate) fn filter_items(
         })
         .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
     });
+
+    // RRF merge when FTS results are available
+    if !fts_ranks.is_empty() {
+        rrf_rerank(&mut filtered, fts_ranks);
+    }
+
     for item in &mut filtered {
         item.item.content = compact_content(&item.item.content, max_chars);
     }
     filtered.truncate(limit);
     filtered.into_iter().map(|entry| entry.item).collect()
+}
+
+/// Reciprocal Rank Fusion: merge metadata-based ranking (already applied as
+/// sort order on `items`) with FTS5 BM25 ranking. Each ranker contributes
+/// `1 / (k + rank)` per item; items appearing in both lists get combined
+/// scores. k=60 is the standard constant from the original RRF paper.
+fn rrf_rerank(items: &mut Vec<MemoryViewItem>, fts_ranks: &[(Uuid, f64)]) {
+    const RRF_K: f64 = 60.0;
+
+    let fts_rank_map: std::collections::HashMap<Uuid, usize> = fts_ranks
+        .iter()
+        .enumerate()
+        .map(|(rank, (id, _))| (*id, rank))
+        .collect();
+
+    let mut rrf_scores: Vec<(usize, f64)> = items
+        .iter()
+        .enumerate()
+        .map(|(meta_rank, entry)| {
+            let meta_rrf = 1.0 / (RRF_K + meta_rank as f64);
+            let fts_rrf = fts_rank_map
+                .get(&entry.item.id)
+                .map(|&fts_rank| 1.0 / (RRF_K + fts_rank as f64))
+                .unwrap_or(0.0);
+            (meta_rank, meta_rrf + fts_rrf)
+        })
+        .collect();
+
+    rrf_scores.sort_by(|a, b| b.1.total_cmp(&a.1));
+
+    let reordered: Vec<MemoryViewItem> = rrf_scores
+        .into_iter()
+        .map(|(original_index, _)| items[original_index].clone())
+        .collect();
+    *items = reordered;
 }
 
 pub(crate) fn compact_content(content: &str, max_chars: usize) -> String {
@@ -251,6 +306,186 @@ pub(crate) fn compact_content(content: &str, max_chars: usize) -> String {
     }
     compact.push_str("...");
     compact
+}
+
+fn tokenize_search_text(text: &str) -> BTreeSet<String> {
+    text.split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|token| token.len() >= 3)
+        .map(|token| token.to_ascii_lowercase())
+        .collect()
+}
+
+fn search_keyword_tokens(query: &str) -> Vec<String> {
+    let stop_words = [
+        "what", "when", "where", "who", "how", "which", "did", "do", "was", "were", "have", "has",
+        "had", "is", "are", "the", "a", "an", "my", "me", "i", "you", "your", "their", "it", "its",
+        "in", "on", "at", "to", "for", "of", "with", "by", "from", "ago", "last", "that", "this",
+        "there", "about", "get", "got", "give", "gave", "buy", "bought", "made", "make",
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+    tokenize_search_text(query)
+        .into_iter()
+        .filter(|token| !stop_words.contains(token.as_str()))
+        .collect()
+}
+
+fn utf8_prefix(content: &str, max_bytes: usize) -> &str {
+    if content.len() <= max_bytes {
+        return content;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !content.is_char_boundary(end) {
+        end -= 1;
+    }
+    &content[..end]
+}
+
+pub(crate) fn parse_wiki_links(content: &str) -> Vec<String> {
+    let mut links = Vec::new();
+    let mut remaining = content;
+    while let Some(start) = remaining.find("[[") {
+        let after_open = &remaining[start + 2..];
+        if let Some(end) = after_open.find("]]") {
+            let link = after_open[..end].trim().to_string();
+            if !link.is_empty() && !links.contains(&link) {
+                links.push(link);
+            }
+            remaining = &after_open[end + 2..];
+        } else {
+            break;
+        }
+    }
+    links
+}
+
+/// 6 content lanes for G2 lane architecture.
+pub(crate) const KNOWN_LANES: &[&str] = &[
+    "architecture",
+    "decisions",
+    "constraints",
+    "patterns",
+    "design",
+    "operations",
+];
+
+/// Auto-detect a content lane from content text, source path, and tags.
+/// Uses a priority cascade: explicit lane tag → path component → content keywords → None.
+pub(crate) fn detect_content_lane(
+    content: &str,
+    source_path: Option<&str>,
+    tags: &[String],
+) -> Option<String> {
+    // 1. Explicit lane tag (e.g. "lane:design")
+    for tag in tags {
+        if let Some(lane) = tag.strip_prefix("lane:") {
+            let lane = lane.trim().to_ascii_lowercase();
+            if KNOWN_LANES.contains(&lane.as_str()) {
+                return Some(lane);
+            }
+        }
+    }
+
+    // 2. Source path component match
+    if let Some(path) = source_path {
+        let path_lower = path.to_ascii_lowercase();
+        for &lane in KNOWN_LANES {
+            if path_lower.contains(lane) {
+                return Some(lane.to_string());
+            }
+        }
+        // Design lane from frontend file extensions
+        if path_lower.ends_with(".tsx")
+            || path_lower.ends_with(".vue")
+            || path_lower.ends_with(".svelte")
+            || path_lower.ends_with(".css")
+            || path_lower.ends_with(".scss")
+        {
+            return Some("design".to_string());
+        }
+    }
+
+    // 3. Content keyword scan (first 2KB)
+    let window = utf8_prefix(content, 2048);
+    let window_lower = window.to_ascii_lowercase();
+
+    static LANE_KEYWORDS: &[(&str, &[&str])] = &[
+        (
+            "architecture",
+            &[
+                "architecture",
+                "system design",
+                "data flow",
+                "component layout",
+                "schema migration",
+            ],
+        ),
+        (
+            "decisions",
+            &[
+                "decided",
+                "decision",
+                "rationale",
+                "trade-off",
+                "tradeoff",
+                "chose",
+                "we chose",
+            ],
+        ),
+        (
+            "constraints",
+            &[
+                "constraint",
+                "limitation",
+                "boundary",
+                "must not",
+                "non-negotiable",
+                "requirement",
+            ],
+        ),
+        (
+            "patterns",
+            &[
+                "pattern",
+                "convention",
+                "coding standard",
+                "best practice",
+                "style guide",
+            ],
+        ),
+        (
+            "design",
+            &[
+                "ui design",
+                "ux ",
+                "frontend",
+                "layout",
+                "mockup",
+                "wireframe",
+                "figma",
+            ],
+        ),
+        (
+            "operations",
+            &[
+                "deploy",
+                "infrastructure",
+                "monitoring",
+                "alerting",
+                "pipeline",
+                "ci/cd",
+                "runbook",
+            ],
+        ),
+    ];
+
+    for &(lane, keywords) in LANE_KEYWORDS {
+        if keywords.iter().any(|kw| window_lower.contains(kw)) {
+            return Some(lane.to_string());
+        }
+    }
+
+    None
 }
 
 pub(crate) fn event_type_for_stage(stage: MemoryStage) -> &'static str {
@@ -275,6 +510,68 @@ pub(crate) fn entity_context_frame(
         agent: item.source_agent.clone(),
         location: item.source_path.clone(),
     })
+}
+
+/// Score a single consolidated item across four quality dimensions.
+///
+/// - `entity`         — the source entity whose events were consolidated.
+/// - `item`           — the produced MemoryItem.
+/// - `source_vis`     — most-restrictive visibility inherited from source items.
+/// - `event_count`    — number of episodic events that were consolidated.
+pub(crate) fn score_consolidation_quality(
+    entity: &MemoryEntityRecord,
+    item: &MemoryItem,
+    source_vis: MemoryVisibility,
+    event_count: usize,
+) -> memd_schema::ConsolidationQualityScore {
+    let content = &item.content;
+
+    // (a) Semantic coherence: entity_type words present in consolidated content.
+    let entity_words: Vec<&str> = entity.entity_type.split(['_', ':', '/', '.']).collect();
+    let coherent_words = entity_words
+        .iter()
+        .filter(|&&w| w.len() > 2 && content.to_lowercase().contains(&w.to_lowercase()))
+        .count();
+    let semantic_coherence = if entity_words.is_empty() {
+        0.5
+    } else {
+        (coherent_words as f32 / entity_words.len() as f32).min(1.0)
+    };
+
+    // (b) Information preservation: clause density vs event count.
+    // Count rough clause boundaries ('. ', '! ', '? ', ': ', '; ') in content.
+    let clause_count = content
+        .split(|c: char| c == '.' || c == '!' || c == '?' || c == ':' || c == ';')
+        .filter(|s| s.trim().len() > 4)
+        .count()
+        .max(1);
+    let expected_clauses = (event_count / 2).max(1);
+    let information_preservation = ((clause_count as f32) / (expected_clauses as f32))
+        .min(1.0)
+        .max(0.1);
+
+    // (c) Kind preservation: expected kind from entity type should match item kind.
+    let expected_kind = consolidation_kind(&entity.entity_type);
+    let kind_preserved = if item.kind == expected_kind { 1.0 } else { 0.0 };
+
+    // (d) Visibility preservation: consolidated visibility matches inherited source visibility.
+    let visibility_preserved = if item.visibility == source_vis {
+        1.0
+    } else {
+        0.0
+    };
+
+    let overall =
+        (semantic_coherence + information_preservation + kind_preserved + visibility_preserved)
+            / 4.0;
+
+    memd_schema::ConsolidationQualityScore {
+        semantic_coherence,
+        information_preservation,
+        kind_preserved,
+        visibility_preserved,
+        overall,
+    }
 }
 
 pub(crate) fn consolidation_content(
@@ -342,7 +639,11 @@ pub(crate) fn consolidation_tags(entity: &MemoryEntityRecord, event_count: usize
 }
 
 pub(crate) fn internal_error(error: anyhow::Error) -> (StatusCode, String) {
-    (StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+    let message = format!("{error:#}");
+    if message.contains("queen_denied:") || message.contains("queen_handoff_locked:") {
+        return crate::errors::MemdError::conflict(message).into();
+    }
+    crate::errors::MemdError::from(error).into()
 }
 
 pub(crate) fn compact_record(item: &MemoryItem) -> String {
@@ -354,26 +655,34 @@ pub(crate) fn compact_record(item: &MemoryItem) -> String {
     parts.push(format!("status={}", enum_label_status(item.status)));
 
     if let Some(project) = &item.project
-        && !project.is_empty() {
-            parts.push(format!("project={}", sanitize_value(project)));
-        }
+        && !project.is_empty()
+    {
+        parts.push(format!("project={}", sanitize_value(project)));
+    }
     if let Some(namespace) = &item.namespace
-        && !namespace.is_empty() {
-            parts.push(format!("ns={}", sanitize_value(namespace)));
-        }
+        && !namespace.is_empty()
+    {
+        parts.push(format!("ns={}", sanitize_value(namespace)));
+    }
     if let Some(workspace) = &item.workspace
-        && !workspace.is_empty() {
-            parts.push(format!("ws={}", sanitize_value(workspace)));
-        }
+        && !workspace.is_empty()
+    {
+        parts.push(format!("ws={}", sanitize_value(workspace)));
+    }
     parts.push(format!("vis={}", enum_label_visibility(item.visibility)));
     if let Some(branch) = &item.belief_branch
-        && !branch.is_empty() {
-            parts.push(format!("belief_branch={}", sanitize_value(branch)));
-        }
+        && !branch.is_empty()
+    {
+        parts.push(format!("belief_branch={}", sanitize_value(branch)));
+    }
     if let Some(agent) = &item.source_agent
-        && !agent.is_empty() {
-            parts.push(format!("agent={}", sanitize_value(agent)));
-        }
+        && !agent.is_empty()
+    {
+        parts.push(format!("agent={}", sanitize_value(agent)));
+    }
+    if let Some(lane) = &item.lane {
+        parts.push(format!("lane={}", sanitize_value(lane)));
+    }
     if !item.tags.is_empty() {
         let tags = item
             .tags
@@ -475,7 +784,6 @@ pub(crate) fn associative_recall_reasons(
     reasons
 }
 
-
 pub(crate) fn sanitize_value(value: &str) -> String {
     value
         .split_whitespace()
@@ -563,14 +871,16 @@ pub(crate) fn context_score(
     score += project_scope_bonus(item, req.project.as_ref(), None);
 
     if let Some(project) = &req.project
-        && item.project.as_ref() == Some(project) {
-            score += 1.9;
-        }
+        && item.project.as_ref() == Some(project)
+    {
+        score += 1.9;
+    }
 
     if let Some(agent) = &req.agent
-        && item.source_agent.as_ref() == Some(agent) {
-            score += 0.75;
-        }
+        && item.source_agent.as_ref() == Some(agent)
+    {
+        score += 0.75;
+    }
 
     score += workspace_rank_adjustment(req.workspace.as_ref(), item.workspace.as_ref());
     score += durable_truth_rank_adjustment(item);
@@ -640,6 +950,26 @@ pub(crate) fn search_score(
             .filter(|tag| tag.to_ascii_lowercase().contains(query))
             .count();
         score += tag_hits as f32 * 0.5;
+
+        let doc_tokens = tokenize_search_text(&content);
+        let query_tokens = tokenize_search_text(query);
+        let overlap = query_tokens.intersection(&doc_tokens).count() as f32;
+        score += overlap * 0.35;
+
+        let keywords = search_keyword_tokens(query);
+        if !keywords.is_empty() {
+            let keyword_hits = keywords
+                .iter()
+                .filter(|kw| {
+                    content.contains(kw.as_str())
+                        || item
+                            .tags
+                            .iter()
+                            .any(|tag| tag.to_ascii_lowercase().contains(kw.as_str()))
+                })
+                .count() as f32;
+            score += (keyword_hits / keywords.len() as f32) * 1.2;
+        }
     }
 
     score -= age_penalty(item.updated_at);
@@ -783,6 +1113,19 @@ pub(crate) fn matches_requested_project(
     }
 }
 
+/// Visibility enforcement: Private items are only visible to the owning agent.
+/// Workspace and Public items are visible to everyone (in the right project scope).
+pub(crate) fn visibility_allows(requesting_agent: &Option<String>, item: &MemoryItem) -> bool {
+    match item.visibility {
+        MemoryVisibility::Private => match (&requesting_agent, &item.source_agent) {
+            (Some(agent), Some(owner)) => agent == owner,
+            // No requesting agent or no owner → deny Private items
+            _ => false,
+        },
+        MemoryVisibility::Workspace | MemoryVisibility::Public => true,
+    }
+}
+
 pub(crate) fn project_scope_bonus(
     item: &MemoryItem,
     requested_project: Option<&String>,
@@ -809,9 +1152,10 @@ pub(crate) fn project_scope_bonus(
     }
 
     if let Some(namespace) = requested_namespace
-        && item.namespace.as_ref() == Some(namespace) {
-            bonus += 0.2;
-        }
+        && item.namespace.as_ref() == Some(namespace)
+    {
+        bonus += 0.2;
+    }
 
     bonus
 }
@@ -881,6 +1225,8 @@ mod tests {
             created_at: Utc::now(),
             status: MemoryStatus::Active,
             stage: MemoryStage::Canonical,
+            lane: None,
+            version: 1,
             last_verified_at: Some(Utc::now()),
             supersedes: Vec::new(),
             updated_at: Utc::now(),
@@ -923,6 +1269,14 @@ mod tests {
                 location: Some("/tmp/memd".to_string()),
             }),
         }
+    }
+
+    #[test]
+    fn utf8_prefix_respects_char_boundaries() {
+        let text = "é".repeat(1025);
+        let prefix = utf8_prefix(&text, 2048);
+        assert!(prefix.is_char_boundary(prefix.len()));
+        assert_eq!(prefix.len(), 2048);
     }
 
     #[test]
@@ -1162,6 +1516,9 @@ mod tests {
             relation_kind: memd_schema::EntityRelationKind::Related,
             confidence: 0.85,
             created_at: Utc::now(),
+            valid_from: Some(Utc::now()),
+            valid_to: None,
+            source_item_id: Some(uuid::Uuid::new_v4()),
             note: Some("related".to_string()),
             context: None,
             tags: vec!["project".to_string()],
@@ -1173,6 +1530,9 @@ mod tests {
             relation_kind: memd_schema::EntityRelationKind::Related,
             confidence: 0.85,
             created_at: Utc::now(),
+            valid_from: Some(Utc::now()),
+            valid_to: None,
+            source_item_id: Some(uuid::Uuid::new_v4()),
             note: Some("related".to_string()),
             context: None,
             tags: vec!["project".to_string()],
@@ -1301,6 +1661,8 @@ mod epistemic_state_tests {
             tags: vec![],
             status,
             stage: MemoryStage::Canonical,
+            lane: None,
+            version: 1,
         }
     }
 

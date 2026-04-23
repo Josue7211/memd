@@ -76,7 +76,9 @@ impl SqliteStore {
             .collect::<Vec<_>>();
         let review_queue = tasks
             .iter()
-            .filter(|task| task.review_requested || task.coordination_mode == "shared_review")
+            .filter(|task| {
+                task.review_requested || task.coordination_mode == CoordinationMode::SharedReview
+            })
             .map(|task| {
                 format!(
                     "{} -> {}",
@@ -524,6 +526,28 @@ impl SqliteStore {
         &self,
         request: &HiveTaskUpsertRequest,
     ) -> anyhow::Result<HiveTasksResponse> {
+        if let Some(session) = request
+            .session
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            if self.is_task_denied_for_session(request.task_id.trim(), session)? {
+                anyhow::bail!(
+                    "queen_denied: task '{}' is blocked for session '{}'",
+                    request.task_id.trim(),
+                    session
+                );
+            }
+            if let Some(owner) = self.task_locked_by_other(request.task_id.trim(), session)? {
+                anyhow::bail!(
+                    "queen_handoff_locked: task '{}' is locked to session '{}' (attempted by '{}')",
+                    request.task_id.trim(),
+                    owner,
+                    session
+                );
+            }
+        }
         let conn = self.connect()?;
         let existing = conn
             .query_row(
@@ -545,11 +569,8 @@ impl SqliteStore {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string);
-            if let Some(mode) = request.coordination_mode.as_deref() {
-                let trimmed = mode.trim();
-                if !trimmed.is_empty() {
-                    task.coordination_mode = trimmed.to_string();
-                }
+            if let Some(mode) = request.coordination_mode {
+                task.coordination_mode = mode;
             }
             if let Some(status) = request.status.as_deref() {
                 let trimmed = status.trim();
@@ -596,13 +617,7 @@ impl SqliteStore {
                     .filter(|value| !value.is_empty())
                     .unwrap_or("active")
                     .to_string(),
-                coordination_mode: request
-                    .coordination_mode
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .unwrap_or("exclusive_write")
-                    .to_string(),
+                coordination_mode: request.coordination_mode.unwrap_or_default(),
                 session: request.session.clone(),
                 agent: request.agent.clone(),
                 effective_agent: request.effective_agent.clone(),
@@ -660,6 +675,23 @@ impl SqliteStore {
         &self,
         request: &HiveTaskAssignRequest,
     ) -> anyhow::Result<HiveTasksResponse> {
+        if self.is_task_denied_for_session(request.task_id.trim(), request.to_session.trim())? {
+            anyhow::bail!(
+                "queen_denied: task '{}' is blocked for session '{}'",
+                request.task_id.trim(),
+                request.to_session.trim()
+            );
+        }
+        if let Some(owner) =
+            self.task_locked_by_other(request.task_id.trim(), request.to_session.trim())?
+        {
+            anyhow::bail!(
+                "queen_handoff_locked: task '{}' is locked to session '{}' (attempted by '{}')",
+                request.task_id.trim(),
+                owner,
+                request.to_session.trim()
+            );
+        }
         let conn = self.connect()?;
         let payload = conn
             .query_row(
@@ -680,9 +712,10 @@ impl SqliteStore {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            && task.session.as_deref() != Some(from_session) {
-                anyhow::bail!("task '{}' is not owned by {}", task.task_id, from_session);
-            }
+            && task.session.as_deref() != Some(from_session)
+        {
+            anyhow::bail!("task '{}' is not owned by {}", task.task_id, from_session);
+        }
         task.session = Some(request.to_session.trim().to_string());
         task.agent = request.to_agent.clone();
         task.effective_agent = request.to_effective_agent.clone();
@@ -883,5 +916,225 @@ impl SqliteStore {
             );
         }
         Ok(HiveCoordinationReceiptsResponse { receipts })
+    }
+
+    /// L2.3: queen-issued deny block keyed by (task_id, session).
+    ///
+    /// After a queen denies a bee on a task, subsequent `upsert_hive_task` or
+    /// `assign_hive_task` calls that target that bee for that task must be
+    /// rejected. The block is persistent (no TTL) — queens clear it
+    /// explicitly via a new handoff or by reassignment.
+    pub fn record_queen_deny(
+        &self,
+        task_id: &str,
+        session: &str,
+        reason: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let task_id = task_id.trim();
+        let session = session.trim();
+        if task_id.is_empty() || session.is_empty() {
+            return Ok(());
+        }
+        let conn = self.connect()?;
+        conn.execute(
+            r#"
+            INSERT INTO hive_queen_denies (task_id, session, denied_at, reason)
+            VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT(task_id, session) DO UPDATE SET
+              denied_at = excluded.denied_at,
+              reason = excluded.reason
+            "#,
+            params![task_id, session, chrono::Utc::now().to_rfc3339(), reason],
+        )
+        .context("insert queen deny record")?;
+        Ok(())
+    }
+
+    pub fn is_task_denied_for_session(&self, task_id: &str, session: &str) -> anyhow::Result<bool> {
+        let task_id = task_id.trim();
+        let session = session.trim();
+        if task_id.is_empty() || session.is_empty() {
+            return Ok(false);
+        }
+        let conn = self.connect()?;
+        let denied = conn
+            .query_row(
+                "SELECT 1 FROM hive_queen_denies WHERE task_id = ?1 AND session = ?2",
+                params![task_id, session],
+                |_| Ok(()),
+            )
+            .optional()
+            .context("check queen deny")?
+            .is_some();
+        Ok(denied)
+    }
+
+    /// L2.3: apply or refresh a queen handoff lock. Each call monotonically
+    /// bumps the lock's `version` — a Lamport-style counter local to the
+    /// (task_id, lock-row) pair — so conflicting retries can be disambiguated
+    /// without wall-clock time. Returns the new version.
+    ///
+    /// The act of handing off a task to `to_session` also clears any prior
+    /// deny on that same (task_id, to_session) — a handoff is the queen
+    /// explicitly granting authority, so the earlier block is subsumed.
+    pub fn apply_handoff_lock(
+        &self,
+        task_id: &str,
+        to_session: &str,
+        from_session: Option<&str>,
+    ) -> anyhow::Result<u64> {
+        let task_id = task_id.trim();
+        let to_session = to_session.trim();
+        if task_id.is_empty() || to_session.is_empty() {
+            anyhow::bail!("apply_handoff_lock: task_id and to_session must be non-empty");
+        }
+        let from_session = from_session
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let conn = self.connect()?;
+        let existing = conn
+            .query_row(
+                "SELECT version FROM hive_handoff_locks WHERE task_id = ?1",
+                params![task_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .context("read existing handoff lock version")?;
+        let next_version = existing.map(|v| v.max(0) as u64 + 1).unwrap_or(1);
+        conn.execute(
+            r#"
+            INSERT INTO hive_handoff_locks
+              (task_id, locked_to_session, locked_from_session, locked_at, version)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(task_id) DO UPDATE SET
+              locked_to_session = excluded.locked_to_session,
+              locked_from_session = excluded.locked_from_session,
+              locked_at = excluded.locked_at,
+              version = excluded.version
+            "#,
+            params![
+                task_id,
+                to_session,
+                &from_session,
+                chrono::Utc::now().to_rfc3339(),
+                next_version as i64,
+            ],
+        )
+        .context("upsert handoff lock")?;
+        // A handoff supersedes any outstanding deny on the same (task, session):
+        // the queen has now explicitly authorized that bee to own the task.
+        conn.execute(
+            "DELETE FROM hive_queen_denies WHERE task_id = ?1 AND session = ?2",
+            params![task_id, to_session],
+        )
+        .context("clear deny on handoff")?;
+        Ok(next_version)
+    }
+
+    pub fn handoff_lock_for_task(&self, task_id: &str) -> anyhow::Result<Option<(String, u64)>> {
+        let task_id = task_id.trim();
+        if task_id.is_empty() {
+            return Ok(None);
+        }
+        let conn = self.connect()?;
+        let row = conn
+            .query_row(
+                "SELECT locked_to_session, version FROM hive_handoff_locks WHERE task_id = ?1",
+                params![task_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?.max(0) as u64,
+                    ))
+                },
+            )
+            .optional()
+            .context("read handoff lock")?;
+        Ok(row)
+    }
+
+    pub fn clear_handoff_lock(&self, task_id: &str) -> anyhow::Result<()> {
+        let task_id = task_id.trim();
+        if task_id.is_empty() {
+            return Ok(());
+        }
+        let conn = self.connect()?;
+        conn.execute(
+            "DELETE FROM hive_handoff_locks WHERE task_id = ?1",
+            params![task_id],
+        )
+        .context("delete handoff lock")?;
+        Ok(())
+    }
+
+    /// Returns the session that currently owns the handoff lock, if the acting
+    /// session is locked out. `None` means the acting session may proceed.
+    fn task_locked_by_other(
+        &self,
+        task_id: &str,
+        acting_session: &str,
+    ) -> anyhow::Result<Option<String>> {
+        match self.handoff_lock_for_task(task_id)? {
+            Some((owner, _)) if owner.as_str() != acting_session.trim() => Ok(Some(owner)),
+            _ => Ok(None),
+        }
+    }
+
+    /// L2.3: queen-issued reroute — atomically rewrites `lane_id` inside the
+    /// target session's `payload_json` via `json_set`, mirroring the K2
+    /// Lamport-update pattern so we don't round-trip the full record.
+    ///
+    /// Returns the number of session rows touched (a session can have multiple
+    /// identity-keyed rows differing only in host/agent/worktree).
+    pub fn set_session_lane(
+        &self,
+        session: &str,
+        project: Option<&str>,
+        namespace: Option<&str>,
+        workspace: Option<&str>,
+        new_lane: Option<&str>,
+    ) -> anyhow::Result<usize> {
+        let session = session.trim();
+        if session.is_empty() {
+            return Ok(0);
+        }
+        let lane_value = new_lane
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let conn = self.connect()?;
+        let affected = conn
+            .execute(
+                r#"
+                UPDATE hive_sessions
+                SET payload_json = json_set(payload_json, '$.lane_id', ?5)
+                WHERE session = ?1
+                  AND (?2 IS NULL OR project IS ?2 OR project = ?2)
+                  AND (?3 IS NULL OR namespace IS ?3 OR namespace = ?3)
+                  AND (?4 IS NULL OR workspace IS ?4 OR workspace = ?4)
+                "#,
+                params![session, project, namespace, workspace, lane_value],
+            )
+            .context("update session lane_id")?;
+        Ok(affected)
+    }
+
+    /// L2.3: clear a queen deny when the task ownership changes (handoff,
+    /// reassignment, retire). Keeps the deny table from shadowing legitimate
+    /// future assignments after the conflict is resolved upstream.
+    pub fn clear_queen_deny(&self, task_id: &str, session: &str) -> anyhow::Result<()> {
+        let task_id = task_id.trim();
+        let session = session.trim();
+        if task_id.is_empty() || session.is_empty() {
+            return Ok(());
+        }
+        let conn = self.connect()?;
+        conn.execute(
+            "DELETE FROM hive_queen_denies WHERE task_id = ?1 AND session = ?2",
+            params![task_id, session],
+        )
+        .context("delete queen deny")?;
+        Ok(())
     }
 }

@@ -305,16 +305,17 @@ pub(crate) fn ensure_directory_skill_bridge(
     if let Ok(existing) = fs::symlink_metadata(target) {
         if existing.file_type().is_symlink() {
             if let Ok(current) = fs::read_link(target)
-                && current == source {
-                    return CapabilityBridgeAction {
-                        harness: harness.to_string(),
-                        capability: capability.to_string(),
-                        status: "already-bridged".to_string(),
-                        source_path,
-                        target_path,
-                        notes: vec!["bridge already points at the current source".to_string()],
-                    };
-                }
+                && current == source
+            {
+                return CapabilityBridgeAction {
+                    harness: harness.to_string(),
+                    capability: capability.to_string(),
+                    status: "already-bridged".to_string(),
+                    source_path,
+                    target_path,
+                    notes: vec!["bridge already points at the current source".to_string()],
+                };
+            }
             if let Err(err) = fs::remove_file(target) {
                 return CapabilityBridgeAction {
                     harness: harness.to_string(),
@@ -395,16 +396,17 @@ pub(crate) fn inspect_directory_skill_bridge(
     if let Ok(existing) = fs::symlink_metadata(target) {
         if existing.file_type().is_symlink() {
             if let Ok(current) = fs::read_link(target)
-                && current == source {
-                    return CapabilityBridgeAction {
-                        harness: harness.to_string(),
-                        capability: capability.to_string(),
-                        status: "already-bridged".to_string(),
-                        source_path,
-                        target_path,
-                        notes: vec!["bridge already points at the current source".to_string()],
-                    };
-                }
+                && current == source
+            {
+                return CapabilityBridgeAction {
+                    harness: harness.to_string(),
+                    capability: capability.to_string(),
+                    status: "already-bridged".to_string(),
+                    source_path,
+                    target_path,
+                    notes: vec!["bridge already points at the current source".to_string()],
+                };
+            }
             return CapabilityBridgeAction {
                 harness: harness.to_string(),
                 capability: capability.to_string(),
@@ -676,16 +678,17 @@ pub(crate) fn ensure_claude_command_bridge(
     let desired = render_claude_command_skill_bridge(source_skill, command_name);
 
     if let Some(parent) = target.parent()
-        && let Err(err) = fs::create_dir_all(parent) {
-            return CapabilityBridgeAction {
-                harness: "claude".to_string(),
-                capability: capability.to_string(),
-                status: "blocked".to_string(),
-                source_path,
-                target_path,
-                notes: vec![format!("failed to create target directory: {err}")],
-            };
-        }
+        && let Err(err) = fs::create_dir_all(parent)
+    {
+        return CapabilityBridgeAction {
+            harness: "claude".to_string(),
+            capability: capability.to_string(),
+            status: "blocked".to_string(),
+            source_path,
+            target_path,
+            notes: vec![format!("failed to create target directory: {err}")],
+        };
+    }
 
     if let Ok(existing) = fs::read_to_string(&target) {
         if existing == desired {
@@ -932,7 +935,10 @@ If local `.memd` exists, prefer project bundle over global bundle for memory, ru
     )
 }
 
-pub(crate) fn render_claude_command_skill_bridge(source_skill: &Path, command_name: &str) -> String {
+pub(crate) fn render_claude_command_skill_bridge(
+    source_skill: &Path,
+    command_name: &str,
+) -> String {
     let description = extract_skill_description(source_skill).unwrap_or_else(|| {
         format!("Run memd skill `{command_name}` through native Claude Code slash command")
     });
@@ -1676,6 +1682,10 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
                 provider: "lightrag-compatible".to_string(),
                 url: rag_url.clone(),
             },
+            embedding_model: std::env::var("MEMD_EMBED_MODEL")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
         },
         hooks: BundleHooksConfig {
             context: "hooks/memd-context.sh".to_string(),
@@ -1703,7 +1713,10 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     if let Some(ns) = namespace.as_ref() {
         env_lines.push(format!("MEMD_NAMESPACE={}\n", q(ns)));
     }
-    env_lines.push(format!("MEMD_AGENT={}\n", q(&compose_agent_identity(&args.agent, Some(&session)))));
+    env_lines.push(format!(
+        "MEMD_AGENT={}\n",
+        q(&compose_agent_identity(&args.agent, Some(&session)))
+    ));
     env_lines.push(format!("MEMD_WORKER_NAME={}\n", q(&worker_name)));
     env_lines.push(format!("MEMD_SESSION={}\n", q(&session)));
     if let Some(tid) = tab_id.as_ref() {
@@ -1711,9 +1724,19 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     }
     env_lines.push(format!("MEMD_ROUTE={}\n", q(&args.route)));
     env_lines.push(format!("MEMD_INTENT={}\n", q(&args.intent)));
-    env_lines.push(format!("MEMD_HEARTBEAT_MODEL={}\n", q(&config.heartbeat_model)));
+    env_lines.push(format!(
+        "MEMD_HEARTBEAT_MODEL={}\n",
+        q(&config.heartbeat_model)
+    ));
     env_lines.push(format!("MEMD_VOICE_MODE={}\n", q(&config.voice_mode)));
-    env_lines.push(format!("MEMD_AUTO_SHORT_TERM_CAPTURE={}\n", if config.auto_short_term_capture { "'true'" } else { "'false'" }));
+    env_lines.push(format!(
+        "MEMD_AUTO_SHORT_TERM_CAPTURE={}\n",
+        if config.auto_short_term_capture {
+            "'true'"
+        } else {
+            "'false'"
+        }
+    ));
     if let Some(ws) = args.workspace.as_ref() {
         env_lines.push(format!("MEMD_WORKSPACE={}\n", q(ws)));
     }
@@ -1754,7 +1777,10 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         rewrite_env_assignment(
             &output.join("env"),
             "MEMD_PEER_GROUPS=",
-            &format!("MEMD_PEER_GROUPS={}\n", q(&hive_profile.hive_groups.join(","))),
+            &format!(
+                "MEMD_PEER_GROUPS={}\n",
+                q(&hive_profile.hive_groups.join(","))
+            ),
         )?;
     }
     if let Some(goal) = hive_profile.hive_group_goal.as_deref() {
@@ -2045,6 +2071,10 @@ pub(crate) fn build_bundle_turn_placeholder_config(
                 provider: "lightrag-compatible".to_string(),
                 url: None,
             },
+            embedding_model: std::env::var("MEMD_EMBED_MODEL")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
         },
         hooks: BundleHooksConfig {
             context: "hooks/memd-context.sh".to_string(),
@@ -2125,12 +2155,22 @@ pub(crate) fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
 
     // Clean up stale per-harness files from pre-10-star model.
     for stale in [
-        "AGENT_ZERO_MEMORY.md", "AGENT_ZERO_WAKEUP.md",
-        "CLAUDE_CODE_EVENTS.md", "CLAUDE_CODE_MEMORY.md", "CLAUDE_CODE_WAKEUP.md",
-        "CODEX_EVENTS.md", "CODEX_MEMORY.md", "CODEX_WAKEUP.md",
-        "HERMES_MEMORY.md", "HERMES_WAKEUP.md",
-        "OPENCLAW_EVENTS.md", "OPENCLAW_MEMORY.md", "OPENCLAW_WAKEUP.md",
-        "OPENCODE_EVENTS.md", "OPENCODE_MEMORY.md", "OPENCODE_WAKEUP.md",
+        "AGENT_ZERO_MEMORY.md",
+        "AGENT_ZERO_WAKEUP.md",
+        "CLAUDE_CODE_EVENTS.md",
+        "CLAUDE_CODE_MEMORY.md",
+        "CLAUDE_CODE_WAKEUP.md",
+        "CODEX_EVENTS.md",
+        "CODEX_MEMORY.md",
+        "CODEX_WAKEUP.md",
+        "HERMES_MEMORY.md",
+        "HERMES_WAKEUP.md",
+        "OPENCLAW_EVENTS.md",
+        "OPENCLAW_MEMORY.md",
+        "OPENCLAW_WAKEUP.md",
+        "OPENCODE_EVENTS.md",
+        "OPENCODE_MEMORY.md",
+        "OPENCODE_WAKEUP.md",
         "HARNESS_BRIDGES.md",
     ] {
         let path = agents_dir.join(stale);
@@ -3893,9 +3933,7 @@ fn ensure_settings_bootstrap_hook(
                 hooks.iter().any(|hook| {
                     hook.get("command")
                         .and_then(|c| c.as_str())
-                        .map(|c| {
-                            c.contains("memd-bootstrap") || c.contains("memd-hook-bootstrap")
-                        })
+                        .map(|c| c.contains("memd-bootstrap") || c.contains("memd-hook-bootstrap"))
                         .unwrap_or(false)
                 })
             })

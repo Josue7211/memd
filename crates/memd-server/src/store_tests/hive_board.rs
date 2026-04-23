@@ -53,6 +53,7 @@ fn hive_board_ignores_handoff_scope_receipts_in_overlap_risks() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert session");
@@ -155,6 +156,7 @@ fn hive_board_hides_low_signal_sender_sessions_without_active_tasks() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert low signal sender");
@@ -206,6 +208,7 @@ fn hive_board_hides_low_signal_sender_sessions_without_active_tasks() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert worker");
@@ -287,6 +290,7 @@ fn hive_sessions_mark_proof_bees_stale_on_shorter_window() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert proof bee");
@@ -426,6 +430,7 @@ fn hive_board_hides_sender_sessions_with_only_lane_path_and_no_task_signal() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert lane-only sender");
@@ -507,6 +512,7 @@ fn hive_board_hides_historical_lane_fault_noise_for_inactive_sessions() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert worker");
@@ -625,6 +631,7 @@ fn hive_board_hides_lane_faults_when_only_actor_session_is_active() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert active worker");
@@ -724,6 +731,436 @@ fn open_migrates_legacy_hive_sessions_before_identity_indexes() {
             .iter()
             .any(|value| value == "idx_hive_sessions_host")
     );
+
+    std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+}
+
+#[test]
+fn queen_deny_blocks_subsequent_task_upsert_for_denied_session() {
+    let dir = std::env::temp_dir().join(format!("memd-queen-deny-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+    store
+        .upsert_hive_task(&HiveTaskUpsertRequest {
+            task_id: "task-alpha".to_string(),
+            title: "Alpha".to_string(),
+            description: None,
+            status: Some("active".to_string()),
+            coordination_mode: Some(CoordinationMode::Solo),
+            session: Some("bee-1".to_string()),
+            agent: None,
+            effective_agent: None,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            claim_scopes: Vec::new(),
+            help_requested: None,
+            review_requested: None,
+        })
+        .expect("seed task");
+
+    store
+        .record_queen_deny("task-alpha", "bee-1", Some("overlap"))
+        .expect("record deny");
+
+    let err = store
+        .upsert_hive_task(&HiveTaskUpsertRequest {
+            task_id: "task-alpha".to_string(),
+            title: "Alpha v2".to_string(),
+            description: Some("attempt after deny".to_string()),
+            status: Some("active".to_string()),
+            coordination_mode: Some(CoordinationMode::Solo),
+            session: Some("bee-1".to_string()),
+            agent: None,
+            effective_agent: None,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            claim_scopes: Vec::new(),
+            help_requested: None,
+            review_requested: None,
+        })
+        .expect_err("denied upsert must fail");
+    assert!(
+        format!("{err:#}").contains("queen_denied:"),
+        "expected queen_denied marker, got: {err:#}"
+    );
+
+    store
+        .upsert_hive_task(&HiveTaskUpsertRequest {
+            task_id: "task-alpha".to_string(),
+            title: "Alpha v2".to_string(),
+            description: None,
+            status: Some("active".to_string()),
+            coordination_mode: Some(CoordinationMode::Solo),
+            session: Some("bee-other".to_string()),
+            agent: None,
+            effective_agent: None,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            claim_scopes: Vec::new(),
+            help_requested: None,
+            review_requested: None,
+        })
+        .expect("non-denied session upsert should succeed");
+
+    let err = store
+        .assign_hive_task(&HiveTaskAssignRequest {
+            task_id: "task-alpha".to_string(),
+            from_session: None,
+            to_session: "bee-1".to_string(),
+            to_agent: None,
+            to_effective_agent: None,
+            note: None,
+        })
+        .expect_err("denied assign must fail");
+    assert!(
+        format!("{err:#}").contains("queen_denied:"),
+        "expected queen_denied marker on assign, got: {err:#}"
+    );
+
+    store
+        .clear_queen_deny("task-alpha", "bee-1")
+        .expect("clear deny");
+    store
+        .assign_hive_task(&HiveTaskAssignRequest {
+            task_id: "task-alpha".to_string(),
+            from_session: None,
+            to_session: "bee-1".to_string(),
+            to_agent: None,
+            to_effective_agent: None,
+            note: None,
+        })
+        .expect("assign after clear should succeed");
+
+    std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+}
+
+#[test]
+fn queen_reroute_rewrites_session_lane_via_json_set() {
+    let dir = std::env::temp_dir().join(format!("memd-queen-reroute-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+    store
+        .upsert_hive_session(&HiveSessionUpsertRequest {
+            session: "bee-42".to_string(),
+            agent: Some("codex".to_string()),
+            effective_agent: Some("codex@bee-42".to_string()),
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("worker".to_string()),
+            worker_name: Some("Ada".to_string()),
+            display_name: None,
+            role: Some("worker".to_string()),
+            capabilities: Vec::new(),
+            hive_groups: Vec::new(),
+            lane_id: Some("lane-alpha".to_string()),
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            heartbeat_model: None,
+            tab_id: None,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
+            base_branch: None,
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            base_url: Some("http://127.0.0.1:8787".to_string()),
+            base_url_healthy: Some(true),
+            host: None,
+            pid: Some(42),
+            topic_claim: None,
+            scope_claims: Vec::new(),
+            task_id: None,
+            focus: None,
+            pressure: None,
+            next_recovery: None,
+            next_action: None,
+            working: None,
+            touches: Vec::new(),
+            blocked_by: Vec::new(),
+            cowork_with: Vec::new(),
+            handoff_target: None,
+            offered_to: Vec::new(),
+            needs_help: false,
+            needs_review: false,
+            handoff_state: None,
+            confidence: None,
+            risk: None,
+            last_wake_at: None,
+            status: Some("live".to_string()),
+        })
+        .expect("seed session");
+
+    let touched = store
+        .set_session_lane(
+            "bee-42",
+            Some("memd"),
+            Some("main"),
+            Some("shared"),
+            Some("lane-beta"),
+        )
+        .expect("reroute");
+    assert_eq!(touched, 1, "expected exactly one session row rewritten");
+
+    let sessions = store
+        .hive_sessions(&HiveSessionsRequest {
+            session: Some("bee-42".to_string()),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
+            hive_system: None,
+            hive_role: None,
+            host: None,
+            hive_group: None,
+            active_only: Some(false),
+            limit: Some(4),
+        })
+        .expect("read session back");
+    assert_eq!(sessions.sessions.len(), 1);
+    assert_eq!(
+        sessions.sessions[0].lane_id.as_deref(),
+        Some("lane-beta"),
+        "lane_id must be persisted to payload_json"
+    );
+
+    let cleared = store
+        .set_session_lane("bee-42", Some("memd"), Some("main"), Some("shared"), None)
+        .expect("reroute clear");
+    assert_eq!(cleared, 1);
+    let sessions = store
+        .hive_sessions(&HiveSessionsRequest {
+            session: Some("bee-42".to_string()),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
+            hive_system: None,
+            hive_role: None,
+            host: None,
+            hive_group: None,
+            active_only: Some(false),
+            limit: Some(4),
+        })
+        .expect("read session after clear");
+    assert!(
+        sessions.sessions[0].lane_id.is_none(),
+        "clearing lane should null lane_id in payload"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+}
+
+#[test]
+fn queen_handoff_lock_bumps_version_and_blocks_other_sessions() {
+    let dir = std::env::temp_dir().join(format!("memd-queen-handoff-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+    // First handoff — expect version 1 and only the locked session may mutate.
+    let v1 = store
+        .apply_handoff_lock("task-omega", "bee-2", Some("queen-1"))
+        .expect("first handoff lock");
+    assert_eq!(v1, 1, "first handoff must stamp version 1");
+
+    // Locked session can still upsert.
+    store
+        .upsert_hive_task(&HiveTaskUpsertRequest {
+            task_id: "task-omega".to_string(),
+            title: "Omega".to_string(),
+            description: None,
+            status: Some("active".to_string()),
+            coordination_mode: Some(CoordinationMode::Solo),
+            session: Some("bee-2".to_string()),
+            agent: None,
+            effective_agent: None,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            claim_scopes: Vec::new(),
+            help_requested: None,
+            review_requested: None,
+        })
+        .expect("locked session upsert");
+
+    // Someone else tries → 409-class error.
+    let err = store
+        .upsert_hive_task(&HiveTaskUpsertRequest {
+            task_id: "task-omega".to_string(),
+            title: "Omega (other)".to_string(),
+            description: None,
+            status: Some("active".to_string()),
+            coordination_mode: Some(CoordinationMode::Solo),
+            session: Some("bee-3".to_string()),
+            agent: None,
+            effective_agent: None,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            claim_scopes: Vec::new(),
+            help_requested: None,
+            review_requested: None,
+        })
+        .expect_err("unrelated session must be locked out");
+    assert!(
+        format!("{err:#}").contains("queen_handoff_locked:"),
+        "expected queen_handoff_locked marker, got: {err:#}"
+    );
+
+    // Assign to unrelated session → also blocked.
+    let err = store
+        .assign_hive_task(&HiveTaskAssignRequest {
+            task_id: "task-omega".to_string(),
+            from_session: None,
+            to_session: "bee-3".to_string(),
+            to_agent: None,
+            to_effective_agent: None,
+            note: None,
+        })
+        .expect_err("assign to unrelated session must be locked out");
+    assert!(format!("{err:#}").contains("queen_handoff_locked:"));
+
+    // Second handoff (to a new session) — version monotonically bumps.
+    let v2 = store
+        .apply_handoff_lock("task-omega", "bee-3", Some("queen-1"))
+        .expect("second handoff lock");
+    assert_eq!(v2, 2, "second handoff must stamp version 2");
+
+    // Previously denied session (bee-3) now owns the lock — handoff clears
+    // any prior deny on that (task, session) pair.
+    store
+        .record_queen_deny("task-omega", "bee-3", Some("stale"))
+        .expect("record deny pre-handoff");
+    let v3 = store
+        .apply_handoff_lock("task-omega", "bee-3", Some("queen-1"))
+        .expect("handoff subsumes deny");
+    assert_eq!(v3, 3);
+    assert!(
+        !store
+            .is_task_denied_for_session("task-omega", "bee-3")
+            .expect("check deny"),
+        "handoff must subsume stale deny on the same (task, session)"
+    );
+
+    // Explicit clear unlocks.
+    store.clear_handoff_lock("task-omega").expect("clear lock");
+    assert!(
+        store
+            .handoff_lock_for_task("task-omega")
+            .expect("read lock")
+            .is_none()
+    );
+    store
+        .upsert_hive_task(&HiveTaskUpsertRequest {
+            task_id: "task-omega".to_string(),
+            title: "Omega (unlocked)".to_string(),
+            description: None,
+            status: Some("active".to_string()),
+            coordination_mode: Some(CoordinationMode::Solo),
+            session: Some("bee-4".to_string()),
+            agent: None,
+            effective_agent: None,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            claim_scopes: Vec::new(),
+            help_requested: None,
+            review_requested: None,
+        })
+        .expect("upsert succeeds once lock cleared");
+
+    std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+}
+
+#[test]
+fn hive_divergence_caps_branches_and_decisions_and_dedups_by_normalized_text() {
+    use memd_schema::DivergenceRequest;
+
+    let dir = std::env::temp_dir().join(format!("memd-hive-divergence-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+    let base = chrono::Utc::now();
+    // (branch, content, minutes_ago) — 3 branches so we trigger truncated_branches.
+    let seeds: &[(&str, &str, i64)] = &[
+        // branch main: 4 decisions, 2 are normalization-duplicates (different casing/whitespace).
+        ("main", "Adopt FTS5 for search", 60),
+        ("main", "adopt   fts5   for search", 55), // dedups with above
+        ("main", "Cache embeddings in-memory", 50),
+        ("main", "Use Lamport clocks for imports", 45),
+        ("main", "Shard by project", 40), // pushes truncated_decisions after cap=3
+        // branch alt-a: 2 decisions
+        ("alt-a", "Prefer DuckDB over SQLite", 30),
+        ("alt-a", "Compact with vacuum weekly", 25),
+        // branch alt-b: 1 decision (oldest — should be evicted by MAX_BRANCHES=2)
+        ("alt-b", "Write handoff to separate DB", 120),
+    ];
+
+    for (branch, content, minutes_ago) in seeds {
+        let mut item = sample_memory_item();
+        item.id = uuid::Uuid::new_v4();
+        item.kind = memd_schema::MemoryKind::Decision;
+        item.belief_branch = Some((*branch).to_string());
+        item.content = (*content).to_string();
+        let ts = base - chrono::Duration::minutes(*minutes_ago);
+        item.created_at = ts;
+        item.updated_at = ts;
+        let ckey = canonical_key(&item);
+        let rkey = redundancy_key(&item);
+        store
+            .insert_or_get_duplicate(&item, &ckey, &rkey)
+            .expect("seed decision row");
+    }
+
+    let summary = store
+        .hive_divergence(&DivergenceRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+        })
+        .expect("compute divergence");
+
+    assert!(
+        summary.truncated_branches,
+        "3 branches → truncated flag set"
+    );
+    assert_eq!(summary.branches.len(), 2, "cap MAX_BRANCHES=2");
+
+    // Most-recent-first: main (last update 40min ago) then alt-a (25min ago wins over 30min).
+    // alt-a has its newest at 25min; main has newest at 40min. alt-a should come first.
+    assert_eq!(summary.branches[0].branch_name, "alt-a");
+    assert_eq!(summary.branches[1].branch_name, "main");
+
+    let main_branch = &summary.branches[1];
+    assert!(
+        main_branch.truncated_decisions,
+        "main had 4 unique decisions after dedup; cap=3"
+    );
+    assert_eq!(main_branch.decisions.len(), 3);
+    // First dup ("adopt fts5 for search") must not appear twice.
+    let normalized_set: std::collections::HashSet<&str> = main_branch
+        .decisions
+        .iter()
+        .map(|d| d.normalized.as_str())
+        .collect();
+    assert_eq!(
+        normalized_set.len(),
+        main_branch.decisions.len(),
+        "decisions must be unique after normalization"
+    );
+
+    let alt_a = &summary.branches[0];
+    assert!(!alt_a.truncated_decisions);
+    assert_eq!(alt_a.decisions.len(), 2);
 
     std::fs::remove_dir_all(dir).expect("cleanup temp dir");
 }

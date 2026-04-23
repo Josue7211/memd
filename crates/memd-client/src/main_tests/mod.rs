@@ -115,6 +115,8 @@ fn codex_test_snapshot(project: &str, namespace: &str, agent: &str) -> ResumeSna
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,
@@ -141,6 +143,8 @@ fn codex_test_snapshot(project: &str, namespace: &str, agent: &str) -> ResumeSna
                     created_at: chrono::Utc::now(),
                     status: memd_schema::MemoryStatus::Active,
                     stage: memd_schema::MemoryStage::Candidate,
+                    lane: None,
+                    version: 1,
                     last_verified_at: None,
                     supersedes: Vec::new(),
                     updated_at: chrono::Utc::now(),
@@ -175,6 +179,11 @@ fn codex_test_snapshot(project: &str, namespace: &str, agent: &str) -> ResumeSna
         change_summary: vec!["focus -> follow the codex pack turn boundary".to_string()],
         resume_state_age_minutes: None,
         refresh_recommended: false,
+        atlas_region_hints: Vec::new(),
+        handoff_quality: None,
+        files_touched: Vec::new(),
+        un_read_paths: Vec::new(),
+        preferences: Vec::new(),
     }
 }
 
@@ -184,6 +193,8 @@ mod autoresearch_evolution_tests;
 mod awareness_hive_tests;
 mod benchmark_runtime_tests;
 mod bootstrap_harness_tests;
+pub(crate) mod continuity_enforcement_tests;
+mod continuity_foundation_tests;
 mod gap_coordination_tests;
 mod hive_coordination_tests;
 mod public_benchmark_tests;

@@ -98,6 +98,8 @@ fn describes_eval_changes_against_baseline() {
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,
@@ -155,6 +157,11 @@ fn describes_eval_changes_against_baseline() {
         change_summary: Vec::new(),
         resume_state_age_minutes: None,
         refresh_recommended: false,
+        atlas_region_hints: Vec::new(),
+        handoff_quality: None,
+        files_touched: Vec::new(),
+        un_read_paths: Vec::new(),
+        preferences: Vec::new(),
     };
 
     let changes = describe_eval_changes(&baseline, 88, &snapshot);
@@ -312,6 +319,8 @@ fn build_eval_recommendations_surfaces_actionable_followups() {
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,
@@ -343,6 +352,8 @@ fn build_eval_recommendations_surfaces_actionable_followups() {
                         tags: Vec::new(),
                         status: memd_schema::MemoryStatus::Active,
                         stage: memd_schema::MemoryStage::Candidate,
+                        lane: None,
+                        version: 1,
                     },
                     reasons: Vec::new(),
                 };
@@ -365,6 +376,11 @@ fn build_eval_recommendations_surfaces_actionable_followups() {
         change_summary: Vec::new(),
         resume_state_age_minutes: None,
         refresh_recommended: false,
+        atlas_region_hints: Vec::new(),
+        handoff_quality: None,
+        files_touched: Vec::new(),
+        un_read_paths: Vec::new(),
+        preferences: Vec::new(),
     };
 
     let recommendations = build_eval_recommendations(&snapshot, 62);
@@ -560,7 +576,7 @@ fn suggest_coordination_actions_emits_multi_priority_output() {
             title: "edit shared".to_string(),
             description: None,
             status: "assigned".to_string(),
-            coordination_mode: "exclusive_write".to_string(),
+            coordination_mode: CoordinationMode::ExclusiveWrite,
             session: Some("hive-owner".to_string()),
             agent: Some("hive-owner".to_string()),
             effective_agent: None,
@@ -578,7 +594,7 @@ fn suggest_coordination_actions_emits_multi_priority_output() {
             title: "run review".to_string(),
             description: None,
             status: "in_progress".to_string(),
-            coordination_mode: "shared_review".to_string(),
+            coordination_mode: CoordinationMode::SharedReview,
             session: Some("codex".to_string()),
             agent: Some("coder".to_string()),
             effective_agent: None,
@@ -596,7 +612,7 @@ fn suggest_coordination_actions_emits_multi_priority_output() {
             title: "parallel assist".to_string(),
             description: None,
             status: "in_progress".to_string(),
-            coordination_mode: "help_only".to_string(),
+            coordination_mode: CoordinationMode::HelpOnly,
             session: Some("codex".to_string()),
             agent: Some("coder".to_string()),
             effective_agent: None,
@@ -1424,7 +1440,7 @@ fn render_tasks_summary_surfaces_task_taxonomy_counts() {
                 title: "exclusive open".to_string(),
                 description: None,
                 status: "in_progress".to_string(),
-                coordination_mode: "exclusive_write".to_string(),
+                coordination_mode: CoordinationMode::ExclusiveWrite,
                 session: Some("codex-a".to_string()),
                 agent: Some("codex".to_string()),
                 effective_agent: Some("codex@codex-a".to_string()),
@@ -1442,7 +1458,7 @@ fn render_tasks_summary_surfaces_task_taxonomy_counts() {
                 title: "shared review".to_string(),
                 description: None,
                 status: "needs_review".to_string(),
-                coordination_mode: "shared_review".to_string(),
+                coordination_mode: CoordinationMode::SharedReview,
                 session: Some("codex-b".to_string()),
                 agent: Some("codex".to_string()),
                 effective_agent: Some("codex@codex-b".to_string()),
@@ -1460,7 +1476,7 @@ fn render_tasks_summary_surfaces_task_taxonomy_counts() {
                 title: "closed".to_string(),
                 description: None,
                 status: "done".to_string(),
-                coordination_mode: "shared_review".to_string(),
+                coordination_mode: CoordinationMode::SharedReview,
                 session: Some("codex-c".to_string()),
                 agent: Some("codex".to_string()),
                 effective_agent: Some("codex@codex-c".to_string()),

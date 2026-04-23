@@ -100,6 +100,7 @@ pub(crate) fn build_lookup_request(
         visibility,
         belief_branch: None,
         source_agent: None,
+        region: args.region.clone(),
         tags: args.tag.clone(),
         stages: vec![MemoryStage::Canonical, MemoryStage::Candidate],
         limit: args.limit.or(Some(6)),
@@ -337,6 +338,8 @@ pub(crate) fn default_kinds_for_intent(intent: RetrievalIntent) -> Vec<MemoryKin
             MemoryKind::Procedural,
             MemoryKind::Status,
             MemoryKind::Pattern,
+            MemoryKind::Topology,
+            MemoryKind::LiveTruth,
         ],
     }
 }
@@ -706,6 +709,7 @@ mod tests {
                 project: None,
                 namespace: None,
                 workspace: None,
+                region: None,
                 visibility: None,
                 route: None,
                 intent: None,
@@ -745,6 +749,7 @@ mod tests {
             visibility: None,
             belief_branch: None,
             source_agent: None,
+            region: None,
             tags: vec!["checkpoint".to_string()],
             stages: vec![MemoryStage::Canonical],
             limit: Some(6),
@@ -778,6 +783,7 @@ mod tests {
             visibility: None,
             belief_branch: None,
             source_agent: None,
+            region: None,
             tags: Vec::new(),
             stages: vec![MemoryStage::Canonical],
             limit: Some(6),
@@ -812,6 +818,8 @@ mod tests {
                     tags: vec!["resume_state".to_string()],
                     status: MemoryStatus::Active,
                     stage: MemoryStage::Canonical,
+                    lane: None,
+                    version: 1,
                 },
                 memd_schema::MemoryItem {
                     id: uuid::Uuid::new_v4(),
@@ -838,6 +846,8 @@ mod tests {
                     tags: vec!["roadmap".to_string(), "phase-e".to_string(), "ralph".to_string()],
                     status: MemoryStatus::Active,
                     stage: MemoryStage::Canonical,
+                    lane: None,
+                    version: 1,
                 },
             ],
         };

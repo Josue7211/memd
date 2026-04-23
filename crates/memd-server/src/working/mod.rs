@@ -2,13 +2,16 @@ use axum::http::StatusCode;
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::{AppState, BuildContextResult, build_context, compact_record, internal_error};
+use crate::{
+    AppState, BuildContextResult, build_context, compact_record, internal_error,
+    store_entities::trust_rank,
+};
 use memd_schema::{
-    AgentProfileRequest, CompactMemoryRecord, ContextRequest, MemoryConsolidationRequest,
-    MemoryEntityRecord, MemoryKind, MemoryPolicyConsolidation, MemoryPolicyDecay,
-    MemoryPolicyFeedback, MemoryPolicyPromotion, MemoryPolicyResponse, MemoryPolicyRouteDefault,
-    MemoryPolicyWorkingMemory, MemoryRehydrationRecord, MemoryScope, MemoryStage,
-    WorkingMemoryEvictionRecord, WorkingMemoryPolicyState, WorkingMemoryRequest,
+    AgentProfileRequest, CompactMemoryRecord, CompactionQualityReport, ContextRequest,
+    MemoryConsolidationRequest, MemoryEntityRecord, MemoryKind, MemoryPolicyConsolidation,
+    MemoryPolicyDecay, MemoryPolicyFeedback, MemoryPolicyPromotion, MemoryPolicyResponse,
+    MemoryPolicyRouteDefault, MemoryPolicyWorkingMemory, MemoryRehydrationRecord, MemoryScope,
+    MemoryStage, WorkingMemoryEvictionRecord, WorkingMemoryPolicyState, WorkingMemoryRequest,
     WorkingMemoryResponse, WorkingMemoryTraceRecord,
 };
 
@@ -42,6 +45,10 @@ pub(crate) fn working_memory(
         retrieval_order,
         items,
     } = build_context(state, &compact_req)?;
+    let query_lane = req
+        .query
+        .as_deref()
+        .and_then(|q| crate::helpers::detect_content_lane(q, None, &[]));
     state.rehearse_items(&items, 3).map_err(internal_error)?;
     state
         .record_retrieval_feedback(&items, 3, "retrieved_working", &plan)
@@ -60,20 +67,28 @@ pub(crate) fn working_memory(
             source_trust_score,
             source_trust_floor,
             now,
+            query_lane.as_deref(),
         );
         ranked_items.push((score, reasons, item));
     }
     ranked_items.sort_by(|left, right| right.0.total_cmp(&left.0));
 
     // Cap status items to avoid noise flooding working memory.
-    // Keep at most 2 status items; evict the rest regardless of score.
+    // Keep at most 2 status items; evict the rest with tracking.
     let max_status_items = 2usize;
     let mut status_count = 0usize;
     let mut capped_items = Vec::with_capacity(ranked_items.len());
+    let mut status_evictions: Vec<WorkingMemoryEvictionRecord> = Vec::new();
     for entry in ranked_items {
         if entry.2.kind == memd_schema::MemoryKind::Status {
             status_count += 1;
             if status_count > max_status_items {
+                let record = compact_record(&entry.2);
+                status_evictions.push(WorkingMemoryEvictionRecord {
+                    id: entry.2.id,
+                    record,
+                    reason: format!("evicted_by_status_cap;{}", entry.1.join(";")),
+                });
                 continue;
             }
         }
@@ -91,7 +106,7 @@ pub(crate) fn working_memory(
     let mut used_chars = 0usize;
     let mut truncated = false;
     let mut records = Vec::new();
-    let mut evicted = Vec::new();
+    let mut evicted: Vec<WorkingMemoryEvictionRecord> = status_evictions;
 
     let compacted_records = ranked_items
         .iter()
@@ -108,7 +123,24 @@ pub(crate) fn working_memory(
         })
         .collect::<Vec<_>>();
 
+    // G2: lane diversity — track lane counts, defer items from overrepresented lanes.
+    let lane_diversity_cap = 5usize; // max items from a single lane before deferral
+    let mut lane_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    let mut deferred: Vec<(usize, &str, &str)> = Vec::new(); // (index, record, reasons)
+
     for (index, (item_id, record, reasons)) in compacted_records.iter().enumerate() {
+        // Check lane diversity: if this lane already has lane_diversity_cap items, defer it
+        if let Some(item) = selected_items.iter().find(|i| i.id == *item_id) {
+            if let Some(lane) = &item.lane {
+                let count = lane_counts.get(lane.as_str()).copied().unwrap_or(0);
+                if count >= lane_diversity_cap && records.len() < admission_limit {
+                    deferred.push((index, record, reasons));
+                    continue;
+                }
+            }
+        }
+
         let record_chars = record.chars().count();
         if used_chars + record_chars > budget_chars {
             truncated = true;
@@ -124,9 +156,37 @@ pub(crate) fn working_memory(
             id: *item_id,
             record: record.clone(),
         });
+
+        // Track lane counts for admitted items
+        if let Some(item) = selected_items.iter().find(|i| i.id == *item_id) {
+            if let Some(lane) = &item.lane {
+                *lane_counts.entry(lane.clone()).or_insert(0) += 1;
+            }
+        }
+
         if index + 1 >= admission_limit {
             truncated = compacted_records.len() > records.len();
         }
+    }
+
+    // Admit deferred items if there's still room
+    for (index, record, reasons) in deferred {
+        let (item_id, _, _) = &compacted_records[index];
+        let record_chars = record.chars().count();
+        if records.len() >= admission_limit || used_chars + record_chars > budget_chars {
+            evicted.push(WorkingMemoryEvictionRecord {
+                id: *item_id,
+                record: record.to_string(),
+                reason: format!("evicted_by_lane_diversity;{reasons}"),
+            });
+            truncated = true;
+            continue;
+        }
+        used_chars += record_chars;
+        records.push(CompactMemoryRecord {
+            id: *item_id,
+            record: record.to_string(),
+        });
     }
 
     if records.len() > admission_limit {
@@ -197,6 +257,40 @@ pub(crate) fn working_memory(
         }
     };
 
+    let compaction_quality = {
+        use std::collections::BTreeMap;
+        let kind_key = |kind: &MemoryKind| -> String {
+            serde_json::to_value(kind)
+                .ok()
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| format!("{:?}", kind).to_lowercase())
+        };
+        let mut per_kind_admitted: BTreeMap<String, usize> = BTreeMap::new();
+        let mut chars_per_kind_admitted: BTreeMap<String, usize> = BTreeMap::new();
+        for record in &records {
+            if let Some(item) = selected_items.iter().find(|i| i.id == record.id) {
+                let key = kind_key(&item.kind);
+                *per_kind_admitted.entry(key.clone()).or_insert(0) += 1;
+                *chars_per_kind_admitted.entry(key).or_insert(0) += record.record.len();
+            }
+        }
+        let mut per_kind_evicted: BTreeMap<String, usize> = BTreeMap::new();
+        for record in &evicted {
+            if let Some(item) = selected_items.iter().find(|i| i.id == record.id) {
+                *per_kind_evicted.entry(kind_key(&item.kind)).or_insert(0) += 1;
+            }
+        }
+        CompactionQualityReport {
+            admitted: records.len(),
+            evicted: evicted.len(),
+            per_kind_admitted,
+            per_kind_evicted,
+            chars_per_kind_admitted,
+            budget_chars,
+            used_chars,
+        }
+    };
+
     Ok(WorkingMemoryResponse {
         route: plan.route,
         intent: plan.intent,
@@ -217,6 +311,7 @@ pub(crate) fn working_memory(
         traces,
         semantic_consolidation,
         procedures,
+        compaction_quality: Some(compaction_quality),
     })
 }
 
@@ -328,6 +423,7 @@ fn working_item_priority(
     source_trust_score: f32,
     source_trust_floor: f32,
     now: chrono::DateTime<Utc>,
+    query_lane: Option<&str>,
 ) -> (f32, Vec<String>) {
     let confidence = item.confidence.clamp(0.0, 1.0);
     let age_days = now.signed_duration_since(item.updated_at).num_days().max(0) as f32;
@@ -345,14 +441,17 @@ fn working_item_priority(
         .unwrap_or(45.0);
     let rehearsal_count = entity.map(|entity| entity.rehearsal_count).unwrap_or(0);
 
+    // B2: kind is the dominant admission factor. Facts/decisions must always
+    // outrank status regardless of confidence. Spread: 0.55 (Fact→Status).
     let kind_score = match item.kind {
-        memd_schema::MemoryKind::Status => -0.15,
-        memd_schema::MemoryKind::Fact
-        | memd_schema::MemoryKind::Decision
-        | memd_schema::MemoryKind::Procedural => 0.10,
-        memd_schema::MemoryKind::Preference
-        | memd_schema::MemoryKind::Constraint
-        | memd_schema::MemoryKind::Runbook => 0.06,
+        memd_schema::MemoryKind::Fact | memd_schema::MemoryKind::Decision => 0.30,
+        memd_schema::MemoryKind::Preference => 0.25,
+        memd_schema::MemoryKind::Procedural => 0.20,
+        memd_schema::MemoryKind::Constraint | memd_schema::MemoryKind::Runbook => 0.15,
+        memd_schema::MemoryKind::Pattern
+        | memd_schema::MemoryKind::Topology
+        | memd_schema::MemoryKind::SelfModel => 0.08,
+        memd_schema::MemoryKind::Status => -0.25,
         _ => 0.0,
     };
     let status_score = match item.status {
@@ -417,6 +516,22 @@ fn working_item_priority(
             }
         }
     };
+    // G2.2: query-aware lane boost. Same-lane items rank above different-lane.
+    // When no query context, preserve backward-compat flat +0.06.
+    let lane_score = match (&item.lane, query_lane) {
+        (Some(lane), Some(ql)) if lane == ql => 0.08, // same-lane match
+        (Some(_), Some(_)) => 0.02,                   // has lane, different from query
+        (Some(_), None) => 0.06,                      // has lane, no query context
+        (None, _) => 0.0,
+    };
+    let correction_boost = if item.tags.iter().any(|t| t == "correction") {
+        0.10
+    } else {
+        0.0
+    };
+    // Trust hierarchy tiebreaker: rank 0-4 × 0.012 = max 0.048.
+    // Only matters when items score within ~0.05 of each other.
+    let trust_hierarchy_score = trust_rank(item) as f32 * 0.012;
     let trust_score = if source_trust_score < source_trust_floor * 0.6 {
         -0.18
     } else if source_trust_score < source_trust_floor * 0.83 {
@@ -459,8 +574,23 @@ fn working_item_priority(
     if item.source_quality == Some(memd_schema::SourceQuality::Canonical) {
         reasons.push("trusted_source".to_string());
     }
+    if let Some(lane) = &item.lane {
+        reasons.push(format!("lane={lane}"));
+        match query_lane {
+            Some(ql) if lane == ql => reasons.push("lane_match".to_string()),
+            Some(_) => reasons.push("lane_mismatch".to_string()),
+            None => {}
+        }
+    }
+    if correction_boost > 0.0 {
+        reasons.push("correction_boost".to_string());
+    }
+    if trust_hierarchy_score > 0.0 {
+        reasons.push(format!("trust_rank={}", trust_rank(item)));
+    }
     (
-        (confidence * 0.48
+        // B2: reduced confidence weight (0.35 from 0.48) so kind_score dominates.
+        (confidence * 0.35
             + kind_score
             + status_score
             + source_score
@@ -471,7 +601,10 @@ fn working_item_priority(
             + recent_use_score
             + rehearsal_score
             + trust_score
-            + contradiction_score)
+            + contradiction_score
+            + lane_score
+            + correction_boost
+            + trust_hierarchy_score)
             .clamp(0.0, 1.0),
         reasons,
     )
@@ -533,6 +666,8 @@ mod tests {
             tags: vec![],
             status,
             stage: memd_schema::MemoryStage::Canonical,
+            lane: None,
+            version: 1,
         }
     }
 
@@ -555,8 +690,8 @@ mod tests {
         );
 
         assert!(
-            working_item_priority(&good, None, 0.95, 0.6, now).0
-                > working_item_priority(&weak, None, 0.22, 0.6, now).0
+            working_item_priority(&good, None, 0.95, 0.6, now, None).0
+                > working_item_priority(&weak, None, 0.22, 0.6, now, None).0
         );
     }
 
@@ -579,8 +714,38 @@ mod tests {
         );
 
         assert!(
-            working_item_priority(&verified, None, 0.8, 0.6, now).0
-                > working_item_priority(&unverified, None, 0.8, 0.6, now).0
+            working_item_priority(&verified, None, 0.8, 0.6, now, None).0
+                > working_item_priority(&unverified, None, 0.8, 0.6, now, None).0
+        );
+    }
+
+    #[test]
+    fn b2_fact_always_outranks_status_regardless_of_confidence() {
+        let now = Utc::now();
+        // High-confidence status item (0.9 — typical checkpoint)
+        let mut status_item = sample_item(
+            memd_schema::MemoryStatus::Active,
+            Some(memd_schema::SourceQuality::Canonical),
+            0.9,
+            Some(now),
+            now,
+        );
+        status_item.kind = memd_schema::MemoryKind::Status;
+
+        // Medium-confidence fact (0.6 — freshly stored)
+        let fact_item = sample_item(
+            memd_schema::MemoryStatus::Active,
+            Some(memd_schema::SourceQuality::Canonical),
+            0.6,
+            Some(now),
+            now,
+        );
+
+        let status_score = working_item_priority(&status_item, None, 0.9, 0.6, now, None).0;
+        let fact_score = working_item_priority(&fact_item, None, 0.7, 0.6, now, None).0;
+        assert!(
+            fact_score > status_score,
+            "fact ({fact_score:.3}) must outrank status ({status_score:.3})"
         );
     }
 
@@ -595,7 +760,7 @@ mod tests {
             now - chrono::Duration::days(40),
         );
 
-        let (_, reasons) = working_item_priority(&item, None, 0.28, 0.6, now);
+        let (_, reasons) = working_item_priority(&item, None, 0.28, 0.6, now, None);
         assert!(reasons.iter().any(|reason| reason == "contested"));
         assert!(reasons.iter().any(|reason| reason == "contradiction_state"));
         assert!(reasons.iter().any(|reason| reason == "trust_below_floor"));
@@ -603,6 +768,73 @@ mod tests {
             reasons
                 .iter()
                 .any(|reason| reason.starts_with("recent_use_days="))
+        );
+    }
+
+    #[test]
+    fn g2_2_same_lane_items_outrank_different_lane_with_query() {
+        let now = Utc::now();
+        // Use moderate scores so the total doesn't clamp to 1.0
+        let mut same_lane = sample_item(
+            memd_schema::MemoryStatus::Active,
+            Some(memd_schema::SourceQuality::Derived),
+            0.5,
+            None,
+            now - chrono::Duration::days(10),
+        );
+        same_lane.lane = Some("architecture".to_string());
+
+        let mut diff_lane = sample_item(
+            memd_schema::MemoryStatus::Active,
+            Some(memd_schema::SourceQuality::Derived),
+            0.5,
+            None,
+            now - chrono::Duration::days(10),
+        );
+        diff_lane.lane = Some("design".to_string());
+
+        let query_lane = Some("architecture");
+
+        let (same_score, same_reasons) =
+            working_item_priority(&same_lane, None, 0.7, 0.6, now, query_lane);
+        let (diff_score, diff_reasons) =
+            working_item_priority(&diff_lane, None, 0.7, 0.6, now, query_lane);
+
+        assert!(
+            same_score > diff_score,
+            "same-lane ({same_score:.3}) must outrank different-lane ({diff_score:.3})"
+        );
+        assert!(same_reasons.iter().any(|r| r == "lane_match"));
+        assert!(diff_reasons.iter().any(|r| r == "lane_mismatch"));
+    }
+
+    #[test]
+    fn g2_2_no_query_preserves_flat_lane_boost() {
+        let now = Utc::now();
+        let mut with_lane = sample_item(
+            memd_schema::MemoryStatus::Active,
+            Some(memd_schema::SourceQuality::Derived),
+            0.5,
+            None,
+            now - chrono::Duration::days(10),
+        );
+        with_lane.lane = Some("architecture".to_string());
+
+        let without_lane = sample_item(
+            memd_schema::MemoryStatus::Active,
+            Some(memd_schema::SourceQuality::Derived),
+            0.5,
+            None,
+            now - chrono::Duration::days(10),
+        );
+
+        let (lane_score, _) = working_item_priority(&with_lane, None, 0.7, 0.6, now, None);
+        let (no_lane_score, _) = working_item_priority(&without_lane, None, 0.7, 0.6, now, None);
+
+        // With no query context, lane items still get the flat +0.06 boost
+        assert!(
+            lane_score > no_lane_score,
+            "lane item ({lane_score:.3}) must outrank no-lane ({no_lane_score:.3}) without query"
         );
     }
 }
@@ -706,6 +938,7 @@ pub(crate) fn memory_policy_snapshot() -> MemoryPolicyResponse {
             max_items: 128,
             inactive_days: 21,
             max_decay: 0.12,
+            decay_divisor: 14.0,
             record_events: true,
         },
         consolidation: MemoryPolicyConsolidation {

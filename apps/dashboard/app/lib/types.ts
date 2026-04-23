@@ -90,6 +90,9 @@ export interface MemoryItem {
   tags: string[];
   status: MemoryStatus;
   stage: MemoryStage;
+  lane?: string | null;
+  /** L2.1: Lamport version — monotonic, incremented on every mutation. */
+  version: number;
 }
 
 export interface InboxMemoryItem {
@@ -229,6 +232,24 @@ export interface HiveTaskRecord {
   updated_at: string;
 }
 
+export interface AgentProfile {
+  agent: string;
+  project?: string;
+  namespace?: string;
+  capabilities?: string[];
+  preferences?: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentProfileResponse {
+  profile?: AgentProfile;
+}
+
+export interface SourceMemoryResponse {
+  items: MemoryItem[];
+}
+
 // ── Working Memory (compact format) ─────────────────────────────────────────
 
 export interface WorkingRecord {
@@ -300,6 +321,20 @@ export interface RepairMemoryRequest {
   content: string;
 }
 
+export interface CorrectMemoryRequest {
+  id: string;
+  content: string;
+  reason?: string;
+  tags?: string[];
+  confidence?: number;
+}
+
+export interface CorrectMemoryResponse {
+  old_item: MemoryItem;
+  new_item: MemoryItem;
+  contested: string[];
+}
+
 export interface HiveQueenActionRequest {
   session: string;
   reason?: string;
@@ -308,9 +343,18 @@ export interface HiveQueenActionRequest {
 
 // ── Response Types ───────────────────────────────────────────────────────────
 
+export interface PressureMetrics {
+  inbox: number;
+  candidates: number;
+  stale: number;
+  expired: number;
+}
+
 export interface HealthResponse {
   status: string;
   items: number;
+  eval_score?: number;
+  pressure?: PressureMetrics;
 }
 
 export interface SearchMemoryResponse {

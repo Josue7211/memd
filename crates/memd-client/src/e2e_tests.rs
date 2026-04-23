@@ -77,6 +77,8 @@ async fn search_memory(
             tags: vec!["repo-b".to_string()],
             status: MemoryStatus::Active,
             stage: MemoryStage::Canonical,
+            lane: None,
+            version: 1,
         }],
     })
 }
@@ -169,6 +171,8 @@ async fn mock_candidate_memory(
             tags: req.tags,
             status: MemoryStatus::Active,
             stage: MemoryStage::Candidate,
+            lane: None,
+            version: 1,
         },
         duplicate_of: None,
     })
@@ -209,6 +213,8 @@ async fn mock_store_memory(
             tags: req.tags,
             status: req.status.unwrap_or(MemoryStatus::Active),
             stage: MemoryStage::Canonical,
+            lane: None,
+            version: 1,
         },
     })
 }
@@ -265,7 +271,9 @@ async fn mock_working_memory_for_spill(
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
+
+                compaction_quality: None,
             }),
     )
 }
@@ -371,6 +379,7 @@ async fn lookup_cli_defaults_stay_on_repo_b_bundle_against_live_memory_server() 
         project: None,
         namespace: None,
         workspace: None,
+        region: None,
         visibility: None,
         route: None,
         intent: None,
@@ -515,10 +524,10 @@ async fn hook_spill_apply_writes_candidates_and_compaction_checkpoint() {
     );
     drop(stored);
 
-    let memory = fs::read_to_string(bundle_root.join("mem.md"))
-        .expect("read generated bundle memory");
-    let wakeup = fs::read_to_string(bundle_root.join("wake.md"))
-        .expect("read generated bundle wakeup");
+    let memory =
+        fs::read_to_string(bundle_root.join("mem.md")).expect("read generated bundle memory");
+    let wakeup =
+        fs::read_to_string(bundle_root.join("wake.md")).expect("read generated bundle wakeup");
     assert!(memory.contains("compact context: keep startup surfaces tight"));
     assert!(memory.contains("working record: keep startup surfaces tight"));
     assert!(wakeup.contains("compact context: keep startup surfaces tight"));
@@ -599,7 +608,9 @@ async fn resume_command_surfaces_compact_working_state_from_live_server() {
         rehydration_queue: Vec::new(),
         traces: Vec::new(),
         semantic_consolidation: None,
-            procedures: vec![],
+        procedures: vec![],
+
+        compaction_quality: None,
     });
 
     env.set("HOME", &home);
@@ -799,6 +810,8 @@ fn sample_snapshot_for_voice() -> ResumeSnapshot {
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: RetrievalRoute::ProjectFirst,
@@ -817,5 +830,10 @@ fn sample_snapshot_for_voice() -> ResumeSnapshot {
         change_summary: Vec::new(),
         resume_state_age_minutes: None,
         refresh_recommended: false,
+        atlas_region_hints: Vec::new(),
+        handoff_quality: None,
+        files_touched: Vec::new(),
+        un_read_paths: Vec::new(),
+        preferences: Vec::new(),
     }
 }

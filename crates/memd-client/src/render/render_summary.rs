@@ -490,7 +490,9 @@ mod tests {
                 }],
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
+
+                compaction_quality: None,
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: memd_schema::RetrievalRoute::Auto,
@@ -521,6 +523,8 @@ mod tests {
                         tags: vec!["checkpoint".to_string()],
                         status: memd_schema::MemoryStatus::Active,
                         stage: memd_schema::MemoryStage::Candidate,
+                        lane: None,
+                        version: 1,
                     },
                     reasons: vec!["stale".to_string()],
                 }],
@@ -551,6 +555,11 @@ mod tests {
             change_summary: vec!["focus -> Follow the active current-task lane".to_string()],
             resume_state_age_minutes: None,
             refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+            handoff_quality: None,
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         }
     }
 

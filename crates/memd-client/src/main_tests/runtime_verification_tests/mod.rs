@@ -384,6 +384,7 @@ async fn lookup_cli_defaults_stay_on_repo_b_bundle_against_live_memory_server() 
         project: None,
         namespace: None,
         workspace: None,
+        region: None,
         visibility: None,
         route: None,
         intent: None,
@@ -424,13 +425,26 @@ async fn run_public_locomo_command_writes_artifacts() {
         mode: Some("raw".to_string()),
         retrieval_backend: None,
         rag_url: None,
+        memd_url: None,
         top_k: Some(5),
         limit: Some(2),
         dataset_root: Some(fixture),
         reranker: None,
         write: false,
         json: false,
+        community_standard: false,
+        hypotheses_file: None,
+        grader_model: None,
+        full_eval: false,
+        generator_model: None,
+        sample: None,
+        dry_run: false,
+        dual: false,
+        turn_diagnostics: false,
+        all: false,
         out: output.clone(),
+        ci: false,
+        record: false,
     })
     .await
     .expect("run locomo public benchmark");
@@ -464,13 +478,26 @@ async fn run_public_convomem_command_writes_artifacts() {
         mode: Some("raw".to_string()),
         retrieval_backend: None,
         rag_url: None,
+        memd_url: None,
         top_k: Some(5),
         limit: Some(2),
         dataset_root: Some(fixture),
         reranker: None,
         write: false,
         json: false,
+        community_standard: false,
+        hypotheses_file: None,
+        grader_model: None,
+        full_eval: false,
+        generator_model: None,
+        sample: None,
+        dry_run: false,
+        dual: false,
+        turn_diagnostics: false,
+        all: false,
         out: output.clone(),
+        ci: false,
+        record: false,
     })
     .await
     .expect("run convomem public benchmark");
@@ -504,13 +531,26 @@ async fn run_public_membench_command_writes_artifacts() {
         mode: Some("raw".to_string()),
         retrieval_backend: None,
         rag_url: None,
+        memd_url: None,
         top_k: Some(5),
         limit: Some(2),
         dataset_root: Some(fixture),
         reranker: None,
         write: false,
         json: false,
+        community_standard: false,
+        hypotheses_file: None,
+        grader_model: None,
+        full_eval: false,
+        generator_model: None,
+        sample: None,
+        dry_run: false,
+        dual: false,
+        turn_diagnostics: false,
+        all: false,
         out: output.clone(),
+        ci: false,
+        record: false,
     })
     .await
     .expect("run membench public benchmark");
@@ -758,7 +798,9 @@ fn render_working_summary_surfaces_typed_trace_trail_in_verification_suite() {
             salience_score: 0.82,
         }],
         semantic_consolidation: None,
-            procedures: vec![],
+        procedures: vec![],
+
+        compaction_quality: None,
     };
 
     let summary = crate::render::render_working_summary(&response, true);
@@ -1775,8 +1817,7 @@ async fn run_verify_feature_command_executes_seeded_handoff_verifier() {
     fs::create_dir_all(&output).expect("create output dir");
     write_test_benchmark_registry(&repo_root);
 
-    let base_url =
-        spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+    let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
     write_test_bundle_config(&output, &base_url);
 
     let report = run_verify_feature_command(&VerifyFeatureArgs {
@@ -1810,8 +1851,7 @@ async fn run_verify_feature_command_executes_seeded_verifier() {
     fs::create_dir_all(&output).expect("create output dir");
     write_test_benchmark_registry(&repo_root);
 
-    let base_url =
-        spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+    let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
     write_test_bundle_config(&output, &base_url);
 
     let report = run_verify_feature_command(&VerifyFeatureArgs {
@@ -1853,8 +1893,7 @@ async fn run_verify_feature_command_executes_seeded_wake_verifier() {
     fs::create_dir_all(&output).expect("create output dir");
     write_test_benchmark_registry(&repo_root);
 
-    let base_url =
-        spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+    let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
     write_test_bundle_config(&output, &base_url);
 
     let report = run_verify_feature_command(&VerifyFeatureArgs {

@@ -493,6 +493,7 @@ pub(crate) async fn sync_resume_state_record(
             visibility,
             belief_branch: None,
             source_agent: effective_agent.map(ToOwned::to_owned),
+            region: None,
             tags: vec!["resume_state".to_string()],
             stages: vec![MemoryStage::Canonical],
             limit: Some(1),
@@ -561,6 +562,7 @@ pub(crate) fn build_resume_state_store_request(
         supersedes: Vec::new(),
         tags: vec!["resume_state".to_string(), "session_state".to_string()],
         status: Some(MemoryStatus::Active),
+        lane: None,
     })
 }
 
@@ -634,7 +636,9 @@ mod tests {
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
+
+                compaction_quality: None,
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: RetrievalRoute::Auto,
@@ -653,6 +657,11 @@ mod tests {
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
             refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+            handoff_quality: None,
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         }
     }
 
@@ -993,10 +1002,11 @@ pub(crate) async fn run_improvement_loop(
         });
 
         if let Some(previous_gap) = previous_gap.as_ref()
-            && !improvement_progress(previous_gap, &current_gap) {
-                converged = true;
-                break;
-            }
+            && !improvement_progress(previous_gap, &current_gap)
+        {
+            converged = true;
+            break;
+        }
         previous_gap = Some(current_gap.clone());
 
         if iteration + 1 >= args.max_iterations {
@@ -1118,11 +1128,13 @@ pub(crate) async fn run_experiment_command(
         && hard_correctness_gate == "pass";
 
     let mut restored = false;
-    if args.apply && !accepted
-        && let Some(backup_root) = backup_root.as_ref() {
-            restore_bundle_snapshot(backup_root, &args.output)?;
-            restored = true;
-        }
+    if args.apply
+        && !accepted
+        && let Some(backup_root) = backup_root.as_ref()
+    {
+        restore_bundle_snapshot(backup_root, &args.output)?;
+        restored = true;
+    }
 
     let mut learnings = Vec::new();
     if accepted && args.consolidate {

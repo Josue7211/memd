@@ -16,6 +16,8 @@ pub(crate) struct Cli {
 pub(crate) enum Commands {
     Healthz,
     Status(StatusArgs),
+    State(StateArgs),
+    Claim(ClaimArgs),
     Capabilities(CapabilitiesArgs),
     Session(SessionArgs),
     Wake(WakeArgs),
@@ -50,6 +52,8 @@ pub(crate) enum Commands {
     Rag(RagArgs),
     Multimodal(MultimodalArgs),
     Ingest(IngestArgs),
+    #[command(name = "ingest-sources")]
+    IngestSources(IngestSourcesArgs),
     Inspiration(InspirationArgs),
     Skills(SkillsArgs),
     Packs(PacksArgs),
@@ -65,6 +69,7 @@ pub(crate) enum Commands {
     #[command(name = "memory-verify")]
     MemoryVerify(RequestInput),
     Repair(RepairArgs),
+    Correct(CorrectArgs),
     Search(SearchArgs),
     Lookup(LookupArgs),
     Context(ContextArgs),
@@ -84,6 +89,8 @@ pub(crate) enum Commands {
     Procedure(ProcedureArgs),
     Events(EventsArgs),
     Consolidate(ConsolidateArgs),
+    /// E3-D5: scan existing memory vectors for near-duplicates (cosine).
+    Dedup(DedupArgs),
     MaintenanceReport(MaintenanceReportArgs),
     Maintain(MaintainArgs),
     Policy(PolicyArgs),
@@ -91,11 +98,126 @@ pub(crate) enum Commands {
     Compact(CompactArgs),
     Obsidian(ObsidianArgs),
     Ui(UiArgs),
+    #[command(visible_alias = "hooks")]
     Hook(HookArgs),
     Init(InitArgs),
     Loops(LoopsArgs),
     Telemetry(TelemetryArgs),
     Autoresearch(AutoresearchArgs),
+    Diagnostics(DiagnosticsArgs),
+    #[command(name = "prime-reads")]
+    PrimeReads(PrimeReadsArgs),
+    /// Live memory contract (A3-D5): shape, verify, generate default.
+    Contract(ContractArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ContractArgs {
+    #[command(subcommand)]
+    pub(crate) command: ContractCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum ContractCommand {
+    /// Verify the current bundle against `.memd/contract.json`.
+    Verify(ContractVerifyArgs),
+    /// Write the default contract shape to `.memd/contract.json`.
+    Generate(ContractGenerateArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ContractVerifyArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    /// Emit violations as JSON instead of human-readable text.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ContractGenerateArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    /// Overwrite an existing contract.json.
+    #[arg(long, default_value_t = false)]
+    pub(crate) force: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PrimeReadsArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+    /// Read a specific session's live ledger instead of the newest sealed.
+    #[arg(long)]
+    pub(crate) since_session: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DiagnosticsArgs {
+    #[command(subcommand)]
+    pub(crate) command: DiagnosticsCommand,
+
+    #[arg(long, default_value_t = default_base_url())]
+    pub(crate) base_url: String,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum DiagnosticsCommand {
+    /// Combined measurement report: token efficiency, decay, compaction, benchmarks.
+    Report(DiagnosticsReportArgs),
+    /// Per-kind token efficiency for a given project context.
+    TokenEfficiency(DiagnosticsTokenEfficiencyArgs),
+    /// Working-memory lifecycle self-test: store → recall → expire → verify.
+    #[command(name = "lifecycle-probe")]
+    LifecycleProbe(DiagnosticsLifecycleProbeArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DiagnosticsLifecycleProbeArgs {
+    /// Bundle output directory (unused today, reserved for probe logs).
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    /// Emit human-readable summary instead of JSON.
+    #[arg(long, default_value_t = false)]
+    pub(crate) summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DiagnosticsReportArgs {
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) agent: Option<String>,
+
+    /// Bundle output directory (reads cached wake token metrics).
+    #[arg(long)]
+    pub(crate) output: Option<std::path::PathBuf>,
+
+    /// Output as JSON instead of human-readable text.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DiagnosticsTokenEfficiencyArgs {
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) agent: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -114,6 +236,9 @@ pub(crate) struct RepairArgs {
 
     #[arg(long)]
     pub(crate) workspace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) region: Option<String>,
 
     #[arg(long)]
     pub(crate) visibility: Option<String>,
@@ -147,6 +272,24 @@ pub(crate) struct RepairArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub(crate) struct CorrectArgs {
+    #[arg(long)]
+    pub(crate) id: String,
+
+    #[arg(long)]
+    pub(crate) content: String,
+
+    #[arg(long)]
+    pub(crate) reason: Option<String>,
+
+    #[arg(long, value_name = "TEXT")]
+    pub(crate) tag: Vec<String>,
+
+    #[arg(long)]
+    pub(crate) confidence: Option<f32>,
+}
+
+#[derive(Debug, Clone, Args)]
 pub(crate) struct ContextArgs {
     #[arg(long)]
     pub(crate) project: Option<String>,
@@ -156,6 +299,9 @@ pub(crate) struct ContextArgs {
 
     #[arg(long)]
     pub(crate) workspace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) region: Option<String>,
 
     #[arg(long)]
     pub(crate) visibility: Option<String>,
@@ -197,6 +343,9 @@ pub(crate) struct WorkingArgs {
     pub(crate) workspace: Option<String>,
 
     #[arg(long)]
+    pub(crate) region: Option<String>,
+
+    #[arg(long)]
     pub(crate) visibility: Option<String>,
 
     #[arg(long)]
@@ -225,6 +374,10 @@ pub(crate) struct WorkingArgs {
 
     #[arg(long)]
     pub(crate) auto_consolidate: bool,
+
+    /// Query text for lane-aware scoring (G2.2)
+    #[arg(long)]
+    pub(crate) query: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -798,6 +951,31 @@ pub(crate) struct ConsolidateArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub(crate) struct DedupArgs {
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    /// Cosine distance threshold (default: 0.15).
+    #[arg(long)]
+    pub(crate) threshold: Option<f32>,
+
+    /// Max clusters to emit.
+    #[arg(long, default_value_t = 50)]
+    pub(crate) limit: usize,
+
+    /// Preview only. Future: set false to apply merges.
+    #[arg(long, default_value_t = true)]
+    pub(crate) dry_run: bool,
+
+    /// Emit JSON.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 pub(crate) struct MaintenanceReportArgs {
     #[arg(long)]
     pub(crate) project: Option<String>,
@@ -1064,6 +1242,9 @@ pub(crate) struct LookupArgs {
     pub(crate) workspace: Option<String>,
 
     #[arg(long)]
+    pub(crate) region: Option<String>,
+
+    #[arg(long)]
     pub(crate) visibility: Option<String>,
 
     #[arg(long)]
@@ -1155,6 +1336,39 @@ pub(crate) struct IngestArgs {
 
     #[arg(long)]
     pub(crate) intent: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct IngestSourcesArgs {
+    /// Directory containing markdown files to ingest (e.g. .memd/lanes/architecture)
+    #[arg(long)]
+    pub(crate) dir: PathBuf,
+
+    /// Lane tag applied to all ingested items (e.g. "architecture", "inspiration")
+    #[arg(long)]
+    pub(crate) lane: String,
+
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    /// Memory kind for ingested items (default: fact)
+    #[arg(long, default_value = "fact")]
+    pub(crate) kind: String,
+
+    /// Memory scope for ingested items (default: project)
+    #[arg(long, default_value = "project")]
+    pub(crate) scope: String,
+
+    /// Extra tags applied to all items
+    #[arg(long, value_name = "TEXT")]
+    pub(crate) tag: Vec<String>,
+
+    /// Actually write to the DB (dry-run without this)
+    #[arg(long)]
+    pub(crate) apply: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1447,6 +1661,66 @@ pub(crate) enum HookMode {
     Context(HookContextArgs),
     Capture(HookCaptureArgs),
     Spill(HookSpillArgs),
+    FileInteraction(HookFileInteractionArgs),
+    SealLedger(HookSealLedgerArgs),
+    Gate(HookGateArgs),
+    /// A3 Part 3: verify `.memd/hooks/MANIFEST.json` against on-disk hooks.
+    Doctor(HookDoctorArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct HookDoctorArgs {
+    /// Project root that contains `.memd/hooks/`; defaults to current working dir.
+    #[arg(long)]
+    pub(crate) project_root: Option<PathBuf>,
+
+    /// Emit JSON instead of human-readable text.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct HookFileInteractionArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) session_id: Option<String>,
+
+    #[arg(long)]
+    pub(crate) stdin: bool,
+
+    #[arg(long)]
+    pub(crate) content: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct HookSealLedgerArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) session_id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct HookGateArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    /// Override session id; otherwise read from hook payload.
+    #[arg(long)]
+    pub(crate) session_id: Option<String>,
+
+    /// Policy override; otherwise read from .memd/config.json.
+    #[arg(long)]
+    pub(crate) policy: Option<String>,
+
+    #[arg(long)]
+    pub(crate) stdin: bool,
+
+    #[arg(long)]
+    pub(crate) content: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1681,6 +1955,15 @@ pub(crate) struct StatusArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub(crate) struct StateArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 pub(crate) struct CapabilitiesArgs {
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     pub(crate) output: PathBuf,
@@ -1780,6 +2063,97 @@ pub(crate) struct ClaimsArgs {
 
     #[arg(long)]
     pub(crate) summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ClaimArgs {
+    #[command(subcommand)]
+    pub(crate) command: ClaimSubcommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum ClaimSubcommand {
+    Create(ClaimCreateArgs),
+    List(ClaimListArgs),
+    Close(ClaimCloseArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ClaimCreateArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) scope: String,
+
+    #[arg(long, default_value_t = 900)]
+    pub(crate) ttl_secs: u64,
+
+    #[arg(long)]
+    pub(crate) summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ClaimListArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ClaimCloseArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) scope: String,
+
+    #[arg(long)]
+    pub(crate) summary: bool,
+}
+
+impl From<ClaimCreateArgs> for ClaimsArgs {
+    fn from(value: ClaimCreateArgs) -> Self {
+        Self {
+            output: value.output,
+            acquire: true,
+            release: false,
+            transfer_to_session: None,
+            scope: Some(value.scope),
+            ttl_secs: value.ttl_secs,
+            summary: value.summary,
+        }
+    }
+}
+
+impl From<ClaimListArgs> for ClaimsArgs {
+    fn from(value: ClaimListArgs) -> Self {
+        Self {
+            output: value.output,
+            acquire: false,
+            release: false,
+            transfer_to_session: None,
+            scope: None,
+            ttl_secs: 900,
+            summary: value.summary,
+        }
+    }
+}
+
+impl From<ClaimCloseArgs> for ClaimsArgs {
+    fn from(value: ClaimCloseArgs) -> Self {
+        Self {
+            output: value.output,
+            acquire: false,
+            release: true,
+            transfer_to_session: None,
+            scope: Some(value.scope),
+            ttl_secs: 900,
+            summary: value.summary,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Args)]
@@ -2348,16 +2722,22 @@ pub(crate) enum BenchmarkSubcommand {
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct PublicBenchmarkArgs {
+    #[arg(default_value = "")]
     pub(crate) dataset: String,
 
     #[arg(long, value_parser = ["raw", "hybrid"])]
     pub(crate) mode: Option<String>,
 
-    #[arg(long, value_parser = ["lexical", "sidecar"])]
+    #[arg(long, value_parser = ["lexical", "sidecar", "rrf", "memd"])]
     pub(crate) retrieval_backend: Option<String>,
 
     #[arg(long)]
     pub(crate) rag_url: Option<String>,
+
+    /// B3 Part-2: base URL of a running memd-server when
+    /// --retrieval-backend=memd. Defaults to http://127.0.0.1:8787.
+    #[arg(long)]
+    pub(crate) memd_url: Option<String>,
 
     #[arg(long)]
     pub(crate) top_k: Option<usize>,
@@ -2377,8 +2757,49 @@ pub(crate) struct PublicBenchmarkArgs {
     #[arg(long, default_value_t = false)]
     pub(crate) json: bool,
 
+    #[arg(long, default_value_t = false)]
+    pub(crate) community_standard: bool,
+
+    #[arg(long)]
+    pub(crate) hypotheses_file: Option<PathBuf>,
+
+    #[arg(long)]
+    pub(crate) grader_model: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) full_eval: bool,
+
+    #[arg(long)]
+    pub(crate) generator_model: Option<String>,
+
+    #[arg(long)]
+    pub(crate) sample: Option<usize>,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) dry_run: bool,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) dual: bool,
+
+    /// LongMemEval only: also compute turn-level retrieval diagnostics.
+    /// Default off so the primary 500-Q gate pays only for the session metric.
+    #[arg(long, default_value_t = false)]
+    pub(crate) turn_diagnostics: bool,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) all: bool,
+
     #[arg(long, alias = "output", default_value_os_t = default_bundle_root_path())]
     pub(crate) out: PathBuf,
+
+    /// CI gate mode: run all benchmarks, exit 1 if any drops below threshold.
+    /// Thresholds: LongMemEval >= 80%, LoCoMo >= 41.5%, MemBench >= 30%.
+    #[arg(long, default_value_t = false)]
+    pub(crate) ci: bool,
+
+    /// Record results to benchmark-registry.json with git SHA and timestamp.
+    #[arg(long, default_value_t = false)]
+    pub(crate) record: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -2818,6 +3239,17 @@ pub(crate) struct CheckpointArgs {
 
     #[arg(long)]
     pub(crate) stdin: bool,
+
+    /// Auto-commit tracked dirty files before checkpointing.
+    /// Ensures uncommitted work is saved as part of the handoff.
+    #[arg(long)]
+    pub(crate) auto_commit: bool,
+
+    /// Update ROADMAP_STATE key-value pairs before checkpointing.
+    /// Format: KEY=VALUE (e.g. --roadmap-set current_phase=P2 --roadmap-set phase_status=in_progress).
+    /// Applied before auto-commit so changes are included in the commit.
+    #[arg(long, value_name = "KEY=VALUE")]
+    pub(crate) roadmap_set: Vec<String>,
 }
 
 #[derive(Debug, Clone, Args)]

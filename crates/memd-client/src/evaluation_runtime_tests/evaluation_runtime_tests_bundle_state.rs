@@ -14,6 +14,8 @@
             content: Some("remember current blocker".to_string()),
             input: None,
             stdin: false,
+            auto_commit: false,
+            roadmap_set: vec![],
         };
 
         let translated = checkpoint_as_remember_args(&args);
@@ -137,7 +139,11 @@
             recent_repo_changes: vec!["status M crates/memd-client/src/main.rs".to_string()],
             change_summary: vec!["focus -> Finish the resume snapshot renderer".to_string()],
             resume_state_age_minutes: None,
-            refresh_recommended: false,
+            refresh_recommended: false, atlas_region_hints: Vec::new(),
+            handoff_quality: None,
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         };
 
         let markdown = render_bundle_memory_markdown(Path::new(".memd"), &snapshot, None, None);
@@ -562,6 +568,7 @@
             project: None,
             namespace: None,
             workspace: None,
+            region: None,
             visibility: None,
             route: None,
             intent: None,
@@ -1064,7 +1071,11 @@
             recent_repo_changes: vec!["status M crates/memd-client/src/render.rs".to_string()],
             change_summary: vec!["focus -> Follow the active current-task lane".to_string()],
             resume_state_age_minutes: None,
-            refresh_recommended: false,
+            refresh_recommended: false, atlas_region_hints: Vec::new(),
+            handoff_quality: None,
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         };
 
         let prompt = crate::render::render_resume_prompt(&snapshot);
@@ -1199,7 +1210,11 @@
             recent_repo_changes: vec!["status M crates/memd-client/src/render/render_summary.rs".to_string()],
             change_summary: vec!["focus -> current task: lock session continuity".to_string()],
             resume_state_age_minutes: None,
-            refresh_recommended: false,
+            refresh_recommended: false, atlas_region_hints: Vec::new(),
+            handoff_quality: None,
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         };
         let handoff = HandoffSnapshot {
             generated_at: chrono::Utc::now(),
@@ -1330,7 +1345,11 @@
             ],
             change_summary: vec!["focus -> current task: lock session continuity".to_string()],
             resume_state_age_minutes: None,
-            refresh_recommended: false,
+            refresh_recommended: false, atlas_region_hints: Vec::new(),
+            handoff_quality: None,
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         };
         let handoff = HandoffSnapshot {
             generated_at: chrono::Utc::now(),
@@ -1456,7 +1475,11 @@
             recent_repo_changes: vec!["repo clean".to_string()],
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
-            refresh_recommended: false,
+            refresh_recommended: false, atlas_region_hints: Vec::new(),
+            handoff_quality: None,
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         };
 
         assert!(base.redundant_context_items() >= 3);

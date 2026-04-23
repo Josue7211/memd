@@ -1,3 +1,6 @@
+> **Generated file.** These scripts are synced from `.memd/hooks/` by `scripts/sync-integration-hooks.sh`.
+> Edit the source at `.memd/hooks/` and re-run the script. Do not edit files in this directory directly.
+
 # memd Hook Kit
 
 These scripts are the default agent loop integration for `memd`.
@@ -127,8 +130,9 @@ memory files in the bundle.
 
 For Codex bundles, the wake path also refreshes `.memd/wake.md`,
 `.memd/mem.md`, and the Codex agent copies after a successful backend
-read. If the backend read is unavailable, the existing local bundle markdown is
-used instead of dropping the turn.
+read. Cached local bundle markdown is only trusted after the current session
+has already completed one live wake. A brand-new session must not silently
+bootstrap from stale cache.
 
 The installed `memd-hook-context` shim now routes through this script, so the
 default installed hook path also gets the richer wake-up surface.

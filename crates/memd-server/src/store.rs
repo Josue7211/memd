@@ -3,19 +3,22 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use memd_schema::{
-    AgentProfileRequest, AgentProfileUpsertRequest, EntityLinkRequest, EntityLinksRequest,
-    EntitySearchHit, EntitySearchRequest, HiveBoardRequest, HiveBoardResponse,
-    HiveClaimAcquireRequest, HiveClaimRecord, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
-    HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
-    HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest,
-    HiveCoordinationReceiptsRequest, HiveCoordinationReceiptsResponse, HiveMessageAckRequest,
-    HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse,
-    HiveRosterResponse, HiveSessionRecord, HiveSessionRetireRequest, HiveSessionRetireResponse,
+    AgentProfileRequest, AgentProfileUpsertRequest, CoordinationMode, DecayAgeDistribution,
+    DecayRunMetrics, DivergenceBranch, DivergenceDecision, DivergenceRequest, DivergenceSummary,
+    EntityLinkRequest, EntityLinksRequest, EntitySearchHit, EntitySearchRequest, HiveBoardRequest,
+    HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecord, HiveClaimRecoverRequest,
+    HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse,
+    HiveCoordinationInboxRequest, HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord,
+    HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
+    HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
+    HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse, HiveRosterResponse,
+    HiveSessionRecord, HiveSessionRetireRequest, HiveSessionRetireResponse,
     HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
     HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, MemoryAgentProfile,
     MemoryConsolidationRequest, MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord,
-    MemoryEntityRecord, MemoryEventRecord, MemoryItem, SourceMemoryRecord, SourceMemoryRequest,
-    SourceMemoryResponse, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    MemoryEntityRecord, MemoryEventRecord, MemoryItem, SalienceHistogram, SourceMemoryRecord,
+    SourceMemoryRequest, SourceMemoryResponse, WorkspaceMemoryRecord, WorkspaceMemoryRequest,
+    WorkspaceMemoryResponse,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use uuid::Uuid;
@@ -31,16 +34,131 @@ use crate::store_hive::{
     refresh_hive_session_presence,
 };
 use crate::store_migrations::{
-    create_hive_session_identity_indexes, migrate_hive_sessions_identity_columns,
-    migrate_hive_sessions_last_wake_at, migrate_redundancy_key,
+    create_hive_session_identity_indexes, migrate_episodes_tables, migrate_fts5_index,
+    migrate_hive_sessions_identity_columns, migrate_hive_sessions_last_wake_at,
+    migrate_lane_column, migrate_memory_items_embedding_model, migrate_memory_vectors_chunk_idx,
+    migrate_memory_vectors_embedding_model, migrate_redundancy_key, migrate_version_column,
+    migrate_visibility_column,
 };
 #[path = "store_coordination.rs"]
 mod store_coordination;
+#[path = "store_divergence.rs"]
+mod store_divergence;
+
+// K2.8: schema boundary marker persisted in `PRAGMA user_version`.
+// M3 shipped without stamping the version, so an unstamped file (value 0)
+// is treated as pre-M4 and idempotently upgraded. Any value <= current
+// runs the forward migration path (which today is no-op DDL — the column
+// shims run unconditionally via migrate_* helpers below). A value greater
+// than SCHEMA_VERSION_M5 means the file was written by a newer binary;
+// we log a warning but still open so a rollback doesn't brick the deploy.
+pub(crate) const SCHEMA_VERSION_M3: u32 = 3;
+#[allow(dead_code)]
+pub(crate) const SCHEMA_VERSION_M4: u32 = 4;
+pub(crate) const SCHEMA_VERSION_M5: u32 = 5;
+
+fn env_truthy(name: &str) -> bool {
+    match std::env::var(name) {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            matches!(v.as_str(), "1" | "true" | "on" | "yes")
+        }
+        Err(_) => false,
+    }
+}
+
+fn env_f64(name: &str, default: f64) -> f64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|v| v.is_finite() && *v >= 0.0)
+        .unwrap_or(default)
+}
+
+fn sqlite_connection_pragmas() -> &'static str {
+    if env_truthy("MEMD_BENCH_VOLATILE_DB") {
+        return r#"
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = OFF;
+            PRAGMA temp_store = MEMORY;
+            PRAGMA busy_timeout = 5000;
+            PRAGMA foreign_keys = ON;
+        "#;
+    }
+
+    r#"
+        PRAGMA journal_mode = WAL;
+        PRAGMA busy_timeout = 5000;
+        PRAGMA foreign_keys = ON;
+    "#
+}
+
+/// FTS5 per-field weights (content, tags) for `bm25()` ranking.
+/// Default (1.0, 1.0) equals SQLite's built-in `rank`. When
+/// `MEMD_RETRIEVAL_FTS5_TUNED` is truthy, overrides from
+/// `MEMD_RETRIEVAL_FTS5_W_CONTENT` / `_W_TAGS` are applied.
+/// B3-T1 sweep wiring.
+fn fts5_weights() -> (f64, f64) {
+    if !env_truthy("MEMD_RETRIEVAL_FTS5_TUNED") {
+        return (1.0, 1.0);
+    }
+    (
+        env_f64("MEMD_RETRIEVAL_FTS5_W_CONTENT", 1.0),
+        env_f64("MEMD_RETRIEVAL_FTS5_W_TAGS", 1.0),
+    )
+}
+
+fn stamp_schema_version(conn: &Connection) -> anyhow::Result<()> {
+    let current: u32 = conn
+        .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+        .context("read user_version")
+        .map(|v| v as u32)?;
+    match current {
+        0 => {
+            tracing::info!(
+                version = SCHEMA_VERSION_M5,
+                "stamping fresh database at schema version M5"
+            );
+        }
+        v if v == SCHEMA_VERSION_M5 => {}
+        v if v < SCHEMA_VERSION_M5 => {
+            tracing::info!(
+                from = v,
+                to = SCHEMA_VERSION_M5,
+                "upgrading database schema boundary marker (columns already migrated)"
+            );
+        }
+        v => {
+            tracing::warn!(
+                found = v,
+                expected = SCHEMA_VERSION_M5,
+                "database was written by a newer binary; opening anyway — proceed carefully"
+            );
+            return Ok(());
+        }
+    }
+    conn.pragma_update(None, "user_version", SCHEMA_VERSION_M5)
+        .context("write user_version")?;
+    Ok(())
+}
 
 #[derive(Debug, Clone)]
 pub struct DuplicateMatch {
     pub id: Uuid,
     pub item: MemoryItem,
+}
+
+/// Outcome of [`SqliteStore::import_with_version`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImportOutcome {
+    /// The import landed (new insert or higher-Lamport overwrite).
+    Applied,
+    /// The incoming item's Lamport version was not strictly greater than the
+    /// stored version — the write was refused to preserve causal ordering.
+    RejectedStale {
+        stored_version: u64,
+        incoming_version: u64,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -83,11 +201,10 @@ impl SqliteStore {
     pub fn open<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let db_path = path.as_ref().to_path_buf();
         let mut conn = Connection::open(&db_path).context("open sqlite database")?;
+        conn.execute_batch(sqlite_connection_pragmas())
+            .context("configure sqlite database")?;
         conn.execute_batch(
             r#"
-            PRAGMA journal_mode = WAL;
-            PRAGMA foreign_keys = ON;
-
             CREATE TABLE IF NOT EXISTS memory_items (
               id TEXT PRIMARY KEY,
               kind TEXT NOT NULL,
@@ -100,8 +217,10 @@ impl SqliteStore {
               status TEXT NOT NULL,
               confidence REAL NOT NULL,
               canonical_key TEXT NOT NULL,
+              embedding_model TEXT,
               updated_at TEXT NOT NULL,
-              payload_json TEXT NOT NULL
+              payload_json TEXT NOT NULL,
+              version INTEGER NOT NULL DEFAULT 1
             );
 
             CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory_items(scope);
@@ -231,6 +350,26 @@ impl SqliteStore {
               ON hive_coordination_receipts(actor_session, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_hive_coordination_receipts_project_namespace
               ON hive_coordination_receipts(project, namespace, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS hive_queen_denies (
+              task_id TEXT NOT NULL,
+              session TEXT NOT NULL,
+              denied_at TEXT NOT NULL,
+              reason TEXT,
+              PRIMARY KEY (task_id, session)
+            );
+            CREATE INDEX IF NOT EXISTS idx_hive_queen_denies_session
+              ON hive_queen_denies(session, denied_at DESC);
+
+            CREATE TABLE IF NOT EXISTS hive_handoff_locks (
+              task_id TEXT PRIMARY KEY,
+              locked_to_session TEXT NOT NULL,
+              locked_from_session TEXT,
+              locked_at TEXT NOT NULL,
+              version INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE INDEX IF NOT EXISTS idx_hive_handoff_locks_to_session
+              ON hive_handoff_locks(locked_to_session, locked_at DESC);
 
             CREATE TABLE IF NOT EXISTS skill_policy_apply_receipts (
               id TEXT PRIMARY KEY,
@@ -379,14 +518,53 @@ impl SqliteStore {
               ON procedures(status);
             CREATE INDEX IF NOT EXISTS idx_procedures_updated_at
               ON procedures(updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS ingestion_manifest (
+              source_path TEXT PRIMARY KEY,
+              content_hash TEXT NOT NULL,
+              mtime_epoch INTEGER NOT NULL,
+              lane TEXT,
+              project TEXT,
+              namespace TEXT,
+              last_ingested_at TEXT NOT NULL,
+              memory_item_id TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_ingestion_manifest_project
+              ON ingestion_manifest(project, namespace);
+            CREATE INDEX IF NOT EXISTS idx_ingestion_manifest_lane
+              ON ingestion_manifest(lane);
+
+            CREATE TABLE IF NOT EXISTS memory_vectors (
+              memory_id TEXT NOT NULL,
+              chunk_idx INTEGER NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              embedding_model TEXT NOT NULL DEFAULT 'all-minilm-l6-v2',
+              dim INTEGER NOT NULL,
+              vec BLOB NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (memory_id, chunk_idx)
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_vectors_scope
+              ON memory_vectors(project, namespace);
             "#,
         )
         .context("initialize sqlite schema")?;
 
         migrate_redundancy_key(&conn)?;
+        migrate_lane_column(&conn)?;
+        migrate_visibility_column(&conn)?;
+        migrate_version_column(&conn)?;
+        migrate_memory_vectors_embedding_model(&conn)?;
+        migrate_memory_items_embedding_model(&conn)?;
         migrate_hive_sessions_identity_columns(&mut conn)?;
         migrate_hive_sessions_last_wake_at(&conn)?;
         create_hive_session_identity_indexes(&conn)?;
+        migrate_fts5_index(&conn)?;
+        migrate_memory_vectors_chunk_idx(&conn)?;
+        migrate_episodes_tables(&conn)?;
+
+        stamp_schema_version(&conn)?;
 
         Ok(Self {
             db_path: Arc::new(db_path),
@@ -396,13 +574,8 @@ impl SqliteStore {
     pub(crate) fn connect(&self) -> anyhow::Result<Connection> {
         let conn = Connection::open(self.db_path.as_ref())
             .with_context(|| format!("open sqlite database {}", self.db_path.display()))?;
-        conn.execute_batch(
-            r#"
-            PRAGMA journal_mode = WAL;
-            PRAGMA foreign_keys = ON;
-            "#,
-        )
-        .context("configure sqlite connection")?;
+        conn.execute_batch(sqlite_connection_pragmas())
+            .context("configure sqlite connection")?;
         Ok(conn)
     }
 
@@ -423,8 +596,8 @@ impl SqliteStore {
             conn.execute(
                 r#"
                 INSERT INTO memory_items (
-                  id, kind, scope, stage, project, namespace, source_agent, redundancy_key, status, confidence, canonical_key, updated_at, payload_json
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                  id, kind, scope, stage, project, namespace, source_agent, redundancy_key, status, confidence, canonical_key, updated_at, payload_json, lane, visibility, version
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
                 "#,
                 params![
                     item.id.to_string(),
@@ -440,6 +613,9 @@ impl SqliteStore {
                     canonical_key,
                     item.updated_at.to_rfc3339(),
                     payload_json,
+                    item.lane,
+                    serde_json::to_string(&item.visibility).unwrap_or_else(|_| "\"workspace\"".to_string()),
+                    item.version as i64,
                 ],
             )
         };
@@ -471,6 +647,9 @@ impl SqliteStore {
         let status = serde_json::to_string(&item.status).context("serialize memory status")?;
 
         let mut conn = self.connect()?;
+        // L2.1: monotonic version bump. `version = version + 1` runs against
+        // the pre-update row, and `json_set` rewrites the nested payload copy
+        // atomically so the column and payload_json stay in lock-step.
         let update_result = conn.execute(
             r#"
             UPDATE memory_items
@@ -485,7 +664,10 @@ impl SqliteStore {
                 confidence = ?10,
                 canonical_key = ?11,
                 updated_at = ?12,
-                payload_json = ?13
+                payload_json = json_set(?13, '$.version', version + 1),
+                lane = ?14,
+                visibility = ?15,
+                version = version + 1
             WHERE id = ?1
             "#,
             params![
@@ -502,6 +684,9 @@ impl SqliteStore {
                 canonical_key,
                 item.updated_at.to_rfc3339(),
                 &payload_json,
+                item.lane,
+                serde_json::to_string(&item.visibility)
+                    .unwrap_or_else(|_| "\"workspace\"".to_string()),
             ],
         );
 
@@ -539,7 +724,9 @@ impl SqliteStore {
                         confidence = ?10,
                         canonical_key = ?11,
                         updated_at = ?12,
-                        payload_json = ?13
+                        payload_json = json_set(?13, '$.version', version + 1),
+                        visibility = ?14,
+                        version = version + 1
                     WHERE id = ?1
                     "#,
                     params![
@@ -556,6 +743,8 @@ impl SqliteStore {
                         canonical_key,
                         item.updated_at.to_rfc3339(),
                         &payload_json,
+                        serde_json::to_string(&item.visibility)
+                            .unwrap_or_else(|_| "\"workspace\"".to_string()),
                     ],
                 )
                 .context("merge duplicate memory item")?;
@@ -564,6 +753,97 @@ impl SqliteStore {
             }
             Err(err) => Err(err).context("update memory item"),
         }
+    }
+
+    /// Return the current Lamport `version` for a stored item, if present.
+    pub fn get_version(&self, id: Uuid) -> anyhow::Result<Option<u64>> {
+        let conn = self.connect()?;
+        let v = conn
+            .query_row(
+                "SELECT version FROM memory_items WHERE id = ?1",
+                [id.to_string()],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .context("read memory_items.version")?;
+        Ok(v.map(|n| n.max(0) as u64))
+    }
+
+    /// L2.1: conflict-checked import from a foreign source.
+    ///
+    /// `incoming.version` is the version the caller believes is authoritative.
+    /// If the row already exists and `stored.version >= incoming.version`, the
+    /// import is rejected as stale via [`ImportOutcome::RejectedStale`]. When
+    /// accepted, the item is inserted (new id) or overwritten with
+    /// `version = incoming.version` — the caller's version becomes the new
+    /// authoritative value, sidestepping the auto-increment used by local
+    /// mutations.
+    pub fn import_with_version(
+        &self,
+        item: &MemoryItem,
+        canonical_key: &str,
+        redundancy_key: &str,
+    ) -> anyhow::Result<ImportOutcome> {
+        if let Some(stored) = self.get_version(item.id)? {
+            if item.version <= stored {
+                return Ok(ImportOutcome::RejectedStale {
+                    stored_version: stored,
+                    incoming_version: item.version,
+                });
+            }
+
+            let payload_json = serde_json::to_string(item).context("serialize imported item")?;
+            let kind = serde_json::to_string(&item.kind).context("serialize kind")?;
+            let scope = serde_json::to_string(&item.scope).context("serialize scope")?;
+            let stage = serde_json::to_string(&item.stage).context("serialize stage")?;
+            let status = serde_json::to_string(&item.status).context("serialize status")?;
+            let conn = self.connect()?;
+            conn.execute(
+                r#"
+                UPDATE memory_items
+                SET kind = ?2,
+                    scope = ?3,
+                    stage = ?4,
+                    project = ?5,
+                    namespace = ?6,
+                    source_agent = ?7,
+                    redundancy_key = ?8,
+                    status = ?9,
+                    confidence = ?10,
+                    canonical_key = ?11,
+                    updated_at = ?12,
+                    payload_json = ?13,
+                    lane = ?14,
+                    visibility = ?15,
+                    version = ?16
+                WHERE id = ?1
+                "#,
+                params![
+                    item.id.to_string(),
+                    &kind,
+                    &scope,
+                    &stage,
+                    item.project,
+                    item.namespace,
+                    item.source_agent,
+                    redundancy_key,
+                    &status,
+                    item.confidence,
+                    canonical_key,
+                    item.updated_at.to_rfc3339(),
+                    &payload_json,
+                    item.lane,
+                    serde_json::to_string(&item.visibility)
+                        .unwrap_or_else(|_| "\"workspace\"".to_string()),
+                    item.version as i64,
+                ],
+            )
+            .context("apply imported memory item")?;
+            return Ok(ImportOutcome::Applied);
+        }
+
+        self.insert_or_get_duplicate(item, canonical_key, redundancy_key)?;
+        Ok(ImportOutcome::Applied)
     }
 
     pub fn resolve_entity_for_item(
@@ -606,10 +886,11 @@ impl SqliteStore {
     pub fn decay_entities(
         &self,
         request: &MemoryDecayRequest,
-    ) -> anyhow::Result<(usize, usize, usize)> {
+    ) -> anyhow::Result<(usize, usize, usize, DecayRunMetrics)> {
         let max_items = request.max_items.unwrap_or(128).min(1_000);
         let inactive_days = request.inactive_days.unwrap_or(21).max(1);
         let max_decay = request.max_decay.unwrap_or(0.12).clamp(0.01, 0.5);
+        let decay_divisor = request.decay_divisor.unwrap_or(14.0).max(1.0);
         let record_events = request.record_events.unwrap_or(true);
 
         let rows: Vec<(String, MemoryEntityRecord)> = {
@@ -645,29 +926,60 @@ impl SqliteStore {
         let mut events = 0usize;
         let now = chrono::Utc::now();
 
+        let mut metrics = DecayRunMetrics {
+            inspected: 0,
+            decayed: 0,
+            zeroed: 0,
+            total_decay_applied: 0.0,
+            age_distribution: DecayAgeDistribution::default(),
+            salience_pre: SalienceHistogram::new(),
+            salience_post: SalienceHistogram::new(),
+        };
+
         for (entity_key, mut entity) in rows {
             scanned += 1;
+            metrics.inspected += 1;
 
             let reference = entity
                 .last_accessed_at
                 .or(entity.last_seen_at)
                 .unwrap_or(entity.updated_at);
             let idle_days = (now - reference).num_days().max(0);
+
+            // Record age distribution for all inspected items.
+            match idle_days {
+                d if d < 7 => metrics.age_distribution.under_7d += 1,
+                d if d < 14 => metrics.age_distribution.d7_to_14 += 1,
+                d if d < 21 => metrics.age_distribution.d14_to_21 += 1,
+                d if d < 30 => metrics.age_distribution.d21_to_30 += 1,
+                _ => metrics.age_distribution.over_30d += 1,
+            }
+
             if idle_days < inactive_days {
                 continue;
             }
 
             let inactive_days_over = (idle_days - inactive_days) as f32;
             let rehearsal_factor = 1.0 / ((entity.rehearsal_count as f32 + 1.0).ln_1p() + 1.0);
-            let decay = (inactive_days_over / 14.0).min(1.0) * max_decay * rehearsal_factor;
+            let decay =
+                (inactive_days_over / decay_divisor).min(1.0) * max_decay * rehearsal_factor;
             if decay <= 0.001 {
                 continue;
             }
 
             let original_salience = entity.salience_score;
+            metrics.salience_pre.record(original_salience);
+
             entity.salience_score = (entity.salience_score - decay).max(0.0);
             if (entity.salience_score - original_salience).abs() < f32::EPSILON {
                 continue;
+            }
+
+            metrics.decayed += 1;
+            metrics.total_decay_applied += original_salience - entity.salience_score;
+            metrics.salience_post.record(entity.salience_score);
+            if entity.salience_score == 0.0 {
+                metrics.zeroed += 1;
             }
 
             entity.updated_at = now;
@@ -720,13 +1032,14 @@ impl SqliteStore {
             }
         }
 
-        Ok((scanned, updated, events))
+        Ok((scanned, updated, events, metrics))
     }
 
     pub fn decay_candidate_count(&self, request: &MemoryDecayRequest) -> anyhow::Result<usize> {
         let max_items = request.max_items.unwrap_or(128).min(1_000);
         let inactive_days = request.inactive_days.unwrap_or(21).max(1);
         let max_decay = request.max_decay.unwrap_or(0.12).clamp(0.01, 0.5);
+        let decay_divisor = request.decay_divisor.unwrap_or(14.0).max(1.0);
 
         let rows: Vec<MemoryEntityRecord> = {
             let conn = self.connect()?;
@@ -769,13 +1082,108 @@ impl SqliteStore {
 
             let inactive_days_over = (idle_days - inactive_days) as f32;
             let rehearsal_factor = 1.0 / ((entity.rehearsal_count as f32 + 1.0).ln_1p() + 1.0);
-            let decay = (inactive_days_over / 14.0).min(1.0) * max_decay * rehearsal_factor;
+            let decay =
+                (inactive_days_over / decay_divisor).min(1.0) * max_decay * rehearsal_factor;
             if decay > 0.001 {
                 updated += 1;
             }
         }
 
         Ok(updated)
+    }
+
+    /// Read-only decay simulation: scans entities and returns metrics without modifying anything.
+    /// Used by the `/api/diagnostics/decay` endpoint.
+    pub fn decay_diagnostics(
+        &self,
+        request: &MemoryDecayRequest,
+    ) -> anyhow::Result<DecayRunMetrics> {
+        let max_items = request.max_items.unwrap_or(128).min(1_000);
+        let inactive_days = request.inactive_days.unwrap_or(21).max(1);
+        let max_decay = request.max_decay.unwrap_or(0.12).clamp(0.01, 0.5);
+        let decay_divisor = request.decay_divisor.unwrap_or(14.0).max(1.0);
+
+        let rows: Vec<MemoryEntityRecord> = {
+            let conn = self.connect()?;
+            let mut stmt = conn
+                .prepare(
+                    r#"
+                    SELECT payload_json
+                    FROM memory_entities
+                    ORDER BY updated_at ASC
+                    LIMIT ?1
+                    "#,
+                )
+                .context("prepare decay diagnostics query")?;
+            let rows = stmt
+                .query_map(params![max_items as i64], |row| row.get::<_, String>(0))
+                .context("query decay diagnostics entities")?;
+            let mut decoded = Vec::new();
+            for row in rows {
+                let payload = row.context("read decay diagnostics row")?;
+                let entity: MemoryEntityRecord = serde_json::from_str(&payload)
+                    .context("deserialize decay diagnostics entity")?;
+                decoded.push(entity);
+            }
+            decoded
+        };
+
+        let now = chrono::Utc::now();
+        let mut metrics = DecayRunMetrics {
+            inspected: 0,
+            decayed: 0,
+            zeroed: 0,
+            total_decay_applied: 0.0,
+            age_distribution: DecayAgeDistribution::default(),
+            salience_pre: SalienceHistogram::new(),
+            salience_post: SalienceHistogram::new(),
+        };
+
+        for entity in rows {
+            metrics.inspected += 1;
+
+            let reference = entity
+                .last_accessed_at
+                .or(entity.last_seen_at)
+                .unwrap_or(entity.updated_at);
+            let idle_days = (now - reference).num_days().max(0);
+
+            match idle_days {
+                d if d < 7 => metrics.age_distribution.under_7d += 1,
+                d if d < 14 => metrics.age_distribution.d7_to_14 += 1,
+                d if d < 21 => metrics.age_distribution.d14_to_21 += 1,
+                d if d < 30 => metrics.age_distribution.d21_to_30 += 1,
+                _ => metrics.age_distribution.over_30d += 1,
+            }
+
+            if idle_days < inactive_days {
+                continue;
+            }
+
+            let inactive_days_over = (idle_days - inactive_days) as f32;
+            let rehearsal_factor = 1.0 / ((entity.rehearsal_count as f32 + 1.0).ln_1p() + 1.0);
+            let decay =
+                (inactive_days_over / decay_divisor).min(1.0) * max_decay * rehearsal_factor;
+            if decay <= 0.001 {
+                continue;
+            }
+
+            let original_salience = entity.salience_score;
+            let post_salience = (original_salience - decay).max(0.0);
+            if (post_salience - original_salience).abs() < f32::EPSILON {
+                continue;
+            }
+
+            metrics.decayed += 1;
+            metrics.total_decay_applied += original_salience - post_salience;
+            metrics.salience_pre.record(original_salience);
+            metrics.salience_post.record(post_salience);
+            if post_salience == 0.0 {
+                metrics.zeroed += 1;
+            }
+        }
+
+        Ok(metrics)
     }
 
     pub fn consolidation_candidates(
@@ -867,6 +1275,57 @@ impl SqliteStore {
         Ok(candidates)
     }
 
+    /// B3-T2: best-effort lookup of entity aliases for query-expansion.
+    /// Returns up to `limit` aliases drawn from entities whose `entity_key`
+    /// case-insensitively contains any whitespace-split token of `query`.
+    /// Skips tokens shorter than 3 chars. Caller is responsible for de-duping
+    /// the resulting list against the original query.
+    pub fn entity_aliases_for_query(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<String>> {
+        let tokens: Vec<String> = query
+            .split_whitespace()
+            .filter(|t| t.chars().count() >= 3)
+            .take(5)
+            .map(|t| t.to_ascii_lowercase())
+            .collect();
+        if tokens.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let conn = self.connect()?;
+        let mut aliases: Vec<String> = Vec::new();
+        for token in &tokens {
+            let pattern = format!("%{}%", token);
+            let mut stmt = conn.prepare(
+                "SELECT payload_json FROM memory_entities WHERE lower(entity_key) LIKE ?1 LIMIT 10",
+            )?;
+            let rows = stmt.query_map(params![pattern], |row| row.get::<_, String>(0))?;
+            for row in rows.flatten() {
+                if let Ok(rec) = serde_json::from_str::<MemoryEntityRecord>(&row) {
+                    for a in rec.aliases {
+                        let trimmed = a.trim().to_string();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        if !aliases
+                            .iter()
+                            .any(|existing| existing.eq_ignore_ascii_case(&trimmed))
+                        {
+                            aliases.push(trimmed);
+                            if aliases.len() >= limit {
+                                return Ok(aliases);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(aliases)
+    }
+
     pub fn entity_for_item(&self, item_id: Uuid) -> anyhow::Result<Option<MemoryEntityRecord>> {
         let conn = self.connect()?;
         let payload = conn.query_row(
@@ -891,6 +1350,35 @@ impl SqliteStore {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(err) => Err(err).context("fetch memory entity by item"),
         }
+    }
+
+    /// Return all memory items linked to a given entity (via memory_events).
+    pub fn items_for_entity(&self, entity_id: Uuid) -> anyhow::Result<Vec<MemoryItem>> {
+        let conn = self.connect()?;
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT DISTINCT mi.payload_json
+                FROM memory_items mi
+                JOIN memory_events ev ON ev.memory_item_id = mi.id
+                WHERE ev.entity_id = ?1
+                ORDER BY mi.updated_at DESC
+                "#,
+            )
+            .context("prepare items_for_entity query")?;
+
+        let rows = stmt
+            .query_map([entity_id.to_string()], |row| row.get::<_, String>(0))
+            .context("query items for entity")?;
+
+        let mut items = Vec::new();
+        for row in rows {
+            let payload = row.context("read item row")?;
+            let item: MemoryItem =
+                serde_json::from_str(&payload).context("deserialize memory item payload")?;
+            items.push(item);
+        }
+        Ok(items)
     }
 
     pub fn entity_by_id(&self, entity_id: Uuid) -> anyhow::Result<Option<MemoryEntityRecord>> {
@@ -995,6 +1483,9 @@ impl SqliteStore {
             relation_kind: request.relation_kind,
             confidence: request.confidence.unwrap_or(0.8).clamp(0.0, 1.0),
             created_at: now,
+            valid_from: request.valid_from.or(Some(now)),
+            valid_to: request.valid_to,
+            source_item_id: request.source_item_id,
             note: request.note.clone(),
             context: request.context.clone(),
             tags: request.tags.clone(),
@@ -1032,6 +1523,50 @@ impl SqliteStore {
             links.push(link);
         }
         Ok(links)
+    }
+
+    pub fn list_entity_links(&self) -> anyhow::Result<Vec<MemoryEntityLinkRecord>> {
+        let conn = self.connect()?;
+        let mut stmt = conn
+            .prepare("SELECT payload_json FROM memory_entity_links ORDER BY created_at DESC")
+            .context("prepare entity links list query")?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .context("query entity links list")?;
+
+        let mut links = Vec::new();
+        for row in rows {
+            let payload = row.context("read entity link row")?;
+            let link: MemoryEntityLinkRecord =
+                serde_json::from_str(&payload).context("deserialize entity link payload")?;
+            links.push(link);
+        }
+        Ok(links)
+    }
+
+    pub fn close_links_for_source_item(
+        &self,
+        source_item_id: Uuid,
+        closed_at: chrono::DateTime<chrono::Utc>,
+    ) -> anyhow::Result<usize> {
+        let mut updated = 0usize;
+        for mut link in self.list_entity_links()? {
+            if link.source_item_id != Some(source_item_id) || link.valid_to.is_some() {
+                continue;
+            }
+            link.valid_to = Some(closed_at);
+            self.upsert_entity_link(&link)?;
+            updated += 1;
+        }
+        Ok(updated)
+    }
+
+    pub fn atlas_region_count(&self) -> anyhow::Result<usize> {
+        let conn = self.connect()?;
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM atlas_regions", [], |row| row.get(0))
+            .context("count atlas regions")?;
+        Ok(count.max(0) as usize)
     }
 
     pub fn upsert_agent_profile(
@@ -1539,12 +2074,323 @@ impl SqliteStore {
         Ok(items)
     }
 
+    /// Scoped list — filters by project and/or namespace at the SQL layer
+    /// using `idx_memory_project` / `idx_memory_namespace`. Used by search
+    /// to avoid a full-corpus scan when the caller pins a scope (bench
+    /// hot path: per-question namespace).
+    pub fn list_for_scope(
+        &self,
+        project: Option<&str>,
+        namespace: Option<&str>,
+    ) -> anyhow::Result<Vec<MemoryItem>> {
+        if project.is_none() && namespace.is_none() {
+            return self.list();
+        }
+        let conn = self.connect()?;
+        let mut sql = String::from("SELECT payload_json FROM memory_items WHERE 1=1");
+        let mut args: Vec<String> = Vec::new();
+        if let Some(p) = project {
+            sql.push_str(" AND project = ?");
+            args.push(p.to_string());
+        }
+        if let Some(n) = namespace {
+            sql.push_str(" AND namespace = ?");
+            args.push(n.to_string());
+        }
+        sql.push_str(" ORDER BY updated_at DESC");
+
+        let mut stmt = conn.prepare(&sql).context("prepare scoped list query")?;
+        let param_refs: Vec<&dyn rusqlite::ToSql> =
+            args.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+        let rows = stmt
+            .query_map(param_refs.as_slice(), |row| row.get::<_, String>(0))
+            .context("query scoped memory items")?;
+
+        let mut items = Vec::new();
+        for row in rows {
+            let payload = row.context("read memory row")?;
+            let item: MemoryItem =
+                serde_json::from_str(&payload).context("deserialize memory item payload")?;
+            items.push(item);
+        }
+        Ok(items)
+    }
+
+    /// Full-text search via FTS5 index. Returns (item_id, bm25_score) pairs
+    /// ranked by BM25 relevance. Scores are negative (SQLite BM25 convention)
+    /// so we negate them for positive-is-better ordering.
+    ///
+    /// When `MEMD_RETRIEVAL_FTS5_TUNED` is truthy (1/true/on/yes),
+    /// per-field weights are applied via `bm25(memory_items_fts, w_content, w_tags)`.
+    /// Weights override via `MEMD_RETRIEVAL_FTS5_W_CONTENT` / `_W_TAGS`
+    /// (floats; default 1.0 content, 1.0 tags — equivalent to untuned `rank`).
+    pub fn fts_search(&self, query: &str, limit: usize) -> anyhow::Result<Vec<(Uuid, f64)>> {
+        let conn = self.connect()?;
+        let (w_content, w_tags) = fts5_weights();
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT item_id, -bm25(memory_items_fts, ?3, ?4) AS score
+                FROM memory_items_fts
+                WHERE memory_items_fts MATCH ?1
+                ORDER BY bm25(memory_items_fts, ?3, ?4)
+                LIMIT ?2
+                "#,
+            )
+            .context("prepare fts search query")?;
+
+        let rows = stmt
+            .query_map(params![query, limit as i64, w_content, w_tags], |row| {
+                let id_str: String = row.get(0)?;
+                let score: f64 = row.get(1)?;
+                Ok((id_str, score))
+            })
+            .context("execute fts search")?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let (id_str, score) = row.context("read fts result row")?;
+            if let Ok(id) = Uuid::parse_str(&id_str) {
+                results.push((id, score));
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// Replace all stored chunk vectors for `memory_id` with the supplied
+    /// `(chunk_idx, vec_bytes)` list. `project`/`namespace` mirror the
+    /// MemoryItem scope so dense search can prefilter the same slice
+    /// `snapshot_for_scope` uses. Callers pass every chunk they want
+    /// persisted; prior rows for this id are deleted first so stale
+    /// chunks from a longer previous content don't linger.
+    pub fn replace_memory_vector_chunks(
+        &self,
+        memory_id: Uuid,
+        project: Option<&str>,
+        namespace: Option<&str>,
+        embedding_model: &str,
+        dim: usize,
+        chunks: &[(i64, Vec<u8>)],
+    ) -> anyhow::Result<()> {
+        let mut conn = self.connect()?;
+        let tx = conn.transaction().context("begin vector upsert tx")?;
+        tx.execute(
+            "DELETE FROM memory_vectors WHERE memory_id = ?1",
+            params![memory_id.to_string()],
+        )
+        .context("delete prior chunks")?;
+        let now = chrono::Utc::now().to_rfc3339();
+        {
+            let mut stmt = tx
+                .prepare(
+                    r#"
+                    INSERT INTO memory_vectors (memory_id, chunk_idx, project, namespace, embedding_model, dim, vec, updated_at)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                    "#,
+                )
+                .context("prepare insert chunk")?;
+            for (idx, bytes) in chunks {
+                stmt.execute(params![
+                    memory_id.to_string(),
+                    *idx,
+                    project,
+                    namespace,
+                    embedding_model,
+                    dim as i64,
+                    bytes,
+                    now,
+                ])
+                .context("insert chunk")?;
+            }
+        }
+        tx.execute(
+            "UPDATE memory_items SET embedding_model = ?1 WHERE id = ?2",
+            params![embedding_model, memory_id.to_string()],
+        )
+        .context("stamp memory item embedding model")?;
+        tx.commit().context("commit vector upsert tx")?;
+        Ok(())
+    }
+
+    /// Load every (id, raw-bytes) vector matching the given scope. Null
+    /// `project` / `namespace` filters degrade to "match any" (mirrors
+    /// `list_for_scope`). Returns raw bytes; caller converts to f32 slices.
+    pub fn list_vectors_for_scope(
+        &self,
+        project: Option<&str>,
+        namespace: Option<&str>,
+        embedding_model: &str,
+    ) -> anyhow::Result<Vec<(Uuid, Vec<u8>)>> {
+        let conn = self.connect()?;
+        let mut clauses: Vec<&str> = vec!["embedding_model = ?"];
+        if project.is_some() {
+            clauses.push("project = ?");
+        }
+        if namespace.is_some() {
+            clauses.push("namespace = ?");
+        }
+        let where_clause = if clauses.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", clauses.join(" AND "))
+        };
+        let sql = format!(
+            "SELECT memory_id, vec FROM memory_vectors{} LIMIT 20000",
+            where_clause
+        );
+        let mut stmt = conn.prepare(&sql).context("prepare list vectors")?;
+
+        let mut bound: Vec<&dyn rusqlite::ToSql> = Vec::new();
+        bound.push(&embedding_model);
+        if let Some(p) = project.as_ref() {
+            bound.push(p);
+        }
+        if let Some(n) = namespace.as_ref() {
+            bound.push(n);
+        }
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(bound.into_iter()), |row| {
+                let id_str: String = row.get(0)?;
+                let vec_bytes: Vec<u8> = row.get(1)?;
+                Ok((id_str, vec_bytes))
+            })
+            .context("query memory vectors")?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (id_str, bytes) = row.context("read vector row")?;
+            if let Ok(id) = Uuid::parse_str(&id_str) {
+                out.push((id, bytes));
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn items_needing_reembed(
+        &self,
+        embedding_model: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<MemoryItem>> {
+        let conn = self.connect()?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT payload_json
+            FROM memory_items
+            WHERE embedding_model IS NULL OR embedding_model != ?1
+            ORDER BY updated_at DESC
+            LIMIT ?2
+            "#,
+        )?;
+        let rows = stmt.query_map(params![embedding_model, limit as i64], |row| {
+            row.get::<_, String>(0)
+        })?;
+        let mut items = Vec::new();
+        for row in rows {
+            let payload = row?;
+            items.push(serde_json::from_str::<MemoryItem>(&payload)?);
+        }
+        Ok(items)
+    }
+
     pub fn count(&self) -> anyhow::Result<usize> {
         let conn = self.connect()?;
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM memory_items", [], |row| row.get(0))
             .context("count memory items")?;
         Ok(count as usize)
+    }
+
+    pub fn schema_version(&self) -> anyhow::Result<u32> {
+        let conn = self.connect()?;
+        let v: i64 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .context("read user_version")?;
+        Ok(v as u32)
+    }
+
+    // K2.5: scan the memory_events spine for per-entity recorded_at
+    // monotonicity and produce a deterministic rolling payload hash.
+    // Ordering: (entity_id, recorded_at ASC, id ASC) so any stale/reordered
+    // row shows up as a monotonic violation against its entity predecessor.
+    // The rolling hash chains the payload bytes across every row; it's a
+    // stable fingerprint callers can compare across invocations to detect
+    // in-place tampering, not a Merkle proof.
+    pub fn verify_spine(&self) -> anyhow::Result<memd_schema::SpineVerifyResponse> {
+        use sha2::{Digest, Sha256};
+
+        let conn = self.connect()?;
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT id, entity_id, recorded_at, payload_json
+                FROM memory_events
+                ORDER BY entity_id ASC, recorded_at ASC, id ASC
+                "#,
+            )
+            .context("prepare spine verify query")?;
+
+        let mut rows = stmt.query([]).context("execute spine verify query")?;
+
+        let mut scanned: u64 = 0;
+        let mut violations: u64 = 0;
+        let mut first_violation: Option<memd_schema::SpineViolation> = None;
+        let mut hasher = Sha256::new();
+
+        let mut prev: Option<(String, chrono::DateTime<chrono::Utc>, String)> = None;
+
+        while let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            let entity_id: String = row.get(1)?;
+            let recorded_at_raw: String = row.get(2)?;
+            let payload_json: String = row.get(3)?;
+
+            let recorded_at = chrono::DateTime::parse_from_rfc3339(&recorded_at_raw)
+                .with_context(|| format!("parse recorded_at for event {id}"))?
+                .with_timezone(&chrono::Utc);
+
+            hasher.update(entity_id.as_bytes());
+            hasher.update([0u8]);
+            hasher.update(recorded_at_raw.as_bytes());
+            hasher.update([0u8]);
+            hasher.update(payload_json.as_bytes());
+            hasher.update([0xff]);
+            scanned += 1;
+
+            if let Some((prev_entity, prev_at, prev_id)) = &prev {
+                if prev_entity == &entity_id && recorded_at < *prev_at {
+                    violations += 1;
+                    if first_violation.is_none()
+                        && let (Ok(earlier), Ok(later)) =
+                            (Uuid::parse_str(prev_id), Uuid::parse_str(&id))
+                    {
+                        if let Ok(entity_uuid) = Uuid::parse_str(&entity_id) {
+                            first_violation = Some(memd_schema::SpineViolation {
+                                entity_id: entity_uuid,
+                                earlier_event_id: earlier,
+                                later_event_id: later,
+                                earlier_recorded_at: *prev_at,
+                                later_recorded_at: recorded_at,
+                            });
+                        }
+                    }
+                }
+            }
+
+            prev = Some((entity_id, recorded_at, id));
+        }
+
+        let digest = hasher.finalize();
+        let rolling_sha256 = digest
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+
+        Ok(memd_schema::SpineVerifyResponse {
+            scanned,
+            monotonic_violations: violations,
+            first_violation,
+            rolling_sha256,
+        })
     }
 
     pub fn drain_expired(
@@ -1558,8 +2404,7 @@ impl SqliteStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .context("begin drain transaction")?;
 
-        let expired_status =
-            serde_json::to_string(&memd_schema::MemoryStatus::Expired).unwrap();
+        let expired_status = serde_json::to_string(&memd_schema::MemoryStatus::Expired).unwrap();
         let mut param_values: Vec<String> = vec![expired_status];
         let mut sql = String::from(
             "DELETE FROM memory_items WHERE id IN (SELECT id FROM memory_items WHERE status = ?1",
@@ -1579,7 +2424,9 @@ impl SqliteStore {
             .iter()
             .map(|s| s as &dyn rusqlite::ToSql)
             .collect();
-        let deleted = tx.execute(&sql, params.as_slice()).context("drain expired items")?;
+        let deleted = tx
+            .execute(&sql, params.as_slice())
+            .context("drain expired items")?;
         tx.commit()?;
         Ok(deleted)
     }
@@ -1588,8 +2435,7 @@ impl SqliteStore {
         if ids.is_empty() {
             return Ok(0);
         }
-        let expired_status =
-            serde_json::to_string(&memd_schema::MemoryStatus::Expired).unwrap();
+        let expired_status = serde_json::to_string(&memd_schema::MemoryStatus::Expired).unwrap();
         let mut conn = self.connect()?;
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1610,10 +2456,11 @@ impl SqliteStore {
             }
             item.status = memd_schema::MemoryStatus::Expired;
             item.updated_at = chrono::Utc::now();
-            let updated_payload = serde_json::to_string(&item).context("serialize dismissed item")?;
+            let updated_payload =
+                serde_json::to_string(&item).context("serialize dismissed item")?;
             let updated_status = &expired_status;
             tx.execute(
-                "UPDATE memory_items SET status = ?1, updated_at = ?2, payload_json = ?3 WHERE id = ?4",
+                "UPDATE memory_items SET status = ?1, updated_at = ?2, payload_json = json_set(?3, '$.version', version + 1), version = version + 1 WHERE id = ?4",
                 params![updated_status, item.updated_at.to_rfc3339(), updated_payload, id.to_string()],
             )
             .context("dismiss inbox item")?;
@@ -2662,6 +3509,113 @@ impl SqliteStore {
         .context("insert memory event")?;
         Ok(())
     }
+
+    // ── Ingestion Manifest ──────────────────────────────────────────
+
+    /// Look up a manifest entry by source path.
+    pub fn ingestion_manifest_get(
+        &self,
+        source_path: &str,
+    ) -> anyhow::Result<Option<IngestionManifestEntry>> {
+        let conn = self.connect()?;
+        let row = conn.query_row(
+            "SELECT source_path, content_hash, mtime_epoch, lane, project, namespace, last_ingested_at, memory_item_id FROM ingestion_manifest WHERE source_path = ?1",
+            [source_path],
+            |row| {
+                Ok(IngestionManifestEntry {
+                    source_path: row.get(0)?,
+                    content_hash: row.get(1)?,
+                    mtime_epoch: row.get(2)?,
+                    lane: row.get(3)?,
+                    project: row.get(4)?,
+                    namespace: row.get(5)?,
+                    last_ingested_at: row.get(6)?,
+                    memory_item_id: row.get(7)?,
+                })
+            },
+        );
+        match row {
+            Ok(entry) => Ok(Some(entry)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(err) => Err(err).context("lookup ingestion manifest entry"),
+        }
+    }
+
+    /// Upsert a manifest entry after ingesting a file.
+    pub fn ingestion_manifest_upsert(&self, entry: &IngestionManifestEntry) -> anyhow::Result<()> {
+        let conn = self.connect()?;
+        conn.execute(
+            r#"
+            INSERT INTO ingestion_manifest (
+              source_path, content_hash, mtime_epoch, lane, project, namespace, last_ingested_at, memory_item_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(source_path) DO UPDATE SET
+              content_hash = excluded.content_hash,
+              mtime_epoch = excluded.mtime_epoch,
+              lane = excluded.lane,
+              last_ingested_at = excluded.last_ingested_at,
+              memory_item_id = excluded.memory_item_id
+            "#,
+            params![
+                entry.source_path,
+                entry.content_hash,
+                entry.mtime_epoch,
+                entry.lane,
+                entry.project,
+                entry.namespace,
+                entry.last_ingested_at,
+                entry.memory_item_id,
+            ],
+        )
+        .context("upsert ingestion manifest entry")?;
+        Ok(())
+    }
+
+    /// List all manifest entries for a project/namespace.
+    pub fn ingestion_manifest_list(
+        &self,
+        project: Option<&str>,
+        namespace: Option<&str>,
+    ) -> anyhow::Result<Vec<IngestionManifestEntry>> {
+        let conn = self.connect()?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT source_path, content_hash, mtime_epoch, lane, project, namespace, last_ingested_at, memory_item_id
+            FROM ingestion_manifest
+            WHERE (?1 IS NULL OR project = ?1)
+              AND (?2 IS NULL OR namespace = ?2)
+            ORDER BY last_ingested_at DESC
+            "#,
+        )?;
+        let entries = stmt
+            .query_map(params![project, namespace], |row| {
+                Ok(IngestionManifestEntry {
+                    source_path: row.get(0)?,
+                    content_hash: row.get(1)?,
+                    mtime_epoch: row.get(2)?,
+                    lane: row.get(3)?,
+                    project: row.get(4)?,
+                    namespace: row.get(5)?,
+                    last_ingested_at: row.get(6)?,
+                    memory_item_id: row.get(7)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .context("list ingestion manifest")?;
+        Ok(entries)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct IngestionManifestEntry {
+    pub source_path: String,
+    pub content_hash: String,
+    pub mtime_epoch: i64,
+    pub lane: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub last_ingested_at: String,
+    pub memory_item_id: Option<String>,
 }
 
 #[cfg(test)]

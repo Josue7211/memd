@@ -1,7 +1,56 @@
 use super::*;
 use crate::harness::cache;
+use memd_core::file_ledger::FileInteractionLedger;
+use memd_schema::MemoryStatus;
 
 mod wakeup;
+
+pub(crate) fn collect_files_touched(output: &Path) -> Vec<String> {
+    let state = output.join("state");
+    let Ok(rd) = std::fs::read_dir(&state) else {
+        return Vec::new();
+    };
+
+    let mut latest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    let consider =
+        |p: std::path::PathBuf,
+         latest: &mut Option<(std::time::SystemTime, std::path::PathBuf)>| {
+            if let Ok(meta) = std::fs::metadata(&p) {
+                if let Ok(mt) = meta.modified() {
+                    if latest.as_ref().map_or(true, |(l, _)| mt > *l) {
+                        *latest = Some((mt, p));
+                    }
+                }
+            }
+        };
+
+    for entry in rd.flatten() {
+        if !entry.file_name().to_string_lossy().starts_with("session-") {
+            continue;
+        }
+        let sealed = entry.path().join("sealed");
+        if let Ok(sd) = std::fs::read_dir(&sealed) {
+            for s in sd.flatten() {
+                consider(s.path(), &mut latest);
+            }
+        }
+        let live = entry.path().join("file_interactions.json");
+        if live.exists() {
+            consider(live, &mut latest);
+        }
+    }
+
+    latest
+        .and_then(|(_, path)| FileInteractionLedger::load_from_path(&path).ok())
+        .map(|l| l.distinct_paths())
+        .unwrap_or_default()
+}
+
+pub(crate) fn collect_un_read_paths(output: &Path, session_id: &str) -> Vec<String> {
+    let sealed = memd_core::enforcement::load_latest_sealed_paths(output);
+    let fresh = memd_core::enforcement::FreshReadIndex::for_session(output, session_id);
+    sealed.into_iter().filter(|p| !fresh.contains(p)).collect()
+}
 
 #[allow(unused_imports)]
 pub(crate) use crate::workflow::*;
@@ -10,6 +59,61 @@ pub(crate) use wakeup::*;
 
 fn infer_resume_bundle_identity_defaults(output: &Path) -> (Option<String>, Option<String>) {
     infer_bundle_identity_defaults(output)
+}
+
+fn normalize_resume_record(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn compact_record_kind(record: &str) -> Option<&'static str> {
+    if record.contains("| kind=status |") {
+        Some("status")
+    } else if record.contains("| kind=live_truth |") {
+        Some("live_truth")
+    } else {
+        None
+    }
+}
+
+fn trim_resume_context_records(
+    context: &mut memd_schema::CompactContextResponse,
+    working: &memd_schema::WorkingMemoryResponse,
+) {
+    let working_records = working
+        .records
+        .iter()
+        .map(|record| normalize_resume_record(&record.record))
+        .collect::<std::collections::HashSet<_>>();
+    let has_non_status_records = context
+        .records
+        .iter()
+        .any(|record| compact_record_kind(&record.record) != Some("status"));
+    let mut kept = Vec::with_capacity(context.records.len());
+    let mut seen = std::collections::HashSet::<String>::new();
+    let mut kept_live_truth = false;
+
+    for record in context.records.drain(..) {
+        let normalized = normalize_resume_record(&record.record);
+        if normalized.is_empty() || !seen.insert(normalized.clone()) {
+            continue;
+        }
+        if working_records.contains(&normalized) {
+            continue;
+        }
+        match compact_record_kind(&record.record) {
+            Some("status") if has_non_status_records => continue,
+            Some("live_truth") if kept_live_truth => continue,
+            Some("live_truth") => kept_live_truth = true,
+            _ => {}
+        }
+        kept.push(record);
+    }
+
+    context.records = kept;
 }
 
 pub(crate) async fn resolve_target_session_bundle(
@@ -111,7 +215,7 @@ pub(crate) async fn read_bundle_resume(
     .await?;
 
     let client = MemdClient::new(&base_url)?;
-    let context = client
+    let mut context = client
         .context_compact(&memd_schema::ContextRequest {
             project: project.clone(),
             agent: agent.clone(),
@@ -136,8 +240,10 @@ pub(crate) async fn read_bundle_resume(
             max_total_chars: Some(1600),
             rehydration_limit,
             auto_consolidate: Some(false),
+            query: None,
         })
         .await?;
+    trim_resume_context_records(&mut context, &working);
     let inbox = client
         .inbox(&memd_schema::MemoryInboxRequest {
             project: project.clone(),
@@ -235,6 +341,57 @@ pub(crate) async fn read_bundle_resume(
         || context.records.len() >= 6;
     let claims = read_bundle_claims(&args.output).unwrap_or_default();
 
+    // E2: Atlas region hints for wake packet
+    let atlas_region_hints = client
+        .atlas_regions(&memd_schema::AtlasRegionsRequest {
+            project: project.clone(),
+            namespace: namespace.clone(),
+            lane: None,
+            limit: Some(5),
+        })
+        .await
+        .ok()
+        .map(|response| {
+            response
+                .regions
+                .iter()
+                .map(|r| format!("{} ({})", r.name, r.node_count))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let handoff_quality = working
+        .compaction_quality
+        .as_ref()
+        .map(HandoffQualityScore::from_report);
+
+    let un_read_paths = session
+        .as_deref()
+        .map(|sid| collect_un_read_paths(&args.output, sid))
+        .unwrap_or_default();
+
+    // A3 Part 2 Task 11: Fetch preferences as a separate retrieval intent.
+    // RetrievalIntent::Preference maps to [MemoryKind::Preference, MemoryKind::Decision],
+    // so we may get Decisions leaked in; this is acceptable (they're high-signal durable memory).
+    let pref_intent = parse_retrieval_intent(Some("preference".to_string()))
+        .unwrap_or(Some(memd_schema::RetrievalIntent::CurrentTask));
+    let preferences = match client
+        .context_compact(&memd_schema::ContextRequest {
+            project: project.clone(),
+            agent: agent.clone(),
+            workspace: workspace.clone(),
+            visibility,
+            route,
+            intent: pref_intent,
+            limit: Some(3),
+            max_chars_per_item: Some(220),
+        })
+        .await
+    {
+        Ok(resp) => resp.records.into_iter().take(3).map(|r| r.record).collect(),
+        Err(_) => Vec::new(), // fail-soft: no preferences = empty block
+    };
+
     let snapshot = ResumeSnapshot {
         project,
         namespace,
@@ -257,6 +414,11 @@ pub(crate) async fn read_bundle_resume(
         change_summary,
         resume_state_age_minutes,
         refresh_recommended,
+        atlas_region_hints,
+        handoff_quality,
+        files_touched: collect_files_touched(&args.output),
+        un_read_paths,
+        preferences,
     };
 
     sync_resume_state_record(
@@ -984,7 +1146,9 @@ mod tests {
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
+
+                compaction_quality: None,
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: RetrievalRoute::ProjectFirst,
@@ -1007,6 +1171,13 @@ mod tests {
             ],
             resume_state_age_minutes: None,
             refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+
+            handoff_quality: None,
+
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         };
 
         let summary = build_truth_summary(&snapshot);
@@ -1025,6 +1196,84 @@ mod tests {
                 .any(|record| record.lane == "working_set"
                     && record.preview.contains("compact truth"))
         );
+    }
+
+    #[test]
+    fn trim_resume_context_records_drops_working_duplicates_and_status_noise() {
+        let duplicate_id = uuid::Uuid::new_v4();
+        let durable_id = uuid::Uuid::new_v4();
+        let status_id = uuid::Uuid::new_v4();
+        let live_truth_id = uuid::Uuid::new_v4();
+        let working = memd_schema::WorkingMemoryResponse {
+            route: RetrievalRoute::ProjectFirst,
+            intent: RetrievalIntent::CurrentTask,
+            retrieval_order: vec![MemoryScope::Project],
+            budget_chars: 1600,
+            used_chars: 220,
+            remaining_chars: 1380,
+            truncated: false,
+            policy: memd_schema::WorkingMemoryPolicyState {
+                admission_limit: 8,
+                max_chars_per_item: 220,
+                budget_chars: 1600,
+                rehydration_limit: 4,
+            },
+            records: vec![memd_schema::CompactMemoryRecord {
+                id: duplicate_id,
+                record: "id=dup | stage=canonical | scope=project | kind=decision | status=active | c=keep working anchor".to_string(),
+            }],
+            evicted: Vec::new(),
+            rehydration_queue: Vec::new(),
+            traces: Vec::new(),
+            semantic_consolidation: None,
+            procedures: Vec::new(),
+            compaction_quality: None,
+        };
+        let mut context = memd_schema::CompactContextResponse {
+            route: RetrievalRoute::ProjectFirst,
+            intent: RetrievalIntent::CurrentTask,
+            retrieval_order: vec![MemoryScope::Project],
+            records: vec![
+                memd_schema::CompactMemoryRecord {
+                    id: duplicate_id,
+                    record: "id=dup | stage=canonical | scope=project | kind=decision | status=active | c=keep working anchor".to_string(),
+                },
+                memd_schema::CompactMemoryRecord {
+                    id: durable_id,
+                    record: "id=durable | stage=canonical | scope=project | kind=fact | status=active | c=keep durable truth".to_string(),
+                },
+                memd_schema::CompactMemoryRecord {
+                    id: status_id,
+                    record: "id=status | stage=canonical | scope=project | kind=status | status=active | c=status: wake working=7".to_string(),
+                },
+                memd_schema::CompactMemoryRecord {
+                    id: live_truth_id,
+                    record: "id=live | stage=canonical | scope=local | kind=live_truth | status=active | c=repo_state: clean".to_string(),
+                },
+                memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "id=live-2 | stage=canonical | scope=local | kind=live_truth | status=active | c=file_edited: docs/x".to_string(),
+                },
+            ],
+        };
+
+        trim_resume_context_records(&mut context, &working);
+
+        assert_eq!(context.records.len(), 2);
+        assert!(context.records.iter().any(|record| record.id == durable_id));
+        assert!(
+            context
+                .records
+                .iter()
+                .any(|record| record.id == live_truth_id)
+        );
+        assert!(
+            context
+                .records
+                .iter()
+                .all(|record| record.id != duplicate_id)
+        );
+        assert!(context.records.iter().all(|record| record.id != status_id));
     }
 
     #[test]
@@ -1068,7 +1317,9 @@ mod tests {
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
+
+                compaction_quality: None,
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: RetrievalRoute::ProjectFirst,
@@ -1104,6 +1355,13 @@ mod tests {
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
             refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+
+            handoff_quality: None,
+
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         };
 
         let summary = build_truth_summary(&snapshot);
@@ -1167,7 +1425,9 @@ mod tests {
                 }],
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
+
+                compaction_quality: None,
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: RetrievalRoute::ProjectFirst,
@@ -1186,6 +1446,13 @@ mod tests {
             change_summary: vec!["changed focus".to_string()],
             resume_state_age_minutes: None,
             refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+
+            handoff_quality: None,
+
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         };
 
         assert_eq!(
@@ -1204,6 +1471,201 @@ mod tests {
             snapshot.continuity_next().as_deref(),
             Some("resume next step")
         );
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct HandoffQualityScore {
+    /// Fraction of candidates admitted (0.0–1.0).
+    pub(crate) fill_rate: f64,
+    /// Fraction of budget chars consumed (0.0–1.0).
+    pub(crate) budget_utilization: f64,
+    /// Kind with the most admitted items.
+    pub(crate) dominant_kind: Option<String>,
+    /// Fraction of candidates evicted (complement of fill_rate).
+    pub(crate) eviction_pressure: f64,
+    /// L2.9: admitted-fact count / target (target = 3). Capped at 1.0.
+    #[serde(default)]
+    pub(crate) fact_coverage: f64,
+    /// L2.9: admitted-decision count / target (target = 2). Capped at 1.0.
+    #[serde(default)]
+    pub(crate) decision_coverage: f64,
+    /// L2.9: working-context depth = admitted / target (target = 8). Capped at 1.0.
+    #[serde(default)]
+    pub(crate) working_depth: f64,
+    /// L2.9: composite weighted score across 4 dimensions. Range 0.0–1.0.
+    #[serde(default)]
+    pub(crate) composite: f64,
+}
+
+impl HandoffQualityScore {
+    /// L2.9: minimum composite that counts as a "complete" handoff.
+    pub(crate) const ACCEPTANCE_THRESHOLD: f64 = 0.8;
+    const TARGET_FACTS: f64 = 3.0;
+    const TARGET_DECISIONS: f64 = 2.0;
+    const TARGET_WORKING_DEPTH: f64 = 8.0;
+
+    pub(crate) fn from_report(report: &memd_schema::CompactionQualityReport) -> Self {
+        let total = report.admitted + report.evicted;
+        let fill_rate = if total > 0 {
+            report.admitted as f64 / total as f64
+        } else {
+            1.0
+        };
+        let budget_utilization = if report.budget_chars > 0 {
+            (report.used_chars as f64 / report.budget_chars as f64).min(1.0)
+        } else {
+            0.0
+        };
+        let dominant_kind = report
+            .per_kind_admitted
+            .iter()
+            .max_by_key(|(_, count)| *count)
+            .map(|(kind, _)| kind.clone());
+
+        // L2.9: new dimensions. per_kind keys are JSON-encoded
+        // ("\"fact\"") or bare ("fact") depending on upstream. Match both.
+        let kind_count = |kind: &str| -> usize {
+            report
+                .per_kind_admitted
+                .iter()
+                .filter(|(k, _)| {
+                    let trimmed = k.trim_matches('"');
+                    trimmed.eq_ignore_ascii_case(kind)
+                })
+                .map(|(_, c)| *c)
+                .sum()
+        };
+        let fact_coverage = (kind_count("fact") as f64 / Self::TARGET_FACTS).min(1.0);
+        let decision_coverage = (kind_count("decision") as f64 / Self::TARGET_DECISIONS).min(1.0);
+        let working_depth = (report.admitted as f64 / Self::TARGET_WORKING_DEPTH).min(1.0);
+
+        // Trust distribution proxy: budget_utilization stays in-band when the
+        // outgoing harness filled but didn't truncate. Penalize both
+        // starvation (utilization < 0.25) and truncation (utilization ~= 1.0
+        // plus high eviction). For handoff purposes, we want the packet
+        // *rich* but not *overstuffed*, so anything in [0.5, 0.95] scores 1.0.
+        let trust_score = if budget_utilization >= 0.5 && budget_utilization <= 0.95 {
+            1.0
+        } else if budget_utilization < 0.5 {
+            budget_utilization / 0.5
+        } else {
+            // utilization in (0.95, 1.0]: mild penalty proportional to how
+            // close we are to truncation.
+            1.0 - (budget_utilization - 0.95) * 4.0
+        }
+        .clamp(0.0, 1.0);
+
+        // Weighted composite: coverage of the substantive kinds matters
+        // most, working-depth second, trust third.
+        let composite = 0.30 * fact_coverage
+            + 0.30 * decision_coverage
+            + 0.25 * working_depth
+            + 0.15 * trust_score;
+
+        HandoffQualityScore {
+            fill_rate,
+            budget_utilization,
+            dominant_kind,
+            eviction_pressure: 1.0 - fill_rate,
+            fact_coverage,
+            decision_coverage,
+            working_depth,
+            composite,
+        }
+    }
+
+    /// L2.9: true iff the handoff meets the shipping threshold.
+    pub(crate) fn is_acceptable(&self) -> bool {
+        self.composite >= Self::ACCEPTANCE_THRESHOLD
+    }
+}
+
+#[cfg(test)]
+mod handoff_quality_tests {
+    use super::*;
+    use memd_schema::CompactionQualityReport;
+    use std::collections::BTreeMap;
+
+    fn report(
+        facts: usize,
+        decisions: usize,
+        extras: usize,
+        used_chars: usize,
+    ) -> CompactionQualityReport {
+        let mut per_kind_admitted = BTreeMap::new();
+        if facts > 0 {
+            per_kind_admitted.insert("\"fact\"".to_string(), facts);
+        }
+        if decisions > 0 {
+            per_kind_admitted.insert("\"decision\"".to_string(), decisions);
+        }
+        if extras > 0 {
+            per_kind_admitted.insert("\"status\"".to_string(), extras);
+        }
+        CompactionQualityReport {
+            admitted: facts + decisions + extras,
+            evicted: 0,
+            per_kind_admitted,
+            per_kind_evicted: BTreeMap::new(),
+            chars_per_kind_admitted: BTreeMap::new(),
+            budget_chars: 4000,
+            used_chars,
+        }
+    }
+
+    #[test]
+    fn rich_handoff_meets_08_threshold() {
+        let score = HandoffQualityScore::from_report(&report(3, 2, 3, 3000));
+        assert!(
+            score.is_acceptable(),
+            "rich handoff should pass: composite={}",
+            score.composite
+        );
+        assert!(score.fact_coverage >= 0.99);
+        assert!(score.decision_coverage >= 0.99);
+    }
+
+    #[test]
+    fn sparse_handoff_fails_08_threshold() {
+        let score = HandoffQualityScore::from_report(&report(1, 0, 0, 200));
+        assert!(
+            !score.is_acceptable(),
+            "sparse handoff should fail: composite={}",
+            score.composite
+        );
+        assert!(score.fact_coverage < 0.5);
+        assert_eq!(score.decision_coverage, 0.0);
+    }
+
+    #[test]
+    fn truncated_handoff_penalizes_trust_score() {
+        // Utilization near 1.0 → trust proxy below 1.0.
+        let score = HandoffQualityScore::from_report(&report(3, 2, 2, 4000));
+        assert!(score.budget_utilization >= 0.99);
+        // composite still can pass if coverage is maxed
+        assert!(score.is_acceptable());
+    }
+
+    #[test]
+    fn unknown_kind_spellings_still_match() {
+        // upstream sometimes emits bare keys (no JSON quotes).
+        let mut per_kind_admitted = BTreeMap::new();
+        per_kind_admitted.insert("fact".to_string(), 3);
+        per_kind_admitted.insert("decision".to_string(), 2);
+        let report = CompactionQualityReport {
+            admitted: 5,
+            evicted: 0,
+            per_kind_admitted,
+            per_kind_evicted: BTreeMap::new(),
+            chars_per_kind_admitted: BTreeMap::new(),
+            budget_chars: 4000,
+            used_chars: 2000,
+        };
+        let score = HandoffQualityScore::from_report(&report);
+        assert!(score.fact_coverage >= 0.99);
+        assert!(score.decision_coverage >= 0.99);
+        assert!(score.is_acceptable());
     }
 }
 
@@ -1227,6 +1689,16 @@ pub(crate) struct ResumeSnapshot {
     pub(crate) change_summary: Vec<String>,
     pub(crate) resume_state_age_minutes: Option<i64>,
     pub(crate) refresh_recommended: bool,
+    #[serde(default)]
+    pub(crate) atlas_region_hints: Vec<String>,
+    #[serde(default)]
+    pub(crate) handoff_quality: Option<HandoffQualityScore>,
+    #[serde(default)]
+    pub(crate) files_touched: Vec<String>,
+    #[serde(default)]
+    pub(crate) un_read_paths: Vec<String>,
+    #[serde(default)]
+    pub(crate) preferences: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1275,6 +1747,74 @@ pub(crate) struct ContinuityCapsule {
 }
 
 impl ResumeSnapshot {
+    #[cfg(test)]
+    pub(crate) fn empty() -> Self {
+        use memd_schema::{
+            CompactContextResponse, MemoryInboxResponse, RetrievalIntent, RetrievalRoute,
+            SourceMemoryResponse, WorkingMemoryPolicyState, WorkingMemoryResponse,
+            WorkspaceMemoryResponse,
+        };
+        Self {
+            project: None,
+            namespace: None,
+            agent: None,
+            workspace: None,
+            visibility: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: CompactContextResponse {
+                route: RetrievalRoute::Auto,
+                intent: RetrievalIntent::CurrentTask,
+                retrieval_order: Vec::new(),
+                records: Vec::new(),
+            },
+            working: WorkingMemoryResponse {
+                route: RetrievalRoute::Auto,
+                intent: RetrievalIntent::CurrentTask,
+                retrieval_order: Vec::new(),
+                budget_chars: 0,
+                used_chars: 0,
+                remaining_chars: 0,
+                truncated: false,
+                policy: WorkingMemoryPolicyState {
+                    admission_limit: 0,
+                    max_chars_per_item: 0,
+                    budget_chars: 0,
+                    rehydration_limit: 0,
+                },
+                records: Vec::new(),
+                evicted: Vec::new(),
+                rehydration_queue: Vec::new(),
+                traces: Vec::new(),
+                semantic_consolidation: None,
+                procedures: Vec::new(),
+                compaction_quality: None,
+            },
+            inbox: MemoryInboxResponse {
+                route: RetrievalRoute::Auto,
+                intent: RetrievalIntent::CurrentTask,
+                items: Vec::new(),
+            },
+            workspaces: WorkspaceMemoryResponse {
+                workspaces: Vec::new(),
+            },
+            sources: SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            semantic: None,
+            claims: SessionClaimsState::default(),
+            recent_repo_changes: Vec::new(),
+            change_summary: Vec::new(),
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+            handoff_quality: None,
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
+        }
+    }
+
     pub(crate) fn continuity_doing(&self) -> Option<String> {
         self.compact_working_records()
             .first()
@@ -1413,11 +1953,7 @@ impl ResumeSnapshot {
     }
 
     pub(crate) fn normalized_memory_text(value: &str) -> String {
-        value
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .to_lowercase()
+        normalize_resume_record(value)
     }
 
     pub(crate) fn compact_context_records(&self) -> Vec<String> {
@@ -1443,12 +1979,29 @@ impl ResumeSnapshot {
             self.working
                 .rehydration_queue
                 .iter()
+                .filter(|item| {
+                    // Skip rehydration items whose source_path is a dead file ref.
+                    if let Some(source_path) = &item.source_path {
+                        let path = std::path::Path::new(source_path.trim());
+                        if !source_path.is_empty() && path.is_absolute() && !path.exists() {
+                            return false;
+                        }
+                    }
+                    true
+                })
                 .map(|item| item.summary.as_str()),
         )
     }
 
     pub(crate) fn compact_inbox_items(&self) -> Vec<String> {
         Self::compact_memory_values(self.inbox.items.iter().filter_map(|item| {
+            // Skip expired/superseded items — they are ghost refs.
+            if matches!(
+                item.item.status,
+                MemoryStatus::Expired | MemoryStatus::Superseded
+            ) {
+                return None;
+            }
             let content = item.item.content.as_str();
             // Skip items referencing deleted files (ghost refs from expired entries).
             if let Some(path) = content.strip_prefix("file_edited: ") {

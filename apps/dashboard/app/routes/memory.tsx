@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useSearch } from "../lib/queries";
+import { CorrectionEditor } from "../components/correction/correction-editor";
 import { GlassPanel } from "../components/ui/glass-panel";
 import { KindBadge, StageBadge, StatusDot, ConfidenceBar, ScopeLabel } from "../components/ui/badge";
 import { EmptyState } from "../components/ui/empty-state";
@@ -33,6 +34,7 @@ function MemoryBrowser() {
   const [stages, setStages] = useState<MemoryStage[]>([...ALL_STAGES]);
   const [limit, setLimit] = useState(20);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [correcting, setCorrecting] = useState<string | null>(null);
 
   const searchReq: SearchMemoryRequest = {
     query: query || undefined,
@@ -101,6 +103,8 @@ function MemoryBrowser() {
                 item={item}
                 isExpanded={expanded === item.id}
                 onToggle={() => setExpanded(expanded === item.id ? null : item.id)}
+                correcting={correcting}
+                setCorrecting={setCorrecting}
               />
             ))}
           </div>
@@ -120,10 +124,14 @@ function MemoryRow({
   item,
   isExpanded,
   onToggle,
+  correcting,
+  setCorrecting,
 }: {
   item: MemoryItem;
   isExpanded: boolean;
   onToggle: () => void;
+  correcting: string | null;
+  setCorrecting: (id: string | null) => void;
 }) {
   return (
     <div className="group">
@@ -187,6 +195,28 @@ function MemoryRow({
               <span className="tracking-wide uppercase">Supersedes: </span>
               <span className="font-mono">{item.supersedes.map((id) => id.slice(0, 8)).join(", ")}</span>
             </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setCorrecting(correcting === item.id ? null : item.id);
+              }}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-accent-bright border border-accent-primary/30 hover:bg-accent-primary/10 transition-colors"
+            >
+              Correct
+            </button>
+          </div>
+
+          {/* Correction editor */}
+          {correcting === item.id && (
+            <CorrectionEditor
+              itemId={item.id}
+              currentContent={item.content}
+              onClose={() => setCorrecting(null)}
+            />
           )}
         </div>
       )}

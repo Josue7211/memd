@@ -1,7 +1,14 @@
+---
+status: closed
+severity: medium
+phase: unassigned
+opened: 2026-04-12
+scope: bundle generation, helper scripts
+---
 # Shell-Unsafe memd Env Generation
 
 <!-- BACKLOG_STATE
-status: open
+status: closed
 found: 2026-04-12
 scope: bundle generation, helper scripts
 -->

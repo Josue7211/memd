@@ -138,6 +138,76 @@ fn entity_aliases(item: &MemoryItem) -> Vec<String> {
         }
     }
     aliases.push(format!("{:?}", item.kind).to_lowercase());
+    aliases.extend(extract_named_entity_aliases(&item.content));
+    aliases.sort();
+    aliases.dedup();
+    aliases
+}
+
+pub(crate) fn extract_named_entity_aliases(content: &str) -> Vec<String> {
+    const STOPWORDS: &[&str] = &[
+        "A", "An", "And", "At", "But", "By", "For", "From", "He", "Her", "His", "I", "If", "In",
+        "It", "Its", "No", "Not", "Of", "On", "Or", "Our", "She", "That", "The", "Their", "There",
+        "They", "This", "To", "We", "With", "You",
+    ];
+
+    fn clean_token(raw: &str) -> Option<String> {
+        let trimmed = raw
+            .trim_matches(|ch: char| !ch.is_alphanumeric() && ch != '-' && ch != '_' && ch != '.')
+            .trim_matches('.');
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    }
+
+    fn token_looks_named(token: &str) -> bool {
+        if token.len() < 2 {
+            return false;
+        }
+        if STOPWORDS.contains(&token) {
+            return false;
+        }
+        let mut chars = token.chars();
+        let Some(first) = chars.next() else {
+            return false;
+        };
+        let has_upper = token.chars().any(|ch| ch.is_uppercase());
+        if !has_upper {
+            return false;
+        }
+        first.is_uppercase()
+            || token.chars().any(|ch| ch.is_numeric())
+            || token.chars().any(|ch| ch == '-' || ch == '_')
+    }
+
+    let tokens = content
+        .split_whitespace()
+        .filter_map(clean_token)
+        .collect::<Vec<_>>();
+    let mut aliases = Vec::new();
+    let mut index = 0usize;
+    while index < tokens.len() {
+        if !token_looks_named(&tokens[index]) {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        while index < tokens.len() && token_looks_named(&tokens[index]) {
+            index += 1;
+        }
+        let run = &tokens[start..index];
+        let max_len = run.len().min(3);
+        for width in (1..=max_len).rev() {
+            for offset in 0..=(run.len() - width) {
+                let alias = run[offset..offset + width].join(" ");
+                if alias.len() >= 3 {
+                    aliases.push(alias);
+                }
+            }
+        }
+    }
     aliases.sort();
     aliases.dedup();
     aliases
@@ -272,6 +342,20 @@ pub(crate) fn source_trust_score(
         - synthetic_ratio * 0.18
         - contested_ratio * 0.14;
     score.clamp(0.0, 1.0)
+}
+
+/// Hard trust ordering: human_correction > canonical > promoted > candidate > synthetic.
+/// Returns 0–4 where higher = more trusted.
+pub(crate) fn trust_rank(item: &memd_schema::MemoryItem) -> u8 {
+    if item.tags.iter().any(|t| t == "correction") {
+        return 4; // human correction — highest trust
+    }
+    match (item.source_quality, item.stage) {
+        (Some(memd_schema::SourceQuality::Canonical), memd_schema::MemoryStage::Canonical) => 3,
+        (_, memd_schema::MemoryStage::Canonical) => 2, // promoted
+        (Some(memd_schema::SourceQuality::Synthetic), _) => 0,
+        _ => 1, // candidate / derived
+    }
 }
 
 pub(crate) fn normalize_search_text(value: &str) -> String {
@@ -501,6 +585,17 @@ pub(crate) fn entity_matches_context(
     true
 }
 
+fn truncate_utf8_boundary(value: &mut String, max_len: usize) {
+    if value.len() <= max_len {
+        return;
+    }
+    let mut new_len = max_len;
+    while new_len > 0 && !value.is_char_boundary(new_len) {
+        new_len -= 1;
+    }
+    value.truncate(new_len);
+}
+
 fn compact_entity_state(item: &MemoryItem) -> String {
     let mut state = item
         .content
@@ -508,8 +603,55 @@ fn compact_entity_state(item: &MemoryItem) -> String {
         .collect::<Vec<_>>()
         .join(" ");
     if state.len() > 240 {
-        state.truncate(240);
+        truncate_utf8_boundary(&mut state, 240);
         state.push('…');
     }
     state
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use memd_schema::{MemoryKind, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility};
+
+    fn sample_item(content: String) -> MemoryItem {
+        MemoryItem {
+            id: Uuid::new_v4(),
+            content,
+            redundancy_key: None,
+            belief_branch: None,
+            preferred: false,
+            kind: MemoryKind::Fact,
+            scope: MemoryScope::Project,
+            project: Some("memd".to_string()),
+            namespace: Some("tests".to_string()),
+            workspace: None,
+            visibility: MemoryVisibility::default(),
+            source_agent: None,
+            source_system: None,
+            source_path: None,
+            source_quality: None,
+            confidence: 0.8,
+            ttl_seconds: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_verified_at: None,
+            supersedes: Vec::new(),
+            tags: Vec::new(),
+            status: MemoryStatus::Active,
+            stage: MemoryStage::Canonical,
+            lane: None,
+            version: 1,
+        }
+    }
+
+    #[test]
+    fn compact_entity_state_truncates_on_char_boundary() {
+        let item = sample_item("é".repeat(121));
+        let compacted = compact_entity_state(&item);
+        assert!(compacted.ends_with('…'));
+        assert!(compacted.is_char_boundary(compacted.len()));
+        assert!(compacted.len() <= 243);
+    }
 }

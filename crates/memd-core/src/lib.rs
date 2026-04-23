@@ -1,3 +1,8 @@
+pub mod contract;
+pub mod enforcement;
+pub mod file_ledger;
+pub mod lifecycle_probe;
+
 use memd_schema::{
     CandidateMemoryRequest, CompactContextResponse, CompactionDecision, CompactionOpenLoop,
     CompactionPacket, CompactionReference, CompactionSession, CompactionSpillBatch,
@@ -466,6 +471,7 @@ fn push_session_item(
         last_verified_at: None,
         supersedes: Vec::new(),
         tags: tags_out,
+        lane: None,
     });
 }
 

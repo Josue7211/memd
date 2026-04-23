@@ -56,6 +56,8 @@ pub(super) fn test_autoresearch_snapshot(
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,
@@ -82,6 +84,8 @@ pub(super) fn test_autoresearch_snapshot(
                     created_at: chrono::Utc::now(),
                     status: memd_schema::MemoryStatus::Active,
                     stage: memd_schema::MemoryStage::Candidate,
+                    lane: None,
+                    version: 1,
                     last_verified_at: None,
                     supersedes: Vec::new(),
                     updated_at: chrono::Utc::now(),
@@ -116,6 +120,13 @@ pub(super) fn test_autoresearch_snapshot(
         change_summary,
         resume_state_age_minutes: Some(1),
         refresh_recommended,
+        atlas_region_hints: Vec::new(),
+
+        handoff_quality: None,
+
+        files_touched: Vec::new(),
+        un_read_paths: Vec::new(),
+        preferences: Vec::new(),
     }
 }
 
@@ -161,6 +172,8 @@ pub(super) fn test_autoresearch_pressure_snapshot(
                 created_at: chrono::Utc::now(),
                 status: memd_schema::MemoryStatus::Active,
                 stage: memd_schema::MemoryStage::Candidate,
+                lane: None,
+                version: 1,
                 last_verified_at: None,
                 supersedes: Vec::new(),
                 updated_at: chrono::Utc::now(),
@@ -2247,6 +2260,7 @@ fn lookup_cli_defaults_stay_on_repo_b_bundle_not_repo_a_global_memory() {
             project: None,
             namespace: None,
             workspace: None,
+            region: None,
             visibility: None,
             route: None,
             intent: None,

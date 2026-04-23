@@ -362,6 +362,7 @@ pub fn build_note_request(
         last_verified_at: Some(Utc::now()),
         supersedes: supersedes_item_id.into_iter().collect(),
         tags,
+        lane: None,
     }
 }
 
@@ -375,6 +376,9 @@ pub fn build_entity_link_request(
         to_entity_id,
         relation_kind: EntityRelationKind::Related,
         confidence: Some(0.72),
+        valid_from: None,
+        valid_to: None,
+        source_item_id: None,
         note: Some(format!("obsidian wiki link from {}", note.relative_path)),
         context: Some(MemoryContextFrame {
             at: Some(Utc::now()),
@@ -1023,6 +1027,8 @@ mod tests {
                 tags: vec!["bundle".to_string()],
                 status: memd_schema::MemoryStatus::Active,
                 stage: memd_schema::MemoryStage::Canonical,
+                lane: None,
+                version: 1,
             },
             canonical_key: "fact:bundle-first".to_string(),
             redundancy_key: "fact:bundle-first".to_string(),
@@ -1039,6 +1045,9 @@ mod tests {
             branch_siblings: Vec::new(),
             rehydration: Vec::new(),
             policy_hooks: Vec::new(),
+            corrections_chain: Vec::new(),
+            confidence_timeline: Vec::new(),
+            trust_rank_history: Vec::new(),
         };
 
         let path = default_compiled_memory_path(Path::new("/tmp/vault"), &explain);
@@ -1124,7 +1133,9 @@ items: 7
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
+
+                compaction_quality: None,
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: memd_schema::RetrievalRoute::Auto,
@@ -1143,6 +1154,11 @@ items: 7
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
             refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+            handoff_quality: None,
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         };
         let path = default_handoff_path(Path::new("/tmp/vault"), &snapshot);
         assert!(path.starts_with("/tmp/vault/.memd/handoffs"));
@@ -1187,7 +1203,9 @@ items: 7
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
+
+                compaction_quality: None,
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: memd_schema::RetrievalRoute::Auto,
@@ -1230,6 +1248,11 @@ items: 7
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
             refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+            handoff_quality: None,
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         };
         let sources = SourceMemoryResponse {
             sources: vec![memd_schema::SourceMemoryRecord {

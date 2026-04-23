@@ -220,6 +220,9 @@ pub(crate) async fn run_entity_link_command(
                 .context("parse to_entity_id as uuid")?,
             relation_kind: parse_entity_relation_kind(&args.relation_kind)?,
             confidence: args.confidence,
+            valid_from: None,
+            valid_to: None,
+            source_item_id: None,
             note: args.note,
             context: None,
             tags: Vec::new(),
@@ -275,10 +278,7 @@ pub(crate) async fn run_timeline_command(
     Ok(())
 }
 
-pub(crate) async fn run_atlas_command(
-    client: &MemdClient,
-    args: AtlasArgs,
-) -> anyhow::Result<()> {
+pub(crate) async fn run_atlas_command(client: &MemdClient, args: AtlasArgs) -> anyhow::Result<()> {
     match args.command {
         AtlasCommand::Regions(args) => {
             let req = memd_schema::AtlasRegionsRequest {
@@ -404,7 +404,11 @@ pub(crate) async fn run_procedure_command(
             let kind: memd_schema::ProcedureKind =
                 serde_json::from_value(serde_json::Value::String(args.kind.clone()))
                     .context("parse procedure kind (workflow/policy/recovery)")?;
-            let steps: Vec<String> = args.steps.split(',').map(|s| s.trim().to_string()).collect();
+            let steps: Vec<String> = args
+                .steps
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect();
             let tags: Vec<String> = args
                 .tags
                 .as_deref()
@@ -517,12 +521,7 @@ pub(crate) async fn run_procedure_command(
                     response.scanned, response.created
                 );
                 for p in &response.procedures {
-                    println!(
-                        "  - {} [{}]: {}",
-                        p.name,
-                        &p.id.to_string()[..8],
-                        p.trigger
-                    );
+                    println!("  - {} [{}]: {}", p.name, &p.id.to_string()[..8], p.trigger);
                 }
             }
         }
@@ -663,7 +662,10 @@ fn render_atlas_explore(response: &memd_schema::AtlasExploreResponse) -> String 
     }
 
     if !response.evidence.is_empty() {
-        out.push_str(&format!("\n## Evidence ({} events)\n\n", response.evidence.len()));
+        out.push_str(&format!(
+            "\n## Evidence ({} events)\n\n",
+            response.evidence.len()
+        ));
         for event in &response.evidence {
             out.push_str(&format!(
                 "- [{}] {} — {} ({})\n",
@@ -738,7 +740,9 @@ async fn run_atlas_compile(client: &MemdClient, args: AtlasCompileArgs) -> anyho
 
         // Build region markdown
         let region_md = build_region_obsidian_note(region, &explored);
-        let safe_name = region.name.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
+        let safe_name = region
+            .name
+            .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
         let region_path = atlas_dir.join(format!("{safe_name}.md"));
         std::fs::write(&region_path, &region_md)
             .with_context(|| format!("write region {}", region_path.display()))?;
@@ -835,7 +839,12 @@ fn build_region_obsidian_note(
                     .find(|n| n.id == *node_id)
                     .map(|n| n.label.as_str())
                     .unwrap_or("?");
-                md.push_str(&format!("{}. `[{}]` {}\n", i + 1, &node_id.to_string()[..8], label));
+                md.push_str(&format!(
+                    "{}. `[{}]` {}\n",
+                    i + 1,
+                    &node_id.to_string()[..8],
+                    label
+                ));
             }
             md.push('\n');
         }
@@ -911,6 +920,46 @@ pub(crate) async fn run_consolidate_command(
         println!("{}", render_consolidate_summary(&response, args.follow));
     } else {
         print_json(&response)?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn run_dedup_command(
+    client: &MemdClient,
+    args: DedupArgs,
+) -> anyhow::Result<()> {
+    let response = client
+        .dedup_scan(&memd_schema::DedupScanRequest {
+            project: args.project.clone(),
+            namespace: args.namespace.clone(),
+            threshold_cosine_distance: args.threshold,
+            limit: Some(args.limit),
+            dry_run: args.dry_run,
+        })
+        .await?;
+    if args.json {
+        print_json(&response)?;
+        return Ok(());
+    }
+    println!(
+        "dedup scan: vectors_scanned={} threshold={:.3} clusters={}",
+        response.vectors_scanned,
+        response.threshold_cosine_distance,
+        response.clusters.len()
+    );
+    for (idx, cluster) in response.clusters.iter().enumerate() {
+        println!(
+            "\n[{}] survivor {} — {}",
+            idx + 1,
+            cluster.survivor_id,
+            cluster.survivor_preview
+        );
+        for dup in &cluster.duplicates {
+            println!(
+                "    dup {} sim={:.3} — {}",
+                dup.id, dup.similarity, dup.preview
+            );
+        }
     }
     Ok(())
 }

@@ -1,7 +1,14 @@
+---
+status: closed
+severity: medium
+phase: unassigned
+opened: 2026-04-12
+scope: roadmap truth, continuity truth
+---
 # Roadmap State Audit-Tail Drift
 
 <!-- BACKLOG_STATE
-status: open
+status: closed
 found: 2026-04-12
 scope: roadmap truth, continuity truth
 -->

@@ -1099,17 +1099,19 @@ pub(crate) fn render_public_benchmark_markdown(reports: &[PublicBenchmarkRunRepo
     lines.push(String::new());
     lines.push("## Latest Runs".to_string());
     lines.push(
-        "| Benchmark | Version | Mode | Accuracy | Items | Dataset | Checksum | Artifacts |"
+        "| Benchmark | Version | Mode | Primary Metric | Value | Items | Dataset | Checksum | Artifacts |"
             .to_string(),
     );
-    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- |".to_string());
+    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- |".to_string());
     for report in reports {
+        let (metric_label, metric_value) = public_benchmark_primary_metric(report);
         lines.push(format!(
-            "| {} | {} | {} | {:.3} | {} | {} | {} | `.memd/benchmarks/public/{}/latest/` |",
+            "| {} | {} | {} | {} | {:.3} | {} | {} | {} | `.memd/benchmarks/public/{}/latest/` |",
             report.manifest.dataset_name,
             report.manifest.benchmark_version,
             report.manifest.mode,
-            report.metrics.get("accuracy").copied().unwrap_or(0.0),
+            metric_label,
+            metric_value,
             report.item_count,
             report.manifest.dataset_local_path,
             report.manifest.dataset_checksum,
@@ -1134,13 +1136,14 @@ pub(crate) fn render_public_benchmark_markdown(reports: &[PublicBenchmarkRunRepo
             "## Latest Run Detail: {}",
             report.manifest.dataset_name
         ));
-        lines.push("| Item | Question | Claim | Hit | Answer | Latency ms |".to_string());
-        lines.push("| --- | --- | --- | --- | --- | --- |".to_string());
+        lines.push("| Item | Question | Mode | Claim | Hit | Answer | Latency ms |".to_string());
+        lines.push("| --- | --- | --- | --- | --- | --- | --- |".to_string());
         for item in &report.items {
             lines.push(format!(
-                "| {} | {} | {} | {} | {} | {} |",
+                "| {} | {} | {} | {} | {} | {} | {} |",
                 item.item_id,
                 item.question.as_deref().unwrap_or(&item.question_id),
+                item.mode.as_deref().unwrap_or("-"),
                 item.claim_class,
                 item.hit,
                 item.answer.as_deref().unwrap_or("-"),
@@ -1165,20 +1168,54 @@ pub(crate) fn render_public_leaderboard(report: &PublicBenchmarkLeaderboardRepor
     }
     lines.push(String::new());
     lines.push(
-        "| Benchmark | Version | Run mode | Item claim classes | Coverage | Parity claim | Accuracy | Items | Notes |"
+        "| Benchmark | Version | Run mode | Item modes | Item claim classes | Coverage | Claim Class | Verification | Primary Metric | memd | Intrinsic | Accelerated | Delta | MemPalace | Regression | Commit | Rerun | Items | Notes |"
             .to_string(),
     );
-    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- |".to_string());
+    lines.push(
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+            .to_string(),
+    );
     for row in &report.rows {
         lines.push(format!(
-            "| {} | {} | {} | {} | {} | {} | {:.3} | {} | {} |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {:.3} | {} | {} | {} | {} | {} | {} | `{}` | {} | {} |",
             row.benchmark_name,
             row.benchmark_version,
             row.run_mode,
+            if row.item_modes.is_empty() {
+                "-".to_string()
+            } else {
+                row.item_modes.join(", ")
+            },
             row.item_claim_classes.join(", "),
             row.coverage_status,
-            row.parity_status,
+            row.claim_class,
+            row.verification_status,
+            row.primary_metric_label,
             row.accuracy,
+            row.intrinsic_score
+                .map(|value| format!("{value:.3}"))
+                .unwrap_or_else(|| "-".to_string()),
+            row.accelerated_score
+                .map(|value| format!("{value:.3}"))
+                .unwrap_or_else(|| "-".to_string()),
+            row.score_delta
+                .map(|value| format!("{value:+.3}"))
+                .unwrap_or_else(|| "-".to_string()),
+            row.mempalace_score
+                .map(|value| format!("{value:.3} ({})", row.mempalace_status))
+                .unwrap_or_else(|| row.mempalace_status.clone()),
+            match (row.regression_delta, row.regression_budget) {
+                (Some(delta), Some(budget)) => format!("{delta:+.3} / {budget:.3}"),
+                (None, Some(budget)) => format!("- / {budget:.3}"),
+                _ => "-".to_string(),
+            },
+            row.commit_url
+                .as_ref()
+                .zip(row.commit_sha.as_ref())
+                .map(|(url, sha)| format!("[{sha}]({url})"))
+                .or_else(|| row.commit_sha.clone())
+                .unwrap_or_else(|| "-".to_string()),
+            row.rerun_command.as_deref().unwrap_or("-"),
             row.item_count,
             row.notes.join("; "),
         ));
@@ -1187,14 +1224,48 @@ pub(crate) fn render_public_leaderboard(report: &PublicBenchmarkLeaderboardRepor
 }
 
 pub(crate) fn render_public_benchmark_summary(report: &PublicBenchmarkRunReport) -> String {
+    let (metric_label, metric_value) = public_benchmark_primary_metric(report);
     format!(
-        "public benchmark {} mode={} items={} accuracy={:.3} artifacts=.memd/benchmarks/public/{}/latest",
+        "public benchmark {} mode={} items={} primary_metric={} value={:.3} artifacts=.memd/benchmarks/public/{}/latest",
         report.manifest.benchmark_id,
         report.manifest.mode,
         report.item_count,
-        report.metrics.get("accuracy").copied().unwrap_or(0.0),
+        metric_label,
+        metric_value,
         report.manifest.benchmark_id,
     )
+}
+
+fn public_benchmark_report_is_lexical_only(report: &PublicBenchmarkRunReport) -> bool {
+    let runtime = &report.manifest.runtime_settings;
+    let backend = runtime
+        .get("retrieval_backend")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("lexical");
+    let is_dual = runtime
+        .get("dual")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false);
+    let is_full_eval = runtime
+        .get("full_eval")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false);
+    let has_memd_base = runtime
+        .get("memd_base_url")
+        .and_then(JsonValue::as_str)
+        .is_some_and(|value| !value.trim().is_empty());
+    backend == "lexical" && !is_dual && !is_full_eval && !has_memd_base
+}
+
+fn public_benchmark_docs_should_skip_overwrite(
+    benchmark_docs_path: &Path,
+    leaderboard_path: &Path,
+    reports: &[PublicBenchmarkRunReport],
+) -> bool {
+    benchmark_docs_path.exists()
+        && leaderboard_path.exists()
+        && !reports.is_empty()
+        && reports.iter().all(public_benchmark_report_is_lexical_only)
 }
 
 pub(crate) fn write_public_benchmark_docs(
@@ -1211,25 +1282,64 @@ pub(crate) fn write_public_benchmark_docs(
         reports.sort_by(|left, right| left.manifest.benchmark_id.cmp(&right.manifest.benchmark_id));
     }
     let path = public_benchmark_docs_path(repo_root);
+    let leaderboard_path = public_benchmark_leaderboard_docs_path(repo_root);
+    if public_benchmark_docs_should_skip_overwrite(&path, &leaderboard_path, &reports) {
+        eprintln!(
+            "[bench] skip public doc overwrite: lexical-only public harness reports are not authoritative for the verified release board"
+        );
+        return Ok(());
+    }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
     fs::write(&path, render_public_benchmark_markdown(&reports))
         .with_context(|| format!("write {}", path.display()))?;
 
-    let leaderboard_path = public_benchmark_leaderboard_docs_path(repo_root);
-    if let Some(parent) = leaderboard_path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-    let leaderboard = build_public_benchmark_leaderboard_report(&reports);
-    fs::write(&leaderboard_path, render_public_leaderboard(&leaderboard))
-        .with_context(|| format!("write {}", leaderboard_path.display()))?;
+    // j3-docs: PUBLIC_LEADERBOARD.md is manually curated per I3 (method cards,
+    // retraction log, gaming-audit rule). Auto-overwriting from the bench
+    // runtime would wipe that structure every run. The machine-readable source
+    // of truth lives in `.memd/benchmarks/public/*/latest/` artifacts;
+    // `scripts/regen-leaderboard.sh --regen` owns leaderboard regeneration
+    // once it gains canonical-metric support. Leave the file alone here.
+    let _ = build_public_benchmark_leaderboard_report; // reserved for regen-leaderboard.sh
+    let _ = render_public_leaderboard;
+    let _ = leaderboard_path;
     Ok(())
 }
 
 pub(crate) async fn run_public_benchmark_command(
     args: &PublicBenchmarkArgs,
 ) -> anyhow::Result<PublicBenchmarkRunReport> {
+    validate_public_benchmark_args(args)?;
+
+    // --all: run all implemented benchmarks sequentially, return the last report
+    if args.all {
+        let mut last_report = None;
+        for dataset_id in implemented_public_benchmark_ids() {
+            let mut sub_args = args.clone();
+            sub_args.dataset = dataset_id.to_string();
+            sub_args.all = false;
+            match Box::pin(run_public_benchmark_command(&sub_args)).await {
+                Ok(report) => {
+                    if args.write {
+                        let _ = write_public_benchmark_run_artifacts(&args.out, &report)?;
+                        if let Some(repo_root) = infer_bundle_project_root(&args.out) {
+                            write_public_benchmark_docs(&repo_root, &args.out, &report)?;
+                        }
+                    }
+                    if args.record {
+                        crate::cli::record_benchmark_run(&args.out, &report)?;
+                    }
+                    last_report = Some(report);
+                }
+                Err(err) => {
+                    eprintln!("warning: {dataset_id} benchmark failed: {err}");
+                }
+            }
+        }
+        return last_report.ok_or_else(|| anyhow!("no benchmarks completed"));
+    }
+
     let supported_targets = supported_public_benchmark_ids();
     anyhow::ensure!(
         supported_targets.contains(&args.dataset.as_str()),
@@ -1239,8 +1349,14 @@ pub(crate) async fn run_public_benchmark_command(
     );
     let started_at = Utc::now();
     let duration_started = Instant::now();
+    eprintln!("[bench] resolving dataset `{}`…", args.dataset);
     let resolved_dataset = resolve_public_benchmark_dataset(args).await?;
+    eprintln!(
+        "[bench] dataset resolved → {}",
+        resolved_dataset.path.display()
+    );
     let dataset = load_public_benchmark_dataset(&args.dataset, &resolved_dataset.path)?;
+    eprintln!("[bench] loaded {} items from fixture", dataset.items.len());
     anyhow::ensure!(
         dataset.benchmark_id == args.dataset,
         "public benchmark fixture `{}` does not match requested dataset `{}`",
@@ -1249,19 +1365,45 @@ pub(crate) async fn run_public_benchmark_command(
     );
 
     let mode = args.mode.as_deref().unwrap_or("raw");
-    let retrieval_config = build_public_benchmark_retrieval_config(args)?;
+    let dual_memd_urls = if args.dual {
+        anyhow::ensure!(
+            args.dataset == "longmemeval",
+            "--dual is currently only supported for longmemeval"
+        );
+        Some(resolve_public_benchmark_dual_memd_base_urls())
+    } else {
+        None
+    };
     let top_k = args.top_k.unwrap_or(5).max(1);
     let item_count = args
-        .limit
+        .sample
+        .or(args.limit)
         .unwrap_or(dataset.items.len())
         .max(1)
         .min(dataset.items.len());
-    let selected_items = dataset
-        .items
-        .iter()
-        .take(item_count)
-        .cloned()
-        .collect::<Vec<_>>();
+    let selected_items = {
+        let qid_filter = std::env::var("MEMD_BENCH_QID_FILTER").ok().map(|s| {
+            s.split(',')
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .collect::<std::collections::BTreeSet<_>>()
+        });
+        if let Some(qids) = qid_filter {
+            dataset
+                .items
+                .iter()
+                .filter(|it| qids.contains(&it.question_id))
+                .cloned()
+                .collect::<Vec<_>>()
+        } else {
+            dataset
+                .items
+                .iter()
+                .take(item_count)
+                .cloned()
+                .collect::<Vec<_>>()
+        }
+    };
     let reranker_id = if mode == "hybrid" {
         Some(args.reranker.as_deref().unwrap_or("declared-reranker"))
     } else {
@@ -1271,13 +1413,213 @@ pub(crate) async fn run_public_benchmark_command(
         items: selected_items,
         ..dataset.clone()
     };
-    let evaluation = build_public_benchmark_item_results(
-        &selected_dataset,
-        top_k,
-        mode,
-        reranker_id,
-        &retrieval_config,
-    )?;
+    if let Some((intrinsic_base_url, accelerated_base_url)) = dual_memd_urls.as_ref() {
+        if args.dry_run {
+            let mut dry_manifest = build_public_benchmark_manifest(
+                args,
+                &dataset,
+                &resolved_dataset,
+                mode,
+                top_k,
+                item_count,
+                started_at,
+                duration_started.elapsed().as_millis(),
+                reranker_id,
+                &PublicBenchmarkRetrievalConfig {
+                    longmemeval_backend: LongMemEvalRetrievalBackend::Memd,
+                    sidecar_base_url: None,
+                    memd_base_url: Some(intrinsic_base_url.clone()),
+                },
+                None,
+                None,
+            )?;
+            if let Some(obj) = dry_manifest.runtime_settings.as_object_mut() {
+                obj.insert("dual".to_string(), json!(true));
+                obj.insert(
+                    "dual_modes".to_string(),
+                    json!(["intrinsic", "accelerated"]),
+                );
+                obj.insert("dry_run".to_string(), json!(true));
+                obj.insert("intrinsic_base_url".to_string(), json!(intrinsic_base_url));
+                obj.insert(
+                    "accelerated_base_url".to_string(),
+                    json!(accelerated_base_url),
+                );
+                obj.insert("dual_rows_per_question".to_string(), json!(2));
+                obj.insert("retrieval_backend".to_string(), json!("memd"));
+            }
+
+            let mut items = Vec::with_capacity(selected_dataset.items.len() * 2);
+            for item in &selected_dataset.items {
+                let question_type = item
+                    .metadata
+                    .get("question_type")
+                    .and_then(JsonValue::as_str)
+                    .map(str::to_string);
+                let base_item = PublicBenchmarkItemResult {
+                    item_id: item.item_id.clone(),
+                    question_id: item.question_id.clone(),
+                    claim_class: item.claim_class.clone(),
+                    mode: None,
+                    question: Some(item.query.clone()),
+                    question_type,
+                    ranked_items: Vec::new(),
+                    retrieved_items: Vec::new(),
+                    retrieval_scores: Vec::new(),
+                    hit: false,
+                    answer: Some(item.gold_answer.clone()),
+                    observed_answer: None,
+                    correctness: Some(json!({
+                        "dry_run": true,
+                        "question_type": item.metadata.get("question_type").cloned().unwrap_or(JsonValue::Null),
+                    })),
+                    latency_ms: 0,
+                    token_usage: None,
+                    cost_estimate_usd: None,
+                };
+                items.push(relabel_public_benchmark_item_result(
+                    base_item.clone(),
+                    "intrinsic",
+                ));
+                items.push(relabel_public_benchmark_item_result(
+                    base_item,
+                    "accelerated",
+                ));
+            }
+
+            return Ok(PublicBenchmarkRunReport {
+                manifest: dry_manifest,
+                metrics: BTreeMap::new(),
+                item_count: items.len(),
+                failures: Vec::new(),
+                items,
+            });
+        }
+
+        return build_longmemeval_dual_run_report(
+            &selected_dataset,
+            top_k,
+            mode,
+            reranker_id,
+            started_at,
+            intrinsic_base_url,
+            accelerated_base_url,
+            args.turn_diagnostics,
+        );
+    }
+    let retrieval_config = build_public_benchmark_retrieval_config(args)?;
+    // Dry-run: estimate cost without running
+    if args.dry_run && args.full_eval {
+        let est_calls = item_count * if args.dataset == "longmemeval" { 2 } else { 1 };
+        let est_tokens = est_calls as f64 * 2200.0;
+        let est_cost_4o_mini = est_tokens * 0.00000015;
+        let est_cost_4o = est_tokens * 0.0000025;
+        eprintln!("Dry run: {item_count} items, ~{est_calls} API calls");
+        eprintln!(
+            "Estimated cost: ${:.2} (gpt-4o-mini) / ${:.2} (gpt-4o)",
+            est_cost_4o_mini, est_cost_4o
+        );
+        let mut dry_manifest = build_public_benchmark_manifest(
+            args,
+            &dataset,
+            &resolved_dataset,
+            mode,
+            top_k,
+            item_count,
+            started_at,
+            duration_started.elapsed().as_millis(),
+            reranker_id,
+            &retrieval_config,
+            None,
+            None,
+        )?;
+        if let Some(obj) = dry_manifest.runtime_settings.as_object_mut() {
+            obj.insert("full_eval".to_string(), json!(true));
+            obj.insert(
+                "generator_model".to_string(),
+                json!(args.generator_model.as_deref().unwrap_or("gpt-4o-mini")),
+            );
+        }
+        return Ok(PublicBenchmarkRunReport {
+            manifest: dry_manifest,
+            metrics: BTreeMap::new(),
+            item_count: 0,
+            failures: Vec::new(),
+            items: Vec::new(),
+        });
+    }
+
+    let evaluation = if args.full_eval {
+        eprintln!("[bench] mode=full-eval, resolving generator config…");
+        let generator_config = resolve_generator_config(args)?;
+        eprintln!(
+            "[bench] generator={} grader={}",
+            generator_config.model, generator_config.grader_model
+        );
+        match args.dataset.as_str() {
+            "longmemeval" => {
+                build_longmemeval_full_eval_report(
+                    &selected_dataset,
+                    top_k,
+                    mode,
+                    &retrieval_config,
+                    &generator_config,
+                )
+                .await?
+            }
+            "locomo" => {
+                build_locomo_full_eval_report(
+                    &selected_dataset,
+                    top_k,
+                    mode,
+                    &retrieval_config,
+                    &generator_config,
+                )
+                .await?
+            }
+            "membench" => {
+                build_membench_full_eval_report(
+                    &selected_dataset,
+                    top_k,
+                    mode,
+                    &retrieval_config,
+                    &generator_config,
+                )
+                .await?
+            }
+            "convomem" => {
+                build_convomem_full_eval_report(
+                    &selected_dataset,
+                    top_k,
+                    mode,
+                    &retrieval_config,
+                    &generator_config,
+                )
+                .await?
+            }
+            other => anyhow::bail!("--full-eval not yet supported for {other}"),
+        }
+    } else if args.community_standard {
+        let grader_model = args.grader_model.as_deref().unwrap_or("gpt-4o");
+        build_longmemeval_community_standard_run_report(
+            &selected_dataset,
+            args.hypotheses_file
+                .as_deref()
+                .context("community-standard longmemeval requires --hypotheses-file")?,
+            grader_model,
+            mode,
+        )
+        .await?
+    } else {
+        build_public_benchmark_item_results(
+            &selected_dataset,
+            top_k,
+            mode,
+            reranker_id,
+            &retrieval_config,
+            args.turn_diagnostics,
+        )?
+    };
     let token_usage = if mode == "hybrid" {
         Some(json!({
             "prompt_tokens": 0,
@@ -1288,7 +1630,7 @@ pub(crate) async fn run_public_benchmark_command(
         None
     };
     let cost_estimate_usd = if mode == "hybrid" { Some(0.0) } else { None };
-    let manifest = build_public_benchmark_manifest(
+    let mut manifest = build_public_benchmark_manifest(
         args,
         &dataset,
         &resolved_dataset,
@@ -1302,6 +1644,15 @@ pub(crate) async fn run_public_benchmark_command(
         token_usage.clone(),
         cost_estimate_usd,
     )?;
+    if args.full_eval {
+        if let Some(obj) = manifest.runtime_settings.as_object_mut() {
+            obj.insert("full_eval".to_string(), json!(true));
+            obj.insert(
+                "generator_model".to_string(),
+                json!(args.generator_model.as_deref().unwrap_or("gpt-4o-mini")),
+            );
+        }
+    }
     Ok(PublicBenchmarkRunReport {
         manifest,
         metrics: evaluation.metrics,

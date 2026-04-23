@@ -17,6 +17,10 @@ import type {
   VerifyMemoryRequest,
   InboxDismissRequest,
   RepairMemoryRequest,
+  CorrectMemoryRequest,
+  CorrectMemoryResponse,
+  AgentProfileResponse,
+  SourceMemoryResponse,
   AtlasRegionsResponse,
   AtlasExploreResponse,
   AtlasExpandResponse,
@@ -108,6 +112,9 @@ export const api = {
   repair: (req: RepairMemoryRequest) =>
     post<{ repaired: boolean }>("/memory/repair", req),
 
+  correct: (req: CorrectMemoryRequest) =>
+    post<CorrectMemoryResponse>("/memory/correct", req),
+
   // ── Entities ─────────────────────────────────────────────────────────────
 
   entityLinks: (params: { entity_id?: string; project?: string }) =>
@@ -119,6 +126,18 @@ export const api = {
   entitySearch: (params: { query: string; project?: string }) =>
     get<EntitySearchResponse>(
       "/memory/entity/search",
+      params as Record<string, string>,
+    ),
+
+  profile: (params: { agent: string; project?: string }) =>
+    get<AgentProfileResponse>(
+      "/memory/profile",
+      params as Record<string, string>,
+    ),
+
+  source: (params: { source_agent?: string; project?: string }) =>
+    get<SourceMemoryResponse>(
+      "/memory/source",
       params as Record<string, string>,
     ),
 
@@ -141,6 +160,9 @@ export const api = {
       "/atlas/trails",
       params as Record<string, string>,
     ),
+
+  atlasTrailsSave: (req: { name: string; node_ids: string[] }) =>
+    post<{ id: string }>("/atlas/trails/save", req),
 
   // ── Procedures ───────────────────────────────────────────────────────────
 

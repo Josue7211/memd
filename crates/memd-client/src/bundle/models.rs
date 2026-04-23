@@ -417,6 +417,8 @@ pub(crate) struct PublicBenchmarkItemResult {
     pub question_id: String,
     pub claim_class: String,
     #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
     pub question: Option<String>,
     #[serde(default)]
     pub question_type: Option<String>,
@@ -448,15 +450,32 @@ pub(crate) struct PublicBenchmarkRunReport {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LongMemEvalRetrievalBackend {
+pub(crate) enum PublicBenchmarkBackend {
     Lexical,
     Sidecar,
+    Rrf,
+    /// B3 Part-2 prereq: POST corpus → memd-server /memory/store,
+    /// retrieve via /memory/search. Exercises the actual product path
+    /// (FTS5 weights, atlas recall, priority dedup) so bench numbers
+    /// reflect memd intrinsic retrieval, not the client-side lexical
+    /// scorer. G3 generalizes this variant across all public benches.
+    Memd,
 }
+
+/// Transitional alias preserved during G3 so existing call sites keep
+/// compiling. Remove once all four bench adapters dispatch via the
+/// generic `PublicBenchmarkBackend` enum.
+pub(crate) type LongMemEvalRetrievalBackend = PublicBenchmarkBackend;
 
 #[derive(Debug, Clone)]
 pub(crate) struct PublicBenchmarkRetrievalConfig {
-    pub longmemeval_backend: LongMemEvalRetrievalBackend,
+    /// G3: same backend applies to every bench (LongMemEval,
+    /// LoCoMo, MemBench, ConvoMem). Field name kept during the
+    /// transition to avoid a giant rename patch; migrated in the
+    /// same step that adds the dispatcher.
+    pub longmemeval_backend: PublicBenchmarkBackend,
     pub sidecar_base_url: Option<String>,
+    pub memd_base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -465,10 +484,40 @@ pub(crate) struct PublicBenchmarkLeaderboardRow {
     pub benchmark_name: String,
     pub benchmark_version: String,
     pub run_mode: String,
+    #[serde(default)]
+    pub item_modes: Vec<String>,
     pub item_claim_classes: Vec<String>,
     pub coverage_status: String,
+    #[serde(default)]
+    pub claim_class: String,
     pub parity_status: String,
+    #[serde(default)]
+    pub verification_status: String,
+    #[serde(default)]
+    pub primary_metric_label: String,
     pub accuracy: f64,
+    #[serde(default)]
+    pub intrinsic_score: Option<f64>,
+    #[serde(default)]
+    pub accelerated_score: Option<f64>,
+    #[serde(default)]
+    pub score_delta: Option<f64>,
+    #[serde(default)]
+    pub mempalace_score: Option<f64>,
+    #[serde(default)]
+    pub mempalace_status: String,
+    #[serde(default)]
+    pub regression_delta: Option<f64>,
+    #[serde(default)]
+    pub regression_budget: Option<f64>,
+    #[serde(default)]
+    pub commit_sha: Option<String>,
+    #[serde(default)]
+    pub commit_url: Option<String>,
+    #[serde(default)]
+    pub rerun_command: Option<String>,
+    #[serde(default)]
+    pub artifact_path: Option<String>,
     pub item_count: usize,
     pub notes: Vec<String>,
 }

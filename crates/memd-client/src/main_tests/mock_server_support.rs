@@ -537,9 +537,7 @@ pub(crate) async fn mock_runtime_task_upsert(
             title: req.title,
             description: req.description,
             status: req.status.unwrap_or_else(|| "open".to_string()),
-            coordination_mode: req
-                .coordination_mode
-                .unwrap_or_else(|| "shared".to_string()),
+            coordination_mode: req.coordination_mode.unwrap_or_default(),
             session: req.session,
             agent: req.agent,
             effective_agent: req.effective_agent,
@@ -700,6 +698,8 @@ pub(crate) async fn mock_working_memory(
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         });
     Json(response)
 }
@@ -945,6 +945,8 @@ pub(crate) async fn mock_search_memory(
                 tags: vec!["caveman-ultra".to_string(), "token-efficient".to_string()],
                 status: memd_schema::MemoryStatus::Active,
                 stage: memd_schema::MemoryStage::Canonical,
+                    lane: None,
+                    version: 1,
             }]
     } else if query.contains("stale belief") {
         vec![memd_schema::MemoryItem {
@@ -972,6 +974,8 @@ pub(crate) async fn mock_search_memory(
             tags: vec!["correction-target".to_string()],
             status: memd_schema::MemoryStatus::Stale,
             stage: memd_schema::MemoryStage::Canonical,
+            lane: None,
+            version: 1,
         }]
     } else if req.query.is_none() {
         vec![
@@ -1000,6 +1004,8 @@ pub(crate) async fn mock_search_memory(
                 tags: vec!["resume_state".to_string(), "session_state".to_string()],
                 status: memd_schema::MemoryStatus::Active,
                 stage: memd_schema::MemoryStage::Canonical,
+                    lane: None,
+                    version: 1,
             },
             memd_schema::MemoryItem {
                 id: uuid::Uuid::new_v4(),
@@ -1026,6 +1032,8 @@ pub(crate) async fn mock_search_memory(
                 tags: vec!["roadmap".to_string(), "phase-e".to_string(), "ralph".to_string()],
                 status: memd_schema::MemoryStatus::Active,
                 stage: memd_schema::MemoryStage::Canonical,
+                    lane: None,
+                    version: 1,
             }
         ]
     } else {
@@ -1054,6 +1062,8 @@ pub(crate) async fn mock_search_memory(
             tags: vec!["resume_state".to_string(), "session_state".to_string()],
             status: memd_schema::MemoryStatus::Active,
             stage: memd_schema::MemoryStage::Canonical,
+            lane: None,
+            version: 1,
         }]
     };
     Json(memd_schema::SearchMemoryResponse {
@@ -1096,6 +1106,8 @@ pub(crate) async fn mock_store_memory(
             tags: req.tags,
             status: req.status.unwrap_or(memd_schema::MemoryStatus::Active),
             stage: memd_schema::MemoryStage::Canonical,
+            lane: None,
+            version: 1,
         },
     })
 }
@@ -1137,6 +1149,8 @@ pub(crate) async fn mock_candidate_memory(
             tags: req.tags,
             status: memd_schema::MemoryStatus::Active,
             stage: memd_schema::MemoryStage::Candidate,
+            lane: None,
+            version: 1,
         },
         duplicate_of: None,
     })
@@ -1179,6 +1193,8 @@ pub(crate) async fn mock_repair_memory(
             tags: req.tags.unwrap_or_default(),
             status: req.status.unwrap_or(memd_schema::MemoryStatus::Active),
             stage: memd_schema::MemoryStage::Canonical,
+            lane: None,
+            version: 1,
         },
         mode: req.mode,
         reasons: vec!["mock_repair".to_string()],
@@ -1617,6 +1633,10 @@ pub(crate) async fn mock_healthz() -> Json<memd_schema::HealthResponse> {
     Json(memd_schema::HealthResponse {
         status: "ok".to_string(),
         items: 1,
+        eval_score: None,
+        pressure: None,
+        rag: None,
+        atlas: None,
     })
 }
 

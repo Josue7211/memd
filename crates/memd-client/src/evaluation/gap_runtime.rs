@@ -402,15 +402,16 @@ pub(crate) fn build_gap_candidates(
     }
 
     if let Some(runtime) = runtime
-        && let Some(agent) = runtime.agent.as_ref() {
-            let mut session_hint = String::new();
-            if let Some(session) = runtime.session.as_ref() {
-                session_hint.push_str(session);
-            }
-            if !recent_commits.is_empty() {
-                evidence.push(format!("agent={agent} session={session_hint}"));
-            }
+        && let Some(agent) = runtime.agent.as_ref()
+    {
+        let mut session_hint = String::new();
+        if let Some(session) = runtime.session.as_ref() {
+            session_hint.push_str(session);
         }
+        if !recent_commits.is_empty() {
+            evidence.push(format!("agent={agent} session={session_hint}"));
+        }
+    }
 
     if recent_commits.is_empty() {
         add(

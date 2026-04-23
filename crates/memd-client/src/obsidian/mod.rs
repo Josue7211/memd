@@ -12,10 +12,10 @@ use memd_schema::{
     MemoryContextFrame, MemoryKind, MemoryScope, MemoryVisibility, SearchMemoryResponse,
     SourceMemoryResponse, SourceQuality,
 };
+use memdrive::WalkDir;
 use serde::{Deserialize, Serialize};
 use url::form_urlencoded::byte_serialize;
 use uuid::Uuid;
-use memdrive::WalkDir;
 
 pub(crate) mod commands;
 mod compiled;
@@ -906,6 +906,7 @@ pub fn build_attachment_request(
         last_verified_at: Some(Utc::now()),
         supersedes: Vec::new(),
         tags,
+        lane: None,
     }
 }
 
