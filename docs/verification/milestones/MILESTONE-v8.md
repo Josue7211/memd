@@ -33,9 +33,13 @@ Scores match the 0.1.0-CONTRACT.md baseline (zero-generosity regrade) and V7 pos
 
 **Composite: 4.90 → 5.10** (weighted arithmetic).
 
-## Critical TE margin risk
+## TE margin note (superseded)
 
-**TE is the tightest axis margin at 0.1.0 close:** TE final target 5 / floor 3 / margin +2 only. V8 owns +1 of the +2 total margin for TE. If V8 misses TE (reverts to 4) or V4 under-delivers (stays at 3 instead of 4), TE falls below floor at release. **This is a release blocker.** Every G8 harness assertion on TE (cost ledger visible + operator can edit budget cap + turn-level burn tracked) must have scripted proof (headless browser via agent-browser / Playwright).
+Original framing: TE tightest at release. **Superseded by V11+ SOTA push** — V11
+Compiler SOTA lifts TE 5→7 (dynamic per-turn compiler), V13 closes at TE=7 against
+SOTA floor 7 (zero margin). V8's TE 4→5 is an intermediate lift, not the release-
+critical axis. V8 TE assertion still required (cost ledger + tunable budget) but
+failure here is recoverable in V11; V13 zero-margin is the real release cliff.
 
 ## Phases
 
@@ -47,10 +51,11 @@ See `ROADMAP.md` → "V8: Operator Surfaces". Phase docs at `docs/phases/v8/phas
 - **D8** Provenance browser — click any fact, trace to source turn + extraction reason + correction history. **OWNS TP +1 (5→6).**
 - **E8** Cost ledger UI — token budget cap, per-turn burn tracking, cumulative cost graph. **OWNS TE +1 (4→5).**
 - **F8** Public leaderboard transparency page — live method cards, reproduction commands, retraction log, gaming-audit rule. SC integration.
+- **G8** `memd configure` settings CLI — single canonical entry point for all runtime settings. Subcommands: `memd configure list`, `memd configure get <key>`, `memd configure set <key>=<value>`, `memd configure reset [<key>]`. Writes to `.memd/config.json` (schema v0.3+). Exposes V7 H7 atomic-commit toggle (`auto_commit.enabled`), V8 cost-ledger budget caps, V9 federated-memory visibility defaults, and future V11-V13 feature toggles. Must validate keys against schema (unknown key = error with "did you mean"). TAB-completion for keys in zsh/bash. No axis credit claimed; foundational for operator UX consistency. Phase G8 is the sole canonical config surface — all other "settings" references in the codebase either delegate to it or are deprecated.
 
 ## Completion gate
 
-G8 harness (headless browser automation via agent-browser / Playwright):
+G8 is dual-deliverable: (1) `memd configure` CLI (no axis credit; canonical settings surface) + (2) closing release harness (TE + TP axis credit aggregator + scorecard regenerator). Both land inside G8. The harness (headless browser automation via agent-browser / Playwright) covers:
 
 ### TE proof (cost ledger visible, operator can control budget)
 - G8.TE.1: dev server running, operator session via agent-browser, calls `memd wake --output ~/.memd --budget-tokens 3000`
@@ -65,6 +70,16 @@ G8 harness (headless browser automation via agent-browser / Playwright):
 - G8.TP.3: drilldown depth 2: source turn (which session turn produced this extraction)
 - G8.TP.4: drilldown depth 3: correction history (all corrections that cite this fact) + alternate candidates (other extractions from same turn not chosen)
 - G8.TP.5: metric `provenance_depth_max: 3` or higher logged to G8 proof run
+
+### Configure CLI proof (no axis credit; settings-surface stability)
+- G8.CFG.1: `memd configure list` prints all 6 V8 keys + defaults (auto_commit.enabled, cost_ledger.budget_tokens, cost_ledger.per_turn_warn, provenance.drilldown_depth_max, voice.mode + reserved stubs)
+- G8.CFG.2: `memd configure set cost_ledger.budget_tokens=2000` → writes `.memd/config.json` atomically via V7 H7 writer-guard
+- G8.CFG.3: `memd configure get cost_ledger.budget_tokens` → "2000"
+- G8.CFG.4: `memd wake` respects new budget (reads config, not env)
+- G8.CFG.5: `memd configure set unknown.key=1` → exits 2, emits "did you mean" hint (Levenshtein ≤2)
+- G8.CFG.6: `memd configure reset cost_ledger.budget_tokens` → default restored
+- G8.CFG.7: schema hash unchanged vs committed snapshot (drift = blocker)
+- G8.CFG.8: metric `configure_suite.pass_count=7, fail_count=0` logged to G8 proof run
 
 ### Stranger review (outside reviewer, sidecar OFF)
 - Reviewer rates memd best-in-class on 5 surfaces (wake quality, correction UX, atlas navigation, memory searchability, cost ledger readability) vs mempalace / supermemory / letta / mem0
@@ -117,3 +132,6 @@ No UI change ships without live browser verification + harness proof. This is ma
   - Browser testing mandate added; agent-browser required for UI axis credit
   - Per-axis harness assertions table added (no lift without G8 proof)
   - Stranger review moved to completion gate + required
+- 2026-04-22 revised (V11-V13 SOTA extension):
+  - TE-margin-risk framing superseded — V11 takes TE 5→7, V13 closes at zero margin; V8's TE=5 is intermediate, not release-critical
+  - Added G8 phase — `memd configure` settings CLI. Canonical entry point for all runtime settings, exposes V7 H7 atomic-commit toggle plus V8-V13 feature flags. No axis credit; foundational operator UX.

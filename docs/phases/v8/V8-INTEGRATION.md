@@ -4,7 +4,7 @@ kind: integration-plan
 status: ready-to-execute
 opened: 2026-04-22
 revised: 2026-04-22
-scope: A8..F8
+scope: A8..G8
 depends_on: [../../verification/0.1.0-CONTRACT.md, ../../verification/0.1.0-AXIS-OWNERSHIP.md, ../../verification/milestones/MILESTONE-v8.md]
 ---
 
@@ -34,7 +34,8 @@ Rules:
 - A8 tasks 1–6 land first (atlas UI foundation + SC integration contract). B8 cannot start until A8 Task A8.5 (SC read API finalized).
 - C8 parallelize with B8 after A8 completes; C8 uses A8 atlas foundation + A8 SC read API.
 - D8 requires A8 atlas foundation + A8 SC read (integration). E8 requires D8 provenance API. F8 parallelize with E8 after D8 Task D8.4 (provenance depth contract).
-- G8 requires all A8–F8 complete.
+- G8 requires all A8–F8 complete. **G8 is dual-deliverable:** (a) `memd configure` CLI (the canonical settings surface — OWNS foundational operator UX; no axis credit) + (b) scorecard regenerator + closing release harness (TE + TP axis credit aggregator). Both land inside G8.
+- G8's `memd configure` sub-phase can parallelize against A8–F8 UI work (no UI dependency), but its schema MUST be finalized before E8 ships cost-ledger budget caps (E8 reads defaults via `memd configure get cost_ledger.budget_tokens`).
 
 No phase may short-circuit a prior dependency to hit its own pass gate. If blocked, file a backlog item and surface in the next session's handoff.
 
@@ -192,6 +193,93 @@ Track this risk in every harness run:
 
 If any harness run shows `cost_ledger_visible=false` or `budget_tunable=false`, file a blocker backlog item immediately.
 
+## 6a. `memd configure` CLI (G8 sub-phase) — canonical settings surface
+
+G8 ships the first and only canonical runtime-settings CLI. Every runtime toggle the codebase cares about routes through this surface. No axis credit; foundational.
+
+### Surface
+
+```
+memd configure list                       # print all keys + current values + defaults
+memd configure get <key>                  # single-key read, exit 0 if set, 2 if unknown
+memd configure set <key>=<value>          # validate against schema, write .memd/config.json
+memd configure reset [<key>]              # restore default (all if <key> omitted)
+memd configure show-schema                # emit JSONSchema for config keys (machine-readable)
+```
+
+### Storage
+
+- File: `.memd/config.json` (schema version `0.3+`).
+- Atomic write via the V7 H7 writer-guard (config changes themselves are dirty-tracked; auto-commit applies unless the caller disables it).
+- Back-compat: existing older keys in `.memd/config.json` carried forward; unknown keys produce a warning (not an error) on `list`, a hard error on `set`.
+
+### Initial key surface (V8 close)
+
+| Key | Type | Default | Owner phase | Notes |
+| --- | --- | --- | --- | --- |
+| `auto_commit.enabled` | bool | `true` | V7 H7 | atomic-commit primitive master toggle |
+| `auto_commit.exclude_paths` | string[] | `[]` | V7 H7 | paths auto-commit ignores (e.g. build artefacts) |
+| `cost_ledger.budget_tokens` | int | `4000` | V8 E8 | default wake budget cap; operator-tunable via UI or CLI |
+| `cost_ledger.per_turn_warn` | int | `1500` | V8 E8 | warn threshold |
+| `provenance.drilldown_depth_max` | int | `3` | V8 D8 | depth contract for D8 browser |
+| `voice.mode` | string (enum) | `caveman-lite` | prior | voice surface; validated against voice registry |
+
+### Reserved keys (future milestones)
+
+- `federated.visibility.default` (V9 federated-memory defaults; schema stub ships in V8 G8, activation in V9)
+- `compiler.mode` (V11 dynamic-compiler toggle; stub ships V8, activation in V11)
+- `protocol.mcp.enabled` / `protocol.acp.enabled` / `protocol.custom.enabled` (V12)
+- `provenance.export.signed` (V12 cryptographic provenance)
+
+Schema stubs land in V8 G8 so later milestones only need to flip `reserved: true → reserved: false` + implement. No flag-day migrations downstream.
+
+### Validation rules (strict)
+
+1. Unknown key on `set` → error: `unknown key '<k>' — did you mean '<closest>'?` (Levenshtein ≤ 2 match).
+2. Type mismatch → error with expected type from schema.
+3. Enum out of range → error listing valid values.
+4. Reserved key `set` attempt → error: `key reserved for future milestone, not yet active`.
+5. Write to read-only key → error (e.g., schema_version).
+
+### TAB-completion
+
+- `memd completions zsh` / `bash` emit shell completion script.
+- Completion enumerates keys from `memd configure show-schema`; no hard-coded key list.
+
+### `memd configure` integration with other V8 phases
+
+| Phase | Integration | How |
+| --- | --- | --- |
+| A8 atlas UI | — | no config consumption; pure UI |
+| B8 correction UX | — | reads V7 correction tables; no V8 config |
+| C8 memory inspector | — | — |
+| D8 provenance browser | `provenance.drilldown_depth_max` | UI reads this key; if operator sets to 5, UI must honor |
+| E8 cost ledger | `cost_ledger.budget_tokens`, `cost_ledger.per_turn_warn` | UI edit routes through `memd configure set cost_ledger.budget_tokens=<n>`; no duplicate write path |
+| F8 leaderboard | — | — |
+| G8 harness | validates schema stability | G8.schema-lock: snapshot schema hash, compare on every commit; drift = blocker |
+
+Every other "setting" in the codebase (env vars, hard-coded defaults, ad-hoc prefs in V4–V7) is either:
+- **(a) deprecated** in V8 G8 with a shim that reads the new key, OR
+- **(b) explicitly out-of-scope** (one-off session flags like `MEMD_DEBUG_*` stay env-only).
+
+No parallel "settings" system ships. `memd configure` is **the** surface. This is a hard rule — violations block V8 close.
+
+### G8 configure sub-phase harness assertion
+
+G8 harness adds one non-UI assertion block (parallel to TE + TP):
+
+```
+G8.CFG.1: memd configure list prints all 6 V8 keys + defaults
+G8.CFG.2: memd configure set cost_ledger.budget_tokens=2000 → writes .memd/config.json
+G8.CFG.3: memd configure get cost_ledger.budget_tokens → "2000"
+G8.CFG.4: memd wake --output .memd respects new budget (reads config, not env)
+G8.CFG.5: memd configure set unknown.key=1 → exits 2, prints "did you mean" hint
+G8.CFG.6: memd configure reset cost_ledger.budget_tokens → defaults restored
+G8.CFG.7: schema hash unchanged vs snapshot (no drift)
+```
+
+Metric logged to G8 proof NDJSON: `{ "type": "configure_suite", "pass_count": 7, "fail_count": 0 }`. Any fail → V8 does not close.
+
 ## 7. Feature-flag graduation calendar
 
 Flag-flip ordering (each flip = its own commit, each after a 7-day clean window):
@@ -233,7 +321,7 @@ Checkpoints:
 
 ### Plan-spec land phase (this task)
 
-Seven atomic commits on `research/mining`, one per file + integration doc:
+Eight atomic commits on `research/mining`, one per file + integration doc:
 
 1. `docs(v8): phase-a8-plan implementation spec`
 2. `docs(v8): phase-b8-plan implementation spec`
@@ -241,7 +329,8 @@ Seven atomic commits on `research/mining`, one per file + integration doc:
 4. `docs(v8): phase-d8-plan implementation spec`
 5. `docs(v8): phase-e8-plan implementation spec`
 6. `docs(v8): phase-f8-plan implementation spec`
-7. `docs(v8): V8-INTEGRATION cross-phase plan`
+7. `docs(v8): phase-g8-plan implementation spec (memd configure CLI + release harness)`
+8. `docs(v8): V8-INTEGRATION cross-phase plan`
 
 ### Execution commits per phase
 
@@ -279,7 +368,8 @@ All six phase exit criteria met (A8–F8) AND G8 exit criteria met AND:
 - `docs/verification/milestones/MILESTONE-v8.md` filled in with evidence paths.
 - `ROADMAP.md` V8 → closed, V9 → in progress.
 - No open backlog items tagged `axis: token_efficiency` or `axis: trust_provenance` at severity `blocker`.
-- G8 harness proof NDJSON includes metrics: `cost_ledger_visible`, `budget_tunable`, `provenance_depth_max`, `console_error_count=0`.
+- G8 harness proof NDJSON includes metrics: `cost_ledger_visible`, `budget_tunable`, `provenance_depth_max`, `console_error_count=0`, `configure_suite.pass_count=7`, `configure_suite.fail_count=0`.
+- `memd configure` CLI ships with all 6 V8 keys + reserved stubs for V9/V11/V12; schema hash recorded in G8 proof bundle; no parallel settings system exists in the codebase (grep audit for `env::var`, ad-hoc prefs, etc. passes).
 - Stranger review write-up + 5 side-by-side screencasts (TE budget UI + TP drilldown + atlas nav + correction UX + leaderboard) committed.
 - **TE margin risk assessment** documented and signed off (V4 delivered TE +2, V8 delivered TE +1, margin +2 held).
 - E8 cost-ledger flag-flip blocked until post-G8 TE proof regeneration (not flipped during spec-land or execution, only after 7-day clean window post-G8).
