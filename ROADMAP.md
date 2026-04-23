@@ -11,7 +11,7 @@ milestone_status: in_progress
 current_phase: J3
 phase_status: complete_proxy_gap_deferred
 next_milestone: V3
-post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 (see V4–V10 block below; 10-STAR composite target ≥8.5 by V10; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
+post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 (see V4–V13 block below; 10-STAR composite target **8.50 at V13** per docs/verification/0.1.0-CONTRACT.md — V10 is the production-floor milestone, V13 is the 0.1.0 release gate; release gate is composite ≥8.0 AND every axis ≥7 at SOTA per docs/theory/MEMD-SOTA-THEORY.md; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
 next_step: K3 — provision gpt-4o on openclaw LiteLLM proxy + rerun J3 canonical primaries for LongMemEval/LoCoMo/ConvoMem. J3 closed 2026-04-21 with proxy-gap-deferred verdict: MemBench canonical `mc_accuracy=0.417` (below 0.70 floor, recorded-unpinned); LongMemEval/LoCoMo/ConvoMem canonical primaries unreachable until gpt-4o routes (judge + free-form generator). Diagnostic retrieval numbers captured — LongMemEval 0.900, LoCoMo 0.360, ConvoMem 0.950.
 active_blockers: ["docs/backlog/v3/2026-04-21-gpt4o-proxy-route-for-judge.md"]
 v1_status: frozen_architecture_complete
@@ -243,31 +243,33 @@ Phase IDs are in execution order (A3 first, J3 last). Reshuffled 2026-04-17 to i
 
 ### V4–V10: The Path to 10-STAR
 
-V3 shipped retrieval honesty. Public benches expose the generator reasoning cap, not a memd cap — retrieval diagnostics sit ≥0.95 on every bench. Six of seven 10-STAR axes (session continuity, correction retention, procedural reuse, cross-harness, token efficiency, trust+provenance) haven't moved since 2026-04-14 because V3 didn't touch them. Current composite: **2.15/10**.
+V3 shipped retrieval honesty. Public benches expose the generator reasoning cap, not a memd cap — retrieval diagnostics sit ≥0.95 on every bench. Six of seven 10-STAR axes (session continuity, correction retention, procedural reuse, cross-harness, token efficiency, trust+provenance) haven't moved since 2026-04-14 because V3 didn't touch them. Current composite (zero-generosity regrade, reconciled 2026-04-22): **1.80/10**.
 
-Path forward is substrate-native: V4 fixes memd in real sessions, V5 builds benches that measure what memd is actually for, V6 ports typed ingest to public benches, V7–V10 ship correction E2E, operator surfaces, multi-user, self-improvement. Every milestone owns a 10-STAR axis lift; total lift targets **≥8.5/10** by V10.
+Path forward is substrate-native: V4 fixes memd in real sessions, V5 builds benches that measure what memd is actually for, V6 ports typed ingest to public benches, V7–V10 ship correction E2E + operator surfaces + multi-user + self-improvement (production floor at V10 close — composite 6.40, every axis ≥3). V11–V13 push to SOTA: V11 Compiler SOTA (dynamic per-turn compiler, cross-project continuity, silent correction detection), V12 Interop SOTA (universal harness protocol, curated routine library, cryptographic provenance), V13 Evidence + Release (bench domination ≥5pp margin, cross-device sync, third-party provenance replay). Every milestone owns a specific 10-STAR axis delta per [[docs/verification/0.1.0-CONTRACT.md]]; total lift targets **composite ≥8.0 AND every axis ≥7** by V13 (0.1.0 release gate). Theory binds: [[docs/theory/MEMD-SOTA-THEORY.md]] — "best SOTA memory OS for any harness."
 
 Status: all phase docs below are `planned`. Milestone audit docs stubbed at `docs/verification/milestones/MILESTONE-v{N}.md`. V4 phase docs are drafted; V5–V10 phase docs drafted at milestone-open to avoid stale content.
 
-#### V4: Live Loop Repair — 10-STAR Axis Lift: Session Continuity + Correction + Procedural (1→4)
+#### V4: Live Loop Repair — Axis Lifts: SC 1→4, CR 1→4, CH 2→3, TE 2→4, TP 2→3 (procedural_reuse seed only, 1→2)
 
-Goal: memd used-as-designed in a real claude-code/codex session does not lose state, does not drop corrections, does not bloat context. Fixes 10-STAR gaps 1–9. Composite target: 2.15 → **4.0**.
+Goal: memd used-as-designed in a real claude-code/codex session does not lose state, does not drop corrections, does not bloat context. Fixes 10-STAR gaps 1–9. Composite target: 1.80 → **3.45**. Integration contract: [[docs/phases/v4/V4-INTEGRATION.md]]. Milestone gates: [[docs/verification/milestones/MILESTONE-v4.md]].
 
 | Phase | Name | Status | 10-STAR axes | Phase Doc |
 | --- | --- | --- | --- | --- |
-| A4 | Read-State Across Compaction | `planned` | session continuity | [[docs/phases/v4/phase-a4-read-state-compaction.md]] |
+| A4 | Read-State Across Compaction (+ schema locks: Lamport, seq-iso, content-hash) | `planned` | session continuity | [[docs/phases/v4/phase-a4-read-state-compaction.md]] |
 | B4 | Hook Contract Enforcement | `planned` | session continuity | [[docs/phases/v4/phase-b4-hook-contract.md]] |
-| C4 | Correction Capture E2E | `planned` | correction retention | [[docs/phases/v4/phase-c4-correction-capture-e2e.md]] |
-| D4 | Working-Context Compiler | `planned` | token efficiency | [[docs/phases/v4/phase-d4-working-context-compiler.md]] |
-| E4 | Progressive-Depth Recall | `planned` | token efficiency, cross-harness | [[docs/phases/v4/phase-e4-progressive-depth-recall.md]] |
-| F4 | Preference Replay + Drift | `planned` | correction retention | [[docs/phases/v4/phase-f4-preference-drift.md]] |
-| G4 | Session-Continuity Proof Harness | `planned` | session continuity gate | [[docs/phases/v4/phase-g4-continuity-proof.md]] |
+| C4 | Correction Capture E2E (+ sampling gate P≥0.85) | `planned` | correction retention, trust+provenance | [[docs/phases/v4/phase-c4-correction-capture-e2e.md]] |
+| D4 | Working-Context Compiler (+ kinds-coverage + cost ledger + 4-layer cap) | `planned` | token efficiency | [[docs/phases/v4/phase-d4-working-context-compiler.md]] |
+| E4 | Progressive-Depth Recall (+ FTS5+RRF + query sanitization) | `planned` | token efficiency, cross-harness | [[docs/phases/v4/phase-e4-progressive-depth-recall.md]] |
+| F4 | Preference Replay + Drift (includes F4.7 procedural-seed, no axis credit) | `planned` | correction retention, procedural_reuse (seed) | [[docs/phases/v4/phase-f4-preference-drift.md]] |
+| G4 | Session-Continuity Proof Harness (multi-harness: claude-code → codex → claude-code) | `planned` | cross-harness gate + all V4 axes binding | [[docs/phases/v4/phase-g4-continuity-proof.md]] |
 
-V4 completion gate: on a 3-session claude-code dogfood, state survives compaction, a correction in session 1 is honored in session 3, wake context is <2k tokens with zero continuity loss. Evidence: recorded session trace + G4 harness pass.
+V4 completion gate: on a 3-session **multi-harness** dogfood (claude-code S1 → codex S2 → claude-code S3), state survives compaction, corrections issued in either harness are honored round-trip, wake context ≤2k tokens with zero continuity loss, F4.7 instrumentation reports ≥3 routine candidates observed. Evidence: recorded session trace + G4 harness NDJSON + regenerated 10-STAR scorecard (strict mode, axis scores ≤ MILESTONE-v4 targets).
 
-#### V5: Substrate-Native Benchmark Suite — Axis Lift: Cross-Harness + Provenance + Typed (2→6)
+Zero-code V4 contract add: [[docs/contracts/federated-memory-visibility.md]] closes Gap-25 (live memory contract); enforcement lands in V9.
 
-Goal: ship memd's own benchmark suite, open-source, reproducible. Public benches measure flat RAG; these measure what memd is actually for. Composite target: 4.0 → **5.5**.
+#### V5: Substrate-Native Benchmark Suite — Axis Lift: PR 2→4, CH 3→4, RR 4→6
+
+Goal: ship memd's own benchmark suite, open-source, reproducible. Public benches measure flat RAG; these measure what memd is actually for. **Procedural routine-detection flips live** (consumes F4.7 instrumentation from V4). Composite target: 3.45 → **4.20**.
 
 | Phase | Name | Status | Measures | Phase Doc |
 | --- | --- | --- | --- | --- |
@@ -281,9 +283,9 @@ Goal: ship memd's own benchmark suite, open-source, reproducible. Public benches
 
 V5 completion gate: all 7 bench suites run in CI, numbers in `docs/verification/SUBSTRATE_BENCHMARKS.md`, any memd competitor can run them.
 
-#### V6: Typed Ingest for Public Benches — Axis Lift: Public Bench Numbers (raw retrieval 6→8)
+#### V6: Typed Ingest for Public Benches — Axis Lift: RR 6→7, TP 3→4
 
-Goal: memd stops pretending public benches are flat-RAG. Episodic/semantic/canonical/candidate typing applied to bench inputs; working-context compiler trims the prompt; progressive-depth routes re-queries. LME/LoCoMo/MemBench/ConvoMem numbers lift without benchmaxxing. Composite: 5.5 → **7.0**.
+Goal: memd stops pretending public benches are flat-RAG. Episodic/semantic/canonical/candidate typing applied to bench inputs; working-context compiler trims the prompt; progressive-depth routes re-queries. LME/LoCoMo/MemBench/ConvoMem numbers lift without benchmaxxing. Composite: 4.20 → **4.45**.
 
 | Phase | Name | Status | Phase Doc |
 | --- | --- | --- | --- |
@@ -296,9 +298,9 @@ Goal: memd stops pretending public benches are flat-RAG. Episodic/semantic/canon
 
 V6 gate: LME ≥0.85 / LoCoMo ≥0.75 / MemBench ≥0.75 / ConvoMem ≥0.90 canonical, intrinsic. No regression on retrieval diagnostics.
 
-#### V7: Correction + Behavior-Change E2E — Axis Lift: Correction Retention (2→8)
+#### V7: Correction + Behavior-Change E2E — Axis Lift: SC 4→5, CR 4→5, TP 4→5
 
-Goal: correction lane lives end-to-end. User says "no, X is Y" — next session uses Y, provenance shows the correction turn, rollback works. Composite: 7.0 → **7.8**.
+Goal: correction lane lives end-to-end. User says "no, X is Y" — next session uses Y, provenance shows the correction turn, rollback works. Composite: 4.45 → **4.90**.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -309,12 +311,13 @@ Goal: correction lane lives end-to-end. User says "no, X is Y" — next session 
 | E7 | Provenance Trail on Corrected Records | `planned` |
 | F7 | User-Visible "I learned X from Y" Surface | `planned` |
 | G7 | Rollback on Bad Correction | `planned` |
+| H7 | Atomic-Commit-by-Default (durability primitive, toggleable via `memd configure`) | `planned` |
 
-V7 gate: correction bench in V5 suite shows 100% propagation, rollback test passes.
+V7 gate: correction bench in V5 suite shows 100% propagation, rollback test passes. H7: every memd write path atomically commits dirty tracked files in host repo; default ON; `memd configure auto_commit.enabled=false` toggles OFF for rebase/bisect/experiment workflows.
 
-#### V8: Operator Surfaces — Axis Lift: Trust + Provenance (2→7), stranger-test dogfood
+#### V8: Operator Surfaces — Axis Lift: TE 4→5, TP 5→6, stranger-test dogfood
 
-Goal: user can see memd — atlas, corrections, provenance, diff, rollback. Composite: 7.8 → **8.5**.
+Goal: user can see memd — atlas, corrections, provenance, diff, rollback. Composite: 4.90 → **5.10**.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -324,12 +327,13 @@ Goal: user can see memd — atlas, corrections, provenance, diff, rollback. Comp
 | D8 | Provenance Browser | `planned` |
 | E8 | Diff + Rollback UI | `planned` |
 | F8 | Public Leaderboard Transparency Page | `planned` |
+| G8 | `memd configure` Settings CLI (canonical settings surface) | `planned` |
 
-V8 gate: stranger test (outside reviewer, sidecar OFF) rates memd best-in-class vs mempalace/supermemory/letta/mem0 on 5 surfaces.
+V8 gate: stranger test (outside reviewer, sidecar OFF) rates memd best-in-class vs mempalace/supermemory/letta/mem0 on 5 surfaces. G8 ships the `memd configure` CLI as the single canonical entry point for all runtime settings — subcommands `list/get/set/reset`, schema-validated against `.memd/config.json`, TAB-completion in zsh/bash. Exposes V7 H7 atomic-commit toggle plus V8 cost-ledger caps plus V9 visibility defaults plus V11-V13 feature flags. All ad-hoc settings surfaces are either deprecated or delegate to G8.
 
-#### V9: Multi-User / Team — Axis Lift: Cross-Harness (6→9)
+#### V9: Multi-User / Team — Axis Lift: SC 5→6, CH 4→6 (enforces federated-memory-visibility contract)
 
-Goal: shared-namespace memory, visibility honored by retrieval, merge collisions resolved, team-wide correction propagation. Composite: 8.5 → **9.0**.
+Goal: shared-namespace memory, visibility honored by retrieval, merge collisions resolved, team-wide correction propagation. Activates enforcement of [[docs/contracts/federated-memory-visibility.md]] (published in V4). Composite: 5.10 → **5.60**.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -342,9 +346,9 @@ Goal: shared-namespace memory, visibility honored by retrieval, merge collisions
 
 V9 gate: 2-user 3-agent dogfood holds truth across 10 sessions, divergence surfaced, no silent overwrites.
 
-#### V10: Self-Improvement — Axis Lift: All axes to 9.0+
+#### V10: Self-Improvement — Axis Lift: SC 6→7, CR 5→6, PR 4→6, RR 7→8 (production floor milestone)
 
-Goal: memd improves itself — overnight consolidation, auto-correction from user behavior, bench regression canary, 10-STAR automated. Composite: 9.0 → **9.5+**.
+Goal: memd improves itself — overnight consolidation, auto-correction from user behavior, bench regression canary, 10-STAR automated. Composite: 5.60 → **6.40**. **V10 is the production-floor milestone, not the release gate** — V10 close means every axis ≥3 (production floor). 0.1.0 release tag lands at V13 close, not V10.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -355,7 +359,66 @@ Goal: memd improves itself — overnight consolidation, auto-correction from use
 | E10 | Gap-Audit Self-Scoring (10-STAR automated) | `planned` |
 | F10 | Continuous-Deployment Memory | `planned` |
 
-V10 gate: composite ≥9.0, self-improvement loop demonstrated over 30 days without regression.
+V10 gate: composite ≥6.0 AND every axis ≥3, self-improvement loop demonstrated over 30 days without regression, zero unowned 10-STAR gaps. Hands off to V11 Compiler SOTA.
+
+#### V11: Compiler SOTA — Axis Lift: TE 5→7, SC 7→8, CR 6→7
+
+Goal: push the compiler to SOTA baseline. Dynamic per-turn compiler (decides per-turn what kinds of memory at what depth), Shannon-ish baseline (no redundancy; every token pulls weight), $/M tunable cost ledger. Cross-project continuity (project-aware wake, no pollution from other workspaces). Silent correction detection (user rephrases or ignores a prior answer → memd infers correction without explicit UI). Composite: 6.40 → **6.95**. See [[docs/theory/MEMD-SOTA-THEORY.md]] for axis-level SOTA definitions.
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| A11 | Dynamic per-turn compiler (turn-intent-aware context selection) | `planned` |
+| B11 | Shannon-baseline ablation test (every token pulls weight) | `planned` |
+| C11 | $/M cost targeting (operator-tunable budget, exposed via `memd configure`) | `planned` |
+| D11 | Project-aware wake (cross-project memory lookups with project provenance) | `planned` |
+| E11 | Compaction-aware recall (compressed-optimal long-session context) | `planned` |
+| F11 | Silent correction detection (contradiction latency ≤1s, user-behavior-inferred) | `planned` |
+| G11 | V11 gate harness (TE/SC/CR assertions; strict-mode scorecard regen) | `planned` |
+
+V11 gate: composite ≥6.95, TE=7, SC=8, CR=7, all others ≥ V10 post. Compiler ablation tests pass; project-scoped wake proven on 3+ workspace set; silent correction detection ≥70% precision ≥60% recall over dogfood corpus.
+
+#### V12: Interop SOTA — Axis Lift: CH 6→8, PR 6→8, TP 6→8
+
+Goal: memd speaks every major harness protocol (MCP, ACP, typed-channel custom). Any harness plugs in with <100 LOC shim. Live multi-harness session (user on claude-code AND codex simultaneously, memory syncs atomically). Curated routine library (browse, edit, compose A+B=C, cross-workspace sharing, per-project inheritance). Cryptographic provenance (signed audit entries, tamper-evident, browsable UI). Composite: 6.95 → **7.75**.
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| A12 | Routine library UI (`memd routines` browse/edit/merge/deprecate) | `planned` |
+| B12 | Routine composition (`memd routines compose A B --output C`) | `planned` |
+| C12 | Per-project routine inheritance (`.memd/config.json` cascade) | `planned` |
+| D12 | Cross-workspace export/import (`memd routines export/import`) | `planned` |
+| E12 | MCP protocol shim (memd as MCP memory backend; <50 LOC client shim) | `planned` |
+| F12 | ACP integration (if applicable; defer to E12 outcome) | `planned` |
+| G12 | Universal-protocol parity bench + live multi-harness atomic sync | `planned` |
+| H12 | Signed audit entries (ed25519) at `.memd/state/audit.ndjson` | `planned` |
+| I12 | Audit UI (`memd audit browse` + `memd audit explain`) | `planned` |
+| J12 | Tamper-evidence external verifier (`memd audit verify --export`) | `planned` |
+
+V12 gate: composite ≥7.75, CH=8 (universal-protocol parity bench passes), PR=8 (routine library curation dogfooded over 14 days), TP=8 (signed audit verified by external viewer). SOTA floor (every axis ≥7) held by V12 close.
+
+#### V13: Evidence + 0.1.0 Release — Axis Lift: RR 8→9, SC 8→9, CR 7→8, PR 8→9, TP 8→9 (**0.1.0 release gate**)
+
+Goal: bench domination (not parity) — beat published SOTA by ≥5pp on LoCoMo, LongMemEval, MemBench, ConvoMem simultaneously. Publish a new harder benchmark. Cross-device sync (desktop ↔ mac ↔ mobile, CRDT merge). Dormant-project recovery (30+ day gap with full focus recall). Behavior-inferred corrections + multi-hop correction chains. Routine auto-composition. Third-party provenance replay (export + independent verification). Composite: 7.75 → **8.50**. **0.1.0 release tag lands at V13 close.**
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| A13 | Public-bench domination (≥5pp margin on all four benches) | `planned` |
+| B13 | Published harder-bench (current systems fail this bench) | `planned` |
+| C13 | Cross-device CRDT sync (desktop ↔ mac ↔ mobile) | `planned` |
+| D13 | Dormant-project recovery (30-day gap full-recall test) | `planned` |
+| E13 | Behavior-inferred + multi-hop correction chains | `planned` |
+| F13 | Routine auto-composition (memd suggests A+B=C) | `planned` |
+| G13 | Third-party provenance replay (export + independent harness) | `planned` |
+| H13 | V13 release harness (regenerates MEMD-10-STAR.md; if any axis regresses, release does not tag) | `planned` |
+
+**0.1.0 release gate (V13 close):**
+1. Composite ≥8.0 (V13 target 8.50)
+2. Every axis ≥7 (SOTA floor)
+3. Zero blocker-severity backlog with 10-STAR axis label
+4. Reproducible proof run in `docs/verification/release-0-1-0/`
+5. Head-to-head SOTA proof: ≥1 public bench per applicable axis, ≥5pp margin vs published best
+
+**TE zero-margin flag:** TE closes at 7 (floor 7, zero margin). Any TE regression during V13 close blocks 0.1.0 tag. Contingency: roll back V13 other-axis credits, file V13.5 TE-recovery phase, re-run harness, tag only when TE≥7.
 
 ## Benchmarks
 
