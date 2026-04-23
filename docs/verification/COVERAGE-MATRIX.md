@@ -10,7 +10,7 @@ sources: [MEMD-10-STAR.md, ROADMAP.md, MILESTONE-v4.md, phase-docs V4-V8]
 
 35 listed gaps from `MEMD-10-STAR.md` v2026-04-13 mapped across V4–V10 phases. **2 unowned gaps** expose roadmap holes. **3 gaps over-claimed** risk scope creep. **Pillar 10 (Self-Improvement)** has no clear V4 plan. **V4 should add Gap-25 (live memory contract) as an early win.**
 
-**0.1.0 release definition:** composite ≥6.0, pillars 1,2,3,4,5,7,9 at ≥6/10 each, pillars 6,8 at ≥5/10. Exit on 3-session dogfood + production readiness audit.
+**0.1.0 release definition:** per `docs/verification/0.1.0-CONTRACT.md` (authoritative) — composite ≥6.0 AND every axis ≥3 AND zero blocker backlog AND reproducible proof run at `docs/verification/release-0-1-0/`. V10 closes with composite 6.40 (SC 7, CR 6, PR 6, CH 6, RR 8, TE 5, TP 6). Axis ownership binding table at `docs/verification/0.1.0-AXIS-OWNERSHIP.md`. Pillar-level per-gap minimums above are advisory — axis floors are binding. Exit on V10 G-harness regeneration of MEMD-10-STAR.md in place; any axis regression blocks 0.1.0 tag.
 
 ---
 
