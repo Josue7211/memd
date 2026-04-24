@@ -1,0 +1,10 @@
+{
+  "session_id": "a4-fixture",
+  "entries": [
+    { "path": "src/a.rs", "op": "read", "count": 1, "last_ts_ms": 1700000000001 },
+    { "path": "src/b.rs", "op": "read", "count": 1, "last_ts_ms": 1700000000002 },
+    { "path": "src/c.rs", "op": "read", "count": 1, "last_ts_ms": 1700000000003 },
+    { "path": "src/d.rs", "op": "read", "count": 1, "last_ts_ms": 1700000000004 },
+    { "path": "src/e.rs", "op": "read", "count": 1, "last_ts_ms": 1700000000005 }
+  ]
+}

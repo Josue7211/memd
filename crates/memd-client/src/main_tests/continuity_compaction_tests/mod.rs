@@ -250,3 +250,118 @@ async fn ordering_check_requires_trace_file() {
         "expected trace-unavailable, got: {msg}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// A4.7 — E2E fixture-driven scenarios 18 + 19.
+// Fixtures live at crates/memd-client/fixtures/a4/.
+// ---------------------------------------------------------------------------
+
+fn fixture_path(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("a4")
+        .join(name)
+}
+
+fn load_fixture_ledger(name: &str, session_id: &str) -> FileInteractionLedger {
+    let raw = fs::read_to_string(fixture_path(name)).expect("fixture exists");
+    let mut value: serde_json::Value = serde_json::from_str(&raw).expect("fixture is JSON");
+    // Rename session_id in-place so fixture is reusable across tests.
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert(
+            "session_id".into(),
+            serde_json::Value::String(session_id.to_string()),
+        );
+    }
+    serde_json::from_value(value).expect("fixture matches ledger schema")
+}
+
+/// Scenario 18: 5-file synthetic session, PreCompact seal, simulated wipe,
+/// PostCompact restore. Assert all 5 paths retrievable byte-for-byte from
+/// the fixture's expected ledger.
+#[tokio::test]
+async fn a4_compaction_survival_5_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path();
+    let sid = "a4-scenario-18";
+
+    // 1. Seed active ledger from fixture.
+    let ledger = load_fixture_ledger("pre-compact-ledger.json", sid);
+    ledger
+        .save_to_path(&ledger_path(output, sid))
+        .expect("seed pre-compact ledger");
+
+    // 2. Seal via CLI hook (PreCompact).
+    seal_via_hook(output, sid).await;
+
+    // 3. Simulate compaction collapsing the active ledger.
+    fs::remove_file(ledger_path(output, sid)).unwrap();
+    assert!(!ledger_path(output, sid).exists());
+
+    // 4. Restore via CLI (PostCompact).
+    let report = run_hook_restore(&restore_args(output, sid, false)).expect("restore");
+    assert!(report.ok);
+    assert_eq!(report.entries, 5);
+    assert_eq!(report.source, RestoreSource::Postcompact);
+
+    // 5. Assert restored ledger has all 5 paths and matches the expected
+    //    fixture byte-level (modulo session_id rename).
+    let restored = FileInteractionLedger::load_from_path(&ledger_path(output, sid)).unwrap();
+    let paths = restored.distinct_paths();
+    assert_eq!(
+        paths,
+        vec![
+            "src/a.rs".to_string(),
+            "src/b.rs".to_string(),
+            "src/c.rs".to_string(),
+            "src/d.rs".to_string(),
+            "src/e.rs".to_string(),
+        ]
+    );
+    let expected = load_fixture_ledger("post-compact-expected.json", sid);
+    assert_eq!(restored.entries, expected.entries);
+
+    // 6. No breach log should exist on a healthy run.
+    assert!(
+        !output.join("logs/continuity-breach.log").exists(),
+        "happy path must not write breach log"
+    );
+}
+
+/// Scenario 19: same setup minus the restore call. An ordering audit driven
+/// by `breach-transcript.jsonl` must flag `tool-before-restore` on the first
+/// PreToolUse that hits after the PostCompact event.
+#[tokio::test]
+async fn a4_compaction_breach_detection() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path();
+    let trace = fs::read_to_string(fixture_path("breach-transcript.jsonl"))
+        .expect("breach transcript fixture");
+
+    let err = run_hook_doctor_ordering(&ordering_args(output, Some(&trace)))
+        .expect_err("breach transcript must fail ordering check");
+    assert!(format!("{err}").contains("breach"));
+
+    // Two breaches: tool-before-restore on the Edit that follows PostCompact
+    // with no LedgerRestore between, and missing-restore because no
+    // LedgerRestore event ever arrives before the trace ends.
+    let text = fs::read_to_string(output.join("logs/continuity-breach.log"))
+        .expect("breach log exists");
+    let lines: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 2, "expected two breach lines: {lines:?}");
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("breach=tool-before-restore")
+                && l.contains("tool=Edit")
+                && l.contains("path=src/a.rs")
+                && l.contains("a4-breach")),
+        "tool-before-restore line missing: {lines:?}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("breach=missing-restore") && l.contains("a4-breach")),
+        "missing-restore line missing: {lines:?}"
+    );
+}

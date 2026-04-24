@@ -1,0 +1,15 @@
+{"event":"PreToolUse","ts_ms":1700000000001,"tool":"Read","path":"src/a.rs","session_id":"a4-fixture"}
+{"event":"PreToolUse","ts_ms":1700000000002,"tool":"Read","path":"src/b.rs","session_id":"a4-fixture"}
+{"event":"PreToolUse","ts_ms":1700000000003,"tool":"Read","path":"src/c.rs","session_id":"a4-fixture"}
+{"event":"PreToolUse","ts_ms":1700000000004,"tool":"Read","path":"src/d.rs","session_id":"a4-fixture"}
+{"event":"PreToolUse","ts_ms":1700000000005,"tool":"Read","path":"src/e.rs","session_id":"a4-fixture"}
+{"event":"PostToolUse","ts_ms":1700000000006,"tool":"Read","path":"src/a.rs","session_id":"a4-fixture"}
+{"event":"PostToolUse","ts_ms":1700000000007,"tool":"Read","path":"src/b.rs","session_id":"a4-fixture"}
+{"event":"PostToolUse","ts_ms":1700000000008,"tool":"Read","path":"src/c.rs","session_id":"a4-fixture"}
+{"event":"PostToolUse","ts_ms":1700000000009,"tool":"Read","path":"src/d.rs","session_id":"a4-fixture"}
+{"event":"PostToolUse","ts_ms":1700000000010,"tool":"Read","path":"src/e.rs","session_id":"a4-fixture"}
+{"event":"PreCompact","ts_ms":1700000000100,"session_id":"a4-fixture"}
+{"event":"LedgerSeal","ts_ms":1700000000101,"session_id":"a4-fixture"}
+{"event":"PostCompact","ts_ms":1700000000200,"session_id":"a4-fixture"}
+{"event":"LedgerRestore","ts_ms":1700000000201,"session_id":"a4-fixture"}
+{"event":"PreToolUse","ts_ms":1700000000202,"tool":"Edit","path":"src/a.rs","session_id":"a4-fixture"}
