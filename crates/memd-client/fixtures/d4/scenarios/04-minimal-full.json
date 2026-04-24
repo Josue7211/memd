@@ -1,0 +1,19 @@
+{
+  "name": "minimal-full-snapshot",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-000000000030", "record": "kind=fact | c=memd uses memory.db sqlite for durable storage"}
+    ],
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-000000000031", "record": "kind=preference | c=user prefers cargo target /tmp on NFS"}
+    ],
+    "focus": [
+      {"id": "00000000-0000-4000-8000-000000000032", "record": "kind=live_truth | c=on D4 phase Working-Context Compiler"}
+    ]
+  },
+  "expects": {
+    "doing": "D4 phase Working-Context Compiler",
+    "learned": "memory.db sqlite for durable storage",
+    "prefers": "cargo target /tmp on NFS"
+  }
+}

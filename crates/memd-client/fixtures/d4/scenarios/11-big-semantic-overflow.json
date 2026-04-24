@@ -1,0 +1,32 @@
+{
+  "name": "big-semantic-overflow-demotion",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-0000000000a0", "record": "kind=fact | c=overflow scenario wrote 30 semantic records to force demotion"}
+    ],
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-0000000000a1", "record": "kind=preference | c=user prefers demotion hint visibility"}
+    ],
+    "focus": [
+      {"id": "00000000-0000-4000-8000-0000000000a2", "record": "kind=live_truth | c=demotion overflow doing 30 semantic records"}
+    ],
+    "semantic": [
+      {"id": "00000000-0000-4000-8000-0000000000b0", "record": "kind=semantic | c=record 00 padding xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+      {"id": "00000000-0000-4000-8000-0000000000b1", "record": "kind=semantic | c=record 01 padding xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+      {"id": "00000000-0000-4000-8000-0000000000b2", "record": "kind=semantic | c=record 02 padding xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+      {"id": "00000000-0000-4000-8000-0000000000b3", "record": "kind=semantic | c=record 03 padding xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+      {"id": "00000000-0000-4000-8000-0000000000b4", "record": "kind=semantic | c=record 04 padding xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+      {"id": "00000000-0000-4000-8000-0000000000b5", "record": "kind=semantic | c=record 05 padding xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+      {"id": "00000000-0000-4000-8000-0000000000b6", "record": "kind=semantic | c=record 06 padding xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+      {"id": "00000000-0000-4000-8000-0000000000b7", "record": "kind=semantic | c=record 07 padding xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+      {"id": "00000000-0000-4000-8000-0000000000b8", "record": "kind=semantic | c=record 08 padding xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+      {"id": "00000000-0000-4000-8000-0000000000b9", "record": "kind=semantic | c=record 09 padding xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+    ]
+  },
+  "budget_tokens": 800,
+  "expects": {
+    "doing": "doing 30 semantic records",
+    "learned": "wrote 30 semantic records",
+    "prefers": "demotion hint visibility"
+  }
+}

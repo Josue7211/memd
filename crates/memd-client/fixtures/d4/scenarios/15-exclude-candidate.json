@@ -1,0 +1,24 @@
+{
+  "name": "exclude-candidate-bucket",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-000000000100", "record": "kind=fact | c=exclude-bucket=candidate must drop candidates entirely"}
+    ],
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-000000000101", "record": "kind=preference | c=user prefers explicit excludes over heuristics"}
+    ],
+    "focus": [
+      {"id": "00000000-0000-4000-8000-000000000102", "record": "kind=live_truth | c=exclude-candidate doing CLI override path"}
+    ],
+    "candidates": [
+      {"id": "00000000-0000-4000-8000-000000000103", "record": "kind=candidate | c=this candidate must NOT appear in compiled markdown"}
+    ]
+  },
+  "exclude_bucket": ["candidate"],
+  "expects": {
+    "doing": "exclude-candidate doing CLI override path",
+    "learned": "must drop candidates entirely",
+    "prefers": "explicit excludes over heuristics"
+  },
+  "must_not_contain": ["this candidate must NOT appear"]
+}

@@ -13,6 +13,7 @@
 use std::collections::{HashMap, HashSet};
 
 use memd_schema::CompactMemoryRecord;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub mod buckets;
@@ -72,14 +73,21 @@ impl BucketKind {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CompilerInput {
+    #[serde(default)]
     pub canonical: Vec<CompactMemoryRecord>,
+    #[serde(default)]
     pub preferences: Vec<CompactMemoryRecord>,
+    #[serde(default)]
     pub focus: Vec<CompactMemoryRecord>,
+    #[serde(default)]
     pub episodic: Vec<CompactMemoryRecord>,
+    #[serde(default)]
     pub semantic: Vec<CompactMemoryRecord>,
+    #[serde(default)]
     pub corrections: Vec<CompactMemoryRecord>,
+    #[serde(default)]
     pub candidates: Vec<CompactMemoryRecord>,
 }
 

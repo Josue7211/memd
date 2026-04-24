@@ -1,0 +1,23 @@
+{
+  "name": "candidate-bucket-flagged-uncertain",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-0000000000f0", "record": "kind=fact | c=candidate bucket renders last with uncertainty flag"}
+    ],
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-0000000000f1", "record": "kind=preference | c=user prefers candidates surfaced not silently dropped"}
+    ],
+    "focus": [
+      {"id": "00000000-0000-4000-8000-0000000000f2", "record": "kind=live_truth | c=candidate-bucket doing visibility check"}
+    ],
+    "candidates": [
+      {"id": "00000000-0000-4000-8000-0000000000f3", "record": "kind=candidate | c=maybe rename CompiledWake to WakeArtifact in V5"},
+      {"id": "00000000-0000-4000-8000-0000000000f4", "record": "kind=candidate | c=possibly raise default budget to 2500 chars"}
+    ]
+  },
+  "expects": {
+    "doing": "candidate-bucket doing visibility",
+    "learned": "renders last with uncertainty flag",
+    "prefers": "candidates surfaced not silently dropped"
+  }
+}

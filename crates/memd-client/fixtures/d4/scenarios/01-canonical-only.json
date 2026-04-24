@@ -1,0 +1,14 @@
+{
+  "name": "canonical-only",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-000000000001", "record": "id=A | kind=fact | c=memd is a Rust workspace, not TS"},
+      {"id": "00000000-0000-4000-8000-000000000002", "record": "id=B | kind=decision | c=branch research/mining drives V4"}
+    ]
+  },
+  "expects": {
+    "doing": "Rust workspace",
+    "learned": "research/mining drives V4",
+    "prefers": "Rust"
+  }
+}

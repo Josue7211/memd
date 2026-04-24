@@ -1,0 +1,22 @@
+{
+  "name": "cross-bucket-dupe-canonical-wins",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-000000000040", "record": "id=X | c=Lamport clock breaks ties in correction lane"}
+    ],
+    "semantic": [
+      {"id": "00000000-0000-4000-8000-000000000041", "record": "id=Y | c=Lamport clock breaks ties in correction lane"}
+    ],
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-000000000042", "record": "kind=preference | c=user prefers small focused commits"}
+    ],
+    "focus": [
+      {"id": "00000000-0000-4000-8000-000000000043", "record": "kind=live_truth | c=building D4 fixtures right now"}
+    ]
+  },
+  "expects": {
+    "doing": "building D4 fixtures",
+    "learned": "Lamport clock breaks ties",
+    "prefers": "small focused commits"
+  }
+}

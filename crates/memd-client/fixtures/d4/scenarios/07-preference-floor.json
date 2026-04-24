@@ -1,0 +1,21 @@
+{
+  "name": "preference-floor-pressure",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-000000000060", "record": "kind=fact | c=preference floor scenario covers floor=3"}
+    ],
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-000000000061", "record": "kind=preference | c=user prefers TDD red-green discipline"},
+      {"id": "00000000-0000-4000-8000-000000000062", "record": "kind=preference | c=user prefers caveman-ultra in memd"},
+      {"id": "00000000-0000-4000-8000-000000000063", "record": "kind=preference | c=user prefers handoff packets per phase"}
+    ],
+    "focus": [
+      {"id": "00000000-0000-4000-8000-000000000064", "record": "kind=live_truth | c=verifying preference floor of 3 holds"}
+    ]
+  },
+  "expects": {
+    "doing": "preference floor of 3",
+    "learned": "preference floor scenario covers floor=3",
+    "prefers": "TDD red-green discipline"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "tight-budget-floor-survives",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-000000000090", "record": "kind=fact | c=tight budget keeps canonical floor entry alive"},
+      {"id": "00000000-0000-4000-8000-000000000091", "record": "kind=fact | c=other canonical extras get demoted under tight budget"}
+    ],
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-000000000092", "record": "kind=preference | c=user prefers tight budgets prove enforcement"}
+    ],
+    "focus": [
+      {"id": "00000000-0000-4000-8000-000000000093", "record": "kind=live_truth | c=tight budget run currently doing floor proof"}
+    ]
+  },
+  "budget_tokens": 600,
+  "expects": {
+    "doing": "tight budget run currently doing floor proof",
+    "learned": "tight budget keeps canonical floor entry alive",
+    "prefers": "tight budgets prove enforcement"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "episodic-heavy-overflow",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-0000000000c0", "record": "kind=fact | c=episodic-heavy scenario records last-3-turn pattern"}
+    ],
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-0000000000c1", "record": "kind=preference | c=user prefers episodic ordered recent-first"}
+    ],
+    "focus": [
+      {"id": "00000000-0000-4000-8000-0000000000c2", "record": "kind=live_truth | c=episodic-heavy doing recent turn replay"}
+    ],
+    "episodic": [
+      {"id": "00000000-0000-4000-8000-0000000000d0", "record": "kind=episodic | c=turn 1 ran cargo build target /tmp/memd-target"},
+      {"id": "00000000-0000-4000-8000-0000000000d1", "record": "kind=episodic | c=turn 2 fixed a clippy warning in budget.rs"},
+      {"id": "00000000-0000-4000-8000-0000000000d2", "record": "kind=episodic | c=turn 3 added ledger NDJSON write helpers"},
+      {"id": "00000000-0000-4000-8000-0000000000d3", "record": "kind=episodic | c=turn 4 wired compiler into bundle wake command"},
+      {"id": "00000000-0000-4000-8000-0000000000d4", "record": "kind=episodic | c=turn 5 wrote D4.7 fixtures and harness"}
+    ]
+  },
+  "expects": {
+    "doing": "doing recent turn replay",
+    "learned": "last-3-turn pattern",
+    "prefers": "episodic ordered recent-first"
+  }
+}

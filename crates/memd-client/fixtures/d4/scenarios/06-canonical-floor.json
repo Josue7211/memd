@@ -1,0 +1,22 @@
+{
+  "name": "canonical-floor-pressure",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-000000000050", "record": "id=C1 | kind=fact | c=floor canonical entry one"},
+      {"id": "00000000-0000-4000-8000-000000000051", "record": "id=C2 | kind=fact | c=floor canonical entry two"},
+      {"id": "00000000-0000-4000-8000-000000000052", "record": "id=C3 | kind=fact | c=floor canonical entry three"},
+      {"id": "00000000-0000-4000-8000-000000000053", "record": "id=C4 | kind=fact | c=floor canonical entry four guarded by floor=4"}
+    ],
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-000000000054", "record": "kind=preference | c=floor proves canonical=4 retained"}
+    ],
+    "focus": [
+      {"id": "00000000-0000-4000-8000-000000000055", "record": "kind=live_truth | c=floor scenario doing canonical pressure"}
+    ]
+  },
+  "expects": {
+    "doing": "canonical pressure",
+    "learned": "guarded by floor=4",
+    "prefers": "floor proves canonical=4"
+  }
+}

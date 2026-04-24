@@ -1,0 +1,23 @@
+{
+  "name": "correction-bucket-non-empty",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-0000000000e0", "record": "kind=fact | c=correction lane uses Lamport clock for ties"}
+    ],
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-0000000000e1", "record": "kind=preference | c=user prefers corrections written back over transcript trust"}
+    ],
+    "focus": [
+      {"id": "00000000-0000-4000-8000-0000000000e2", "record": "kind=live_truth | c=correction-bucket scenario doing C4 surface check"}
+    ],
+    "corrections": [
+      {"id": "00000000-0000-4000-8000-0000000000e3", "record": "kind=correction | c=do not skip git hooks unless user asked"},
+      {"id": "00000000-0000-4000-8000-0000000000e4", "record": "kind=correction | c=use cargo target /tmp on NFS to avoid mmap stalls"}
+    ]
+  },
+  "expects": {
+    "doing": "doing C4 surface check",
+    "learned": "do not skip git hooks",
+    "prefers": "corrections written back over transcript trust"
+  }
+}

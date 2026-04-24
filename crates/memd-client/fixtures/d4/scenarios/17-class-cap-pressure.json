@@ -1,0 +1,24 @@
+{
+  "name": "class-cap-pressure-canonical-vs-focus",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-000000000120", "record": "kind=fact | c=canonical class cap competes with focus working class"},
+      {"id": "00000000-0000-4000-8000-000000000121", "record": "kind=fact | c=second canonical entry exercises canonical_pct=0.25"},
+      {"id": "00000000-0000-4000-8000-000000000122", "record": "kind=fact | c=third canonical entry stays under cap"},
+      {"id": "00000000-0000-4000-8000-000000000123", "record": "kind=fact | c=fourth canonical floor entry survives no matter what"}
+    ],
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-000000000124", "record": "kind=preference | c=user prefers floor wins over class cap"},
+      {"id": "00000000-0000-4000-8000-000000000125", "record": "kind=preference | c=user prefers explicit class boundaries"},
+      {"id": "00000000-0000-4000-8000-000000000126", "record": "kind=preference | c=user prefers no silent demotion of floor entries"}
+    ],
+    "focus": [
+      {"id": "00000000-0000-4000-8000-000000000127", "record": "kind=live_truth | c=class-cap doing cross-class admission"}
+    ]
+  },
+  "expects": {
+    "doing": "class-cap doing cross-class admission",
+    "learned": "fourth canonical floor entry survives no matter what",
+    "prefers": "floor wins over class cap"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "include-bucket-bypass-cap",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-000000000110", "record": "kind=fact | c=include-bucket forces records past class cap"}
+    ],
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-000000000111", "record": "kind=preference | c=user prefers include-bucket for forced visibility"}
+    ],
+    "focus": [
+      {"id": "00000000-0000-4000-8000-000000000112", "record": "kind=live_truth | c=include-override doing forced semantic surfacing"}
+    ],
+    "semantic": [
+      {"id": "00000000-0000-4000-8000-000000000113", "record": "kind=semantic | c=forced semantic must appear even at tight budget"},
+      {"id": "00000000-0000-4000-8000-000000000114", "record": "kind=semantic | c=second forced semantic also surfaces"}
+    ]
+  },
+  "budget_tokens": 700,
+  "include_bucket": ["semantic"],
+  "expects": {
+    "doing": "include-override doing forced semantic surfacing",
+    "learned": "forced semantic must appear even at tight budget",
+    "prefers": "include-bucket for forced visibility"
+  }
+}

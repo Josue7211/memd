@@ -1,0 +1,25 @@
+{
+  "name": "triple-bucket-dupe-single-line",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-000000000130", "record": "id=Q1 | c=memd voice mode is caveman-ultra in this repo"}
+    ],
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-000000000131", "record": "kind=preference | c=triple-dupe scenario user prefers single-line provenance"}
+    ],
+    "semantic": [
+      {"id": "00000000-0000-4000-8000-000000000132", "record": "id=Q2 | c=memd voice mode is caveman-ultra in this repo"}
+    ],
+    "episodic": [
+      {"id": "00000000-0000-4000-8000-000000000133", "record": "id=Q3 | c=memd voice mode is caveman-ultra in this repo"}
+    ],
+    "focus": [
+      {"id": "00000000-0000-4000-8000-000000000134", "record": "kind=live_truth | c=triple-dupe doing dedupe-across-three-buckets"}
+    ]
+  },
+  "expects": {
+    "doing": "triple-dupe doing dedupe-across-three-buckets",
+    "learned": "memd voice mode is caveman-ultra",
+    "prefers": "single-line provenance"
+  }
+}

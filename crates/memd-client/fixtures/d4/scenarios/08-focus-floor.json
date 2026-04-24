@@ -1,0 +1,19 @@
+{
+  "name": "focus-floor-pressure",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-000000000070", "record": "kind=fact | c=focus floor=1 must always survive budget"}
+    ],
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-000000000071", "record": "kind=preference | c=user prefers explicit focus tracking"}
+    ],
+    "focus": [
+      {"id": "00000000-0000-4000-8000-000000000072", "record": "kind=live_truth | c=current task focus on floor enforcement"}
+    ]
+  },
+  "expects": {
+    "doing": "focus on floor enforcement",
+    "learned": "focus floor=1 must always survive",
+    "prefers": "explicit focus tracking"
+  }
+}

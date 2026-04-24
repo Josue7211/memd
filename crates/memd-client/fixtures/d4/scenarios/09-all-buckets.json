@@ -1,0 +1,17 @@
+{
+  "name": "all-seven-buckets-populated",
+  "input": {
+    "canonical": [{"id": "00000000-0000-4000-8000-000000000080", "record": "kind=fact | c=workspace organized as cargo crates"}],
+    "preferences": [{"id": "00000000-0000-4000-8000-000000000081", "record": "kind=preference | c=user prefers semantic commit prefixes"}],
+    "focus": [{"id": "00000000-0000-4000-8000-000000000082", "record": "kind=live_truth | c=on D4 all-seven-buckets coverage check"}],
+    "episodic": [{"id": "00000000-0000-4000-8000-000000000083", "record": "kind=episodic | c=last turn ran cargo build target /tmp/memd-target"}],
+    "semantic": [{"id": "00000000-0000-4000-8000-000000000084", "record": "kind=semantic | c=BucketKind::ALL contains seven kinds"}],
+    "corrections": [{"id": "00000000-0000-4000-8000-000000000085", "record": "kind=correction | c=do not add error handling for impossible cases"}],
+    "candidates": [{"id": "00000000-0000-4000-8000-000000000086", "record": "kind=candidate | c=maybe rename WakeBudget to ContextBudget later"}]
+  },
+  "expects": {
+    "doing": "all-seven-buckets coverage",
+    "learned": "BucketKind::ALL contains seven kinds",
+    "prefers": "semantic commit prefixes"
+  }
+}

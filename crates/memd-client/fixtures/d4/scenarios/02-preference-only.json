@@ -1,0 +1,14 @@
+{
+  "name": "preference-only",
+  "input": {
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-000000000010", "record": "kind=preference | c=user prefers caveman-ultra voice mode"},
+      {"id": "00000000-0000-4000-8000-000000000011", "record": "kind=preference | c=user prefers no trailing summaries"}
+    ]
+  },
+  "expects": {
+    "doing": "caveman-ultra",
+    "learned": "no trailing summaries",
+    "prefers": "caveman-ultra voice mode"
+  }
+}

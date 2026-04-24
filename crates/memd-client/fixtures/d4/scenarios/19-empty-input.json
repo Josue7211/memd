@@ -1,0 +1,6 @@
+{
+  "name": "empty-input-minimal-render",
+  "input": {},
+  "expects_empty": true,
+  "must_not_contain": ["## Demoted"]
+}

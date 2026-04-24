@@ -1,0 +1,13 @@
+{
+  "name": "focus-only",
+  "input": {
+    "focus": [
+      {"id": "00000000-0000-4000-8000-000000000020", "record": "kind=live_truth | c=executing D4.7 continuity-loss harness"}
+    ]
+  },
+  "expects": {
+    "doing": "D4.7 continuity-loss harness",
+    "learned": "live_truth",
+    "prefers": "D4.7"
+  }
+}

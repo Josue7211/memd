@@ -1,0 +1,34 @@
+{
+  "name": "real-shape-mixed-multi-bucket",
+  "input": {
+    "canonical": [
+      {"id": "00000000-0000-4000-8000-000000000140", "record": "id=R1 | kind=fact | c=memd is a Rust workspace organized as cargo crates"},
+      {"id": "00000000-0000-4000-8000-000000000141", "record": "id=R2 | kind=decision | c=branch research/mining drives V4 milestone Live Loop Repair"},
+      {"id": "00000000-0000-4000-8000-000000000142", "record": "id=R3 | kind=fact | c=correction lane resolves ties via Lamport clock"},
+      {"id": "00000000-0000-4000-8000-000000000143", "record": "id=R4 | kind=fact | c=wake budget unit is chars not transformer tokens"}
+    ],
+    "preferences": [
+      {"id": "00000000-0000-4000-8000-000000000144", "record": "kind=preference | c=user prefers caveman-ultra voice in memd repo"},
+      {"id": "00000000-0000-4000-8000-000000000145", "record": "kind=preference | c=user prefers TDD red-green per task"},
+      {"id": "00000000-0000-4000-8000-000000000146", "record": "kind=preference | c=user prefers handoff packet per phase close"}
+    ],
+    "focus": [
+      {"id": "00000000-0000-4000-8000-000000000147", "record": "kind=live_truth | c=executing D4.7 fixtures and continuity-loss harness on research/mining"}
+    ],
+    "episodic": [
+      {"id": "00000000-0000-4000-8000-000000000148", "record": "kind=episodic | c=last turn committed D4.6 wake compiler route fb7362f"},
+      {"id": "00000000-0000-4000-8000-000000000149", "record": "kind=episodic | c=earlier turn shipped C4 substrate per ROADMAP"}
+    ],
+    "semantic": [
+      {"id": "00000000-0000-4000-8000-00000000014a", "record": "kind=semantic | c=BucketKind has seven variants priority-ordered"}
+    ],
+    "corrections": [
+      {"id": "00000000-0000-4000-8000-00000000014b", "record": "kind=correction | c=do not anonymize sealed/ session dirs - they lack typed records"}
+    ]
+  },
+  "expects": {
+    "doing": "executing D4.7 fixtures and continuity-loss harness",
+    "learned": "wake budget unit is chars not transformer tokens",
+    "prefers": "TDD red-green per task"
+  }
+}
