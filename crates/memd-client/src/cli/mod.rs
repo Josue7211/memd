@@ -45,6 +45,9 @@ pub(crate) use cli_lifecycle_probe_runtime::*;
 mod cli_contract_runtime;
 pub(crate) use cli_contract_runtime::*;
 
+mod cli_correction_runtime;
+pub(crate) use cli_correction_runtime::*;
+
 pub(crate) mod skill_catalog;
 
 pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
@@ -968,6 +971,11 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::Contract(args) => match args.command {
             ContractCommand::Verify(v) => run_contract_verify(&v)?,
             ContractCommand::Generate(g) => run_contract_generate(&g)?,
+        },
+        Commands::Correction(args) => match args.command {
+            CorrectionSubcommand::Detect(a) => run_correction_detect(&a)?,
+            CorrectionSubcommand::Capture(a) => run_correction_capture(&a)?,
+            CorrectionSubcommand::List(a) => run_correction_list(&a)?,
         },
     }
 

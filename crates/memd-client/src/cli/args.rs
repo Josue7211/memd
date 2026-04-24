@@ -109,6 +109,75 @@ pub(crate) enum Commands {
     PrimeReads(PrimeReadsArgs),
     /// Live memory contract (A3-D5): shape, verify, generate default.
     Contract(ContractArgs),
+    /// Phase C4 correction lane: detect, capture, list.
+    Correction(CorrectionArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct CorrectionArgs {
+    #[command(subcommand)]
+    pub(crate) command: CorrectionSubcommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum CorrectionSubcommand {
+    Detect(CorrectionDetectArgs),
+    Capture(CorrectionCaptureArgs),
+    List(CorrectionListArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct CorrectionDetectArgs {
+    /// Single-turn text payload.
+    #[arg(long)]
+    pub(crate) turn: String,
+    /// Session id stamped into the NDJSON row.
+    #[arg(long)]
+    pub(crate) session_id: Option<String>,
+    /// JSON-encoded prior claims: [{"id":"...","turn":"...","content":"..."}].
+    #[arg(long)]
+    pub(crate) prior: Option<String>,
+    /// Skip judge call even if proxy is reachable.
+    #[arg(long, default_value_t = false)]
+    pub(crate) no_judge: bool,
+    /// Bundle root (defaults to .memd).
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+    /// Print full JSON instead of summary line.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct CorrectionCaptureArgs {
+    #[arg(long)]
+    pub(crate) content: String,
+    #[arg(long = "corrects-id")]
+    pub(crate) corrects_id: Option<String>,
+    #[arg(long = "source-turn")]
+    pub(crate) source_turn: Option<String>,
+    #[arg(long, default_value_t = 0.85_f32)]
+    pub(crate) confidence: f32,
+    #[arg(long = "captured-by", default_value = "manual")]
+    pub(crate) captured_by: String,
+    #[arg(long)]
+    pub(crate) session_id: Option<String>,
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct CorrectionListArgs {
+    #[arg(long)]
+    pub(crate) session_id: Option<String>,
+    #[arg(long)]
+    pub(crate) since: Option<String>,
+    #[arg(long, default_value_t = 50)]
+    pub(crate) limit: usize,
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Clone, Args)]
