@@ -99,7 +99,56 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
         }
         Err(err) => return Err(err),
     };
-    let wakeup = render_bundle_wakeup_markdown(&args.output, &snapshot, args.verbose);
+    let raw_wakeup = render_bundle_wakeup_markdown(&args.output, &snapshot, args.verbose);
+    let raw_tokens = raw_wakeup.len();
+    let use_compiler = !args.raw && crate::runtime::resume::compiler::compiler_enabled();
+    let session_id = read_bundle_runtime_config(&args.output)
+        .ok()
+        .flatten()
+        .and_then(|c| c.session);
+    let model_family = args
+        .agent
+        .clone()
+        .or_else(|| {
+            read_bundle_runtime_config(&args.output)
+                .ok()
+                .flatten()
+                .and_then(|c| c.agent)
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let wakeup = if use_compiler {
+        let env_tokens = crate::runtime::resume::compiler::env_budget_tokens();
+        let tokens = if args.budget_tokens > 0 {
+            args.budget_tokens
+        } else if env_tokens > 0 {
+            env_tokens
+        } else {
+            2000
+        };
+        let budget = crate::runtime::resume::compiler::WakeBudget::default_2000()
+            .with_tokens(tokens)
+            .with_includes(&args.include_bucket)
+            .with_excludes(&args.exclude_bucket);
+        let input = crate::runtime::resume::compiler::input_from_snapshot(&snapshot);
+        let compiled = crate::runtime::resume::compiler::compile_wake(input, budget);
+        let _ = crate::runtime::resume::compiler::ledger::write_budget_line(
+            &args.output,
+            session_id.as_deref(),
+            raw_tokens,
+            &compiled,
+        );
+        let _ = crate::runtime::resume::compiler::ledger::write_cost_line(
+            &args.output,
+            session_id.as_deref(),
+            compiled.tokens,
+            tokens,
+            &model_family,
+        );
+        compiled.markdown
+    } else {
+        raw_wakeup.clone()
+    };
     let wake_token_metrics =
         crate::runtime::compute_wake_token_metrics(&args.output, &snapshot, &wakeup);
     if args.write {

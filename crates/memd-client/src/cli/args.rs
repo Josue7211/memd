@@ -3290,6 +3290,22 @@ pub(crate) struct WakeArgs {
 
     #[arg(long)]
     pub(crate) summary: bool,
+
+    /// D4: bypass the wake-context compiler and emit the legacy raw render.
+    #[arg(long)]
+    pub(crate) raw: bool,
+
+    /// D4: override `MEMD_WAKE_BUDGET_TOKENS` (chars). 0 = use env/default.
+    #[arg(long, default_value_t = 0)]
+    pub(crate) budget_tokens: usize,
+
+    /// D4: force-include a bucket even when over budget. Repeatable.
+    #[arg(long = "include-bucket")]
+    pub(crate) include_bucket: Vec<String>,
+
+    /// D4: force-exclude a bucket regardless of priority. Repeatable.
+    #[arg(long = "exclude-bucket")]
+    pub(crate) exclude_bucket: Vec<String>,
 }
 
 #[derive(Debug, Clone, Args)]

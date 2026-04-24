@@ -270,6 +270,89 @@ fn token_counter_matches_compute_wake_token_metrics() {
     assert_eq!(admitted_total_chars(&admitted), expected);
 }
 
+// -------- D4.6: CLI surface (overrides + ledger) ----------
+
+#[test]
+fn budget_override_via_with_tokens_respected() {
+    let budget = WakeBudget::default_2000().with_tokens(500);
+    assert_eq!(budget.tokens, 500);
+
+    // 0 means "leave default" (CLI default_value_t).
+    let unchanged = WakeBudget::default_2000().with_tokens(0);
+    assert_eq!(unchanged.tokens, 2000);
+}
+
+#[test]
+fn include_bucket_forces_inclusion_even_over_budget() {
+    // 4 semantic records, each 1500 chars → would normally be capped at
+    // ~400 chars (20% of 2000). With force-include, all 4 land.
+    let recs: Vec<_> = (0..4)
+        .map(|i| rec(&format!("id={i} | c={}", "s".repeat(1500))))
+        .collect();
+    let input = CompilerInput {
+        semantic: recs,
+        ..Default::default()
+    };
+    let budget = WakeBudget::default_2000().with_includes(&["semantic".to_string()]);
+    let admitted = budget::admit(dedupe::merge(priority::apply(&input)), &budget);
+    assert_eq!(admitted_count(&admitted, BucketKind::Semantic), 4);
+}
+
+#[test]
+fn exclude_bucket_drops_records_entirely() {
+    let input = CompilerInput {
+        canonical: vec![rec("id=A | c=keep")],
+        semantic: vec![rec("id=B | c=drop")],
+        ..Default::default()
+    };
+    let budget = WakeBudget::default_2000().with_excludes(&["semantic".to_string()]);
+    let compiled = compile_wake(input, budget);
+    assert!(compiled.markdown.contains("Durable Truth"));
+    assert!(!compiled.markdown.contains("## Semantic"));
+}
+
+#[test]
+fn parse_bucket_label_is_case_insensitive_and_pluralizes() {
+    assert_eq!(parse_bucket_label("Canonical"), Some(BucketKind::Canonical));
+    assert_eq!(parse_bucket_label("PREFERENCES"), Some(BucketKind::Preference));
+    assert_eq!(parse_bucket_label("corrections"), Some(BucketKind::Correction));
+    assert_eq!(parse_bucket_label("nonsense"), None);
+}
+
+#[test]
+fn ledger_writes_wake_budget_ndjson_line() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let bundle = tempdir.path();
+
+    let input = CompilerInput {
+        canonical: vec![rec("id=A | c=durable")],
+        semantic: (0..30)
+            .map(|i| rec(&format!("id={i:02} | c={}", "x".repeat(95))))
+            .collect(),
+        ..Default::default()
+    };
+    let mut budget = WakeBudget::default_2000();
+    budget.tokens = 800;
+    let compiled = compile_wake(input, budget);
+
+    ledger::write_budget_line(bundle, Some("session-x"), 9999, &compiled)
+        .expect("budget line written");
+    ledger::write_cost_line(bundle, Some("session-x"), compiled.tokens, 800, "claude-opus-4-7")
+        .expect("cost line written");
+
+    let budget_path = bundle.join("logs/wake-budget.ndjson");
+    let cost_path = bundle.join("logs/wake-cost.ndjson");
+    let budget_body = std::fs::read_to_string(&budget_path).expect("budget file");
+    let cost_body = std::fs::read_to_string(&cost_path).expect("cost file");
+    assert!(budget_body.contains("session-x"));
+    assert!(budget_body.contains("compiled_tokens"));
+    assert!(budget_body.contains("bucket_fill_ratio"));
+    assert!(budget_body.contains("\"demoted\""));
+    assert!(cost_body.contains("\"wake_token_count\""));
+    assert!(cost_body.contains("\"estimated_cost_usd\""));
+    assert!(cost_body.contains("claude-opus-4-7"));
+}
+
 // -------- D4.5: render ----------
 
 #[test]

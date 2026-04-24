@@ -80,6 +80,7 @@ pub fn admit(input: DedupedBuckets, budget: &WakeBudget) -> AdmittedBuckets {
         let class = class_of(kind);
         let class_cap = *class_caps.get(&class).unwrap_or(&0);
         let floor = budget.per_bucket_floor.get(&kind).copied().unwrap_or(0);
+        let forced = budget.force_include.contains(&kind);
 
         let mut admitted = Vec::with_capacity(records.len());
         let mut admitted_n: usize = 0;
@@ -92,7 +93,7 @@ pub fn admit(input: DedupedBuckets, budget: &WakeBudget) -> AdmittedBuckets {
             let class_ok = class_used_now + cost <= class_cap;
             let total_ok = total_used + cost <= budget.tokens;
 
-            if must_meet_floor || (class_ok && total_ok) {
+            if forced || must_meet_floor || (class_ok && total_ok) {
                 *class_used.entry(class).or_insert(0) += cost;
                 total_used += cost;
                 admitted_n += 1;

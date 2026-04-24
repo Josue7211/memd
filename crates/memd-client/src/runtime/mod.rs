@@ -4,7 +4,7 @@ mod checkpoint;
 mod ingest_runtime;
 mod inspiration_search;
 mod raw_spine;
-mod resume;
+pub(crate) mod resume;
 mod retrieval_runtime;
 mod workspace_runtime;
 

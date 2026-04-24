@@ -10,13 +10,15 @@
 
 #![allow(dead_code)] // scaffolded D4.1; filled in D4.2..D4.6
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use memd_schema::CompactMemoryRecord;
+use uuid::Uuid;
 
 pub mod buckets;
 pub mod budget;
 pub mod dedupe;
+pub mod ledger;
 pub mod priority;
 pub mod render;
 
@@ -100,6 +102,10 @@ pub struct WakeBudget {
     pub tokens: usize,
     pub per_bucket_floor: HashMap<BucketKind, usize>,
     pub kinds_coverage: KindsCoverage,
+    /// CLI `--include-bucket`: bypass class cap and total cap for these.
+    pub force_include: HashSet<BucketKind>,
+    /// CLI `--exclude-bucket`: drop from input entirely.
+    pub force_exclude: HashSet<BucketKind>,
 }
 
 #[derive(Debug, Clone)]
@@ -133,7 +139,68 @@ impl WakeBudget {
             tokens: 2000,
             per_bucket_floor: floor,
             kinds_coverage: KindsCoverage::default(),
+            force_include: HashSet::new(),
+            force_exclude: HashSet::new(),
         }
+    }
+
+    pub fn with_tokens(mut self, tokens: usize) -> Self {
+        if tokens > 0 {
+            self.tokens = tokens;
+        }
+        self
+    }
+
+    pub fn with_includes(mut self, names: &[String]) -> Self {
+        for name in names {
+            if let Some(kind) = parse_bucket_label(name) {
+                self.force_include.insert(kind);
+            }
+        }
+        self
+    }
+
+    pub fn with_excludes(mut self, names: &[String]) -> Self {
+        for name in names {
+            if let Some(kind) = parse_bucket_label(name) {
+                self.force_exclude.insert(kind);
+            }
+        }
+        self
+    }
+}
+
+/// `true` when wake should route through the compiler instead of the
+/// legacy raw render. Flag default is OFF until D4.8 dogfood completes.
+pub fn compiler_enabled() -> bool {
+    matches!(
+        std::env::var("MEMD_D4_COMPILER")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "on" | "yes"
+    )
+}
+
+/// Reads the env-var override for `tokens` (chars). `0` = use default.
+pub fn env_budget_tokens() -> usize {
+    std::env::var("MEMD_WAKE_BUDGET_TOKENS")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(0)
+}
+
+pub fn parse_bucket_label(name: &str) -> Option<BucketKind> {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "canonical" => Some(BucketKind::Canonical),
+        "preference" | "preferences" => Some(BucketKind::Preference),
+        "focus" => Some(BucketKind::Focus),
+        "episodic" => Some(BucketKind::Episodic),
+        "semantic" => Some(BucketKind::Semantic),
+        "correction" | "corrections" => Some(BucketKind::Correction),
+        "candidate" | "candidates" => Some(BucketKind::Candidate),
+        _ => None,
     }
 }
 
@@ -164,8 +231,61 @@ pub struct DemotionHint {
 /// Pipeline: priority order → cross-bucket dedupe → budget+kinds-coverage
 /// admission → markdown render with demotion hints.
 pub fn compile_wake(input: CompilerInput, budget: WakeBudget) -> CompiledWake {
-    let ordered = priority::apply(&input);
+    let filtered = filter_excluded(input, &budget.force_exclude);
+    let ordered = priority::apply(&filtered);
     let deduped = dedupe::merge(ordered);
     let admitted = budget::admit(deduped, &budget);
     render::emit(admitted, &budget)
+}
+
+fn filter_excluded(mut input: CompilerInput, exclude: &HashSet<BucketKind>) -> CompilerInput {
+    if exclude.is_empty() {
+        return input;
+    }
+    if exclude.contains(&BucketKind::Canonical) {
+        input.canonical.clear();
+    }
+    if exclude.contains(&BucketKind::Preference) {
+        input.preferences.clear();
+    }
+    if exclude.contains(&BucketKind::Focus) {
+        input.focus.clear();
+    }
+    if exclude.contains(&BucketKind::Episodic) {
+        input.episodic.clear();
+    }
+    if exclude.contains(&BucketKind::Semantic) {
+        input.semantic.clear();
+    }
+    if exclude.contains(&BucketKind::Correction) {
+        input.corrections.clear();
+    }
+    if exclude.contains(&BucketKind::Candidate) {
+        input.candidates.clear();
+    }
+    input
+}
+
+/// Adapter: build a CompilerInput from the existing ResumeSnapshot. Lives
+/// here so the snapshot shape is the only thing that ever reaches the
+/// compiler — keeps the pure-transform contract.
+pub fn input_from_snapshot(snapshot: &super::ResumeSnapshot) -> CompilerInput {
+    let preferences: Vec<CompactMemoryRecord> = snapshot
+        .preferences
+        .iter()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| CompactMemoryRecord {
+            id: Uuid::new_v4(),
+            record: line.clone(),
+        })
+        .collect();
+    CompilerInput {
+        canonical: snapshot.context.records.clone(),
+        preferences,
+        focus: snapshot.working.records.clone(),
+        episodic: Vec::new(),
+        semantic: Vec::new(),
+        corrections: Vec::new(),
+        candidates: Vec::new(),
+    }
 }

@@ -712,6 +712,10 @@ fn wake_fallback_writes_placeholder_memory_and_wakeup_files() {
         verbose: false,
         write: true,
         summary: false,
+        raw: false,
+        budget_tokens: 0,
+        include_bucket: Vec::new(),
+        exclude_bucket: Vec::new(),
     };
 
     write_bundle_turn_fallback_artifacts(
