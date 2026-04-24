@@ -363,5 +363,14 @@ fn resolve_pack_bundle_root(explicit: Option<&Path>) -> anyhow::Result<PathBuf> 
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    cli::run_cli(Cli::parse()).await
+    match cli::run_cli(Cli::parse()).await {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            if err.downcast_ref::<cli::HookRestoreNoSealed>().is_some() {
+                eprintln!("{err}");
+                std::process::exit(2);
+            }
+            Err(err)
+        }
+    }
 }

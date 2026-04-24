@@ -1,6 +1,29 @@
 use super::*;
 use crate::append_raw_spine_record;
-use memd_core::file_ledger::{append_file_interaction, seal_session_ledger};
+use memd_core::file_ledger::{
+    append_file_interaction, ledger_path as file_ledger_path, restore as file_ledger_restore,
+    seal_session_ledger, FileInteractionLedger,
+};
+
+/// Sentinel error: `memd hook restore` found no sealed ledger. `main.rs`
+/// downcasts this and returns exit code 2 — non-fatal for the caller (the
+/// PostCompact hook) but observable.
+#[derive(Debug)]
+pub(crate) struct HookRestoreNoSealed {
+    pub(crate) session_id: String,
+}
+
+impl std::fmt::Display for HookRestoreNoSealed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "memd hook restore: no sealed ledger for session {}",
+            self.session_id
+        )
+    }
+}
+
+impl std::error::Error for HookRestoreNoSealed {}
 
 pub(crate) async fn run_hook_mode(
     client: &MemdClient,
@@ -229,6 +252,16 @@ pub(crate) async fn run_hook_mode(
                 Err(err) => return Err(anyhow::Error::from(err)),
             }
         }
+        HookMode::Restore(args) => {
+            let report = run_hook_restore(&args)?;
+            if !report.ok {
+                // Non-fatal for the hook caller, but surface a distinct error
+                // so `main.rs` can map to exit code 2.
+                return Err(anyhow::Error::new(HookRestoreNoSealed {
+                    session_id: args.session_id.clone(),
+                }));
+            }
+        }
         HookMode::Spill(args) => {
             let output = resolve_default_bundle_root()?
                 .unwrap_or_else(crate::bundle::default_bundle_root_path);
@@ -408,6 +441,112 @@ pub(crate) fn run_hook_doctor(args: &HookDoctorArgs) -> anyhow::Result<()> {
 
     if !green {
         anyhow::bail!("hooks doctor: manifest verification failed");
+    }
+    Ok(())
+}
+
+/// `memd hook restore` entry point.
+///
+/// Side effects (unless `args.dry_run`): copies newest sealed ledger to the
+/// active `ledger_path`, then appends a single ndjson line to
+/// `<output>/logs/ledger-restore.ndjson`. When no sealed ledger exists the
+/// returned report has `ok=false` and `error=Some("no-sealed-ledger")`;
+/// caller is responsible for exit-code mapping. Breach-log emission is owned
+/// by `file_ledger::restore` and lands in Task A4.3.
+pub(crate) fn run_hook_restore(
+    args: &HookRestoreArgs,
+) -> anyhow::Result<file_ledger_restore::LedgerRestoreReport> {
+    use file_ledger_restore::{
+        locate_latest_sealed, restore_ledger, LedgerRestoreReport, RestoreSource,
+    };
+
+    let source = RestoreSource::Postcompact;
+
+    if args.dry_run {
+        let sealed = locate_latest_sealed(&args.output, &args.session_id);
+        let restored_path = file_ledger_path(&args.output, &args.session_id);
+        let (entries, ok, error) = match sealed.as_ref() {
+            Some(sp) => match FileInteractionLedger::load_from_path(sp) {
+                Ok(l) => (l.entries.len(), true, None),
+                Err(e) => (0, false, Some(e.to_string())),
+            },
+            None => (0, false, Some("no-sealed-ledger".to_string())),
+        };
+        let report = LedgerRestoreReport {
+            session_id: args.session_id.clone(),
+            sealed_path: sealed,
+            restored_path,
+            entries,
+            source,
+            ok,
+            error,
+        };
+        emit_restore_report(&report, args.json)?;
+        return Ok(report);
+    }
+
+    let report = restore_ledger(&args.session_id, &args.output, source)?;
+    append_restore_ndjson(&args.output, &report)?;
+    emit_restore_report(&report, args.json)?;
+    Ok(report)
+}
+
+fn append_restore_ndjson(
+    output: &Path,
+    report: &file_ledger_restore::LedgerRestoreReport,
+) -> io::Result<()> {
+    use std::io::Write;
+
+    let logs_dir = output.join("logs");
+    fs::create_dir_all(&logs_dir)?;
+    let path = logs_dir.join("ledger-restore.ndjson");
+    let ts_ms = chrono::Utc::now().timestamp_millis();
+    let source_tag = match report.source {
+        file_ledger_restore::RestoreSource::Postcompact => "postcompact-hook",
+        file_ledger_restore::RestoreSource::Manual => "manual",
+        file_ledger_restore::RestoreSource::Test => "test",
+    };
+    let line = serde_json::json!({
+        "ts_ms": ts_ms,
+        "session_id": report.session_id,
+        "sealed_path": report.sealed_path,
+        "restored_path": report.restored_path,
+        "entries": report.entries,
+        "source": source_tag,
+        "ok": report.ok,
+        "error": report.error,
+    });
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?;
+    writeln!(file, "{line}")?;
+    Ok(())
+}
+
+fn emit_restore_report(
+    report: &file_ledger_restore::LedgerRestoreReport,
+    json: bool,
+) -> anyhow::Result<()> {
+    if json {
+        print_json(report)?;
+    } else if report.ok {
+        println!(
+            "restored {} entries from {} → {}",
+            report.entries,
+            report
+                .sealed_path
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "<none>".to_string()),
+            report.restored_path.display(),
+        );
+    } else {
+        println!(
+            "no sealed ledger for session {} ({})",
+            report.session_id,
+            report.error.as_deref().unwrap_or("unknown"),
+        );
     }
     Ok(())
 }

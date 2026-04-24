@@ -1663,6 +1663,9 @@ pub(crate) enum HookMode {
     Spill(HookSpillArgs),
     FileInteraction(HookFileInteractionArgs),
     SealLedger(HookSealLedgerArgs),
+    /// A4: PostCompact restore — copy the newest sealed ledger back to the
+    /// active `ledger_path` and append an ndjson restore record.
+    Restore(HookRestoreArgs),
     Gate(HookGateArgs),
     /// A3 Part 3: verify `.memd/hooks/MANIFEST.json` against on-disk hooks.
     Doctor(HookDoctorArgs),
@@ -1701,6 +1704,29 @@ pub(crate) struct HookSealLedgerArgs {
 
     #[arg(long)]
     pub(crate) session_id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct HookRestoreArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) session_id: String,
+
+    /// Restore only the newest sealed ledger. Currently the only supported
+    /// mode; flag reserved for future multi-ledger strategies. Default: true.
+    #[arg(long)]
+    pub(crate) latest_only: Option<bool>,
+
+    /// Print what would be restored without writing to disk or emitting
+    /// telemetry.
+    #[arg(long, default_value_t = false)]
+    pub(crate) dry_run: bool,
+
+    /// Emit the `LedgerRestoreReport` as JSON on stdout.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Clone, Args)]

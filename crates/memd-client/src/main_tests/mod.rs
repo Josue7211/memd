@@ -193,6 +193,7 @@ mod autoresearch_evolution_tests;
 mod awareness_hive_tests;
 mod benchmark_runtime_tests;
 mod bootstrap_harness_tests;
+mod continuity_compaction_tests;
 pub(crate) mod continuity_enforcement_tests;
 mod continuity_foundation_tests;
 mod gap_coordination_tests;
