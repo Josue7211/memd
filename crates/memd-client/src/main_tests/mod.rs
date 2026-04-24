@@ -195,6 +195,7 @@ mod awareness_hive_tests;
 mod benchmark_runtime_tests;
 mod bootstrap_harness_tests;
 mod continuity_compaction_tests;
+mod correction_e2e_tests;
 pub(crate) mod continuity_enforcement_tests;
 mod continuity_foundation_tests;
 mod hook_contract_tests;

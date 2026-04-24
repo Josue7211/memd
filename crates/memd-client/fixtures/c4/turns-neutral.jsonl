@@ -1,0 +1,100 @@
+{"turn": "t-0", "role": "user", "content": "we should ship by friday"}
+{"turn": "t-1", "role": "user", "content": "the build is green"}
+{"turn": "t-2", "role": "user", "content": "let me check the docs"}
+{"turn": "t-3", "role": "user", "content": "running cargo check now"}
+{"turn": "t-4", "role": "user", "content": "the tests pass locally"}
+{"turn": "t-5", "role": "user", "content": "I'll add a doc comment for that field"}
+{"turn": "t-6", "role": "user", "content": "agreed, that approach makes sense"}
+{"turn": "t-7", "role": "user", "content": "the file lives under crates/memd-server"}
+{"turn": "t-8", "role": "user", "content": "we use sqlite for storage"}
+{"turn": "t-9", "role": "user", "content": "the api returns json"}
+{"turn": "t-10", "role": "user", "content": "ok, moving on to the next task"}
+{"turn": "t-11", "role": "user", "content": "I'll open a PR shortly"}
+{"turn": "t-12", "role": "user", "content": "the regex compiles"}
+{"turn": "t-13", "role": "user", "content": "cargo nextest run --all"}
+{"turn": "t-14", "role": "user", "content": "the worker thread idles when there are no jobs"}
+{"turn": "t-15", "role": "user", "content": "metrics increment on each call"}
+{"turn": "t-16", "role": "user", "content": "we should add a feature flag"}
+{"turn": "t-17", "role": "user", "content": "the stub transport returns canned responses"}
+{"turn": "t-18", "role": "user", "content": "let me grep for the call site"}
+{"turn": "t-19", "role": "user", "content": "the function signature looks right"}
+{"turn": "t-20", "role": "user", "content": "we should ship by friday"}
+{"turn": "t-21", "role": "user", "content": "the build is green"}
+{"turn": "t-22", "role": "user", "content": "let me check the docs"}
+{"turn": "t-23", "role": "user", "content": "running cargo check now"}
+{"turn": "t-24", "role": "user", "content": "the tests pass locally"}
+{"turn": "t-25", "role": "user", "content": "I'll add a doc comment for that field"}
+{"turn": "t-26", "role": "user", "content": "agreed, that approach makes sense"}
+{"turn": "t-27", "role": "user", "content": "the file lives under crates/memd-server"}
+{"turn": "t-28", "role": "user", "content": "we use sqlite for storage"}
+{"turn": "t-29", "role": "user", "content": "the api returns json"}
+{"turn": "t-30", "role": "user", "content": "ok, moving on to the next task"}
+{"turn": "t-31", "role": "user", "content": "I'll open a PR shortly"}
+{"turn": "t-32", "role": "user", "content": "the regex compiles"}
+{"turn": "t-33", "role": "user", "content": "cargo nextest run --all"}
+{"turn": "t-34", "role": "user", "content": "the worker thread idles when there are no jobs"}
+{"turn": "t-35", "role": "user", "content": "metrics increment on each call"}
+{"turn": "t-36", "role": "user", "content": "we should add a feature flag"}
+{"turn": "t-37", "role": "user", "content": "the stub transport returns canned responses"}
+{"turn": "t-38", "role": "user", "content": "let me grep for the call site"}
+{"turn": "t-39", "role": "user", "content": "the function signature looks right"}
+{"turn": "t-40", "role": "user", "content": "we should ship by friday"}
+{"turn": "t-41", "role": "user", "content": "the build is green"}
+{"turn": "t-42", "role": "user", "content": "let me check the docs"}
+{"turn": "t-43", "role": "user", "content": "running cargo check now"}
+{"turn": "t-44", "role": "user", "content": "the tests pass locally"}
+{"turn": "t-45", "role": "user", "content": "I'll add a doc comment for that field"}
+{"turn": "t-46", "role": "user", "content": "agreed, that approach makes sense"}
+{"turn": "t-47", "role": "user", "content": "the file lives under crates/memd-server"}
+{"turn": "t-48", "role": "user", "content": "we use sqlite for storage"}
+{"turn": "t-49", "role": "user", "content": "the api returns json"}
+{"turn": "t-50", "role": "user", "content": "ok, moving on to the next task"}
+{"turn": "t-51", "role": "user", "content": "I'll open a PR shortly"}
+{"turn": "t-52", "role": "user", "content": "the regex compiles"}
+{"turn": "t-53", "role": "user", "content": "cargo nextest run --all"}
+{"turn": "t-54", "role": "user", "content": "the worker thread idles when there are no jobs"}
+{"turn": "t-55", "role": "user", "content": "metrics increment on each call"}
+{"turn": "t-56", "role": "user", "content": "we should add a feature flag"}
+{"turn": "t-57", "role": "user", "content": "the stub transport returns canned responses"}
+{"turn": "t-58", "role": "user", "content": "let me grep for the call site"}
+{"turn": "t-59", "role": "user", "content": "the function signature looks right"}
+{"turn": "t-60", "role": "user", "content": "we should ship by friday"}
+{"turn": "t-61", "role": "user", "content": "the build is green"}
+{"turn": "t-62", "role": "user", "content": "let me check the docs"}
+{"turn": "t-63", "role": "user", "content": "running cargo check now"}
+{"turn": "t-64", "role": "user", "content": "the tests pass locally"}
+{"turn": "t-65", "role": "user", "content": "I'll add a doc comment for that field"}
+{"turn": "t-66", "role": "user", "content": "agreed, that approach makes sense"}
+{"turn": "t-67", "role": "user", "content": "the file lives under crates/memd-server"}
+{"turn": "t-68", "role": "user", "content": "we use sqlite for storage"}
+{"turn": "t-69", "role": "user", "content": "the api returns json"}
+{"turn": "t-70", "role": "user", "content": "ok, moving on to the next task"}
+{"turn": "t-71", "role": "user", "content": "I'll open a PR shortly"}
+{"turn": "t-72", "role": "user", "content": "the regex compiles"}
+{"turn": "t-73", "role": "user", "content": "cargo nextest run --all"}
+{"turn": "t-74", "role": "user", "content": "the worker thread idles when there are no jobs"}
+{"turn": "t-75", "role": "user", "content": "metrics increment on each call"}
+{"turn": "t-76", "role": "user", "content": "we should add a feature flag"}
+{"turn": "t-77", "role": "user", "content": "the stub transport returns canned responses"}
+{"turn": "t-78", "role": "user", "content": "let me grep for the call site"}
+{"turn": "t-79", "role": "user", "content": "the function signature looks right"}
+{"turn": "t-80", "role": "user", "content": "we should ship by friday"}
+{"turn": "t-81", "role": "user", "content": "the build is green"}
+{"turn": "t-82", "role": "user", "content": "let me check the docs"}
+{"turn": "t-83", "role": "user", "content": "running cargo check now"}
+{"turn": "t-84", "role": "user", "content": "the tests pass locally"}
+{"turn": "t-85", "role": "user", "content": "I'll add a doc comment for that field"}
+{"turn": "t-86", "role": "user", "content": "agreed, that approach makes sense"}
+{"turn": "t-87", "role": "user", "content": "the file lives under crates/memd-server"}
+{"turn": "t-88", "role": "user", "content": "we use sqlite for storage"}
+{"turn": "t-89", "role": "user", "content": "the api returns json"}
+{"turn": "t-90", "role": "user", "content": "ok, moving on to the next task"}
+{"turn": "t-91", "role": "user", "content": "I'll open a PR shortly"}
+{"turn": "t-92", "role": "user", "content": "the regex compiles"}
+{"turn": "t-93", "role": "user", "content": "cargo nextest run --all"}
+{"turn": "t-94", "role": "user", "content": "the worker thread idles when there are no jobs"}
+{"turn": "t-95", "role": "user", "content": "metrics increment on each call"}
+{"turn": "t-96", "role": "user", "content": "we should add a feature flag"}
+{"turn": "t-97", "role": "user", "content": "the stub transport returns canned responses"}
+{"turn": "t-98", "role": "user", "content": "let me grep for the call site"}
+{"turn": "t-99", "role": "user", "content": "the function signature looks right"}

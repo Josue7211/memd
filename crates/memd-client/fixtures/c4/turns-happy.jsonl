@@ -1,0 +1,3 @@
+{"turn":"t-1","role":"user","content":"the primary key is autoincrement integer"}
+{"turn":"t-2","role":"assistant","content":"got it, autoincrement integer for the primary key"}
+{"turn":"t-3","role":"user","content":"wait actually, scratch that — i meant the primary key is uuid not integer"}

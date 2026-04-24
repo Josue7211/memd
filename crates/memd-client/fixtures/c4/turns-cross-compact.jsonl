@@ -1,0 +1,8 @@
+{"turn":"t-1","role":"user","content":"the cluster master node is alpha"}
+{"turn":"t-2","role":"assistant","content":"recorded: master is alpha"}
+{"turn":"t-3","role":"user","content":"deploys are kicked off via terraform apply"}
+{"turn":"t-4","role":"assistant","content":"got it"}
+{"turn":"t-5","role":"system","content":"PreCompact"}
+{"turn":"t-6","role":"system","content":"PostCompact"}
+{"turn":"t-7","role":"user","content":"actually, scratch that — the master node is beta not alpha"}
+{"turn":"t-8","role":"assistant","content":"updated: master is beta"}
