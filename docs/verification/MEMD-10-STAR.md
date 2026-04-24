@@ -39,7 +39,7 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 
 | Axis | Weight | Score | Status |
 |------|--------|-------|--------|
-| Session continuity | 20% | 1/10 | ghost refs, expired inbox, status noise — no behavior proof |
+| Session continuity | 20% | 2/10 | A4 ledger survives compaction: seal → restore round-trips 5/5 paths, breach detection green, 10/10 loop |
 | Correction retention | 15% | 1/10 | mechanics exist, no end-to-end flow, never proven in a session |
 | Procedural reuse | 15% | 1/10 | detect dead code, RetrievalIntent::Procedural unreachable, table empty |
 | Cross-harness continuity | 15% | 2/10 | 6 presets, never cross-tested, handoff unverified |
@@ -47,9 +47,15 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 | Token efficiency | 10% | 2/10 | budget enforced, no cost measurement, noise burns budget |
 | Trust + provenance | 10% | 2/10 | explain exists, trust hierarchy unproven, drilldown partial |
 
-**Composite: 1.80/10 (zero-generosity regrade 2026-04-14, table reconciled 2026-04-22)**
+**Composite: 2.00/10 (A4 rescore 2026-04-24 — session continuity 1→2)**
 *Prior composite 2.9 counted "code exists" as partial credit; regrade counts only "user gets value."*
 *Prior axis table (scores 2,2,1,3,4,6,5) summed to 3.0 but reported 1.8 — reconciled 2026-04-22 to the pessimistic axis row that actually yields 1.80.*
+*2026-04-24: session continuity axis moved 1 → 2 on A4 ledger-survival gate (10/10 loop, zero breach lines). Composite moved 1.80 → 2.00. Evidence:*
+- *E2E scenarios 18 + 19 in `crates/memd-client/src/main_tests/continuity_compaction_tests/mod.rs`*
+- *Loop script `scripts/verify/a4-loop.sh 10` → pass=10/10*
+- *Normative contract `docs/contracts/hook-handoff.md`*
+- *Telemetry: `.memd/logs/ledger-restore.ndjson` on success, `.memd/logs/continuity-breach.log` on failure*
+
 *MILESTONE-v4's historical `composite_pre: 2.15` is superseded — see 0.1.0-CONTRACT.md baseline.*
 
 ## 11 Pillars — Current Reality
