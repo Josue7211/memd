@@ -370,6 +370,9 @@ async fn main() -> anyhow::Result<()> {
                 eprintln!("{err}");
                 std::process::exit(2);
             }
+            if let Some(exit) = err.downcast_ref::<cli::HookEnforceExitCode>() {
+                std::process::exit(exit.0);
+            }
             Err(err)
         }
     }

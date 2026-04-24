@@ -1669,6 +1669,62 @@ pub(crate) enum HookMode {
     Gate(HookGateArgs),
     /// A3 Part 3: verify `.memd/hooks/MANIFEST.json` against on-disk hooks.
     Doctor(HookDoctorArgs),
+    /// B4: wrap an inner hook command with fire-order, budget, and trace
+    /// enforcement per `docs/contracts/hook-order.md`.
+    Enforce(HookEnforceArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct HookEnforceArgs {
+    /// Event token from `docs/contracts/hook-order.md §1`. Rejected if
+    /// not a known token (exit 3).
+    #[arg(long)]
+    pub(crate) event: String,
+
+    /// Harness label recorded in the trace line (`claude-code`, `codex`, …).
+    #[arg(long, default_value = "unknown")]
+    pub(crate) harness: String,
+
+    /// Session id recorded in every trace line + used for per-session
+    /// serialization. Required.
+    #[arg(long)]
+    pub(crate) session_id: String,
+
+    /// Override the per-event default budget from contract §2.
+    #[arg(long)]
+    pub(crate) budget_ms: Option<u64>,
+
+    /// Override the per-event default failure class.
+    #[arg(long, value_enum)]
+    pub(crate) failure_class: Option<HookFailureClassArg>,
+
+    /// Override the trace file path (defaults to
+    /// `<bundle>/logs/hook-trace.ndjson` or `MEMD_HOOK_TRACE_PATH`).
+    #[arg(long)]
+    pub(crate) trace: Option<PathBuf>,
+
+    /// Bundle root — defaults to `.memd`.
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    /// Optional `tool` field recorded on the trace line.
+    #[arg(long)]
+    pub(crate) tool: Option<String>,
+
+    /// Optional `path` field recorded on the trace line.
+    #[arg(long)]
+    pub(crate) path: Option<String>,
+
+    /// Trailing args after `--` are the inner command. When empty, the
+    /// enforcer emits a trace line for the event itself and exits 0.
+    #[arg(last = true)]
+    pub(crate) inner: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum HookFailureClassArg {
+    Halt,
+    Log,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1708,6 +1764,10 @@ pub(crate) enum HookDoctorCheck {
     /// Audit PreCompact → PostCompact → tool-use fire order against
     /// `docs/contracts/hook-handoff.md`.
     Ordering,
+    /// B4: audit hook trace against `docs/contracts/hook-order.md` —
+    /// event-token validity, budget overruns, silent swallows, and
+    /// manifest completeness.
+    Contract,
 }
 
 #[derive(Debug, Clone, Args)]

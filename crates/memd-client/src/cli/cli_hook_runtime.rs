@@ -319,10 +319,21 @@ pub(crate) async fn run_hook_mode(
             Some(HookDoctorCheck::Ordering) => {
                 run_hook_doctor_ordering(&doctor_args)?;
             }
+            Some(HookDoctorCheck::Contract) => {
+                run_hook_doctor_contract(&doctor_args)?;
+            }
             None => {
                 run_hook_doctor(&doctor_args)?;
             }
         },
+        HookMode::Enforce(enforce_args) => {
+            let code = super::cli_hook_enforce::run_hook_enforce(&enforce_args)?;
+            if code != 0 {
+                return Err(anyhow::Error::new(
+                    super::cli_hook_enforce::HookEnforceExitCode(code),
+                ));
+            }
+        }
     }
 
     Ok(())
@@ -566,6 +577,13 @@ fn emit_restore_report(
 ///    missing-restore breach.
 ///
 /// Trace events: `{"event":"PostCompact"|"LedgerRestore"|"PreToolUse","ts_ms":N,"tool":"Read"}`.
+/// B4.8 stub — flesh out in the doctor `--check contract` task.
+pub(crate) fn run_hook_doctor_contract(_args: &HookDoctorArgs) -> anyhow::Result<()> {
+    anyhow::bail!(
+        "memd hooks doctor --check contract: not yet implemented (B4.8 pending)"
+    )
+}
+
 pub(crate) fn run_hook_doctor_ordering(args: &HookDoctorArgs) -> anyhow::Result<()> {
     use memd_core::file_ledger::restore::{append_breach_line, BreachKind};
 

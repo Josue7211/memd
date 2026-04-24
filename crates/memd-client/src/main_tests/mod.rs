@@ -196,6 +196,7 @@ mod bootstrap_harness_tests;
 mod continuity_compaction_tests;
 pub(crate) mod continuity_enforcement_tests;
 mod continuity_foundation_tests;
+mod hook_contract_tests;
 mod gap_coordination_tests;
 mod hive_coordination_tests;
 mod public_benchmark_tests;
