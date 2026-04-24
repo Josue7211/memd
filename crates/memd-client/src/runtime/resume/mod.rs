@@ -5,6 +5,8 @@ use memd_schema::MemoryStatus;
 
 mod wakeup;
 
+pub(crate) mod compiler;
+
 pub(crate) fn collect_files_touched(output: &Path) -> Vec<String> {
     let state = output.join("state");
     let Ok(rd) = std::fs::read_dir(&state) else {
