@@ -286,6 +286,60 @@ fn ledger_restore_writes_trace_line_when_enforce_enabled() {
 }
 
 #[test]
+fn enforce_concurrent_same_event_races_are_serialized() {
+    use std::sync::Arc;
+    let _g = env_lock();
+    unsafe { std::env::set_var("MEMD_HOOK_ENFORCE", "1") };
+    unsafe { std::env::set_var("MEMD_HOOK_LOCK_WAIT_MS", "150") };
+
+    let dir = Arc::new(TempDir::new().unwrap());
+    let bundle = dir.path().to_path_buf();
+
+    let t1_bundle = bundle.clone();
+    let t1 = std::thread::spawn(move || {
+        let mut args = base_args(
+            t1_bundle,
+            "PreEdit",
+            vec!["sh".to_string(), "-c".to_string(), "sleep 0.4".to_string()],
+        );
+        args.session_id = "sess-race".to_string();
+        args.budget_ms = Some(1_000);
+        run_hook_enforce(&args).unwrap()
+    });
+
+    // Give the holder time to grab the lock before the racer fires.
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let mut racer = base_args(
+        bundle.clone(),
+        "PreEdit",
+        vec!["true".to_string()],
+    );
+    racer.session_id = "sess-race".to_string();
+    let racer_code = run_hook_enforce(&racer).unwrap();
+
+    let holder_code = t1.join().unwrap();
+    assert_eq!(holder_code, 0, "holder inner ran to completion");
+    assert_eq!(
+        racer_code, 4,
+        "racer should hit EXIT_HALT_CONTENDED after waiting lock timeout"
+    );
+
+    let records = load_trace(&bundle.join("logs").join("hook-trace.ndjson"));
+    assert!(
+        records
+            .iter()
+            .any(|r| matches!(
+                r.failure_class,
+                memd_core::hook_runtime::FailureClass::OrderViolation
+            )),
+        "expected order-violation trace line for contended racer, got {records:?}"
+    );
+    unsafe { std::env::remove_var("MEMD_HOOK_ENFORCE") };
+    unsafe { std::env::remove_var("MEMD_HOOK_LOCK_WAIT_MS") };
+}
+
+#[test]
 fn enforce_records_harness_and_trace_id_on_every_line() {
     let _g = env_lock();
     unsafe { std::env::set_var("MEMD_HOOK_ENFORCE", "1") };

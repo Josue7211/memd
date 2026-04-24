@@ -14,17 +14,20 @@
 use super::args::{HookEnforceArgs, HookFailureClassArg};
 use anyhow::{Context, Result};
 use memd_core::hook_runtime::{
-    BudgetOutcome, FailureClass, HookBudget, HookEvent, HookRecord, HookTrace,
-    run_with_budget,
+    BudgetOutcome, DEFAULT_WAIT_MS, FailureClass, HookBudget, HookEvent, HookRecord,
+    HookSessionLock, HookTrace, run_with_budget,
 };
 use std::process::{Command, Stdio};
 use std::str::FromStr;
+use std::time::Duration;
 
 /// Exit codes as documented in `hook-order.md §4`.
 pub(crate) const EXIT_OK: i32 = 0;
 pub(crate) const EXIT_HALT_INNER: i32 = 1;
 pub(crate) const EXIT_HALT_TIMEOUT: i32 = 2;
 pub(crate) const EXIT_CONTRACT_PARSE: i32 = 3;
+/// Lock contention past `MEMD_HOOK_LOCK_WAIT_MS`. Treated as halt-class.
+pub(crate) const EXIT_HALT_CONTENDED: i32 = 4;
 
 /// Sentinel error: `memd hooks enforce` wants a specific exit code.
 /// `main.rs` downcasts this and `process::exit`s with the code.
@@ -80,6 +83,28 @@ pub(crate) fn run_hook_enforce(args: &HookEnforceArgs) -> Result<i32> {
         .unwrap_or_else(|| event.failure_class_default());
 
     let trace = HookTrace::new(resolve_trace_path(args));
+
+    // Per-(session,event) advisory lock. Drops at function return.
+    let lock_wait = Duration::from_millis(
+        std::env::var("MEMD_HOOK_LOCK_WAIT_MS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(DEFAULT_WAIT_MS),
+    );
+    let _lock = match HookSessionLock::acquire(&args.output, &args.session_id, event, lock_wait) {
+        Ok(g) => g,
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+            let record =
+                build_record(event, args, budget_ms, 0, 0, FailureClass::OrderViolation);
+            trace.append(&record)?;
+            eprintln!(
+                "memd hooks enforce: lock contended for session={} event={} (waited {:?})",
+                args.session_id, event, lock_wait
+            );
+            return Ok(EXIT_HALT_CONTENDED);
+        }
+        Err(e) => return Err(e.into()),
+    };
 
     // Empty inner → observability beacon only (no command to wrap).
     if args.inner.is_empty() {

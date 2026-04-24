@@ -12,6 +12,7 @@
 //!   predecessors.
 
 pub mod budget;
+pub mod session_lock;
 pub mod trace;
 pub mod validator;
 
@@ -20,6 +21,7 @@ use std::fmt;
 use std::str::FromStr;
 
 pub use budget::{BudgetOutcome, HookBudget, run_with_budget};
+pub use session_lock::{DEFAULT_WAIT_MS, HookSessionLock, lock_path as hook_lock_path};
 pub use trace::{HookRecord, HookTrace};
 pub use validator::{FireOrderValidator, ViolationKind};
 
