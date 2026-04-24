@@ -39,15 +39,15 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 
 | Axis | Weight | Score | Status |
 |------|--------|-------|--------|
-| Session continuity | 20% | 2/10 | A4 ledger survives compaction: seal → restore round-trips 5/5 paths, breach detection green, 10/10 loop |
+| Session continuity | 20% | 3/10 | A4 ledger survives compaction (seal → restore 10/10 loop) + B4 contract-gated enforce wrapper with trace + budget + per-(session,event) lock |
 | Correction retention | 15% | 1/10 | mechanics exist, no end-to-end flow, never proven in a session |
 | Procedural reuse | 15% | 1/10 | detect dead code, RetrievalIntent::Procedural unreachable, table empty |
 | Cross-harness continuity | 15% | 2/10 | 6 presets, never cross-tested, handoff unverified |
 | Raw retrieval strength | 15% | 4/10 | search works, wake/working excludes most kinds, no LongMemEval |
 | Token efficiency | 10% | 2/10 | budget enforced, no cost measurement, noise burns budget |
-| Trust + provenance | 10% | 2/10 | explain exists, trust hierarchy unproven, drilldown partial |
+| Trust + provenance | 10% | 3/10 | explain + hook-trace NDJSON with ts_ms/trace_id/session_id/failure_class per hook line + doctor --check contract |
 
-**Composite: 2.00/10 (A4 rescore 2026-04-24 — session continuity 1→2)**
+**Composite: 2.30/10 (B4 rescore 2026-04-24 — session continuity 2→3, trust/provenance 2→3)**
 *Prior composite 2.9 counted "code exists" as partial credit; regrade counts only "user gets value."*
 *Prior axis table (scores 2,2,1,3,4,6,5) summed to 3.0 but reported 1.8 — reconciled 2026-04-22 to the pessimistic axis row that actually yields 1.80.*
 *2026-04-24: session continuity axis moved 1 → 2 on A4 ledger-survival gate (10/10 loop, zero breach lines). Composite moved 1.80 → 2.00. Evidence:*
@@ -55,6 +55,13 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 - *Loop script `scripts/verify/a4-loop.sh 10` → pass=10/10*
 - *Normative contract `docs/contracts/hook-handoff.md`*
 - *Telemetry: `.memd/logs/ledger-restore.ndjson` on success, `.memd/logs/continuity-breach.log` on failure*
+
+*2026-04-24: B4 hook contract enforcer landed. Session continuity 2 → 3, trust/provenance 2 → 3. Composite 2.00 → 2.30. Evidence:*
+- *Normative contract `docs/contracts/hook-order.md` (event tokens, budgets, failure classes, exit codes)*
+- *`memd hooks enforce` wraps every inner hook call behind `MEMD_HOOK_ENFORCE=1` with a real OS budget timer, per-(session, event) fcntl lock, and NDJSON trace append (`.memd/logs/hook-trace.ndjson`) — 14/14 integration tests in `crates/memd-client/src/main_tests/hook_contract_tests/`*
+- *`memd hooks doctor --check contract` parses the trace, surfaces timeouts + silent swallows + manifest gaps, exits non-zero on any violation*
+- *Every trace line carries `ts_ms`, `trace_id` (ULID), `session_id`, `harness`, `failure_class` → auditable provenance for the hook surface that was previously silent*
+- *MANIFEST.json now carries `contract_version: "0.3"`; PreCompact + PostCompact hook scripts route through the wrapper when the flag is on (default 0 during dogfood)*
 
 *MILESTONE-v4's historical `composite_pre: 2.15` is superseded — see 0.1.0-CONTRACT.md baseline.*
 
