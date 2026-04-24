@@ -154,6 +154,122 @@ fn dedupe_preserves_highest_priority_source() {
     assert_eq!(dedup_position(&deduped, BucketKind::Semantic).len(), 0);
 }
 
+// -------- D4.4: budget + demotion ----------
+
+fn admitted_count(admitted: &buckets::AdmittedBuckets, kind: BucketKind) -> usize {
+    admitted
+        .buckets
+        .iter()
+        .find(|(k, _)| *k == kind)
+        .map(|(_, recs)| recs.len())
+        .unwrap_or(0)
+}
+
+fn demoted_count(admitted: &buckets::AdmittedBuckets, kind: BucketKind) -> usize {
+    admitted
+        .demoted
+        .iter()
+        .find(|(k, _)| *k == kind)
+        .map(|(_, n)| *n)
+        .unwrap_or(0)
+}
+
+fn admitted_total_chars(admitted: &buckets::AdmittedBuckets) -> usize {
+    admitted
+        .buckets
+        .iter()
+        .flat_map(|(_, recs)| recs.iter())
+        .map(|r| r.record.len())
+        .sum()
+}
+
+#[test]
+fn budget_enforces_hard_cap() {
+    // 50 semantic records × 100 chars = 5000; budget 2000 should cap below 2000.
+    // Class cap (semantic_episodic = 20%) = 400 chars, so we expect ≤4 records.
+    let recs: Vec<_> = (0..50)
+        .map(|i| rec(&format!("id={i:02} | c={}", "x".repeat(80))))
+        .collect();
+    let input = CompilerInput {
+        semantic: recs,
+        ..Default::default()
+    };
+    let budget = WakeBudget::default_2000();
+    let admitted = budget::admit(dedupe::merge(priority::apply(&input)), &budget);
+
+    let total = admitted_total_chars(&admitted);
+    assert!(
+        total <= budget.tokens,
+        "admitted chars {total} must not exceed budget {}",
+        budget.tokens
+    );
+}
+
+#[test]
+fn budget_respects_per_bucket_floor() {
+    // 4 canonical records each ~600 chars = 2400 total.
+    // Class cap (canonical = 25% of 2000) = 500. Without floor, only ~0 fit.
+    // Floor = 4; all four must survive even though total > budget.
+    let recs: Vec<_> = (0..4)
+        .map(|i| rec(&format!("id={i} | c={}", "y".repeat(580))))
+        .collect();
+    let input = CompilerInput {
+        canonical: recs,
+        ..Default::default()
+    };
+    let budget = WakeBudget::default_2000();
+    let admitted = budget::admit(dedupe::merge(priority::apply(&input)), &budget);
+
+    assert_eq!(
+        admitted_count(&admitted, BucketKind::Canonical),
+        4,
+        "canonical floor=4 must override class cap"
+    );
+}
+
+#[test]
+fn budget_demotes_overflow_to_lookup_hint() {
+    // 20 semantic records, budget 1000 → class cap 200. Each ~100 chars.
+    // ~1-2 admitted, 18+ demoted.
+    let recs: Vec<_> = (0..20)
+        .map(|i| rec(&format!("id={i:02} | c={}", "z".repeat(95))))
+        .collect();
+    let input = CompilerInput {
+        semantic: recs,
+        ..Default::default()
+    };
+    let mut budget = WakeBudget::default_2000();
+    budget.tokens = 1000;
+    let admitted = budget::admit(dedupe::merge(priority::apply(&input)), &budget);
+
+    let demoted = demoted_count(&admitted, BucketKind::Semantic);
+    let admitted_n = admitted_count(&admitted, BucketKind::Semantic);
+    assert_eq!(admitted_n + demoted, 20);
+    assert!(
+        demoted >= 17,
+        "expected most semantic records demoted; got admitted={admitted_n} demoted={demoted}"
+    );
+}
+
+#[test]
+fn token_counter_matches_compute_wake_token_metrics() {
+    // The compiler tracks admitted cost by summing record string lengths
+    // — same arithmetic compute_wake_token_metrics applies to its inputs.
+    let recs = vec![
+        rec("id=1 | c=alpha"),
+        rec("id=2 | c=beta"),
+        rec("id=3 | c=gamma"),
+    ];
+    let expected: usize = recs.iter().map(|r| r.record.len()).sum();
+    let input = CompilerInput {
+        canonical: recs,
+        ..Default::default()
+    };
+    let budget = WakeBudget::default_2000();
+    let admitted = budget::admit(dedupe::merge(priority::apply(&input)), &budget);
+    assert_eq!(admitted_total_chars(&admitted), expected);
+}
+
 #[test]
 fn dedupe_preserves_distinct_content() {
     // Records with different payloads do NOT dedupe.
