@@ -270,6 +270,82 @@ fn token_counter_matches_compute_wake_token_metrics() {
     assert_eq!(admitted_total_chars(&admitted), expected);
 }
 
+// -------- D4.5: render ----------
+
+#[test]
+fn render_emits_section_headers_in_priority_order() {
+    let input = CompilerInput {
+        canonical: vec![rec("id=A | c=durable")],
+        preferences: vec![rec("id=B | c=pref")],
+        focus: vec![rec("id=C | c=doing")],
+        corrections: vec![rec("id=D | c=corrected")],
+        episodic: vec![rec("id=E | c=session-x")],
+        semantic: vec![rec("id=F | c=fact")],
+        candidates: vec![rec("id=G | c=maybe")],
+    };
+    let compiled = compile_wake(input, WakeBudget::default_2000());
+
+    let canon_idx = compiled.markdown.find("## Durable Truth").expect("canonical header");
+    let pref_idx = compiled.markdown.find("## Preferences").expect("pref header");
+    let focus_idx = compiled.markdown.find("## Focus").expect("focus header");
+    let corr_idx = compiled.markdown.find("## Corrections").expect("corr header");
+    let epi_idx = compiled.markdown.find("## Episodic").expect("epi header");
+    let sem_idx = compiled.markdown.find("## Semantic").expect("sem header");
+    let cand_idx = compiled.markdown.find("## Candidates").expect("cand header");
+
+    assert!(canon_idx < pref_idx);
+    assert!(pref_idx < focus_idx);
+    assert!(focus_idx < corr_idx);
+    assert!(corr_idx < epi_idx);
+    assert!(epi_idx < sem_idx);
+    assert!(sem_idx < cand_idx);
+}
+
+#[test]
+fn render_includes_demotion_hint_section_when_overflow() {
+    // Force overflow by giving more semantic records than can fit.
+    let recs: Vec<_> = (0..20)
+        .map(|i| rec(&format!("id={i:02} | c={}", "z".repeat(95))))
+        .collect();
+    let input = CompilerInput {
+        semantic: recs,
+        ..Default::default()
+    };
+    let mut budget = WakeBudget::default_2000();
+    budget.tokens = 800;
+    let compiled = compile_wake(input, budget);
+
+    assert!(
+        !compiled.demotion_hints.is_empty(),
+        "demotion hints should populate when overflow occurs"
+    );
+    assert!(
+        compiled.markdown.contains("## Demoted"),
+        "render must include demotion section when overflow exists; got:\n{}",
+        compiled.markdown
+    );
+    assert!(
+        compiled.markdown.contains("memd lookup"),
+        "demotion section must point at `memd lookup`"
+    );
+}
+
+#[test]
+fn render_is_markdown_and_round_trips_token_count() {
+    let input = CompilerInput {
+        canonical: vec![rec("id=A | c=hello")],
+        ..Default::default()
+    };
+    let compiled = compile_wake(input, WakeBudget::default_2000());
+
+    assert!(compiled.markdown.starts_with("## "), "must start with markdown header");
+    assert_eq!(
+        compiled.tokens,
+        compiled.markdown.len(),
+        "tokens must equal markdown char length (parity with compute_wake_token_metrics)"
+    );
+}
+
 #[test]
 fn dedupe_preserves_distinct_content() {
     // Records with different payloads do NOT dedupe.
