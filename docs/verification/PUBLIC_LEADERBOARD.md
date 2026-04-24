@@ -8,13 +8,13 @@
 - gaming-audit rule: any memd or competitor score ≥0.90 must carry an `audit:` field (who audited / what was checked / when). Scores without audit trail are capped at `recorded-unpinned` regardless of magnitude.
 - reproduction contract: every row's `repro_command` reproduces the primary number from a clean checkout at `commit_sha` within ±0.01 absolute.
 
-## J3 V3 Floor Verdict — 2026-04-21
+## J3 V3 Floor Verdict — 2026-04-21 (proxy-gap cleared 2026-04-23)
 
-Intrinsic floor gate (≥0.70) on the four canonical primaries: **proxy-gap-deferred**. One bench produced a canonical primary (MemBench `mc_accuracy=0.417`, below floor); three stayed `replay-pending` because the openclaw LiteLLM proxy does not route `gpt-5.4` (codex-lb canonical), which blocks both the LongMemEval judge-swap (memd uses `gpt-5.4` in place of upstream `gpt-4o`) and any free-form generator comparable to MemPalace's upstream GPT-4o baseline. LoCoMo token_f1 and ConvoMem exact-match were measured against `haiku-manager` in smoke and confirmed verbosity-collapsed (30-token answers vs 3-token gold) — that is a generator-routing artifact, not a retrieval fact, so the numbers were not recorded as canonical. J3 records honest retrieval-diagnostic numbers per bench and files `docs/backlog/v3/2026-04-23-gpt5.4-proxy-route-for-judge.md` as the single gate unblocking canonical-metric rows.
+Intrinsic floor gate (≥0.70) on the four canonical primaries: **canonical rerun pending**. One bench produced a canonical primary (MemBench `mc_accuracy=0.417`, below floor); three stayed `replay-pending` because the bench harness was pointed at the wrong proxy — the openclaw LiteLLM at `$OPENAI_BASE_URL`:4000 (`$OPENAI_API_KEY`), which does not route `gpt-5.4`. The actual codex-lb proxy at `http://127.0.0.1:2455/v1` (`$CODEX_LB_API_KEY`) routes `gpt-5.4` + `gpt-5.4-mini` end-to-end — verified 2026-04-23 ~19:11 UTC (`$ curl /v1/models` lists both; `/v1/chat/completions model=gpt-5.4` returns a 200 with content `OK`). Canonical LongMemEval / LoCoMo / ConvoMem rerun runs are unblocked; invoke with inline env override `OPENAI_BASE_URL=http://127.0.0.1:2455/v1 OPENAI_API_KEY=$CODEX_LB_API_KEY`. Judge-swap disclosure (gpt-5.4 via codex-lb in place of upstream GPT-4o) still required on every method card. LoCoMo token_f1 and ConvoMem exact-match prior smokes were measured against `haiku-manager` and confirmed verbosity-collapsed — those numbers remain non-canonical until the gpt-5.4 rerun. Resolution trail: `docs/backlog/v3/2026-04-23-gpt5.4-proxy-route-for-judge.md` (status `resolved`).
 
 | Bench | Canonical Primary | J3 Run | Value | Verdict |
 | --- | --- | --- | --- | --- |
-| LongMemEval | `qa_accuracy` (gpt-5.4 judge, judge-swap of upstream GPT-4o) | not runnable (no gpt-5.4 route on proxy) | — | `replay-pending` — diagnostic `session_recall_any@5`=0.900 on 50/500 (`audit: pending`) |
+| LongMemEval | `qa_accuracy` (gpt-5.4 judge, judge-swap of upstream GPT-4o) | canonical rerun queued (codex-lb route unblocked 2026-04-23) | — | `replay-pending` — diagnostic `session_recall_any@5`=0.900 on 50/500 (`audit: pending`) |
 | LoCoMo | `token_f1_avg` | generator verbosity-collapse on haiku-manager | — | `replay-pending` — diagnostic `evidence_hit_rate@5`=0.360 on 100/500 |
 | MemBench | `mc_accuracy` | stratified 60 items (10 per topic) | **0.417** | `recorded-unpinned` — first canonical run, below 0.70 floor |
 | ConvoMem | `accuracy` (exact-match) | generator verbosity-collapse on haiku-manager | — | `replay-pending` — diagnostic retrieval `recall@k`=0.950 on 100/150 (`audit: pending` — diagnostic not canonical) |
@@ -23,7 +23,7 @@ Intrinsic floor gate (≥0.70) on the four canonical primaries: **proxy-gap-defe
 
 | Benchmark | Canonical Primary | memd | MemPalace | Verification | Method Card |
 | --- | --- | --- | --- | --- | --- |
-| LongMemEval | `qa_accuracy` (gpt-5.4 judge, judge-swap of upstream GPT-4o) | — (replay-pending, J3 blocked on gpt-5.4 proxy route) | 96.6% ⚠ contested | replay-pending | [#longmemeval](#longmemeval-method-card) |
+| LongMemEval | `qa_accuracy` (gpt-5.4 judge, judge-swap of upstream GPT-4o) | — (replay-pending, canonical rerun queued via codex-lb route) | 96.6% ⚠ contested | replay-pending | [#longmemeval](#longmemeval-method-card) |
 | LoCoMo | `token_f1_avg` | — (replay-pending, J3 blocked on free-form generator routing) | — (no canonical replay yet) | replay-pending | [#locomo](#locomo-method-card) |
 | MemBench | `mc_accuracy` (MQI deferred) | 0.417 (J3 stratified 60, floor missed) | — (no canonical replay yet) | recorded-unpinned | [#membench](#membench-method-card) |
 | ConvoMem | `accuracy` (exact-match, first 150 conversations) | — (replay-pending, J3 blocked on concise-answer generator routing) | — (no canonical replay yet) | replay-pending | [#convomem](#convomem-method-card) |
@@ -74,8 +74,8 @@ Eight required fields per card: bench+split+SHA, canonical metric+formula, backe
       --dataset longmemeval --write --record \
       --out .memd --retrieval-backend memd --full-eval
   ```
-- **Verification**: `replay-pending` (H3 code landed 2026-04-21; J3 attempt 2026-04-21 blocked on gpt-5.4 proxy route — see `docs/backlog/v3/2026-04-23-gpt5.4-proxy-route-for-judge.md`).
-- **Primary value**: not runnable on openclaw LiteLLM proxy. Canonical number ships when gpt-5.4 route provisioned.
+- **Verification**: `replay-pending` (H3 code landed 2026-04-21; J3 attempt 2026-04-21 blocked on wrong-URL diagnosis — proxy-gap cleared 2026-04-23, codex-lb at `http://127.0.0.1:2455/v1` routes `gpt-5.4` end-to-end. See `docs/backlog/v3/2026-04-23-gpt5.4-proxy-route-for-judge.md`).
+- **Primary value**: canonical rerun queued. Invoke with `OPENAI_BASE_URL=http://127.0.0.1:2455/v1 OPENAI_API_KEY=$CODEX_LB_API_KEY memd benchmark public longmemeval --full-eval --limit 500 --retrieval-backend memd`.
 - **Diagnostic secondary (J3, 2026-04-21)**: `session_recall_any@5 = 0.900` (50/500 items, retrieval-only, memd backend, `audit: pending` — diagnostic not canonical). Prior 0.936 retracted as primary; retained as diagnostic-only context (see retraction log). Retrieval diagnostic above 0.70 floor; canonical qa_accuracy floor unverifiable until judge routes.
 - **Cost ledger**: `judge_prompt_tokens`, `judge_completion_tokens`, `judge_cost_usd`, `judge_cache_hit_rate`, `judge_cache_hits`, `judge_cache_misses` emitted per run into `.memd/benchmarks/history/benchmark-runs.jsonl`. J3 run: n/a (judge not called).
 - **Competitor row**: Mem0 93.4% (`audit: upstream paper table, top_k disclosed, 2026-04-21`). Supermemory 81.6% GPT-4o / 84.6% GPT-5 (`audit: upstream blog method disclosed, 2026-04-21`). MemPalace 96.6% ⚠ contested (per MemPalace's own issue tracker — benchmark wraps ChromaDB instead of exercising MemPalace library code; `audit: pending`).
@@ -97,8 +97,8 @@ Eight required fields per card: bench+split+SHA, canonical metric+formula, backe
     --dataset locomo --write --record \
     --out .memd --retrieval-backend memd --full-eval
   ```
-- **Verification**: `replay-pending` (H3 scorer code landed; J3 attempt 2026-04-21 blocked on generator routing — haiku-manager verbosity-collapses token_f1; see `docs/backlog/v3/2026-04-23-gpt5.4-proxy-route-for-judge.md`).
-- **Primary value**: not runnable with haiku-manager generator. Canonical `token_f1_avg` ships when gpt-5.4 route provisioned.
+- **Verification**: `replay-pending` (H3 scorer code landed; J3 attempt 2026-04-21 blocked on generator routing — haiku-manager verbosity-collapses token_f1. Proxy-gap cleared 2026-04-23 — codex-lb at `http://127.0.0.1:2455/v1` routes `gpt-5.4`; see `docs/backlog/v3/2026-04-23-gpt5.4-proxy-route-for-judge.md`).
+- **Primary value**: canonical rerun queued. Invoke with `OPENAI_BASE_URL=http://127.0.0.1:2455/v1 OPENAI_API_KEY=$CODEX_LB_API_KEY memd benchmark public locomo --full-eval --retrieval-backend memd`.
 - **Diagnostic secondary (J3, 2026-04-21)**: `evidence_hit_rate@5 = 0.360` (100/500 items, retrieval-only, memd backend). Floor (≥0.70) missed on retrieval diagnostic; canonical `token_f1_avg` floor unverifiable without free-form gpt-5.4 answers. Prior `0.709` retracted; see retraction log.
 - **Cost ledger**: n/a (no judge call).
 - **Competitor row**: Mem0 91.6% (`audit: pending — upstream paper check`). MemMachine 91.69% (`audit: pending`). Letta 74.0% (`audit: pending`). All three exceed 0.90 gaming threshold without local replay → treated as recorded-unpinned until audit.
@@ -143,8 +143,8 @@ Eight required fields per card: bench+split+SHA, canonical metric+formula, backe
     --dataset convomem --write --record \
     --out .memd --retrieval-backend memd
   ```
-- **Verification**: `replay-pending` (H3 disclaimer landed; J3 attempt 2026-04-21 blocked on generator routing — haiku-manager emits ~30-token free-form answers that verbosity-collapse exact-match scoring; see `docs/backlog/v3/2026-04-21-gpt4o-proxy-route-for-judge.md`).
-- **Primary value**: not runnable with haiku-manager generator. Canonical `accuracy` (exact-match) ships when gpt-5.4 route provisioned.
+- **Verification**: `replay-pending` (H3 disclaimer landed; J3 attempt 2026-04-21 blocked on generator routing — haiku-manager emits ~30-token free-form answers that verbosity-collapse exact-match scoring. Proxy-gap cleared 2026-04-23 — codex-lb at `http://127.0.0.1:2455/v1` routes `gpt-5.4`; see `docs/backlog/v3/2026-04-23-gpt5.4-proxy-route-for-judge.md`).
+- **Primary value**: canonical rerun queued. Invoke with `OPENAI_BASE_URL=http://127.0.0.1:2455/v1 OPENAI_API_KEY=$CODEX_LB_API_KEY memd benchmark public convomem --full-eval --retrieval-backend memd`.
 - **Diagnostic secondary (J3, 2026-04-21)**: retrieval-mode `recall@k = 0.950` (100/150 items, memd backend, no generator, `audit: pending` — diagnostic not canonical, subject to the gaming-audit note below). Above the 0.70 floor on retrieval; canonical exact-match floor unverifiable without concise-answer generator.
 - **Cost ledger**: n/a (no judge call).
 - **Competitor row**: no competitor publishes ConvoMem numbers as of 2026-04-21. Recent (2025) bench.

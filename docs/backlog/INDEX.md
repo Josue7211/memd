@@ -139,7 +139,7 @@
 
 ### Phase `K3 (post-J3)`
 
-- **[high]** [gpt-5.4 proxy route for public-bench judge + generator](v3/2026-04-23-gpt5.4-proxy-route-for-judge.md) — `open` · opened 2026-04-21 · renamed 2026-04-23
+- **[high]** [gpt-5.4 proxy route for public-bench judge + generator](v3/2026-04-23-gpt5.4-proxy-route-for-judge.md) — `resolved` 2026-04-23 · opened 2026-04-21 · renamed 2026-04-23 · resolution: wrong-URL diagnosis; codex-lb live at `http://127.0.0.1:2455` with `$CODEX_LB_API_KEY` (not the openclaw-LiteLLM `:4000` I had been probing)
 
 ### Phase `tbd`
 
