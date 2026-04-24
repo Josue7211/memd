@@ -166,6 +166,9 @@ async fn hook_capture_can_supersede_stale_memory_after_promotion() {
         promote_tag: vec!["correction".to_string()],
         promote_confidence: Some(0.99),
         summary: true,
+        kind: None,
+        corrects_id: None,
+        source_turn: None,
     };
 
     let (supersede_targets, diagnostics) = find_hook_capture_supersede_targets(
@@ -238,6 +241,9 @@ async fn hook_capture_can_find_supersede_targets_by_query() {
         promote_tag: vec!["correction".to_string()],
         promote_confidence: Some(0.99),
         summary: true,
+        kind: None,
+        corrects_id: None,
+        source_turn: None,
     };
 
     let (supersede_targets, diagnostics) =
@@ -315,6 +321,9 @@ async fn hook_capture_does_not_auto_supersede_active_query_matches() {
         promote_tag: vec!["correction".to_string()],
         promote_confidence: Some(0.99),
         summary: true,
+        kind: None,
+        corrects_id: None,
+        source_turn: None,
     };
 
     let (supersede_targets, diagnostics) =

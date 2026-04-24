@@ -60,6 +60,13 @@ pub(crate) async fn run_hook_mode(
             } else {
                 "hook capture: active task state changed".to_string()
             };
+            // C4.5: when --kind correction, append to corrections.ndjson with
+            // provenance before continuing the standard checkpoint/promote flow.
+            if matches!(args.kind.as_deref(), Some("correction")) {
+                let cap = correction_capture_args_from_hook(&args, content.clone());
+                run_correction_capture(&cap)
+                    .context("hook capture --kind correction: append corrections.ndjson")?;
+            }
             let effective_promote_kind = effective_hook_capture_promote_kind(&args, &content);
             let (supersede_targets, supersede_diagnostics) =
                 find_hook_capture_supersede_targets(base_url, &args, &content).await?;
@@ -994,5 +1001,100 @@ fn value_to_trace_event(value: serde_json::Value) -> TraceEvent {
         tool: get_str("tool"),
         path: get_str("path"),
         session_id: get_str("session_id"),
+    }
+}
+
+/// C4.5: shape a CorrectionCaptureArgs from a HookCaptureArgs payload.
+/// captured_by depends on the auto-detect flag so dogfood captures look
+/// distinct from CLI-driven manual captures in the audit log.
+pub(crate) fn correction_capture_args_from_hook(
+    args: &HookCaptureArgs,
+    content: String,
+) -> CorrectionCaptureArgs {
+    let captured_by =
+        if std::env::var("MEMD_C4_CORRECTION_DETECT").ok().as_deref() == Some("1") {
+            "hook_auto"
+        } else {
+            "manual"
+        };
+    CorrectionCaptureArgs {
+        content,
+        corrects_id: args.corrects_id.clone(),
+        source_turn: args.source_turn.clone(),
+        confidence: args.confidence.unwrap_or(0.85),
+        captured_by: captured_by.to_string(),
+        session_id: None,
+        output: args.output.clone(),
+    }
+}
+
+#[cfg(test)]
+mod c4_hook_tests {
+    use super::*;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    fn hook_args(tmp: &PathBuf) -> HookCaptureArgs {
+        HookCaptureArgs {
+            output: tmp.clone(),
+            project: None,
+            namespace: None,
+            workspace: None,
+            visibility: None,
+            source_path: None,
+            confidence: Some(0.92),
+            ttl_seconds: None,
+            content: None,
+            input: None,
+            stdin: false,
+            tag: vec![],
+            promote_kind: None,
+            promote_scope: None,
+            promote_supersede: vec![],
+            promote_supersede_query: None,
+            promote_tag: vec![],
+            promote_confidence: None,
+            summary: false,
+            kind: Some("correction".into()),
+            corrects_id: Some("rec-prior".into()),
+            source_turn: Some("t-12".into()),
+        }
+    }
+
+    use std::sync::Mutex;
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn hook_capture_with_kind_correction_routes_through_detector() {
+        let _g = ENV_LOCK.lock().unwrap();
+        // SAFETY: serialized via ENV_LOCK.
+        unsafe { std::env::remove_var("MEMD_C4_CORRECTION_DETECT") };
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().to_path_buf();
+        let args = hook_args(&path);
+        let cap = correction_capture_args_from_hook(&args, "no, beta is the host".into());
+        assert_eq!(cap.captured_by, "manual");
+        assert_eq!(cap.confidence, 0.92);
+        assert_eq!(cap.corrects_id.as_deref(), Some("rec-prior"));
+        assert_eq!(cap.source_turn.as_deref(), Some("t-12"));
+
+        run_correction_capture(&cap).unwrap();
+        let log = path.join("logs").join("corrections.ndjson");
+        let contents = std::fs::read_to_string(log).unwrap();
+        assert!(contents.contains("\"corrects_id\":\"rec-prior\""));
+        assert!(contents.contains("\"captured_by\":\"manual\""));
+    }
+
+    #[test]
+    fn hook_capture_kind_correction_marks_hook_auto_when_flag_on() {
+        let _g = ENV_LOCK.lock().unwrap();
+        // SAFETY: serialized via ENV_LOCK.
+        unsafe { std::env::set_var("MEMD_C4_CORRECTION_DETECT", "1") };
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().to_path_buf();
+        let args = hook_args(&path);
+        let cap = correction_capture_args_from_hook(&args, "scratch that, host is beta".into());
+        assert_eq!(cap.captured_by, "hook_auto");
+        unsafe { std::env::remove_var("MEMD_C4_CORRECTION_DETECT") };
     }
 }

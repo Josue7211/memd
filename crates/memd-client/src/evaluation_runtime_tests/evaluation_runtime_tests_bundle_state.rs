@@ -298,6 +298,9 @@
             promote_tag: vec!["10-star".to_string(), "product-direction".to_string()],
             promote_confidence: Some(0.95),
             summary: true,
+            kind: None,
+            corrects_id: None,
+            source_turn: None,
         };
 
         let remember = remember_args_from_hook_capture(&args, "ship wake first".to_string());
@@ -371,6 +374,9 @@
             promote_tag: Vec::new(),
             promote_confidence: Some(0.9),
             summary: true,
+            kind: None,
+            corrects_id: None,
+            source_turn: None,
         };
 
         assert_eq!(
@@ -510,6 +516,9 @@
             promote_tag: Vec::new(),
             promote_confidence: Some(0.9),
             summary: true,
+            kind: None,
+            corrects_id: None,
+            source_turn: None,
         };
 
         let kind =
@@ -547,6 +556,9 @@
             promote_tag: Vec::new(),
             promote_confidence: Some(0.9),
             summary: true,
+            kind: None,
+            corrects_id: None,
+            source_turn: None,
         };
 
         let remember = remember_args_from_effective_hook_capture(
@@ -815,6 +827,9 @@
             promote_tag: vec!["correction".to_string()],
             promote_confidence: Some(0.99),
             summary: true,
+            kind: None,
+            corrects_id: None,
+            source_turn: None,
         };
 
         let (supersede_targets, diagnostics) = find_hook_capture_supersede_targets(
@@ -885,6 +900,9 @@
             promote_tag: vec!["correction".to_string()],
             promote_confidence: Some(0.99),
             summary: true,
+            kind: None,
+            corrects_id: None,
+            source_turn: None,
         };
 
         let (supersede_targets, diagnostics) =
@@ -947,6 +965,9 @@
             promote_tag: vec!["correction".to_string()],
             promote_confidence: Some(0.99),
             summary: true,
+            kind: None,
+            corrects_id: None,
+            source_turn: None,
         };
 
         let (supersede_targets, diagnostics) = find_hook_capture_supersede_targets(

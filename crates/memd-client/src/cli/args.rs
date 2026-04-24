@@ -1997,6 +1997,18 @@ pub(crate) struct HookCaptureArgs {
 
     #[arg(long)]
     pub(crate) summary: bool,
+
+    /// C4: route as `correction` kind, append to corrections.ndjson, set provenance.
+    #[arg(long, value_name = "KIND")]
+    pub(crate) kind: Option<String>,
+
+    /// C4: id of the prior memory record this correction supersedes.
+    #[arg(long = "corrects-id")]
+    pub(crate) corrects_id: Option<String>,
+
+    /// C4: source-turn id (e.g. "t-12") for provenance trail.
+    #[arg(long = "source-turn")]
+    pub(crate) source_turn: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
