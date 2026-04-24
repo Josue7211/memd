@@ -215,6 +215,27 @@ before compaction proceeds.
 
 Use it for harnesses that support a `PreCompact` hook.
 
+## PostCompact Restore Hook
+
+```bash
+./memd-postcompact-restore.sh
+```
+
+Companion to `memd-precompact-save.sh`. Runs AFTER compaction completes and
+BEFORE any `PreToolUse` hook fires, so the post-compaction turn inherits the
+prior session's file-interaction ledger. The hook invokes
+`memd hook restore --session-id <SID> --output <BUNDLE_ROOT>`, which copies
+the newest sealed ledger back into `file_interactions.json` and appends an
+ndjson restore record to `<BUNDLE_ROOT>/logs/ledger-restore.ndjson`.
+
+Feature flag: `MEMD_A4_LEDGER_SURVIVAL` (default `0` during dogfood). When
+`0`, the hook exits 0 immediately — zero overhead, zero risk. Flip to `1`
+after the 7-day dogfood window shows zero breach lines under normal use.
+
+Normative contract: [`docs/contracts/hook-handoff.md`](../../docs/contracts/hook-handoff.md).
+
+Use it for harnesses that support a `PostCompact` hook (Claude Code, Codex).
+
 ## Install on Unix
 
 ```bash

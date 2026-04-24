@@ -94,6 +94,30 @@
       "sha256": "6bc717057a5250cc5bb2913ad2b8b7717f54d30124b752a8040701cd39cdbc67"
     },
     {
+      "name": "memd-postcompact-restore.sh",
+      "path": ".memd/hooks/memd-postcompact-restore.sh",
+      "event": "PostCompact",
+      "harness": "claude-code",
+      "purpose": "A4 Part 1: restore sealed file-interaction ledger after compaction before tools fire.",
+      "sha256": "32e166a6ab0f0c310862f277f9ecc5748f7a03c021f0a0f9591cd00458ab6ba7"
+    },
+    {
+      "name": "memd-postcompact-restore.ps1",
+      "path": ".memd/hooks/memd-postcompact-restore.ps1",
+      "event": "PostCompact",
+      "harness": "claude-code",
+      "purpose": "Windows counterpart of memd-postcompact-restore.sh.",
+      "sha256": "9bfc1bdc5ee440befef85e336079ba3e56ddec16d4694813b99cb7ac1ee8ed87"
+    },
+    {
+      "name": "memd-postcompact-restore.sh",
+      "path": ".memd/hooks/memd-postcompact-restore.sh",
+      "event": "PostCompact",
+      "harness": "codex",
+      "purpose": "A4 Part 1: cross-harness PostCompact restore — same script, codex harness binding.",
+      "sha256": "32e166a6ab0f0c310862f277f9ecc5748f7a03c021f0a0f9591cd00458ab6ba7"
+    },
+    {
       "name": "memd-preedit-prime.sh",
       "path": ".memd/hooks/memd-preedit-prime.sh",
       "event": "PreToolUse",
