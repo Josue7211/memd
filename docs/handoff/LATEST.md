@@ -1,1 +1,1 @@
-2026-04-24-b4-complete-next-c4.md
+2026-04-24-c4-entry.md

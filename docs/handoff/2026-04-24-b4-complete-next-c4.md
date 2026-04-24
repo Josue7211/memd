@@ -5,7 +5,7 @@ from: v4-b4-executor
 to: v4-c4-executor
 status: ready-to-execute
 entry_phase: C4
-branch: research/mining (ahead of main by 22 commits)
+branch: research/mining (ahead of main by 24 commits)
 ---
 
 # Handoff — B4 closed, execute C4
@@ -16,8 +16,8 @@ B4 (Hook Contract Enforcement) shipped clean. Every memd hook now runs under a c
 
 ## Repo state at handoff
 
-- Branch: `research/mining` at `e669558`, 22 commits ahead of `main` (`3306a74`). Not pushed. Not merged.
-- B4 commit range: `10bca6b..e669558` (12 atomic commits including phase-close).
+- Branch: `research/mining` at `c751303`, 24 commits ahead of `main` (`3306a74`). Not pushed. Not merged.
+- B4 commit range: `10bca6b..c751303` (14 atomic commits, phase-close + 2 post-close gap-close).
 - Working tree: clean.
 - Roadmap: `current_phase=C4`, `phase_status=ready_to_execute` (update before starting).
 
@@ -36,7 +36,28 @@ aa6eee3 feat(hooks): scripts route through enforce wrapper behind flag (B4.9)
 6c32977 docs(handoff): B4.10 deferred flag flip — schedule MEMD_HOOK_ENFORCE=1
 08143d4 docs(10-star): axes 1+7 rescored after B4 enforcer green (B4.11)
 e669558 docs(handoff): B4 closed — next agent executes C4
+5842c87 docs(handoff): add B4 handoff file, repoint LATEST symlink
+43f3c8b feat(memd-client/hooks): wire FireOrderValidator into enforce (B4 gap close)
+c751303 chore(roadmap): advance current_phase=C4 after B4 close
 ```
+
+### Post-close gap close (2026-04-24)
+
+Advisor review flagged two gaps after `e669558`:
+
+1. **FireOrderValidator was never wired into `run_hook_enforce`.** The
+   phase goal ("runtime blocks out-of-order") was unmet. Fixed in
+   `43f3c8b` — `validate_fire_order()` replays the trace filtered by
+   `session_id`, observes the current event, halts on `OrderSwap`
+   (PostCompact before PreCompact) with exit 1 and an
+   `OrderViolation` trace line. `MissingPredecessor` is deliberately
+   left to `hooks doctor --check contract` so bootstrap paths and
+   test harnesses that skip SessionStart don't cascade-fail. Scoping
+   note added to `docs/contracts/hook-order.md §2` subheading
+   "Runtime vs doctor scoping".
+2. **Exit code 4 (lock contended) was missing from the contract
+   doc.** B4.7 added it to the enforcer but the hook-order §4 table
+   and flag table never gained the row. Fixed in `43f3c8b` as well.
 
 ## What is proven
 

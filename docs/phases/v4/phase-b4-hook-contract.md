@@ -60,3 +60,21 @@ When memd misbehaves, the user sees why. Hook failures surface as "memd skipped 
 ## Rollback
 
 Enforcer behind `MEMD_HOOK_ENFORCE=1`. Old behavior preserved. Graduate to default-on after 1 week clean.
+
+---
+
+## Post-close addendum (2026-04-24)
+
+B4 landed across commits `10bca6b..e669558` and closed clean. Advisor
+review after close identified two gaps that shipped in `43f3c8b`:
+
+- `FireOrderValidator` was never called from `run_hook_enforce`, so
+  "runtime blocks out-of-order" was documented but unenforced.
+  `validate_fire_order()` now replays the trace per-session and halts
+  on `OrderSwap` (PostCompact before PreCompact). `MissingPredecessor`
+  is scoped to `hooks doctor --check contract` — see
+  `docs/contracts/hook-order.md §2` → "Runtime vs doctor scoping".
+- Exit code `4` (lock contended) added by B4.7 was missing from the
+  contract table and flag table; `43f3c8b` added both rows.
+
+Roadmap advanced to `current_phase=C4` in `c751303`.

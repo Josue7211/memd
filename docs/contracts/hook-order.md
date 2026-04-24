@@ -79,6 +79,16 @@ The `LedgerSeal` and `LedgerRestore` rows have no budget because they
 are inner-command emissions, not harness-driven events. Their budget
 is absorbed by the surrounding `PreCompact` / `PostCompact` row.
 
+### Runtime vs doctor scoping
+
+`memd hooks enforce` enforces the **`OrderSwap`** case only —
+`PostCompact` before `PreCompact` within the same `session_id`. The
+broader `MissingPredecessor` check (column 4 above) is surfaced
+post-hoc by `memd hooks doctor --check contract`. This split keeps
+bootstrap paths and test harnesses that skip `SessionStart` from
+cascading into halt-class runtime failures while still flagging the
+canonical swap that indicates harness misconfiguration.
+
 ---
 
 ## 3. Trace line shape
