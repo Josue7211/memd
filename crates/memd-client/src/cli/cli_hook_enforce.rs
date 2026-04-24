@@ -14,9 +14,10 @@
 use super::args::{HookEnforceArgs, HookFailureClassArg};
 use anyhow::{Context, Result};
 use memd_core::hook_runtime::{
-    BudgetOutcome, DEFAULT_WAIT_MS, FailureClass, HookBudget, HookEvent, HookRecord,
-    HookSessionLock, HookTrace, run_with_budget,
+    BudgetOutcome, DEFAULT_WAIT_MS, FailureClass, FireOrderValidator, HookBudget, HookEvent,
+    HookRecord, HookSessionLock, HookTrace, ViolationKind, run_with_budget,
 };
+use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::time::Duration;
@@ -84,6 +85,20 @@ pub(crate) fn run_hook_enforce(args: &HookEnforceArgs) -> Result<i32> {
 
     let trace = HookTrace::new(resolve_trace_path(args));
 
+    // Fire-order enforcement: replay prior trace lines for this session,
+    // then check the current event against the validator. Halt-class
+    // violation → exit 1 with OrderViolation trace line.
+    if let Some(violation) = validate_fire_order(trace.path(), &args.session_id, event) {
+        let record =
+            build_record(event, args, budget_ms, 0, 0, FailureClass::OrderViolation);
+        trace.append(&record)?;
+        eprintln!(
+            "memd hooks enforce: fire-order violation for session={} event={}: {}",
+            args.session_id, event, violation
+        );
+        return Ok(EXIT_HALT_INNER);
+    }
+
     // Per-(session,event) advisory lock. Drops at function return.
     let lock_wait = Duration::from_millis(
         std::env::var("MEMD_HOOK_LOCK_WAIT_MS")
@@ -133,6 +148,45 @@ pub(crate) fn run_hook_enforce(args: &HookEnforceArgs) -> Result<i32> {
     trace.append(&record)?;
 
     Ok(map_exit(&outcome, posture))
+}
+
+/// Replay trace lines for `session_id` into a fresh validator, then
+/// observe `event`. Returns `Some(msg)` on contract breach, `None` on
+/// clean observation. Replay errors are swallowed — we're reconstructing
+/// state, not re-validating past fires.
+fn validate_fire_order(
+    trace_path: &std::path::Path,
+    session_id: &str,
+    event: HookEvent,
+) -> Option<String> {
+    let mut validator = FireOrderValidator::new();
+    if let Ok(file) = std::fs::File::open(trace_path) {
+        for line in BufReader::new(file).lines().map_while(Result::ok) {
+            let Ok(record) = serde_json::from_str::<HookRecord>(&line) else {
+                continue;
+            };
+            if record.session_id != session_id {
+                continue;
+            }
+            // Skip order-violation markers so we don't double-count the
+            // rejected event when the wrapper is retried.
+            if matches!(record.failure_class, FailureClass::OrderViolation) {
+                continue;
+            }
+            let _ = validator.observe(record.event);
+        }
+    }
+    match validator.observe(event) {
+        Ok(()) => None,
+        // Runtime only halts on the canonical swap (PostCompact before
+        // PreCompact). MissingPredecessor is left to `hooks doctor
+        // --check contract` so tests + bootstrap paths that skip
+        // SessionStart don't cascade-fail at runtime.
+        Err(ViolationKind::OrderSwap { .. }) => {
+            Some("OrderSwap: PostCompact before PreCompact".to_string())
+        }
+        Err(ViolationKind::MissingPredecessor { .. }) => None,
+    }
 }
 
 fn resolve_trace_path(args: &HookEnforceArgs) -> std::path::PathBuf {

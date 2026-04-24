@@ -130,6 +130,7 @@ Exit codes returned by `memd hooks enforce` and consumed by harnesses:
 | `1`  | Halt-class inner failure or order violation                          |
 | `2`  | Halt-class budget exceeded                                           |
 | `3`  | Contract parse failure (manifest or hook-order.md invalid)           |
+| `4`  | Halt-class per-(session, event) lock contended past wait window      |
 
 Non-wrapped harness path (`MEMD_HOOK_ENFORCE=0`) preserves the inner
 command's native exit code for backward compatibility with V3 scripts.
@@ -143,6 +144,7 @@ command's native exit code for backward compatibility with V3 scripts.
 | `MEMD_HOOK_ENFORCE`          | `0` → `1` after dogfood | Route hook scripts through `memd hooks enforce`. |
 | `MEMD_HOOK_TRACE_PATH`       | `<BUNDLE_ROOT>/logs/hook-trace.ndjson` | Override trace destination (tests). |
 | `MEMD_HOOK_BUDGET_OVERRIDE`  | unset   | Comma-sep `event=ms` overrides (debugging; bypasses §2 column 2).    |
+| `MEMD_HOOK_LOCK_WAIT_MS`     | `1000`  | Per-(session, event) advisory-lock wait before exit 4.               |
 
 Default flip from `0` to `1` gated on 7-day dogfood window showing
 p99 wrapper latency ≤ 200 ms and zero `failure_class=inner-nonzero`

@@ -339,6 +339,69 @@ fn enforce_concurrent_same_event_races_are_serialized() {
     unsafe { std::env::remove_var("MEMD_HOOK_LOCK_WAIT_MS") };
 }
 
+#[test]
+fn enforce_blocks_out_of_order_postcompact_first() {
+    let _g = env_lock();
+    unsafe { std::env::set_var("MEMD_HOOK_ENFORCE", "1") };
+    let dir = TempDir::new().unwrap();
+    let mut args = base_args(
+        dir.path().to_path_buf(),
+        "PostCompact",
+        vec!["true".to_string()],
+    );
+    args.session_id = "sess-swap".to_string();
+
+    let code = run_hook_enforce(&args).unwrap();
+    assert_eq!(
+        code, 1,
+        "PostCompact without prior PreCompact → halt-class order violation"
+    );
+
+    let records = load_trace(&dir.path().join("logs").join("hook-trace.ndjson"));
+    assert_eq!(records.len(), 1, "one trace line for the blocked fire");
+    assert_eq!(records[0].event.as_str(), "PostCompact");
+    assert!(
+        matches!(
+            records[0].failure_class,
+            memd_core::hook_runtime::FailureClass::OrderViolation
+        ),
+        "failure_class=order-violation expected, got {:?}",
+        records[0].failure_class
+    );
+    unsafe { std::env::remove_var("MEMD_HOOK_ENFORCE") };
+}
+
+#[test]
+fn enforce_allows_postcompact_after_precompact_in_same_session() {
+    let _g = env_lock();
+    unsafe { std::env::set_var("MEMD_HOOK_ENFORCE", "1") };
+    let dir = TempDir::new().unwrap();
+
+    let mut pre = base_args(
+        dir.path().to_path_buf(),
+        "PreCompact",
+        vec!["true".to_string()],
+    );
+    pre.session_id = "sess-ok".to_string();
+    assert_eq!(run_hook_enforce(&pre).unwrap(), 0);
+
+    let mut post = base_args(
+        dir.path().to_path_buf(),
+        "PostCompact",
+        vec!["true".to_string()],
+    );
+    post.session_id = "sess-ok".to_string();
+    assert_eq!(
+        run_hook_enforce(&post).unwrap(),
+        0,
+        "PostCompact is legal once PreCompact is already in the trace"
+    );
+
+    let records = load_trace(&dir.path().join("logs").join("hook-trace.ndjson"));
+    assert_eq!(records.len(), 2);
+    unsafe { std::env::remove_var("MEMD_HOOK_ENFORCE") };
+}
+
 // --- Doctor contract-check tests (B4.8 — tests 18-21) -----------------
 
 fn write_manifest(dir: &std::path::Path, entries: &[(&str, &str)]) -> PathBuf {
