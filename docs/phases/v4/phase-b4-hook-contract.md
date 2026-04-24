@@ -2,11 +2,13 @@
 phase: B4
 name: Hook Contract Enforcement
 version: v4
-status: planned
+status: executing
 opened: 2026-04-22
 depends_on: [A4]
 backlog_items: [hooks-scattered, pipeline-lifecycle-broken]
 axis: session_continuity
+plan_spec: docs/phases/v4/phase-b4-plan.md
+contract: docs/contracts/hook-order.md
 ---
 
 # Phase B4: Hook Contract Enforcement

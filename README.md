@@ -161,7 +161,7 @@ between different projects.
 
 - Codex, Claude Code, OpenClaw, Hermes, OpenCode, and future harnesses
 - Obsidian
-- shared hook kit — normative handoff contract: [`docs/contracts/hook-handoff.md`](./docs/contracts/hook-handoff.md)
+- shared hook kit — normative handoff contract: [`docs/contracts/hook-handoff.md`](./docs/contracts/hook-handoff.md) · fire-order + budget contract: [`docs/contracts/hook-order.md`](./docs/contracts/hook-order.md)
 
 ## License
 
