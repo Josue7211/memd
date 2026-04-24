@@ -335,6 +335,10 @@ fn hooks_doctor_green_on_consistent_manifest_red_on_tamper() {
     let args = HookDoctorArgs {
         project_root: Some(tmp.path().to_path_buf()),
         json: false,
+        check: None,
+        trace: None,
+        trace_inline: None,
+        output: tmp.path().join(".memd"),
     };
     run_hook_doctor(&args).expect("green on consistent manifest");
 

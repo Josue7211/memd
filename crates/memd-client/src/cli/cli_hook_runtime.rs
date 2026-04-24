@@ -315,9 +315,14 @@ pub(crate) async fn run_hook_mode(
         HookMode::Gate(gate_args) => {
             cli_gate_runtime::run_gate_cli(&gate_args).await?;
         }
-        HookMode::Doctor(doctor_args) => {
-            run_hook_doctor(&doctor_args)?;
-        }
+        HookMode::Doctor(doctor_args) => match doctor_args.check {
+            Some(HookDoctorCheck::Ordering) => {
+                run_hook_doctor_ordering(&doctor_args)?;
+            }
+            None => {
+                run_hook_doctor(&doctor_args)?;
+            }
+        },
     }
 
     Ok(())
@@ -549,4 +554,217 @@ fn emit_restore_report(
         );
     }
     Ok(())
+}
+
+/// A4.5: audit a hook trace against `docs/contracts/hook-handoff.md` ordering
+/// contract. Currently inspects three rules:
+/// 1. PostCompact must be followed by a PostCompact restore event (the CLI
+///    emits it via `memd hook restore`) before any file-op tool fires.
+/// 2. No PreToolUse event for Read/Edit/Write may precede a pending
+///    PostCompact restore (tool-before-restore).
+/// 3. A trace with a PostCompact event but no matching restore event is a
+///    missing-restore breach.
+///
+/// Trace events: `{"event":"PostCompact"|"LedgerRestore"|"PreToolUse","ts_ms":N,"tool":"Read"}`.
+pub(crate) fn run_hook_doctor_ordering(args: &HookDoctorArgs) -> anyhow::Result<()> {
+    use memd_core::file_ledger::restore::{append_breach_line, BreachKind};
+
+    let events = load_trace_events(args)?;
+    let breaches = detect_ordering_breaches(&events);
+
+    // Mirror any detected breach into the continuity-breach log so the
+    // observability channel sees doctor-detected breaches too.
+    for breach in &breaches {
+        let _ = append_breach_line(
+            &args.output,
+            breach.session_id.as_deref().unwrap_or("unknown"),
+            breach.kind,
+            &breach.extras(),
+        );
+    }
+
+    if args.json {
+        print_json(&serde_json::json!({
+            "check": "ordering",
+            "events": events.len(),
+            "breaches": breaches.iter().map(|b| b.to_json()).collect::<Vec<_>>(),
+            "ok": breaches.is_empty(),
+        }))?;
+    } else if breaches.is_empty() {
+        println!(
+            "hook doctor ordering: green — {} events, zero breaches",
+            events.len()
+        );
+    } else {
+        println!(
+            "hook doctor ordering: RED — {} breach(es) across {} events",
+            breaches.len(),
+            events.len()
+        );
+        for breach in &breaches {
+            println!("  - {}: {}", breach.kind.as_str(), breach.explain());
+        }
+    }
+
+    if !breaches.is_empty() {
+        anyhow::bail!("hook doctor ordering: {} breach(es)", breaches.len());
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TraceEvent {
+    pub(crate) event: String,
+    pub(crate) ts_ms: Option<i64>,
+    pub(crate) tool: Option<String>,
+    pub(crate) path: Option<String>,
+    pub(crate) session_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct OrderingBreach {
+    pub(crate) kind: memd_core::file_ledger::restore::BreachKind,
+    pub(crate) session_id: Option<String>,
+    pub(crate) tool: Option<String>,
+    pub(crate) path: Option<String>,
+}
+
+impl OrderingBreach {
+    fn extras(&self) -> Vec<(&str, &str)> {
+        let mut out: Vec<(&str, &str)> = Vec::new();
+        if let Some(t) = self.tool.as_deref() {
+            out.push(("tool", t));
+        }
+        if let Some(p) = self.path.as_deref() {
+            out.push(("path", p));
+        }
+        out
+    }
+
+    fn explain(&self) -> String {
+        let tool = self.tool.as_deref().unwrap_or("?");
+        let path = self.path.as_deref().unwrap_or("?");
+        match self.kind {
+            memd_core::file_ledger::restore::BreachKind::ToolBeforeRestore => {
+                format!("tool {tool} on {path} fired before PostCompact restore")
+            }
+            memd_core::file_ledger::restore::BreachKind::MissingRestore => {
+                "PostCompact event without matching LedgerRestore".to_string()
+            }
+            memd_core::file_ledger::restore::BreachKind::NoSealedLedger => {
+                "no sealed ledger recorded in trace".to_string()
+            }
+        }
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "kind": self.kind.as_str(),
+            "session_id": self.session_id,
+            "tool": self.tool,
+            "path": self.path,
+        })
+    }
+}
+
+pub(crate) fn detect_ordering_breaches(events: &[TraceEvent]) -> Vec<OrderingBreach> {
+    let mut breaches = Vec::new();
+    // Track "we saw PostCompact and haven't seen a restore yet for this session".
+    let mut pending_restore: Option<Option<String>> = None;
+    // Session ID from the most recent PostCompact, for breach attribution.
+    let mut last_session: Option<String> = None;
+
+    for ev in events {
+        match ev.event.as_str() {
+            "PostCompact" => {
+                pending_restore = Some(ev.session_id.clone());
+                last_session = ev.session_id.clone();
+            }
+            "LedgerRestore" | "HookRestore" => {
+                pending_restore = None;
+            }
+            "PreToolUse" => {
+                if pending_restore.is_some() {
+                    let tool_name = ev.tool.as_deref().unwrap_or("");
+                    if matches!(tool_name, "Read" | "Edit" | "Write" | "NotebookEdit") {
+                        breaches.push(OrderingBreach {
+                            kind: memd_core::file_ledger::restore::BreachKind::ToolBeforeRestore,
+                            session_id: ev.session_id.clone().or_else(|| last_session.clone()),
+                            tool: ev.tool.clone(),
+                            path: ev.path.clone(),
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(sid) = pending_restore {
+        breaches.push(OrderingBreach {
+            kind: memd_core::file_ledger::restore::BreachKind::MissingRestore,
+            session_id: sid,
+            tool: None,
+            path: None,
+        });
+    }
+
+    breaches
+}
+
+fn load_trace_events(args: &HookDoctorArgs) -> anyhow::Result<Vec<TraceEvent>> {
+    if let Some(raw) = args.trace_inline.as_deref() {
+        return parse_trace_payload(raw);
+    }
+    let path = args
+        .trace
+        .clone()
+        .unwrap_or_else(|| args.output.join("logs").join("hook-trace.ndjson"));
+    if !path.exists() {
+        anyhow::bail!("trace-unavailable: no trace at {}", path.display());
+    }
+    let bytes = std::fs::read_to_string(&path)
+        .with_context(|| format!("read hook trace {}", path.display()))?;
+    parse_trace_payload(&bytes)
+}
+
+fn parse_trace_payload(raw: &str) -> anyhow::Result<Vec<TraceEvent>> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+    // Array form: `[{...}, {...}]`.
+    if trimmed.starts_with('[') {
+        let values: Vec<serde_json::Value> = serde_json::from_str(trimmed)
+            .context("parse inline trace array as JSON")?;
+        return Ok(values.into_iter().map(value_to_trace_event).collect());
+    }
+    // NDJSON form: one event per line.
+    let mut out = Vec::new();
+    for (idx, line) in trimmed.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_str(line)
+            .with_context(|| format!("parse trace line {} as JSON", idx + 1))?;
+        out.push(value_to_trace_event(value));
+    }
+    Ok(out)
+}
+
+fn value_to_trace_event(value: serde_json::Value) -> TraceEvent {
+    let get_str = |k: &str| {
+        value
+            .get(k)
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+    };
+    TraceEvent {
+        event: get_str("event").unwrap_or_default(),
+        ts_ms: value.get("ts_ms").and_then(|v| v.as_i64()),
+        tool: get_str("tool"),
+        path: get_str("path"),
+        session_id: get_str("session_id"),
+    }
 }

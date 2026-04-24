@@ -5,13 +5,24 @@
 
 use super::*;
 use crate::cli::{
-    HookArgs, HookMode, HookRestoreArgs, HookRestoreNoSealed, HookSealLedgerArgs,
-    run_hook_mode, run_hook_restore,
+    HookArgs, HookDoctorArgs, HookDoctorCheck, HookMode, HookRestoreArgs, HookRestoreNoSealed,
+    HookSealLedgerArgs, run_hook_doctor_ordering, run_hook_mode, run_hook_restore,
 };
 use crate::MemdClient;
 use memd_core::file_ledger::{
     append_file_interaction, ledger_path, restore::RestoreSource, FileInteractionLedger,
 };
+
+fn ordering_args(output: &Path, trace_inline: Option<&str>) -> HookDoctorArgs {
+    HookDoctorArgs {
+        project_root: None,
+        json: false,
+        check: Some(HookDoctorCheck::Ordering),
+        trace: None,
+        trace_inline: trace_inline.map(str::to_string),
+        output: output.to_path_buf(),
+    }
+}
 
 fn dummy_client() -> MemdClient {
     MemdClient::new("http://127.0.0.1:1").expect("build memd client for tests")
@@ -164,5 +175,78 @@ async fn cli_dry_run_does_not_mutate_disk() {
     assert!(
         !output.join("logs/ledger-restore.ndjson").exists(),
         "dry-run must not append ndjson telemetry"
+    );
+}
+
+/// Test 8: canonical trace (PostCompact → LedgerRestore → PreToolUse) is clean.
+#[tokio::test]
+async fn ordering_check_passes_on_canonical_trace() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path();
+    let trace = r#"[
+        {"event":"PostCompact","ts_ms":1,"session_id":"s1"},
+        {"event":"LedgerRestore","ts_ms":2,"session_id":"s1"},
+        {"event":"PreToolUse","ts_ms":3,"tool":"Read","path":"a.rs","session_id":"s1"}
+    ]"#;
+    run_hook_doctor_ordering(&ordering_args(output, Some(trace))).expect("clean trace");
+
+    // No breach line should be written.
+    let breach = output.join("logs/continuity-breach.log");
+    assert!(!breach.exists(), "clean trace must not emit breach log");
+}
+
+/// Test 9: PreToolUse fires after PostCompact with no LedgerRestore between.
+#[tokio::test]
+async fn ordering_check_flags_tool_before_restore() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path();
+    let trace = r#"[
+        {"event":"PostCompact","ts_ms":1,"session_id":"s2"},
+        {"event":"PreToolUse","ts_ms":2,"tool":"Edit","path":"b.rs","session_id":"s2"}
+    ]"#;
+    let err = run_hook_doctor_ordering(&ordering_args(output, Some(trace)))
+        .expect_err("tool-before-restore must error");
+    let msg = format!("{err}");
+    assert!(msg.contains("breach"), "expected breach in error: {msg}");
+
+    let breach = output.join("logs/continuity-breach.log");
+    assert!(breach.exists(), "breach log must be written");
+    let text = fs::read_to_string(&breach).unwrap();
+    assert!(text.contains("breach=tool-before-restore"), "got: {text}");
+    assert!(text.contains("tool=Edit"), "got: {text}");
+    assert!(text.contains("path=b.rs"), "got: {text}");
+    assert!(text.contains("s2"), "got: {text}");
+}
+
+/// Test 10: PostCompact at end of trace with no matching LedgerRestore.
+#[tokio::test]
+async fn ordering_check_flags_missing_restore() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path();
+    let trace = r#"[
+        {"event":"PostCompact","ts_ms":1,"session_id":"s3"}
+    ]"#;
+    let err = run_hook_doctor_ordering(&ordering_args(output, Some(trace)))
+        .expect_err("missing-restore must error");
+    assert!(format!("{err}").contains("breach"));
+
+    let text = fs::read_to_string(output.join("logs/continuity-breach.log")).unwrap();
+    assert!(text.contains("breach=missing-restore"), "got: {text}");
+    assert!(text.contains("s3"), "got: {text}");
+}
+
+/// Test 11: without --trace-inline or a default trace file, bail with
+/// `trace-unavailable` diagnostic (non-green, but not a breach — the CLI
+/// simply cannot audit without a trace).
+#[tokio::test]
+async fn ordering_check_requires_trace_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path();
+    let err = run_hook_doctor_ordering(&ordering_args(output, None))
+        .expect_err("missing trace must error");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("trace-unavailable"),
+        "expected trace-unavailable, got: {msg}"
     );
 }

@@ -1680,6 +1680,34 @@ pub(crate) struct HookDoctorArgs {
     /// Emit JSON instead of human-readable text.
     #[arg(long, default_value_t = false)]
     pub(crate) json: bool,
+
+    /// A4.5: run a dedicated check instead of the default manifest verify.
+    /// Currently supports `ordering` (PreCompact → PostCompact → tool-use
+    /// trace audit). When absent, the legacy manifest check runs.
+    #[arg(long, value_enum)]
+    pub(crate) check: Option<HookDoctorCheck>,
+
+    /// Path to the hook trace NDJSON file. Defaults to
+    /// `<output>/logs/hook-trace.ndjson` (written by B4).
+    #[arg(long)]
+    pub(crate) trace: Option<PathBuf>,
+
+    /// Inline trace payload used in tests and dry-runs when no trace file
+    /// is available. Accepts either NDJSON lines or a JSON array of events.
+    #[arg(long)]
+    pub(crate) trace_inline: Option<String>,
+
+    /// Bundle root — used to resolve default trace path and to read the
+    /// breach log. Defaults to `.memd`.
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum HookDoctorCheck {
+    /// Audit PreCompact → PostCompact → tool-use fire order against
+    /// `docs/contracts/hook-handoff.md`.
+    Ordering,
 }
 
 #[derive(Debug, Clone, Args)]
