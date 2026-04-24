@@ -36,7 +36,13 @@ if (-not $memd) {
 }
 
 try {
-  & memd hook restore --session-id $sessionId --output $bundleRoot *>> $logPath
+  if ($env:MEMD_HOOK_ENFORCE -eq "1") {
+    & memd hooks enforce --event PostCompact --harness claude-code `
+      --session-id $sessionId --output $bundleRoot `
+      -- memd hook restore --session-id $sessionId --output $bundleRoot *>> $logPath
+  } else {
+    & memd hook restore --session-id $sessionId --output $bundleRoot *>> $logPath
+  }
   $rc = $LASTEXITCODE
 } catch {
   $rc = 1

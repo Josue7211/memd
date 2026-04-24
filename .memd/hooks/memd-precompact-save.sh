@@ -35,9 +35,18 @@ if [ ! -d "$BUNDLE_ROOT" ] && [ -d "$HOME/Documents/projects/memd/.memd" ]; then
 fi
 
 # (1) Seal the file-interaction ledger. Failures are non-fatal.
+# B4.9: route through `memd hooks enforce` when MEMD_HOOK_ENFORCE=1
+# so PreCompact gets a contract-gated trace line + budget timer.
 if command -v memd >/dev/null 2>&1; then
-  memd hook seal-ledger --session-id "$SESSION_ID" --output "$BUNDLE_ROOT" \
-    >> "$LOG" 2>&1 || echo "[$(date '+%H:%M:%S')] seal-ledger failed (non-fatal)" >> "$LOG"
+  if [ "${MEMD_HOOK_ENFORCE:-0}" = "1" ]; then
+    memd hooks enforce --event PreCompact --harness claude-code \
+      --session-id "$SESSION_ID" --output "$BUNDLE_ROOT" \
+      -- memd hook seal-ledger --session-id "$SESSION_ID" --output "$BUNDLE_ROOT" \
+      >> "$LOG" 2>&1 || echo "[$(date '+%H:%M:%S')] seal-ledger failed (non-fatal)" >> "$LOG"
+  else
+    memd hook seal-ledger --session-id "$SESSION_ID" --output "$BUNDLE_ROOT" \
+      >> "$LOG" 2>&1 || echo "[$(date '+%H:%M:%S')] seal-ledger failed (non-fatal)" >> "$LOG"
+  fi
 fi
 
 # (2) Auto-checkpoint: summarize uncommitted work + branch. Cheap, derived.

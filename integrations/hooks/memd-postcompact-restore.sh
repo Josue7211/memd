@@ -44,9 +44,18 @@ fi
 
 # Restore runs in ≤15s (hook timeout). On exit 2 (no sealed ledger) the CLI
 # has already written a breach line; we don't re-log it here.
+# B4.9: route through `memd hooks enforce` when MEMD_HOOK_ENFORCE=1 so
+# PostCompact gets a contract-gated trace line + budget timer + session lock.
 RC=0
-memd hook restore --session-id "$SESSION_ID" --output "$BUNDLE_ROOT" \
-  >> "$LOG" 2>&1 || RC=$?
+if [ "${MEMD_HOOK_ENFORCE:-0}" = "1" ]; then
+  memd hooks enforce --event PostCompact --harness claude-code \
+    --session-id "$SESSION_ID" --output "$BUNDLE_ROOT" \
+    -- memd hook restore --session-id "$SESSION_ID" --output "$BUNDLE_ROOT" \
+    >> "$LOG" 2>&1 || RC=$?
+else
+  memd hook restore --session-id "$SESSION_ID" --output "$BUNDLE_ROOT" \
+    >> "$LOG" 2>&1 || RC=$?
+fi
 case $RC in
   0) echo "[$(date '+%H:%M:%S')] POST-COMPACT restore ok" >> "$LOG" ;;
   2) echo "[$(date '+%H:%M:%S')] POST-COMPACT no-sealed-ledger (breach logged by CLI)" >> "$LOG" ;;

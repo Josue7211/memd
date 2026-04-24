@@ -1,7 +1,8 @@
 {
   "$schema": "memd-hooks-manifest@v1",
-  "version": "1.0.0",
-  "generated_by": "docs/phases/v3/phase-a3-continuity-foundation.md Part 2/3",
+  "version": "1.1.0",
+  "contract_version": "0.3",
+  "generated_by": "docs/phases/v3/phase-a3-continuity-foundation.md Part 2/3 (contract 0.3 via docs/phases/v4/phase-b4-plan.md §4.9)",
   "canonical_root": ".memd/hooks",
   "notes": "sha256 verified by `memd hooks doctor`. integrations/hooks/ and .claude/hooks/ are install-generated mirrors.",
   "hooks": [
@@ -83,7 +84,7 @@
       "event": "PreCompact",
       "harness": "claude-code",
       "purpose": "NON-BLOCKING save before compaction; seals file-interaction ledger snapshot.",
-      "sha256": "00f6e6ebe4617413c51048273bed3c76dab55e1f5b91751ea94e60401487bfc8"
+      "sha256": "4647916d818c18070ea24dc4cb91d401ebbf871973c6e23d38d3363ed372d4bf"
     },
     {
       "name": "memd-precompact-save.ps1",
@@ -99,7 +100,7 @@
       "event": "PostCompact",
       "harness": "claude-code",
       "purpose": "A4 Part 1: restore sealed file-interaction ledger after compaction before tools fire.",
-      "sha256": "32e166a6ab0f0c310862f277f9ecc5748f7a03c021f0a0f9591cd00458ab6ba7"
+      "sha256": "c62e75d677426ab1f8a3f67b827dbf356abd0c5172770aaf55ce31ec13b93844"
     },
     {
       "name": "memd-postcompact-restore.ps1",
@@ -107,7 +108,7 @@
       "event": "PostCompact",
       "harness": "claude-code",
       "purpose": "Windows counterpart of memd-postcompact-restore.sh.",
-      "sha256": "9bfc1bdc5ee440befef85e336079ba3e56ddec16d4694813b99cb7ac1ee8ed87"
+      "sha256": "d6413fe171961d7aaedb21920b9895ebe623878888bea765152f4a4170f396ea"
     },
     {
       "name": "memd-postcompact-restore.sh",
@@ -115,7 +116,7 @@
       "event": "PostCompact",
       "harness": "codex",
       "purpose": "A4 Part 1: cross-harness PostCompact restore — same script, codex harness binding.",
-      "sha256": "32e166a6ab0f0c310862f277f9ecc5748f7a03c021f0a0f9591cd00458ab6ba7"
+      "sha256": "c62e75d677426ab1f8a3f67b827dbf356abd0c5172770aaf55ce31ec13b93844"
     },
     {
       "name": "memd-preedit-prime.sh",
