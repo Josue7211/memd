@@ -339,6 +339,174 @@ fn enforce_concurrent_same_event_races_are_serialized() {
     unsafe { std::env::remove_var("MEMD_HOOK_LOCK_WAIT_MS") };
 }
 
+// --- Doctor contract-check tests (B4.8 — tests 18-21) -----------------
+
+fn write_manifest(dir: &std::path::Path, entries: &[(&str, &str)]) -> PathBuf {
+    let hooks_dir = dir.join(".memd").join("hooks");
+    std::fs::create_dir_all(&hooks_dir).unwrap();
+    let manifest = serde_json::json!({
+        "$schema": "memd-hooks-manifest@v1",
+        "version": "0.3.0",
+        "hooks": entries
+            .iter()
+            .map(|(name, event)| serde_json::json!({
+                "name": name,
+                "path": format!(".memd/hooks/{name}"),
+                "event": event,
+                "harness": "claude-code",
+                "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            }))
+            .collect::<Vec<_>>(),
+    });
+    let mpath = hooks_dir.join("MANIFEST.json");
+    std::fs::write(&mpath, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    mpath
+}
+
+fn manifest_complete_03() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("memd-bootstrap.sh", "UserPromptSubmit"),
+        ("memd-session-start.sh", "SessionStart"),
+        ("memd-precompact.sh", "PreCompact"),
+        ("memd-postcompact.sh", "PostCompact"),
+        ("memd-stop.sh", "Stop"),
+    ]
+}
+
+fn canonical_trace_lines() -> String {
+    use memd_core::hook_runtime::{FailureClass, HookEvent, HookRecord};
+    let events = [
+        HookEvent::SessionStart,
+        HookEvent::UserPromptSubmit,
+        HookEvent::PreRead,
+        HookEvent::PreEdit,
+        HookEvent::PostToolUse,
+        HookEvent::PreCompact,
+        HookEvent::PostCompact,
+        HookEvent::Stop,
+    ];
+    events
+        .iter()
+        .map(|ev| {
+            let rec = HookRecord::new(*ev, "sess-doctor")
+                .with_harness("claude-code")
+                .with_outcome(5, 0, FailureClass::None);
+            serde_json::to_string(&rec).unwrap()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn doctor_contract_check_happy() {
+    use crate::cli::{HookDoctorArgs, HookDoctorCheck, run_hook_doctor_contract};
+    let dir = TempDir::new().unwrap();
+    let _manifest = write_manifest(dir.path(), manifest_complete_03());
+    let logs_dir = dir.path().join("logs");
+    std::fs::create_dir_all(&logs_dir).unwrap();
+    std::fs::write(logs_dir.join("hook-trace.ndjson"), canonical_trace_lines()).unwrap();
+
+    let args = HookDoctorArgs {
+        project_root: Some(dir.path().to_path_buf()),
+        json: false,
+        check: Some(HookDoctorCheck::Contract),
+        trace: None,
+        trace_inline: None,
+        output: dir.path().to_path_buf(),
+    };
+    run_hook_doctor_contract(&args).expect("green contract check");
+}
+
+#[test]
+fn doctor_contract_check_surfaces_timeout() {
+    use crate::cli::{HookDoctorArgs, HookDoctorCheck, run_hook_doctor_contract};
+    use memd_core::hook_runtime::{FailureClass, HookEvent, HookRecord};
+    let dir = TempDir::new().unwrap();
+    write_manifest(dir.path(), manifest_complete_03());
+    let logs_dir = dir.path().join("logs");
+    std::fs::create_dir_all(&logs_dir).unwrap();
+    let mut trace = canonical_trace_lines();
+    trace.push('\n');
+    let timeout_rec = HookRecord::new(HookEvent::PreCompact, "sess-timeout")
+        .with_harness("claude-code")
+        .with_budget_ms(500)
+        .with_outcome(520, 124, FailureClass::Timeout);
+    trace.push_str(&serde_json::to_string(&timeout_rec).unwrap());
+    std::fs::write(logs_dir.join("hook-trace.ndjson"), trace).unwrap();
+
+    let args = HookDoctorArgs {
+        project_root: Some(dir.path().to_path_buf()),
+        json: false,
+        check: Some(HookDoctorCheck::Contract),
+        trace: None,
+        trace_inline: None,
+        output: dir.path().to_path_buf(),
+    };
+    let err = run_hook_doctor_contract(&args).expect_err("timeout must fail");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("contract") || msg.contains("violations"),
+        "expected contract-violation error, got: {msg}"
+    );
+}
+
+#[test]
+fn doctor_contract_check_surfaces_silent_swallow() {
+    use crate::cli::{HookDoctorArgs, HookDoctorCheck, run_hook_doctor_contract};
+    use memd_core::hook_runtime::{FailureClass, HookEvent, HookRecord};
+    let dir = TempDir::new().unwrap();
+    write_manifest(dir.path(), manifest_complete_03());
+    let logs_dir = dir.path().join("logs");
+    std::fs::create_dir_all(&logs_dir).unwrap();
+    // PreRead is log-class by default — an inner-nonzero here is a silent swallow.
+    let swallow_rec = HookRecord::new(HookEvent::PreRead, "sess-silent")
+        .with_harness("claude-code")
+        .with_outcome(12, 7, FailureClass::InnerNonzero);
+    let line = serde_json::to_string(&swallow_rec).unwrap();
+    std::fs::write(logs_dir.join("hook-trace.ndjson"), line).unwrap();
+
+    let args = HookDoctorArgs {
+        project_root: Some(dir.path().to_path_buf()),
+        json: false,
+        check: Some(HookDoctorCheck::Contract),
+        trace: None,
+        trace_inline: None,
+        output: dir.path().to_path_buf(),
+    };
+    let err = run_hook_doctor_contract(&args).expect_err("silent swallow must fail");
+    assert!(err.to_string().contains("contract"));
+}
+
+#[test]
+fn doctor_contract_check_missing_hook_in_manifest() {
+    use crate::cli::{HookDoctorArgs, HookDoctorCheck, run_hook_doctor_contract};
+    let dir = TempDir::new().unwrap();
+    // Manifest intentionally missing PostCompact entry.
+    let partial: &[(&str, &str)] = &[
+        ("memd-bootstrap.sh", "UserPromptSubmit"),
+        ("memd-session-start.sh", "SessionStart"),
+        ("memd-precompact.sh", "PreCompact"),
+        ("memd-stop.sh", "Stop"),
+    ];
+    let manifest_path = write_manifest(dir.path(), partial);
+    let logs_dir = dir.path().join("logs");
+    std::fs::create_dir_all(&logs_dir).unwrap();
+    std::fs::write(logs_dir.join("hook-trace.ndjson"), canonical_trace_lines()).unwrap();
+
+    let args = HookDoctorArgs {
+        project_root: Some(dir.path().to_path_buf()),
+        json: true,
+        check: Some(HookDoctorCheck::Contract),
+        trace: None,
+        trace_inline: None,
+        output: dir.path().to_path_buf(),
+    };
+    let err = run_hook_doctor_contract(&args).expect_err("missing postcompact must fail");
+    assert!(err.to_string().contains("contract"));
+    // Manifest path should still exist and be what we wrote.
+    assert!(manifest_path.exists(), "manifest fixture on disk");
+}
+
 #[test]
 fn enforce_records_harness_and_trace_id_on_every_line() {
     let _g = env_lock();

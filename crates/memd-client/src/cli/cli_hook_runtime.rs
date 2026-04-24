@@ -632,11 +632,166 @@ pub(crate) fn maybe_emit_hook_trace(
     let _ = trace.append(&record);
 }
 
-/// B4.8 stub — flesh out in the doctor `--check contract` task.
-pub(crate) fn run_hook_doctor_contract(_args: &HookDoctorArgs) -> anyhow::Result<()> {
-    anyhow::bail!(
-        "memd hooks doctor --check contract: not yet implemented (B4.8 pending)"
-    )
+/// B4.8 — contract check. Audits the hook trace against
+/// `docs/contracts/hook-order.md`:
+///
+/// - Every trace line must parse as a `HookRecord` with a contract-valid
+///   event token.
+/// - Any line with `failure_class=timeout` is surfaced as a halt-class
+///   violation (test 19).
+/// - Any line with `failure_class=inner-nonzero` on a log-class default
+///   event is flagged as a silent swallow (test 20).
+/// - MANIFEST.json must cover every contract-required event (test 21).
+pub(crate) fn run_hook_doctor_contract(args: &HookDoctorArgs) -> anyhow::Result<()> {
+    use memd_core::hook_runtime::{FailureClass, HookEvent, HookRecord};
+
+    let root = args
+        .project_root
+        .clone()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let manifest_path = root.join(".memd").join("hooks").join("MANIFEST.json");
+
+    let trace_path = args
+        .trace
+        .clone()
+        .unwrap_or_else(|| args.output.join("logs").join("hook-trace.ndjson"));
+
+    let lines: Vec<String> = match &args.trace_inline {
+        Some(inline) => inline.lines().map(str::to_string).collect(),
+        None => fs::read_to_string(&trace_path)
+            .with_context(|| format!("read {}", trace_path.display()))?
+            .lines()
+            .map(str::to_string)
+            .collect(),
+    };
+
+    let mut timeouts: Vec<HookRecord> = Vec::new();
+    let mut silent_swallows: Vec<HookRecord> = Vec::new();
+    let mut parse_errors: Vec<String> = Vec::new();
+
+    for line in &lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let record: HookRecord = match serde_json::from_str(line) {
+            Ok(r) => r,
+            Err(e) => {
+                parse_errors.push(format!("{e}: {}", line.chars().take(120).collect::<String>()));
+                continue;
+            }
+        };
+        // HookEvent parsing is enforced by serde; unknown tokens already
+        // surfaced as parse_errors above.
+        match record.failure_class {
+            FailureClass::Timeout => timeouts.push(record.clone()),
+            FailureClass::InnerNonzero
+                if matches!(record.event.failure_class_default(), FailureClass::Log) =>
+            {
+                silent_swallows.push(record.clone());
+            }
+            _ => {}
+        }
+    }
+
+    // Manifest coverage of required events (contract §1 + §2).
+    let required_events: &[HookEvent] = &[
+        HookEvent::SessionStart,
+        HookEvent::UserPromptSubmit,
+        HookEvent::PreCompact,
+        HookEvent::PostCompact,
+        HookEvent::Stop,
+    ];
+    let mut manifest_missing: Vec<&'static str> = Vec::new();
+    let manifest_value: Option<serde_json::Value> = fs::read_to_string(&manifest_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok());
+    let manifest_events: std::collections::HashSet<String> = manifest_value
+        .as_ref()
+        .and_then(|v| v.get("hooks"))
+        .and_then(|v| v.as_array())
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|e| e.get("event").and_then(|s| s.as_str()))
+                .filter(|s| *s != "none")
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    for req in required_events {
+        if !manifest_events.contains(req.as_str()) {
+            manifest_missing.push(req.as_str());
+        }
+    }
+
+    let ok = timeouts.is_empty()
+        && silent_swallows.is_empty()
+        && parse_errors.is_empty()
+        && manifest_missing.is_empty();
+
+    if args.json {
+        print_json(&serde_json::json!({
+            "check": "contract",
+            "trace_path": trace_path,
+            "manifest_path": manifest_path,
+            "lines_scanned": lines.len(),
+            "timeouts": timeouts.iter().map(|r| json!({
+                "event": r.event.as_str(),
+                "session_id": r.session_id,
+                "elapsed_ms": r.elapsed_ms,
+                "budget_ms": r.budget_ms,
+            })).collect::<Vec<_>>(),
+            "silent_swallows": silent_swallows.iter().map(|r| json!({
+                "event": r.event.as_str(),
+                "session_id": r.session_id,
+                "exit_code": r.exit_code,
+            })).collect::<Vec<_>>(),
+            "parse_errors": parse_errors,
+            "manifest_missing": manifest_missing,
+            "ok": ok,
+        }))?;
+    } else if ok {
+        println!(
+            "hook doctor contract: green — {} trace lines, manifest covers all required events",
+            lines.len()
+        );
+    } else {
+        println!("hook doctor contract: RED");
+        for r in &timeouts {
+            println!(
+                "  timeout: event={} session={} elapsed_ms={:?} budget_ms={:?}",
+                r.event.as_str(),
+                r.session_id,
+                r.elapsed_ms,
+                r.budget_ms,
+            );
+        }
+        for r in &silent_swallows {
+            println!(
+                "  silent swallow: event={} session={} exit_code={:?} (log-class default — inner failure was hidden)",
+                r.event.as_str(),
+                r.session_id,
+                r.exit_code,
+            );
+        }
+        for e in &parse_errors {
+            println!("  parse error: {e}");
+        }
+        if !manifest_missing.is_empty() {
+            println!(
+                "  MANIFEST.json at {} missing required events:",
+                manifest_path.display()
+            );
+            for ev in &manifest_missing {
+                println!("    - {ev}");
+            }
+        }
+    }
+
+    if !ok {
+        anyhow::bail!("hook doctor contract: violations detected");
+    }
+    Ok(())
 }
 
 pub(crate) fn run_hook_doctor_ordering(args: &HookDoctorArgs) -> anyhow::Result<()> {
