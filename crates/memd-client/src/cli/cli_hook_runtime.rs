@@ -244,16 +244,50 @@ pub(crate) async fn run_hook_mode(
         HookMode::SealLedger(args) => {
             match seal_session_ledger(&args.session_id, &args.output) {
                 Ok(sealed) => {
+                    maybe_emit_hook_trace(
+                        &args.output,
+                        memd_core::hook_runtime::HookEvent::LedgerSeal,
+                        &args.session_id,
+                        |record| {
+                            record.sealed_path = Some(sealed.display().to_string());
+                            record.ok = Some(true);
+                        },
+                    );
                     println!("{}", sealed.display());
                 }
                 Err(err) if err.kind() == io::ErrorKind::NotFound => {
                     // No ledger to seal — treat as no-op for idempotent precompact hook.
+                    maybe_emit_hook_trace(
+                        &args.output,
+                        memd_core::hook_runtime::HookEvent::LedgerSeal,
+                        &args.session_id,
+                        |record| {
+                            record.ok = Some(false);
+                            record.failure_class = memd_core::hook_runtime::FailureClass::None;
+                        },
+                    );
                 }
                 Err(err) => return Err(anyhow::Error::from(err)),
             }
         }
         HookMode::Restore(args) => {
+            let output = args.output.clone();
+            let session_id = args.session_id.clone();
             let report = run_hook_restore(&args)?;
+            maybe_emit_hook_trace(
+                &output,
+                memd_core::hook_runtime::HookEvent::LedgerRestore,
+                &session_id,
+                |record| {
+                    record.restored_path = Some(report.restored_path.display().to_string());
+                    record.entries = Some(report.entries as u64);
+                    record.ok = Some(report.ok);
+                    if !report.ok {
+                        record.failure_class =
+                            memd_core::hook_runtime::FailureClass::InnerNonzero;
+                    }
+                },
+            );
             if !report.ok {
                 // Non-fatal for the hook caller, but surface a distinct error
                 // so `main.rs` can map to exit code 2.
@@ -577,6 +611,27 @@ fn emit_restore_report(
 ///    missing-restore breach.
 ///
 /// Trace events: `{"event":"PostCompact"|"LedgerRestore"|"PreToolUse","ts_ms":N,"tool":"Read"}`.
+/// B4.6: append a universal trace line for inner-command emissions
+/// (LedgerSeal, LedgerRestore) when `MEMD_HOOK_ENFORCE=1`. Silent no-op
+/// otherwise — matches contract §5 flag semantics.
+pub(crate) fn maybe_emit_hook_trace(
+    bundle_root: &std::path::Path,
+    event: memd_core::hook_runtime::HookEvent,
+    session_id: &str,
+    customize: impl FnOnce(&mut memd_core::hook_runtime::HookRecord),
+) {
+    if std::env::var("MEMD_HOOK_ENFORCE").unwrap_or_else(|_| "0".to_string()) == "0" {
+        return;
+    }
+    let trace_path = std::env::var("MEMD_HOOK_TRACE_PATH")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| bundle_root.join("logs").join("hook-trace.ndjson"));
+    let trace = memd_core::hook_runtime::HookTrace::new(trace_path);
+    let mut record = memd_core::hook_runtime::HookRecord::new(event, session_id);
+    customize(&mut record);
+    let _ = trace.append(&record);
+}
+
 /// B4.8 stub — flesh out in the doctor `--check contract` task.
 pub(crate) fn run_hook_doctor_contract(_args: &HookDoctorArgs) -> anyhow::Result<()> {
     anyhow::bail!(

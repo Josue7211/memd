@@ -211,6 +211,81 @@ fn enforce_latency_under_threshold_on_trivial_inner() {
 }
 
 #[test]
+fn ledger_restore_writes_trace_line_when_enforce_enabled() {
+    use crate::cli::{HookArgs, HookMode, HookRestoreArgs, HookSealLedgerArgs, run_hook_mode};
+    use memd_core::file_ledger::{append_file_interaction, ledger_path};
+    use tokio::runtime::Runtime;
+
+    let _g = env_lock();
+    unsafe { std::env::set_var("MEMD_HOOK_ENFORCE", "1") };
+    let dir = TempDir::new().unwrap();
+    let bundle = dir.path().to_path_buf();
+    let session_id = "sess-trace-12".to_string();
+
+    // Seed an active ledger.
+    let ledger_target = ledger_path(&bundle, &session_id);
+    std::fs::create_dir_all(ledger_target.parent().unwrap()).unwrap();
+    append_file_interaction(
+        &serde_json::json!({
+            "tool_name": "Read",
+            "tool_input": { "file_path": "src/lib.rs" },
+        }),
+        Some(&session_id),
+        &bundle,
+        1_700_000_000_000,
+    )
+    .unwrap();
+    assert!(ledger_target.exists(), "seed ledger was not written");
+
+    let rt = Runtime::new().unwrap();
+    // Seal then restore via run_hook_mode to exercise the universal trace path.
+    let client = crate::MemdClient::new("http://127.0.0.1:0".to_string()).unwrap();
+    rt.block_on(async {
+        run_hook_mode(
+            &client,
+            "http://127.0.0.1:0",
+            HookArgs {
+                mode: HookMode::SealLedger(HookSealLedgerArgs {
+                    output: bundle.clone(),
+                    session_id: session_id.clone(),
+                }),
+            },
+        )
+        .await
+        .unwrap();
+
+        run_hook_mode(
+            &client,
+            "http://127.0.0.1:0",
+            HookArgs {
+                mode: HookMode::Restore(HookRestoreArgs {
+                    output: bundle.clone(),
+                    session_id: session_id.clone(),
+                    latest_only: Some(true),
+                    dry_run: false,
+                    json: false,
+                }),
+            },
+        )
+        .await
+        .unwrap();
+    });
+
+    let records = load_trace(&bundle.join("logs").join("hook-trace.ndjson"));
+    assert!(
+        records.iter().any(|r| r.event.as_str() == "LedgerSeal"),
+        "expected LedgerSeal trace line, got {records:?}"
+    );
+    assert!(
+        records
+            .iter()
+            .any(|r| r.event.as_str() == "LedgerRestore" && r.ok == Some(true)),
+        "expected LedgerRestore trace line with ok=true, got {records:?}"
+    );
+    unsafe { std::env::remove_var("MEMD_HOOK_ENFORCE") };
+}
+
+#[test]
 fn enforce_records_harness_and_trace_id_on_every_line() {
     let _g = env_lock();
     unsafe { std::env::set_var("MEMD_HOOK_ENFORCE", "1") };
