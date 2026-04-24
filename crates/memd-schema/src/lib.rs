@@ -18,6 +18,24 @@ pub enum MemoryKind {
     LiveTruth,
     Pattern,
     Constraint,
+    Correction,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureSource {
+    Manual,
+    HookAuto,
+    Detector,
+    Judge,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CorrectionMetadata {
+    pub corrects_id: Option<Uuid>,
+    pub source_turn: Option<String>,
+    pub captured_by: Option<CaptureSource>,
+    pub confidence: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -251,6 +269,8 @@ pub struct MemoryItem {
     /// `Conflict`, giving timestamp-independent resolution across harnesses.
     #[serde(default = "default_memory_item_version")]
     pub version: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correction_meta: Option<CorrectionMetadata>,
 }
 
 pub fn default_memory_item_version() -> u64 {
@@ -3763,6 +3783,7 @@ mod tests {
                 stage: MemoryStage::Canonical,
                 lane: None,
                 version: 1,
+                correction_meta: None,
             },
             canonical_key: "decision:bundle-first".to_string(),
             redundancy_key: "decision:bundle-first".to_string(),
@@ -4246,6 +4267,7 @@ mod tests {
                 stage: MemoryStage::Canonical,
                 lane: None,
                 version: 1,
+                correction_meta: None,
             },
             mode: request.mode,
             reasons: vec![
@@ -4627,5 +4649,79 @@ mod tests {
         );
         assert_eq!(wc.version, 7);
         assert_eq!(wc.doing.as_deref(), Some("building L2.4"));
+    }
+
+    fn base_memory_item(kind: MemoryKind) -> MemoryItem {
+        let now = Utc::now();
+        MemoryItem {
+            id: Uuid::new_v4(),
+            content: "sample".to_string(),
+            redundancy_key: None,
+            belief_branch: None,
+            preferred: false,
+            kind,
+            scope: MemoryScope::Project,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: MemoryVisibility::Private,
+            source_agent: None,
+            source_system: None,
+            source_path: None,
+            source_quality: None,
+            confidence: 0.8,
+            ttl_seconds: None,
+            created_at: now,
+            updated_at: now,
+            last_verified_at: None,
+            supersedes: vec![],
+            tags: vec![],
+            status: MemoryStatus::Active,
+            stage: MemoryStage::Canonical,
+            lane: None,
+            version: 1,
+            correction_meta: None,
+        }
+    }
+
+    #[test]
+    fn memory_kind_correction_round_trips_json() {
+        let json = serde_json::to_string(&MemoryKind::Correction).unwrap();
+        assert_eq!(json, "\"correction\"");
+        let decoded: MemoryKind = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, MemoryKind::Correction);
+    }
+
+    #[test]
+    fn memory_item_with_correction_meta_serializes_without_extra_nulls_when_absent() {
+        let item = base_memory_item(MemoryKind::Fact);
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(
+            !json.contains("correction_meta"),
+            "absent correction_meta must be skipped; got: {json}"
+        );
+
+        let meta = CorrectionMetadata {
+            corrects_id: Some(Uuid::new_v4()),
+            source_turn: Some("t-12".to_string()),
+            captured_by: Some(CaptureSource::Detector),
+            confidence: Some(0.88),
+        };
+        let mut with_meta = base_memory_item(MemoryKind::Correction);
+        with_meta.correction_meta = Some(meta.clone());
+        let json = serde_json::to_string(&with_meta).unwrap();
+        assert!(json.contains("correction_meta"));
+        assert!(json.contains("detector"));
+
+        let decoded: MemoryItem = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.correction_meta, Some(meta));
+    }
+
+    #[test]
+    fn legacy_memory_item_deserializes_with_none_correction_meta() {
+        let legacy_json = serde_json::to_string(&base_memory_item(MemoryKind::Fact)).unwrap();
+        assert!(!legacy_json.contains("correction_meta"));
+        let decoded: MemoryItem = serde_json::from_str(&legacy_json).unwrap();
+        assert!(decoded.correction_meta.is_none());
     }
 }

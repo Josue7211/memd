@@ -79,6 +79,7 @@ async fn search_memory(
             stage: MemoryStage::Canonical,
             lane: None,
             version: 1,
+            correction_meta: None,
         }],
     })
 }
@@ -173,6 +174,7 @@ async fn mock_candidate_memory(
             stage: MemoryStage::Candidate,
             lane: None,
             version: 1,
+            correction_meta: None,
         },
         duplicate_of: None,
     })
@@ -215,6 +217,7 @@ async fn mock_store_memory(
             stage: MemoryStage::Canonical,
             lane: None,
             version: 1,
+            correction_meta: None,
         },
     })
 }

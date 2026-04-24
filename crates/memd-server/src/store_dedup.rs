@@ -241,6 +241,7 @@ mod tests {
             stage: MemoryStage::Canonical,
             lane: None,
             version: 1,
+            correction_meta: None,
         };
         let ck = crate::keys::canonical_key(&item);
         let rk = crate::keys::redundancy_key(&item);

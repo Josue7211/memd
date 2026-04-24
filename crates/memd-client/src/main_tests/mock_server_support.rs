@@ -947,6 +947,7 @@ pub(crate) async fn mock_search_memory(
                 stage: memd_schema::MemoryStage::Canonical,
                     lane: None,
                     version: 1,
+                    correction_meta: None,
             }]
     } else if query.contains("stale belief") {
         vec![memd_schema::MemoryItem {
@@ -976,6 +977,7 @@ pub(crate) async fn mock_search_memory(
             stage: memd_schema::MemoryStage::Canonical,
             lane: None,
             version: 1,
+            correction_meta: None,
         }]
     } else if req.query.is_none() {
         vec![
@@ -1006,6 +1008,7 @@ pub(crate) async fn mock_search_memory(
                 stage: memd_schema::MemoryStage::Canonical,
                     lane: None,
                     version: 1,
+                    correction_meta: None,
             },
             memd_schema::MemoryItem {
                 id: uuid::Uuid::new_v4(),
@@ -1034,6 +1037,7 @@ pub(crate) async fn mock_search_memory(
                 stage: memd_schema::MemoryStage::Canonical,
                     lane: None,
                     version: 1,
+                    correction_meta: None,
             }
         ]
     } else {
@@ -1064,6 +1068,7 @@ pub(crate) async fn mock_search_memory(
             stage: memd_schema::MemoryStage::Canonical,
             lane: None,
             version: 1,
+            correction_meta: None,
         }]
     };
     Json(memd_schema::SearchMemoryResponse {
@@ -1108,6 +1113,7 @@ pub(crate) async fn mock_store_memory(
             stage: memd_schema::MemoryStage::Canonical,
             lane: None,
             version: 1,
+            correction_meta: None,
         },
     })
 }
@@ -1151,6 +1157,7 @@ pub(crate) async fn mock_candidate_memory(
             stage: memd_schema::MemoryStage::Candidate,
             lane: None,
             version: 1,
+            correction_meta: None,
         },
         duplicate_of: None,
     })
@@ -1195,6 +1202,7 @@ pub(crate) async fn mock_repair_memory(
             stage: memd_schema::MemoryStage::Canonical,
             lane: None,
             version: 1,
+            correction_meta: None,
         },
         mode: req.mode,
         reasons: vec!["mock_repair".to_string()],

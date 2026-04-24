@@ -2827,6 +2827,7 @@ fn bundle_memory_markdown_surfaces_current_task_snapshot() {
                     supersedes: Vec::new(),
                     updated_at: chrono::Utc::now(),
                     tags: vec!["checkpoint".to_string()],
+                    correction_meta: None,
                 },
                 reasons: vec!["stale".to_string()],
             }],

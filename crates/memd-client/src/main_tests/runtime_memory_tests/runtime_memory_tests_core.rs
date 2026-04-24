@@ -125,6 +125,7 @@ fn lookup_markdown_mentions_pre_answer_protocol() {
             stage: memd_schema::MemoryStage::Canonical,
             lane: None,
             version: 1,
+            correction_meta: None,
         }],
     };
 
@@ -416,6 +417,7 @@ fn resume_prompt_surfaces_current_task_snapshot() {
                     stage: memd_schema::MemoryStage::Candidate,
                     lane: None,
                     version: 1,
+                    correction_meta: None,
                 },
                 reasons: vec!["same".to_string()],
             }],

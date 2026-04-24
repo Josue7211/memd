@@ -14,6 +14,7 @@ fn freshness_window_days(kind: MemoryKind) -> i64 {
         | MemoryKind::Runbook
         | MemoryKind::SelfModel
         | MemoryKind::Topology => 30,
+        MemoryKind::Correction => 30,
     }
 }
 
@@ -228,6 +229,7 @@ mod tests {
             stage: MemoryStage::Candidate,
             lane: None,
             version: 1,
+            correction_meta: None,
         }
     }
 

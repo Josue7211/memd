@@ -40,6 +40,7 @@ fn sample_memory_item(workspace: Option<&str>) -> MemoryItem {
         stage: MemoryStage::Canonical,
         lane: None,
         version: 1,
+        correction_meta: None,
     }
 }
 
@@ -4713,6 +4714,7 @@ fn concurrent_writes_no_sqlite_busy() {
                         stage: MemoryStage::Canonical,
                         lane: None,
                         version: 1,
+                        correction_meta: None,
                     };
                     let ck = super::keys::canonical_key(&item);
                     let rk = super::keys::redundancy_key(&item);
@@ -8031,6 +8033,7 @@ fn cross_harness_e2e_a_to_b_with_corrections_picked_up_by_a() {
             stage: MemoryStage::Canonical,
             lane: None,
             version: 1,
+            correction_meta: None,
         };
         let ck = keys::canonical_key(&item);
         let rk = keys::redundancy_key(&item);

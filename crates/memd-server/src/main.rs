@@ -166,6 +166,7 @@ impl AppState {
             stage,
             lane,
             version: 1,
+            correction_meta: None,
         };
 
         let canonical_key = canonical_key(&item);

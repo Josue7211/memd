@@ -149,6 +149,7 @@ fn codex_test_snapshot(project: &str, namespace: &str, agent: &str) -> ResumeSna
                     supersedes: Vec::new(),
                     updated_at: chrono::Utc::now(),
                     tags: vec!["checkpoint".to_string()],
+                    correction_meta: None,
                 },
                 reasons: vec!["current-turn".to_string()],
             }],

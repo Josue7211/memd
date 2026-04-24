@@ -643,6 +643,7 @@ mod tests {
             stage: MemoryStage::Canonical,
             lane: None,
             version: 1,
+            correction_meta: None,
         }
     }
 

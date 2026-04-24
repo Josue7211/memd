@@ -90,6 +90,7 @@ pub(super) fn test_autoresearch_snapshot(
                     supersedes: Vec::new(),
                     updated_at: chrono::Utc::now(),
                     tags: vec!["checkpoint".to_string()],
+                    correction_meta: None,
                 },
                 reasons: vec!["stale".to_string()],
             }],
@@ -178,6 +179,7 @@ pub(super) fn test_autoresearch_pressure_snapshot(
                 supersedes: Vec::new(),
                 updated_at: chrono::Utc::now(),
                 tags: vec!["checkpoint".to_string()],
+                correction_meta: None,
             },
             reasons: vec!["stale".to_string()],
         })

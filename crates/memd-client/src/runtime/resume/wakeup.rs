@@ -846,6 +846,7 @@ mod tests {
                             supersedes: Vec::new(),
                             updated_at: Utc::now(),
                             tags: vec!["checkpoint".to_string()],
+                            correction_meta: None,
                         },
                         reasons: vec!["stale".to_string()],
                     })

@@ -113,6 +113,7 @@ pub fn classify_relation(item: &MemoryItem) -> EpisodeFactRelation {
         Runbook | Procedural | Pattern | Constraint | Preference | SelfModel => {
             EpisodeFactRelation::Reference
         }
+        Correction => EpisodeFactRelation::Outcome,
     }
 }
 
@@ -175,6 +176,7 @@ fn kind_tag(kind: memd_schema::MemoryKind) -> &'static str {
         LiveTruth => "live",
         Pattern => "pattern",
         Constraint => "constraint",
+        Correction => "correction",
     }
 }
 
@@ -305,6 +307,7 @@ mod tests {
             stage: MemoryStage::Canonical,
             lane: None,
             version: 1,
+            correction_meta: None,
         }
     }
 

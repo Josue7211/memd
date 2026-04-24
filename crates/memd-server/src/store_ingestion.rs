@@ -129,6 +129,7 @@ pub(crate) fn ingest_lane_files(
                 redundancy_key: None,
                 lane: Some(lane_name.clone()),
                 version: 1,
+                correction_meta: None,
             };
 
             let ck = canonical_key(&item);

@@ -408,7 +408,8 @@ fn typed_memory_label(kind: MemoryKind, stage: MemoryStage) -> String {
         | MemoryKind::SelfModel
         | MemoryKind::Topology
         | MemoryKind::LiveTruth
-        | MemoryKind::Constraint => "semantic",
+        | MemoryKind::Constraint
+        | MemoryKind::Correction => "semantic",
     };
     let stage = match stage {
         MemoryStage::Candidate => "candidate",
@@ -668,6 +669,7 @@ mod tests {
             stage: memd_schema::MemoryStage::Canonical,
             lane: None,
             version: 1,
+            correction_meta: None,
         }
     }
 

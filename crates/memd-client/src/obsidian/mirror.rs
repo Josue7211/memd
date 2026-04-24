@@ -1029,6 +1029,7 @@ mod tests {
                 stage: memd_schema::MemoryStage::Canonical,
                 lane: None,
                 version: 1,
+                correction_meta: None,
             },
             canonical_key: "fact:bundle-first".to_string(),
             redundancy_key: "fact:bundle-first".to_string(),

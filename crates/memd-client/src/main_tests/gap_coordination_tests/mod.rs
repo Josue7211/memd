@@ -354,6 +354,7 @@ fn build_eval_recommendations_surfaces_actionable_followups() {
                         stage: memd_schema::MemoryStage::Candidate,
                         lane: None,
                         version: 1,
+                        correction_meta: None,
                     },
                     reasons: Vec::new(),
                 };

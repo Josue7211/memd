@@ -855,6 +855,7 @@ pub(crate) fn region_bucket_key(item: &MemoryItem, lane_filter: Option<&str>) ->
         MemoryKind::Status => "continuity",
         MemoryKind::Pattern => "patterns",
         MemoryKind::SelfModel | MemoryKind::Topology => "model",
+        MemoryKind::Correction => "corrections",
     };
 
     if lane_filter.is_some() {

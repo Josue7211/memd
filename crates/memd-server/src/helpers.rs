@@ -805,6 +805,7 @@ pub(crate) fn enum_label_kind(kind: MemoryKind) -> &'static str {
         MemoryKind::LiveTruth => "live_truth",
         MemoryKind::Pattern => "pattern",
         MemoryKind::Constraint => "constraint",
+        MemoryKind::Correction => "correction",
     }
 }
 
@@ -1231,6 +1232,7 @@ mod tests {
             supersedes: Vec::new(),
             updated_at: Utc::now(),
             tags: tags.into_iter().map(|value| value.to_string()).collect(),
+            correction_meta: None,
         }
     }
 
@@ -1663,6 +1665,7 @@ mod epistemic_state_tests {
             stage: MemoryStage::Canonical,
             lane: None,
             version: 1,
+            correction_meta: None,
         }
     }
 

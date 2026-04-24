@@ -266,6 +266,7 @@ pub(crate) fn enum_label_kind(kind: MemoryKind) -> &'static str {
         MemoryKind::LiveTruth => "live_truth",
         MemoryKind::Pattern => "pattern",
         MemoryKind::Constraint => "constraint",
+        MemoryKind::Correction => "correction",
     }
 }
 
@@ -356,7 +357,8 @@ pub(crate) fn typed_memory_axes(kind: MemoryKind, stage: MemoryStage) -> Vec<&'s
         | MemoryKind::SelfModel
         | MemoryKind::Topology
         | MemoryKind::LiveTruth
-        | MemoryKind::Constraint => axes.push("semantic"),
+        | MemoryKind::Constraint
+        | MemoryKind::Correction => axes.push("semantic"),
     }
     match stage {
         MemoryStage::Candidate => axes.push("candidate"),
@@ -820,6 +822,7 @@ mod tests {
                     stage: MemoryStage::Canonical,
                     lane: None,
                     version: 1,
+                    correction_meta: None,
                 },
                 memd_schema::MemoryItem {
                     id: uuid::Uuid::new_v4(),
@@ -848,6 +851,7 @@ mod tests {
                     stage: MemoryStage::Canonical,
                     lane: None,
                     version: 1,
+                    correction_meta: None,
                 },
             ],
         };

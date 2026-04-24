@@ -42,6 +42,7 @@ fn sample_memory_item() -> MemoryItem {
         stage: MemoryStage::Canonical,
         lane: None,
         version: 1,
+        correction_meta: None,
     }
 }
 
