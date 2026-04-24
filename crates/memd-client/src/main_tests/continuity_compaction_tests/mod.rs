@@ -74,7 +74,7 @@ async fn seal_then_restore_round_trips_ledger_entries() {
 
 /// Test 13: restore no-ops when no sealed ledger present.
 /// A4.2 asserts report shape + sentinel error. A4.3 extends with breach-log
-/// line assertion and CLI exit-code coverage.
+/// line assertion.
 #[tokio::test]
 async fn restore_noops_when_no_sealed_ledger_present() {
     let dir = tempfile::tempdir().unwrap();
@@ -87,6 +87,18 @@ async fn restore_noops_when_no_sealed_ledger_present() {
     assert_eq!(report.entries, 0);
     assert!(report.sealed_path.is_none());
     assert!(!ledger_path(output, sid).exists());
+
+    // A4.3: PostCompact source emits a breach line under <output>/logs/.
+    let breach_log = output.join("logs/continuity-breach.log");
+    assert!(
+        breach_log.exists(),
+        "breach log should be created at {breach_log:?}"
+    );
+    let text = fs::read_to_string(&breach_log).unwrap();
+    let lines: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1, "exactly one breach line expected");
+    assert!(lines[0].contains("breach=no-sealed-ledger"));
+    assert!(lines[0].contains(sid));
 
     // run_hook_mode should surface HookRestoreNoSealed so main.rs exits 2.
     let args = HookArgs {

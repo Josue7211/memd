@@ -6,6 +6,65 @@ use std::{
 
 use super::{ledger_path, session_dir, FileInteractionLedger};
 
+/// Relative path, under the bundle `output` root, where the continuity-breach
+/// log lives. A4 owns append-only writes; V7 handles rotation.
+pub const BREACH_LOG_RELPATH: &str = "logs/continuity-breach.log";
+
+/// Breach categories emitted by A4 surfaces. Serialized into the breach log
+/// as the `breach=<kind>` token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BreachKind {
+    /// PostCompact restore ran but no sealed ledger was on disk.
+    NoSealedLedger,
+    /// A file-operation tool fired before the PostCompact restore completed.
+    ToolBeforeRestore,
+    /// PostCompact hook never fired for a session that had a sealed ledger.
+    MissingRestore,
+}
+
+impl BreachKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NoSealedLedger => "no-sealed-ledger",
+            Self::ToolBeforeRestore => "tool-before-restore",
+            Self::MissingRestore => "missing-restore",
+        }
+    }
+}
+
+/// Append one continuity-breach log line under `<output>/logs/continuity-breach.log`.
+///
+/// Format (per plan §2):
+///     `<rfc3339-utc> <session_id> breach=<kind>[ extras]`
+///
+/// `extras` is space-joined `key=value` pairs (e.g. `tool=Read path=src/foo.rs`).
+/// Best-effort: any filesystem error bubbles up so the caller can decide.
+pub fn append_breach_line(
+    output: &Path,
+    session_id: &str,
+    kind: BreachKind,
+    extras: &[(&str, &str)],
+) -> io::Result<()> {
+    use std::io::Write;
+
+    let dir = output.join("logs");
+    fs::create_dir_all(&dir)?;
+    let path = dir.join("continuity-breach.log");
+    let ts = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let mut line = format!("{ts} {session_id} breach={}", kind.as_str());
+    for (k, v) in extras {
+        line.push(' ');
+        line.push_str(k);
+        line.push('=');
+        line.push_str(v);
+    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?;
+    writeln!(file, "{line}")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RestoreSource {
@@ -66,6 +125,13 @@ pub fn restore_ledger(
     let restored_path = ledger_path(output, session_id);
     let sealed = locate_latest_sealed(output, session_id);
     let Some(sealed_path) = sealed else {
+        if matches!(source, RestoreSource::Postcompact) {
+            // Hook ran but no sealed ledger exists: breach observable.
+            // Manual/Test sources stay silent (caller invoked intentionally).
+            // Failure to append does not block the caller — log and continue.
+            let _ =
+                append_breach_line(output, session_id, BreachKind::NoSealedLedger, &[]);
+        }
         return Ok(LedgerRestoreReport {
             session_id: session_id.to_string(),
             sealed_path: None,
@@ -215,6 +281,50 @@ mod tests {
         assert_eq!(report.error.as_deref(), Some("no-sealed-ledger"));
         assert_eq!(report.entries, 0);
         assert!(report.sealed_path.is_none());
+    }
+
+    #[test]
+    fn restore_writes_breach_line_when_postcompact_source_and_no_sealed() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path();
+        let sid = "sess-breach";
+        let report = restore_ledger(sid, output, RestoreSource::Postcompact).unwrap();
+        assert!(!report.ok);
+        let log = output.join("logs/continuity-breach.log");
+        assert!(log.exists(), "breach log should be created at {log:?}");
+        let text = fs::read_to_string(&log).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("breach=no-sealed-ledger"));
+        assert!(lines[0].contains(sid));
+    }
+
+    #[test]
+    fn restore_does_not_write_breach_line_for_manual_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path();
+        let report = restore_ledger("sess-manual", output, RestoreSource::Manual).unwrap();
+        assert!(!report.ok);
+        assert!(
+            !output.join("logs/continuity-breach.log").exists(),
+            "manual source must stay silent"
+        );
+    }
+
+    #[test]
+    fn append_breach_line_formats_extras_as_key_value() {
+        let dir = tempfile::tempdir().unwrap();
+        append_breach_line(
+            dir.path(),
+            "sess-fmt",
+            BreachKind::ToolBeforeRestore,
+            &[("tool", "Read"), ("path", "src/foo.rs")],
+        )
+        .unwrap();
+        let text = fs::read_to_string(dir.path().join(BREACH_LOG_RELPATH)).unwrap();
+        assert!(text.contains("breach=tool-before-restore"));
+        assert!(text.contains("tool=Read"));
+        assert!(text.contains("path=src/foo.rs"));
     }
 
     #[test]
