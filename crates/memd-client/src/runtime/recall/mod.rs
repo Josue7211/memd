@@ -28,6 +28,9 @@ pub(crate) async fn dispatch_lookup_with_depth(
         .and_then(|c| c.session);
     let query = args.query.clone();
     let depth = args.depth;
+    if args.explain_depth {
+        eprintln!("{}", depth::explain_line(depth));
+    }
     let started = Instant::now();
 
     let (result, records, tokens, hint) = match depth {

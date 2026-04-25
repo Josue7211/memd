@@ -25,6 +25,20 @@ impl std::fmt::Display for RecallDepth {
     }
 }
 
+/// One-line `--explain-depth` rationale, format frozen by E4.5 tests.
+/// Contract phrasing mirrors the cost/quality table in
+/// `docs/contracts/recall-depth.md`.
+pub(crate) fn explain_line(depth: RecallDepth) -> String {
+    let rationale = match depth {
+        RecallDepth::Wake => "compiled overview, ≤2k tokens, <100ms p50",
+        RecallDepth::Lookup => "targeted query, ≤500 tokens, 1–3 records, <50ms p50",
+        RecallDepth::Resume => {
+            "full task-state reconstruction, bounded by session history, <500ms p95"
+        }
+    };
+    format!("depth: {} ({})", depth.as_str(), rationale)
+}
+
 pub(crate) fn depth_flag_enabled() -> bool {
     flag_on("MEMD_E4_DEPTH_FLAG")
 }

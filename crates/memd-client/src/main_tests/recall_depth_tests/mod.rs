@@ -1,6 +1,6 @@
 use super::*;
 use crate::runtime::recall::{
-    clamp_lookup_limit, dispatch_lookup_with_depth, escalation, run_lookup_arm_inner,
+    clamp_lookup_limit, depth, dispatch_lookup_with_depth, escalation, run_lookup_arm_inner,
     synth_resume_args, synth_wake_args, telemetry, RecallDepth, LOOKUP_DEPTH_RECORD_CAP,
 };
 
@@ -312,6 +312,37 @@ async fn telemetry_records_zero_hit_with_escalation_hint() {
         .expect("escalation_hint should be a string when set");
     assert!(hint.starts_with("hint: zero results at lookup depth."));
     assert_eq!(lines[0]["records_returned"], 0);
+}
+
+// E4.5 — Test 13: `--explain-depth` produces a one-line rationale that
+// names the depth and the cost/quality tradeoff from the contract.
+#[test]
+fn cli_explain_depth_prints_rationale() {
+    let lookup = depth::explain_line(RecallDepth::Lookup);
+    assert!(lookup.starts_with("depth: lookup"));
+    assert!(lookup.contains("targeted query"));
+    assert!(lookup.contains("1–3 records") || lookup.contains("1-3 records"));
+
+    let wake = depth::explain_line(RecallDepth::Wake);
+    assert!(wake.starts_with("depth: wake"));
+    assert!(wake.contains("≤2k tokens") || wake.contains("2k tokens"));
+
+    let resume = depth::explain_line(RecallDepth::Resume);
+    assert!(resume.starts_with("depth: resume"));
+    assert!(resume.contains("full task-state"));
+
+    let cli = Cli::try_parse_from([
+        "memd",
+        "lookup",
+        "--query",
+        "anything",
+        "--explain-depth",
+    ])
+    .expect("parse --explain-depth");
+    match cli.command {
+        Commands::Lookup(args) => assert!(args.explain_depth),
+        other => panic!("expected lookup command, got {other:?}"),
+    }
 }
 
 // E4.4 — Test 14: Standalone `memd wake` writes a depth telemetry line
