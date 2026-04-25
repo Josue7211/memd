@@ -3033,6 +3033,51 @@ pub(crate) struct BenchmarkArgs {
 #[derive(Debug, Clone, Subcommand)]
 pub(crate) enum BenchmarkSubcommand {
     Public(PublicBenchmarkArgs),
+    /// V5 substrate-native benchmark suites (cross-session-recall, correction-propagation, …).
+    Substrate(SubstrateArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct SubstrateArgs {
+    /// Suite name (e.g. cross-session-recall). Mutually exclusive with --all.
+    #[arg(long)]
+    pub(crate) suite: Option<String>,
+
+    /// Run every registered substrate suite.
+    #[arg(long, default_value_t = false)]
+    pub(crate) all: bool,
+
+    /// Path to bench spec YAML. Defaults to .memd/benchmarks/substrate/<suite>.yaml.
+    #[arg(long)]
+    pub(crate) spec: Option<PathBuf>,
+
+    /// RNG seed override (defaults to spec value, then 42).
+    #[arg(long)]
+    pub(crate) seed: Option<u64>,
+
+    /// Output dir for NDJSON results.
+    #[arg(long, default_value = ".memd/benchmarks/substrate/results")]
+    pub(crate) output: PathBuf,
+
+    /// Markdown report path to append/regenerate.
+    #[arg(long, default_value = "docs/verification/SUBSTRATE_BENCHMARKS.md")]
+    pub(crate) report: PathBuf,
+
+    /// Restrict to a subset of cut counts (comma-separated).
+    #[arg(long)]
+    pub(crate) only_cuts: Option<String>,
+
+    /// Emit JSON to stdout instead of human summary.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+
+    /// Hard ceiling on LLM-judge spend (USD). Exit 2 if exceeded.
+    #[arg(long)]
+    pub(crate) max_budget_usd: Option<f64>,
+
+    /// Regenerate locked fixtures under .memd/benchmarks/substrate/fixtures/<suite>/.
+    #[arg(long, default_value_t = false)]
+    pub(crate) emit_fixtures: bool,
 }
 
 #[derive(Debug, Clone, Args)]

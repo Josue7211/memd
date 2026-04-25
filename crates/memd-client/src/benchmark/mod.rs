@@ -14,3 +14,6 @@ pub(crate) use scorers::*;
 
 mod public_benchmark;
 pub(crate) use public_benchmark::*;
+
+pub(crate) mod substrate;
+pub(crate) use substrate::run_substrate_command;

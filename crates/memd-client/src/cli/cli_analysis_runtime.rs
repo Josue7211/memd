@@ -79,6 +79,9 @@ pub(crate) async fn run_benchmark_command(
     base_url: &str,
 ) -> anyhow::Result<()> {
     match &args.subcommand {
+        Some(BenchmarkSubcommand::Substrate(substrate_args)) => {
+            return crate::benchmark::run_substrate_command(substrate_args).await;
+        }
         Some(BenchmarkSubcommand::Public(public_args)) => {
             // CI mode: run all benchmarks, hard-fail on threshold breach
             if public_args.ci {
