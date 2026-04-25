@@ -11,6 +11,7 @@ use crate::cli::SubstrateArgs;
 pub(crate) mod correction_propagation;
 pub(crate) mod cross_session_recall;
 pub(crate) mod fixtures;
+pub(crate) mod harness_adapter;
 pub(crate) mod report;
 pub(crate) mod scorers;
 pub(crate) mod session_driver;
