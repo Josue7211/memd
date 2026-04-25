@@ -14,7 +14,11 @@ use super::{BucketKind, BucketReport, CompiledWake, DemotionHint, WakeBudget};
 
 const RECORD_LINE_MAX: usize = 220;
 
-pub fn emit(admitted: AdmittedBuckets, budget: &WakeBudget) -> CompiledWake {
+pub fn emit(
+    admitted: AdmittedBuckets,
+    budget: &WakeBudget,
+    drift_notes: &[String],
+) -> CompiledWake {
     let mut markdown = String::new();
     let mut bucket_report: HashMap<BucketKind, BucketReport> = HashMap::new();
     let mut demotion_hints: Vec<DemotionHint> = Vec::new();
@@ -50,6 +54,13 @@ pub fn emit(admitted: AdmittedBuckets, budget: &WakeBudget) -> CompiledWake {
         }
 
         markdown.push_str(&format!("## {}\n\n", kind.section_header()));
+        if matches!(kind, BucketKind::Preference) && !drift_notes.is_empty() {
+            for note in drift_notes {
+                markdown.push_str(note);
+                markdown.push('\n');
+            }
+            markdown.push('\n');
+        }
         if let Some(recs) = admitted_recs {
             for record in recs {
                 markdown.push_str(&format!(

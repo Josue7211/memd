@@ -365,6 +365,7 @@ fn render_emits_section_headers_in_priority_order() {
         episodic: vec![rec("id=E | c=session-x")],
         semantic: vec![rec("id=F | c=fact")],
         candidates: vec![rec("id=G | c=maybe")],
+        drift_notes: Vec::new(),
     };
     let compiled = compile_wake(input, WakeBudget::default_2000());
 
@@ -426,6 +427,90 @@ fn render_is_markdown_and_round_trips_token_count() {
         compiled.tokens,
         compiled.markdown.len(),
         "tokens must equal markdown char length (parity with compute_wake_token_metrics)"
+    );
+}
+
+// -------- F4.3: preference non-demotion + drift surface ----------
+
+#[test]
+fn budget_preferences_bucket_is_non_demotable() {
+    // 10 preference records ~250 chars each = 2500 chars total.
+    // Budget 1000, class cap (session_continuity = 20%) = 200.
+    // Without the F4.3 rule, almost nothing fits. With it, all 10 land.
+    let recs: Vec<_> = (0..10)
+        .map(|i| rec(&format!("id={i:02} | c={}", "p".repeat(240))))
+        .collect();
+    let input = CompilerInput {
+        preferences: recs,
+        ..Default::default()
+    };
+    let mut budget = WakeBudget::default_2000();
+    budget.tokens = 1000;
+    let admitted = budget::admit(dedupe::merge(priority::apply(&input)), &budget);
+
+    assert_eq!(
+        admitted_count(&admitted, BucketKind::Preference),
+        10,
+        "preferences are non-demotable; all 10 must land regardless of class cap"
+    );
+    assert_eq!(
+        demoted_count(&admitted, BucketKind::Preference),
+        0,
+        "preferences must never appear in demoted set"
+    );
+}
+
+#[test]
+fn render_surfaces_drift_line_inside_preferences_section() {
+    let input = CompilerInput {
+        preferences: vec![rec("id=P1 | c=user prefers terse")],
+        drift_notes: vec![
+            "⚠ drift: pref-voice-terse (3 violations in last 10 turns)".to_string(),
+        ],
+        ..Default::default()
+    };
+    let compiled = compile_wake(input, WakeBudget::default_2000());
+
+    let pref_idx = compiled
+        .markdown
+        .find("## Preferences")
+        .expect("pref header present");
+    let drift_idx = compiled.markdown.find("⚠ drift").expect("drift line present");
+    assert!(
+        drift_idx > pref_idx,
+        "drift line must follow the `## Preferences` header"
+    );
+
+    let first_record_idx = compiled
+        .markdown
+        .find("- id=P1")
+        .expect("preference record present");
+    assert!(
+        drift_idx < first_record_idx,
+        "drift line must precede first preference record"
+    );
+
+    let drift_line = compiled.markdown[drift_idx..]
+        .lines()
+        .next()
+        .expect("drift line resolves");
+    assert!(
+        drift_line.chars().count() <= 80,
+        "drift line ≤80 chars; got {} chars: {drift_line}",
+        drift_line.chars().count()
+    );
+}
+
+#[test]
+fn render_omits_drift_block_when_no_notes() {
+    let input = CompilerInput {
+        preferences: vec![rec("id=P1 | c=user prefers terse")],
+        ..Default::default()
+    };
+    let compiled = compile_wake(input, WakeBudget::default_2000());
+    assert!(
+        !compiled.markdown.contains("⚠ drift"),
+        "no drift line should render when drift_notes empty"
     );
 }
 

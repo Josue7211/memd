@@ -89,6 +89,11 @@ pub struct CompilerInput {
     pub corrections: Vec<CompactMemoryRecord>,
     #[serde(default)]
     pub candidates: Vec<CompactMemoryRecord>,
+    /// F4.3 — drift surface lines (one per outstanding preference). Rendered
+    /// inside the `## Preferences` section, above the record list. ≤80 chars
+    /// each is enforced upstream; render does not re-truncate.
+    #[serde(default)]
+    pub drift_notes: Vec<String>,
 }
 
 impl CompilerInput {
@@ -239,11 +244,12 @@ pub struct DemotionHint {
 /// Pipeline: priority order → cross-bucket dedupe → budget+kinds-coverage
 /// admission → markdown render with demotion hints.
 pub fn compile_wake(input: CompilerInput, budget: WakeBudget) -> CompiledWake {
+    let drift_notes = input.drift_notes.clone();
     let filtered = filter_excluded(input, &budget.force_exclude);
     let ordered = priority::apply(&filtered);
     let deduped = dedupe::merge(ordered);
     let admitted = budget::admit(deduped, &budget);
-    render::emit(admitted, &budget)
+    render::emit(admitted, &budget, &drift_notes)
 }
 
 fn filter_excluded(mut input: CompilerInput, exclude: &HashSet<BucketKind>) -> CompilerInput {
@@ -295,5 +301,6 @@ pub fn input_from_snapshot(snapshot: &super::ResumeSnapshot) -> CompilerInput {
         semantic: Vec::new(),
         corrections: Vec::new(),
         candidates: Vec::new(),
+        drift_notes: Vec::new(),
     }
 }
