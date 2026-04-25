@@ -209,6 +209,7 @@ mod runtime_verification_tests;
 mod skill_workflow_tests;
 mod tasks_hive_tests;
 mod test_support;
+mod v4_proof_harness;
 mod wake_continuity_tests;
 use self::autoresearch_evolution_tests::test_autoresearch_snapshot;
 pub(crate) use self::test_support::*;
