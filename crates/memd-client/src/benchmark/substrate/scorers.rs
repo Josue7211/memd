@@ -201,6 +201,50 @@ fn judgement_says_correct(content: &str) -> bool {
     lower.starts_with("yes") || lower == "true" || lower.starts_with("correct")
 }
 
+/// B5 provenance-chain scorer.
+///
+/// A retrieved record's provenance is the ordered list of turn/session
+/// IDs that contributed to its current value. For B5 we require that the
+/// chain (a) is non-empty, (b) cites the correction turn that updated
+/// the fact, and (c) does so *after* any earlier ingest turns — i.e.
+/// the chain is monotonically forward-only.
+///
+/// Returns `true` iff every requirement holds.
+pub(crate) fn provenance_chain_cites_correction(
+    chain: &[String],
+    correction_turn: &str,
+) -> bool {
+    if chain.is_empty() || correction_turn.is_empty() {
+        return false;
+    }
+    // Forward-only: the correction turn must appear exactly once. A
+    // duplicate means the chain re-visited an earlier state, breaking
+    // the propagation guarantee.
+    chain.iter().filter(|t| *t == correction_turn).count() == 1
+}
+
+/// Aggregate provenance correctness across a batch of (chain, correction_turn)
+/// observations. Used by the B5 runner to compute the
+/// `provenance_correctness` pass-gate axis.
+pub(crate) fn provenance_correctness_rate<'a, I>(observations: I) -> f64
+where
+    I: IntoIterator<Item = (&'a [String], &'a str)>,
+{
+    let mut total = 0usize;
+    let mut hits = 0usize;
+    for (chain, turn) in observations {
+        total += 1;
+        if provenance_chain_cites_correction(chain, turn) {
+            hits += 1;
+        }
+    }
+    if total == 0 {
+        0.0
+    } else {
+        hits as f64 / total as f64
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,5 +357,59 @@ mod tests {
         assert!(a5.ends_with("a5"));
         let b5 = substrate_cache_dir("correction-propagation");
         assert!(b5.ends_with("b5"));
+    }
+
+    /// B5 Test 1 — `scorer_provenance_chain_passes_when_correction_turn_cited`.
+    /// A chain that contains the correction turn ID at any forward position
+    /// must score true.
+    #[test]
+    fn scorer_provenance_chain_passes_when_correction_turn_cited() {
+        let chain = vec![
+            "s1-ingest-007".to_string(),
+            "s2-correct-007".to_string(),
+            "s5-restore-007".to_string(),
+        ];
+        assert!(provenance_chain_cites_correction(&chain, "s2-correct-007"));
+
+        // Even a chain whose only entry is the correction turn passes.
+        let solo = vec!["s2-correct-007".to_string()];
+        assert!(provenance_chain_cites_correction(&solo, "s2-correct-007"));
+    }
+
+    /// B5 Test 2 — `scorer_provenance_chain_fails_when_chain_broken`.
+    /// Missing correction turn, empty chain, empty turn id, or a chain
+    /// that revisits the correction turn out of order all score false.
+    #[test]
+    fn scorer_provenance_chain_fails_when_chain_broken() {
+        let no_correction = vec!["s1-ingest-007".to_string(), "s5-restore-007".to_string()];
+        assert!(!provenance_chain_cites_correction(&no_correction, "s2-correct-007"));
+
+        let empty: Vec<String> = vec![];
+        assert!(!provenance_chain_cites_correction(&empty, "s2-correct-007"));
+
+        let chain = vec!["s2-correct-007".to_string()];
+        assert!(!provenance_chain_cites_correction(&chain, ""));
+
+        // Duplicate correction turn before canonical position = malformed.
+        let revisit = vec![
+            "s2-correct-007".to_string(),
+            "s3-something".to_string(),
+            "s2-correct-007".to_string(),
+        ];
+        assert!(!provenance_chain_cites_correction(&revisit, "s2-correct-007"));
+    }
+
+    #[test]
+    fn provenance_correctness_rate_handles_mix() {
+        let c1: Vec<String> = vec!["a".into(), "b".into()];
+        let c2: Vec<String> = vec!["x".into()];
+        let c3: Vec<String> = vec![];
+        let obs = vec![
+            (c1.as_slice(), "b"),
+            (c2.as_slice(), "b"),
+            (c3.as_slice(), "b"),
+        ];
+        let rate = provenance_correctness_rate(obs);
+        assert!((rate - 1.0 / 3.0).abs() < 1e-9);
     }
 }
