@@ -9,6 +9,7 @@
 use crate::cli::SubstrateArgs;
 
 pub(crate) mod correction_propagation;
+pub(crate) mod cross_harness;
 pub(crate) mod cross_session_recall;
 pub(crate) mod fixtures;
 pub(crate) mod harness_adapter;
