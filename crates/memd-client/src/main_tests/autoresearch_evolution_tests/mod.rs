@@ -2272,6 +2272,8 @@ fn lookup_cli_defaults_stay_on_repo_b_bundle_not_repo_a_global_memory() {
             limit: None,
             verbose: false,
             json: false,
+            depth: crate::runtime::recall::RecallDepth::Lookup,
+            explain_depth: false,
         },
         None,
     );

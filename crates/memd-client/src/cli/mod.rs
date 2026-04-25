@@ -839,7 +839,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             run_search_command(&client, args).await?;
         }
         Commands::Lookup(args) => {
-            run_lookup_command(&client, args).await?;
+            run_lookup_command(&client, &base_url, args).await?;
         }
         Commands::Context(args) => {
             run_context_command(&client, args).await?;

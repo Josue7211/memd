@@ -1339,6 +1339,16 @@ pub(crate) struct LookupArgs {
 
     #[arg(long)]
     pub(crate) json: bool,
+
+    /// E4: select recall depth — `wake` for compiled overview,
+    /// `lookup` (default) for 1–3 targeted records, `resume` for full
+    /// task-state reconstruction.
+    #[arg(long, value_enum, default_value_t = crate::runtime::recall::RecallDepth::Lookup)]
+    pub(crate) depth: crate::runtime::recall::RecallDepth,
+
+    /// E4: print the chosen depth + rationale alongside the result.
+    #[arg(long)]
+    pub(crate) explain_depth: bool,
 }
 
 #[derive(Debug, Clone, Args)]

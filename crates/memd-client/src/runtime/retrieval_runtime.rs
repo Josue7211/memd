@@ -721,6 +721,8 @@ mod tests {
                 limit: None,
                 verbose: false,
                 json: false,
+                depth: crate::runtime::recall::RecallDepth::Lookup,
+                explain_depth: false,
             },
             None,
         )

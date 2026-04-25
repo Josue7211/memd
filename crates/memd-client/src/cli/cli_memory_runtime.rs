@@ -283,21 +283,10 @@ pub(crate) async fn run_search_command(
 
 pub(crate) async fn run_lookup_command(
     client: &MemdClient,
+    base_url: &str,
     args: LookupArgs,
 ) -> anyhow::Result<()> {
-    let runtime = read_bundle_runtime_config(&args.output)?;
-    let args = apply_lookup_bundle_defaults(args, runtime.as_ref());
-    let req = build_lookup_request(&args, runtime.as_ref())?;
-    let response = lookup_with_fallbacks(client, &req, &args.query).await?;
-    if args.json {
-        print_json(&response)?;
-    } else {
-        println!(
-            "{}",
-            render_lookup_markdown(&args.query, &req, &response, args.verbose)
-        );
-    }
-    Ok(())
+    crate::runtime::recall::dispatch_lookup_with_depth(client, base_url, args).await
 }
 
 #[cfg(test)]
@@ -330,6 +319,8 @@ mod tests {
                 limit: None,
                 verbose: false,
                 json: false,
+                depth: crate::runtime::recall::RecallDepth::Lookup,
+                explain_depth: false,
             },
             None,
         );

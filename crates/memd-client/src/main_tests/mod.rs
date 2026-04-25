@@ -202,6 +202,7 @@ mod hook_contract_tests;
 mod gap_coordination_tests;
 mod hive_coordination_tests;
 mod public_benchmark_tests;
+mod recall_depth_tests;
 mod runtime_memory_tests;
 mod runtime_verification_tests;
 mod skill_workflow_tests;

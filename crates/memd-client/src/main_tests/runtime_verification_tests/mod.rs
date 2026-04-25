@@ -394,12 +394,14 @@ async fn lookup_cli_defaults_stay_on_repo_b_bundle_against_live_memory_server() 
         limit: None,
         verbose: false,
         json: false,
+        depth: crate::runtime::recall::RecallDepth::Lookup,
+        explain_depth: false,
     };
 
     let state = MockRuntimeState::default();
     let base_url = spawn_mock_runtime_server(state.clone(), false).await;
     let client = MemdClient::new(&base_url).expect("client");
-    run_lookup_command(&client, args).await.expect("run lookup");
+    run_lookup_command(&client, &base_url, args).await.expect("run lookup");
 
     let search_requests = state.search_requests.lock().expect("lock search requests");
     assert_eq!(search_requests.len(), 1);
