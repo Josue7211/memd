@@ -48,6 +48,9 @@ pub(crate) use cli_contract_runtime::*;
 mod cli_correction_runtime;
 pub(crate) use cli_correction_runtime::*;
 
+mod cli_preference_runtime;
+pub(crate) use cli_preference_runtime::*;
+
 pub(crate) mod skill_catalog;
 
 pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
@@ -976,6 +979,12 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             CorrectionSubcommand::Detect(a) => run_correction_detect(&a)?,
             CorrectionSubcommand::Capture(a) => run_correction_capture(&a)?,
             CorrectionSubcommand::List(a) => run_correction_list(&a)?,
+        },
+        Commands::Preference(args) => match args.command {
+            PreferenceSubcommand::List(a) => run_preference_list(&a)?,
+            PreferenceSubcommand::Drift(a) => run_preference_drift(&a)?,
+            PreferenceSubcommand::Confirm(a) => run_preference_confirm(&a)?,
+            PreferenceSubcommand::Promote(a) => run_preference_promote(&a)?,
         },
     }
 

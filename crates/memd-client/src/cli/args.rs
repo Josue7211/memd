@@ -111,6 +111,8 @@ pub(crate) enum Commands {
     Contract(ContractArgs),
     /// Phase C4 correction lane: detect, capture, list.
     Correction(CorrectionArgs),
+    /// Phase F4 preference lane: list, drift, confirm, promote.
+    Preference(PreferenceArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -178,6 +180,96 @@ pub(crate) struct CorrectionListArgs {
     pub(crate) output: PathBuf,
     #[arg(long, default_value_t = false)]
     pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PreferenceArgs {
+    #[command(subcommand)]
+    pub(crate) command: PreferenceSubcommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum PreferenceSubcommand {
+    /// Print outstanding drift state.
+    List(PreferenceListArgs),
+    /// Force-record a drift verdict (manual or test-injected).
+    Drift(PreferenceDriftArgs),
+    /// Acknowledge an outstanding drift entry.
+    Confirm(PreferenceConfirmArgs),
+    /// Promote a preference via the C4 correction-capture path.
+    Promote(PreferencePromoteArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PreferenceListArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PreferenceDriftArgs {
+    #[arg(long = "preference-id")]
+    pub(crate) preference_id: String,
+    /// Preference content (terse rule string). Required when calling the judge;
+    /// optional when `--verdict` is supplied (manual override).
+    #[arg(long = "preference-content")]
+    pub(crate) preference_content: Option<String>,
+    /// JSON array of recent agent turns (strings). Required when judge runs.
+    #[arg(long = "turns-json")]
+    pub(crate) turns_json: Option<String>,
+    /// Manual override / test injection: `drift|aligned|unknown`. Skips judge.
+    #[arg(long)]
+    pub(crate) verdict: Option<String>,
+    #[arg(long)]
+    pub(crate) confidence: Option<f32>,
+    #[arg(long = "violation-count")]
+    pub(crate) violation_count: Option<u32>,
+    #[arg(long)]
+    pub(crate) rationale: Option<String>,
+    /// Stamped into the outstanding entry as `checked_turns`.
+    #[arg(long = "checked-turns")]
+    pub(crate) checked_turns: Option<u32>,
+    #[arg(long)]
+    pub(crate) session_id: Option<String>,
+    /// Skip judge call even if proxy is reachable; requires `--verdict`.
+    #[arg(long, default_value_t = false)]
+    pub(crate) no_judge: bool,
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PreferenceConfirmArgs {
+    #[arg(long = "preference-id")]
+    pub(crate) preference_id: String,
+    /// Also promote via the C4 correction-capture path. Requires
+    /// `--preference-content`.
+    #[arg(long, default_value_t = false)]
+    pub(crate) promote: bool,
+    #[arg(long = "preference-content")]
+    pub(crate) preference_content: Option<String>,
+    #[arg(long, default_value_t = 0.95_f32)]
+    pub(crate) confidence: f32,
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PreferencePromoteArgs {
+    #[arg(long = "preference-id")]
+    pub(crate) preference_id: String,
+    #[arg(long = "preference-content")]
+    pub(crate) preference_content: String,
+    #[arg(long, default_value_t = 0.95_f32)]
+    pub(crate) confidence: f32,
+    #[arg(long)]
+    pub(crate) session_id: Option<String>,
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
 }
 
 #[derive(Debug, Clone, Args)]
