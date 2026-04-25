@@ -1,0 +1,30 @@
+{"query": "json schema validation"}
+{"query": "tokio runtime config"}
+{"query": "search api endpoint"}
+{"query": "regex set initialization"}
+{"query": "ndjson append helper"}
+{"query": "session config path"}
+{"query": "bundle root resolver"}
+{"query": "test fixture loader"}
+{"query": "telemetry writer error handling"}
+{"query": "lookup limit clamping"}
+{"query": "give me the wake brief"}
+{"query": "session start summary"}
+{"query": "current state of the bundle"}
+{"query": "compiled wake overview"}
+{"query": "what is loaded so far"}
+{"query": "context window summary"}
+{"query": "live truth and focus"}
+{"query": "durable truths today"}
+{"query": "memory bootstrap snapshot"}
+{"query": "bundle wake compile output"}
+{"query": "where did I leave off"}
+{"query": "what was I doing yesterday"}
+{"query": "what were we working on this morning"}
+{"query": "the migration plan we shelved"}
+{"query": "the auth bug we hit"}
+{"query": "my caching plan"}
+{"query": "our recent decision on retries"}
+{"query": "the search feature we were building"}
+{"query": "what was I trying to fix"}
+{"query": "where did we leave off last night"}

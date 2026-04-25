@@ -1,0 +1,30 @@
+{"query": "json schema validation", "expected_depth": "lookup"}
+{"query": "tokio runtime config", "expected_depth": "lookup"}
+{"query": "search api endpoint", "expected_depth": "lookup"}
+{"query": "regex set initialization", "expected_depth": "lookup"}
+{"query": "ndjson append helper", "expected_depth": "lookup"}
+{"query": "session config path", "expected_depth": "lookup"}
+{"query": "bundle root resolver", "expected_depth": "lookup"}
+{"query": "test fixture loader", "expected_depth": "lookup"}
+{"query": "telemetry writer error handling", "expected_depth": "lookup"}
+{"query": "lookup limit clamping", "expected_depth": "lookup"}
+{"query": "give me the wake brief", "expected_depth": "wake"}
+{"query": "session start summary", "expected_depth": "wake"}
+{"query": "current state of the bundle", "expected_depth": "wake"}
+{"query": "compiled wake overview", "expected_depth": "wake"}
+{"query": "what is loaded so far", "expected_depth": "wake"}
+{"query": "context window summary", "expected_depth": "wake"}
+{"query": "live truth and focus", "expected_depth": "wake"}
+{"query": "durable truths today", "expected_depth": "wake"}
+{"query": "memory bootstrap snapshot", "expected_depth": "wake"}
+{"query": "bundle wake compile output", "expected_depth": "wake"}
+{"query": "where did I leave off", "expected_depth": "resume"}
+{"query": "what was I doing yesterday", "expected_depth": "resume"}
+{"query": "what were we working on this morning", "expected_depth": "resume"}
+{"query": "the migration plan we shelved", "expected_depth": "resume"}
+{"query": "the auth bug we hit", "expected_depth": "resume"}
+{"query": "my caching plan", "expected_depth": "resume"}
+{"query": "our recent decision on retries", "expected_depth": "resume"}
+{"query": "the search feature we were building", "expected_depth": "resume"}
+{"query": "what was I trying to fix", "expected_depth": "resume"}
+{"query": "where did we leave off last night", "expected_depth": "resume"}

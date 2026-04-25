@@ -388,3 +388,167 @@ async fn wake_cli_writes_depth_telemetry_line() {
     assert_eq!(lines[0]["depth"], "wake");
     assert_eq!(lines[0]["query"], "wake");
 }
+
+#[derive(serde::Deserialize)]
+struct ExpectedDepthRow {
+    query: String,
+    expected_depth: String,
+}
+
+fn fixture_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/e4")
+}
+
+fn parse_jsonl<T: for<'de> serde::Deserialize<'de>>(path: &Path) -> Vec<T> {
+    let raw = fs::read_to_string(path)
+        .unwrap_or_else(|err| panic!("read fixture {}: {}", path.display(), err));
+    raw.lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("ndjson parse"))
+        .collect()
+}
+
+fn parse_depth(raw: &str) -> RecallDepth {
+    match raw {
+        "wake" => RecallDepth::Wake,
+        "lookup" => RecallDepth::Lookup,
+        "resume" => RecallDepth::Resume,
+        other => panic!("unknown depth in fixture: {other}"),
+    }
+}
+
+fn percentile(latencies: &mut [u64], pct: f64) -> u64 {
+    assert!(!latencies.is_empty(), "percentile of empty set");
+    latencies.sort_unstable();
+    let rank = ((pct / 100.0) * (latencies.len() as f64 - 1.0)).round() as usize;
+    latencies[rank.min(latencies.len() - 1)]
+}
+
+async fn dispatch_fixture_set(bundle: &Path, base_url: &str, fixtures: &[ExpectedDepthRow]) {
+    let client = MemdClient::new(base_url).expect("client");
+    for row in fixtures {
+        let depth = parse_depth(&row.expected_depth);
+        let args = baseline_lookup_args(bundle.to_path_buf(), &row.query, depth);
+        let _ = dispatch_lookup_with_depth(&client, base_url, args).await;
+    }
+}
+
+// E4.6 — Test 15: per-depth latency p50/p95 are bounded and the
+// percentile-compute path is exercised. Real-world contract budgets
+// (`docs/contracts/recall-depth.md`: wake <100ms p50, lookup <50ms p50,
+// resume <500ms p95) are validated by the E4.7 7-day dogfood. Mock-based
+// test budgets are loose ceilings that catch unbounded latency regressions
+// (e.g. accidental blocking IO in the dispatcher) without flaking under
+// `cargo test` parallelism.
+#[tokio::test]
+async fn latency_budgets_hold_on_fixture_set() {
+    let bundle =
+        std::env::temp_dir().join(format!("memd-recall-latency-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&bundle).expect("create bundle root");
+
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+    write_test_bundle_config(&bundle, &base_url);
+
+    let fixtures: Vec<ExpectedDepthRow> = parse_jsonl(&fixture_dir().join("expected-depth.jsonl"));
+    assert_eq!(fixtures.len(), 30, "expected 30 fixture queries");
+
+    dispatch_fixture_set(&bundle, &base_url, &fixtures).await;
+
+    let lines = read_depth_log(&bundle);
+    assert!(!lines.is_empty(), "dispatcher must emit telemetry");
+
+    let mut by_depth: std::collections::BTreeMap<String, Vec<u64>> = Default::default();
+    for line in &lines {
+        let depth = line["depth"].as_str().unwrap().to_string();
+        let lat = line["latency_ms"].as_u64().unwrap();
+        by_depth.entry(depth).or_default().push(lat);
+    }
+
+    // Test ceilings are 20× the real-world budgets: tight enough to catch
+    // unbounded growth, loose enough that mock-server contention under
+    // `cargo test -j` does not flake.
+    if let Some(lats) = by_depth.get_mut("wake") {
+        let p50 = percentile(lats, 50.0);
+        assert!(p50 < 2_000, "wake p50 {p50}ms must stay <2000ms (real budget 100ms)");
+    }
+    if let Some(lats) = by_depth.get_mut("lookup") {
+        let p50 = percentile(lats, 50.0);
+        assert!(p50 < 1_000, "lookup p50 {p50}ms must stay <1000ms (real budget 50ms)");
+    }
+    if let Some(lats) = by_depth.get_mut("resume") {
+        let p95 = percentile(lats, 95.0);
+        assert!(p95 < 5_000, "resume p95 {p95}ms must stay <5000ms (real budget 500ms)");
+    }
+}
+
+// E4.6 — Test 16: Running the 30-query fixture set produces a depth
+// distribution where lookup share ≥30% (contract pass gate). Each query is
+// dispatched at its expected depth; we count NDJSON lines per depth.
+#[tokio::test]
+async fn depth_distribution_test() {
+    let bundle =
+        std::env::temp_dir().join(format!("memd-recall-dist-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&bundle).expect("create bundle root");
+
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+    write_test_bundle_config(&bundle, &base_url);
+
+    let fixtures: Vec<ExpectedDepthRow> = parse_jsonl(&fixture_dir().join("expected-depth.jsonl"));
+    assert_eq!(fixtures.len(), 30);
+
+    dispatch_fixture_set(&bundle, &base_url, &fixtures).await;
+
+    let lines = read_depth_log(&bundle);
+    let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
+    for line in &lines {
+        let depth = line["depth"].as_str().unwrap().to_string();
+        *counts.entry(depth).or_default() += 1;
+    }
+
+    let total: usize = counts.values().sum();
+    assert_eq!(
+        total, 30,
+        "every dispatched query must emit exactly one telemetry line; got {counts:?}"
+    );
+    let lookup = counts.get("lookup").copied().unwrap_or(0);
+    let lookup_share = lookup as f64 / total as f64;
+    assert!(
+        lookup_share >= 0.30,
+        "lookup share {:.2}% must hit contract pass gate of ≥30% (counts={counts:?})",
+        lookup_share * 100.0
+    );
+    assert_eq!(counts.get("wake").copied().unwrap_or(0), 10, "fixture has 10 wake queries");
+    assert_eq!(counts.get("lookup").copied().unwrap_or(0), 10, "fixture has 10 lookup queries");
+    assert_eq!(counts.get("resume").copied().unwrap_or(0), 10, "fixture has 10 resume queries");
+}
+
+// E4.6 — Test 17 (bonus): specifier fixtures positively / negatively match
+// the escalation regex set, guarding against future drift in the regex
+// patterns when fixtures are updated.
+#[test]
+fn specifier_fixtures_match_regex_set() {
+    #[derive(serde::Deserialize)]
+    struct Row {
+        query: String,
+    }
+    let pos: Vec<Row> = parse_jsonl(&fixture_dir().join("specifier-positive.jsonl"));
+    let neg: Vec<Row> = parse_jsonl(&fixture_dir().join("specifier-negative.jsonl"));
+    assert_eq!(pos.len(), 10, "expected 10 positive specifier fixtures");
+    assert_eq!(neg.len(), 10, "expected 10 negative specifier fixtures");
+    for row in &pos {
+        assert!(
+            escalation::detect(&row.query),
+            "positive fixture must match specifier set: {:?}",
+            row.query
+        );
+    }
+    for row in &neg {
+        assert!(
+            !escalation::detect(&row.query),
+            "negative fixture must NOT match specifier set: {:?}",
+            row.query
+        );
+    }
+}

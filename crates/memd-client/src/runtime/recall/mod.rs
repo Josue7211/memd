@@ -65,16 +65,21 @@ pub(crate) async fn dispatch_lookup_with_depth(
         }
     };
 
-    let _ = telemetry::record(telemetry::RecordOpts {
-        bundle_root: &bundle_root,
-        session_id: session_id.as_deref(),
-        query: &query,
-        depth,
-        records_returned: records,
-        tokens_returned: tokens,
-        latency_ms: started.elapsed().as_millis() as u64,
-        escalation_hint: hint.as_deref(),
-    });
+    // Wake-arm telemetry is emitted by `run_bundle_wake_command` itself so
+    // every wake call (CLI or dispatched) appears exactly once in
+    // `recall-depth.ndjson`, per docs/contracts/recall-depth.md.
+    if !matches!(depth, RecallDepth::Wake) {
+        let _ = telemetry::record(telemetry::RecordOpts {
+            bundle_root: &bundle_root,
+            session_id: session_id.as_deref(),
+            query: &query,
+            depth,
+            records_returned: records,
+            tokens_returned: tokens,
+            latency_ms: started.elapsed().as_millis() as u64,
+            escalation_hint: hint.as_deref(),
+        });
+    }
 
     result
 }
