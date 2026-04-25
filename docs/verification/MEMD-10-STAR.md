@@ -39,7 +39,7 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 
 | Axis | Weight | Score | Status |
 |------|--------|-------|--------|
-| Session continuity | 20% | 3/10 | A4 ledger survives compaction (seal → restore 10/10 loop) + B4 contract-gated enforce wrapper with trace + budget + per-(session,event) lock |
+| Session continuity | 20% | 4/10 | A4 ledger survives compaction (seal → restore 10/10 loop) + B4 contract-gated enforce wrapper with trace + budget + per-(session,event) lock + A5 substrate-native cross-session-recall benchmark with locked floor + nightly regression gate |
 | Correction retention | 15% | 1/10 | mechanics exist, no end-to-end flow, never proven in a session |
 | Procedural reuse | 15% | 1/10 | detect dead code, RetrievalIntent::Procedural unreachable, table empty |
 | Cross-harness continuity | 15% | 2/10 | 6 presets, never cross-tested, handoff unverified |
@@ -47,7 +47,7 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 | Token efficiency | 10% | 2/10 | budget enforced, no cost measurement, noise burns budget |
 | Trust + provenance | 10% | 3/10 | explain + hook-trace NDJSON with ts_ms/trace_id/session_id/failure_class per hook line + doctor --check contract |
 
-**Composite: 2.30/10 (B4 rescore 2026-04-24 — session continuity 2→3, trust/provenance 2→3)**
+**Composite: 2.50/10 (A5 rescore 2026-04-25 — session continuity 3→4)**
 *Prior composite 2.9 counted "code exists" as partial credit; regrade counts only "user gets value."*
 *Prior axis table (scores 2,2,1,3,4,6,5) summed to 3.0 but reported 1.8 — reconciled 2026-04-22 to the pessimistic axis row that actually yields 1.80.*
 *2026-04-24: session continuity axis moved 1 → 2 on A4 ledger-survival gate (10/10 loop, zero breach lines). Composite moved 1.80 → 2.00. Evidence:*
@@ -62,6 +62,15 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 - *`memd hooks doctor --check contract` parses the trace, surfaces timeouts + silent swallows + manifest gaps, exits non-zero on any violation*
 - *Every trace line carries `ts_ms`, `trace_id` (ULID), `session_id`, `harness`, `failure_class` → auditable provenance for the hook surface that was previously silent*
 - *MANIFEST.json now carries `contract_version: "0.3"`; PreCompact + PostCompact hook scripts route through the wrapper when the flag is on (default 0 during dogfood)*
+
+*2026-04-25: A5 substrate-native cross-session-recall benchmark landed. Session continuity 3 → 4. Composite 2.30 → 2.50. Evidence:*
+- *Plan + tests `docs/phases/v5/phase-a5-plan.md` (15 numbered tests, 9 atomic tasks A5.1–A5.9)*
+- *Suite code `crates/memd-client/src/benchmark/substrate/` — fixtures, session driver, scorers, NDJSON+markdown report, cross_session_recall runner*
+- *Integration tests `crates/memd-client/src/main_tests/substrate_a5_tests/mod.rs` (tests 10–15) — happy path, seed reproducibility, pass-gate fail w/ DegradedBackend, results dir tree, third-party reproduce script, baseline-floor regression*
+- *Locked floor `docs/verification/substrate-baselines/a5-2026-04-25.json` — 9 scenarios (N∈{20,50,100} × cuts∈{2,4,8}), tolerance 0.03, in-process recording backend (driver+scorer correctness)*
+- *Third-party reproduce `scripts/substrate-bench-reproduce.sh` — `memd benchmark substrate --suite cross-session-recall --seed 42`, exits non-zero on pass-gate miss*
+- *Nightly + push-gate `.github/workflows/substrate-bench.yml` — paths-filtered to substrate code/baselines/scripts, 04:00 UTC cron, uploads results artifact*
+- *HTTP backend (real memd-server, not perfect-recall recorder) deferred to follow-up after V5 substrate gate; floor will be re-locked downward at that point*
 
 *MILESTONE-v4's historical `composite_pre: 2.15` is superseded — see 0.1.0-CONTRACT.md baseline.*
 
