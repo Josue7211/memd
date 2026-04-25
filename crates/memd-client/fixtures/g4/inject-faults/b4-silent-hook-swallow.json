@@ -1,0 +1,7 @@
+{
+  "fault_id": "b4-silent-hook-swallow",
+  "phase": "B4",
+  "test": 4,
+  "description": "Hook trace omits one PostToolUse line — simulates the silent-failure regression B4 was built to surface.",
+  "mutation": { "drop_post_tool_use_count": 1 }
+}

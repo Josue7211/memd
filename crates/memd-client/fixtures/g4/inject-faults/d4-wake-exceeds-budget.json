@@ -1,0 +1,7 @@
+{
+  "fault_id": "d4-wake-exceeds-budget",
+  "phase": "D4",
+  "test": 6,
+  "description": "Compiler emits a wake brief above the 2000-token cap. Asserter must fail because token efficiency axis cannot lift past 2 with budget overrun.",
+  "mutation": { "override_token_count": 2400 }
+}

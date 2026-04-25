@@ -1,0 +1,7 @@
+{
+  "fault_id": "c4-correction-missing-provenance",
+  "phase": "C4",
+  "test": 5,
+  "description": "Correction C2 (fact-B → 2026-05-15) is stored without a provenance field. Asserter must catch the missing chain.",
+  "mutation": { "strip_provenance_for_id": "fact-B" }
+}

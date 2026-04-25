@@ -16,6 +16,18 @@ on the corresponding cut.
 | `e4-lookup-stale.json`               | Test 7 | E4 lookup returns `uuid` for the `primary ID` query (pre-correction value). |
 | `f4-drift-undetected.json`           | Test 8 | F4 drift detector silently skips the verbose-drift turn. |
 
-Authored shells only — concrete schema is finalized when the harness
-driver lands in G4.2 and the assertions module lands in G4.3, since
-both will read these files.
+Each file follows the schema:
+
+```json
+{
+  "fault_id": "<phase>-<symptom>",
+  "phase": "A4|B4|C4|D4|E4|F4",
+  "test": 3..8,
+  "description": "...",
+  "mutation": { "<phase-specific key>": <value> }
+}
+```
+
+Mutations are interpreted by the asserter under test. See
+`crates/memd-client/src/main_tests/v4_proof_harness/assertions.rs` for
+the per-phase mutation contract.

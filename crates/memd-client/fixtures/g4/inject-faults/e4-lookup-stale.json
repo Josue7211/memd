@@ -1,0 +1,7 @@
+{
+  "fault_id": "e4-lookup-stale",
+  "phase": "E4",
+  "test": 7,
+  "description": "lookup --depth lookup --query \"primary ID\" returns the pre-correction value (uuid). Asserter must fail because raw retrieval axis blocks on stale corrections.",
+  "mutation": { "override_returned_value": "uuid" }
+}

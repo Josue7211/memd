@@ -1,0 +1,7 @@
+{
+  "fault_id": "a4-skip-postcompact-restore",
+  "phase": "A4",
+  "test": 3,
+  "description": "PostCompact restore hook silently no-ops at session-2 wake. The asserter must fail because the s1 file-interaction ledger is gone before the first s2 tool call.",
+  "mutation": { "force_restored": false }
+}

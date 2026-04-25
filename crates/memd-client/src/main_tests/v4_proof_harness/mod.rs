@@ -7,6 +7,8 @@
 //! live in G4.3 (`assertions.rs`); this module only proves the driver can move
 //! through the scenario and produce on-disk artifacts.
 
+mod assertions;
+
 use super::*;
 use crate::cli::{
     HookArgs, HookMode, HookRestoreArgs, HookSealLedgerArgs, run_hook_mode, run_hook_restore,

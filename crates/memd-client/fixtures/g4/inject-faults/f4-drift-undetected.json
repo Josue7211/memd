@@ -1,0 +1,7 @@
+{
+  "fault_id": "f4-drift-undetected",
+  "phase": "F4",
+  "test": 8,
+  "description": "Drift detector silently skips the verbose-drift turn (T19). Outstanding count stays at 0 → preference axis cannot lift past 2.",
+  "mutation": { "override_outstanding_count": 0 }
+}
