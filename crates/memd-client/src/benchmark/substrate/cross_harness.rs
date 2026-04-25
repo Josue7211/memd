@@ -201,7 +201,7 @@ pub(crate) fn run_c5_with_adapters(
 
 /// Default in-process driver: spins up the perfect-recall gateway +
 /// real claude-code/codex adapters. Used by `run_substrate_command`
-/// in the dispatcher (C5.4).
+/// in the dispatcher.
 pub(crate) fn run_c5_in_process(config: &C5RunConfig) -> std::io::Result<C5Outcome> {
     use crate::benchmark::substrate::harness_adapter::{
         claude_code::ClaudeCodeAdapter, codex::CodexAdapter,
@@ -213,7 +213,107 @@ pub(crate) fn run_c5_in_process(config: &C5RunConfig) -> std::io::Result<C5Outco
         ("claude_code", &claude),
         ("codex", &codex),
     ];
-    run_c5_with_adapters(config, &adapters, &gateway)
+    let allow_skip = allow_skip_from_env();
+    run_c5_with_skip(config, &adapters, &gateway, allow_skip)
+}
+
+fn allow_skip_from_env() -> bool {
+    // CI defaults to allow-skip per `phase-c5-plan.md` §7. Locally the
+    // operator must opt in explicitly so missing harness configs surface
+    // as failures rather than silent zero-record runs.
+    match std::env::var("MEMD_SUBSTRATE_C5_HARNESS_ALLOW_SKIP") {
+        Ok(v) => v != "0",
+        Err(_) => std::env::var("CI").is_ok(),
+    }
+}
+
+/// Filter pairs by adapter availability before driving. When a harness
+/// is unavailable AND `allow_skip` is true, every pair touching it is
+/// dropped; if no pairs survive, the outcome is an empty-but-passing
+/// record set (CI graceful skip per §7).
+pub(crate) fn run_c5_with_skip(
+    config: &C5RunConfig,
+    adapters: &[(&str, &dyn HarnessAdapter)],
+    gateway: &dyn MemdGateway,
+    allow_skip: bool,
+) -> std::io::Result<C5Outcome> {
+    use std::collections::HashMap;
+    let availability: HashMap<String, bool> = adapters
+        .iter()
+        .map(|(n, a)| ((*n).to_string(), a.is_available()))
+        .collect();
+
+    let referenced: std::collections::BTreeSet<&str> = config
+        .pairs
+        .iter()
+        .flat_map(|(w, r)| [w.as_str(), r.as_str()])
+        .collect();
+    let unavailable: Vec<&str> = referenced
+        .iter()
+        .filter(|n| !availability.get(**n).copied().unwrap_or(false))
+        .copied()
+        .collect();
+
+    if !unavailable.is_empty() && !allow_skip {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!(
+                "cross-harness: required harnesses unavailable: {unavailable:?}; \
+                 set MEMD_SUBSTRATE_C5_HARNESS_ALLOW_SKIP=1 to skip"
+            ),
+        ));
+    }
+
+    let mut filtered = config.clone();
+    let original_pair_count = filtered.pairs.len();
+    if allow_skip {
+        filtered.pairs.retain(|(w, r)| {
+            availability.get(w).copied().unwrap_or(false)
+                && availability.get(r).copied().unwrap_or(false)
+        });
+    }
+
+    let skipped = original_pair_count - filtered.pairs.len();
+    if filtered.pairs.is_empty() {
+        // Empty passing run; record a `runs.jsonl` skip note so CI
+        // logs surface the reason instead of pretending all is well.
+        let ts_ms = Utc::now().timestamp_millis();
+        let run_id = Uuid::new_v4().to_string();
+        write_skip_metadata(&filtered.results_dir, &run_id, ts_ms, &availability, skipped)?;
+        return Ok(C5Outcome {
+            records: Vec::new(),
+            ndjson_path: ndjson_path_for(&filtered.results_dir, ts_ms),
+            overall_pass: true,
+            leaks: Vec::new(),
+        });
+    }
+
+    run_c5_with_adapters(&filtered, adapters, gateway)
+}
+
+fn write_skip_metadata(
+    results_dir: &Path,
+    run_id: &str,
+    ts_ms: i64,
+    availability: &std::collections::HashMap<String, bool>,
+    skipped_pairs: usize,
+) -> std::io::Result<()> {
+    use std::io::Write;
+    std::fs::create_dir_all(results_dir)?;
+    let runs_jsonl = results_dir.join("runs.jsonl");
+    let row = serde_json::json!({
+        "suite": "cross-harness",
+        "run_id": run_id,
+        "ts_ms": ts_ms,
+        "skipped": true,
+        "skipped_pair_count": skipped_pairs,
+        "availability": availability,
+    });
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&runs_jsonl)?;
+    f.write_all(format!("{row}\n").as_bytes())
 }
 
 fn ndjson_path_for(results_dir: &Path, ts_ms: i64) -> PathBuf {

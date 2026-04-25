@@ -20,6 +20,7 @@ pub(crate) mod session_driver;
 use crate::benchmark::substrate::correction_propagation::{
     run_b5_in_process, B5RunConfig,
 };
+use crate::benchmark::substrate::cross_harness::{run_c5_in_process, C5RunConfig};
 use crate::benchmark::substrate::cross_session_recall::{
     run_a5_in_process, A5RunConfig,
 };
@@ -36,7 +37,11 @@ pub(crate) const REGISTERED_SUITES: &[(&str, &str)] = &[
         "correction-propagation",
         "B5 — corrections in session 2 propagate forward; provenance chain cites correction turn",
     ),
-    // C5..G5 register themselves here as they land.
+    (
+        "cross-harness",
+        "C5 — claude_code and codex roundtrip facts via memd; visibility leaks hard 0",
+    ),
+    // D5..G5 register themselves here as they land.
 ];
 
 /// Top-level dispatcher for `memd bench substrate`.
@@ -108,6 +113,40 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
                     println!(
                         "substrate {suite}: {} scenarios, pass={}",
                         outcome.records.len(),
+                        outcome.overall_pass
+                    );
+                }
+            }
+            "cross-harness" => {
+                let mut cfg = C5RunConfig::default_with_results_dir(args.output.clone());
+                if let Some(seed) = args.seed {
+                    cfg.seed = seed;
+                }
+                let outcome = run_c5_in_process(&cfg).map_err(|e| {
+                    anyhow::anyhow!("substrate cross-harness runner io error: {e}")
+                })?;
+                upsert_markdown_section(
+                    &args.report,
+                    "cross-harness",
+                    &outcome.records,
+                )
+                .map_err(|e| {
+                    anyhow::anyhow!("substrate: report write failed: {e}")
+                })?;
+                if !outcome.overall_pass {
+                    overall_pass = false;
+                }
+                if args.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&outcome.records)
+                            .unwrap_or_else(|_| "[]".into())
+                    );
+                } else {
+                    println!(
+                        "substrate {suite}: {} scenarios, leaks={}, pass={}",
+                        outcome.records.len(),
+                        outcome.leaks.len(),
                         outcome.overall_pass
                     );
                 }
