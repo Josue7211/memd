@@ -1,1 +1,1 @@
-2026-04-24-e4-code-complete-dogfood-deferred.md
+2026-04-25-f4-pickup-execute-all.md
