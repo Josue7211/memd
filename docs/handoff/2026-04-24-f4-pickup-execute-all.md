@@ -1,5 +1,5 @@
 ---
-opened: 2026-04-25
+opened: 2026-04-24
 phase: F4
 status: ready-to-execute
 prev_handoff: 2026-04-24-e4-code-complete-dogfood-deferred.md
