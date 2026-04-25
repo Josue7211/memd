@@ -114,3 +114,66 @@ fn cli_bench_substrate_third_party_reproduce_script() {
         );
     }
 }
+
+/// Test 15 — `a5_baseline_current_memd_canonical_numbers`.
+/// Loads the most-recent locked baseline JSON and asserts the
+/// in-process backend still meets every scenario floor (within
+/// `tolerance`). When the HTTP backend lands and the floor changes,
+/// drop a fresh `a5-YYYY-MM-DD.json` and the test picks it up
+/// automatically.
+#[test]
+fn a5_baseline_current_memd_canonical_numbers() {
+    let baselines_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/verification/substrate-baselines");
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(&baselines_dir)
+        .unwrap_or_else(|e| panic!("read baseline dir {baselines_dir:?}: {e}"))
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|s| s.to_str())
+                .is_some_and(|n| n.starts_with("a5-") && n.ends_with(".json"))
+        })
+        .collect();
+    entries.sort();
+    let latest = entries.last().expect("at least one a5-*.json baseline");
+
+    #[derive(serde::Deserialize)]
+    struct BaselineScenario {
+        fact_count: usize,
+        cut_k: usize,
+        recall_at_3: f64,
+    }
+    #[derive(serde::Deserialize)]
+    struct Baseline {
+        tolerance: f64,
+        scenarios: Vec<BaselineScenario>,
+    }
+
+    let baseline: Baseline = serde_json::from_slice(&std::fs::read(latest).unwrap())
+        .unwrap_or_else(|e| panic!("parse {latest:?}: {e}"));
+
+    let dir = tempdir().unwrap();
+    let cfg = A5RunConfig::default_with_results_dir(dir.path().to_path_buf());
+    let outcome = run_a5_in_process(&cfg).unwrap();
+
+    for floor in &baseline.scenarios {
+        let actual = outcome
+            .records
+            .iter()
+            .find(|r| r.fact_count == floor.fact_count && r.cut_k == floor.cut_k)
+            .unwrap_or_else(|| panic!(
+                "no record for fact_count={} cut_k={}",
+                floor.fact_count, floor.cut_k
+            ));
+        assert!(
+            actual.recall_at_3 + baseline.tolerance >= floor.recall_at_3,
+            "regression: scenario (n={}, k={}) recall_at_3 {:.3} < floor {:.3} (tol {:.3})",
+            floor.fact_count,
+            floor.cut_k,
+            actual.recall_at_3,
+            floor.recall_at_3,
+            baseline.tolerance,
+        );
+    }
+}
+

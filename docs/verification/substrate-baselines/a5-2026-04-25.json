@@ -1,0 +1,27 @@
+{
+  "suite": "cross-session-recall",
+  "captured_on": "2026-04-25",
+  "phase": "A5",
+  "memd_sha": "research/mining @ A5.6",
+  "backend": "in_process_recording",
+  "seed": 42,
+  "kind_mix": { "canonical": 0.5, "semantic": 0.3, "preference": 0.2 },
+  "notes": [
+    "Captured against the perfect-recall in-process backend (RecordingBackend).",
+    "Floor numbers therefore represent driver+scorer correctness, not memd retrieval quality.",
+    "When the HTTP backend wires in (follow-up after V5 substrate gate), this floor is replaced with real-memd numbers and the recall_at_3_* knobs in PassGate must drop accordingly.",
+    "Baseline regression check: future runs must not drop below `recall_at_3 - tolerance` per scenario."
+  ],
+  "tolerance": 0.03,
+  "scenarios": [
+    { "fact_count": 20,  "cut_k": 2, "recall_at_1": 1.0, "recall_at_3": 1.0, "answer_exact_match": 1.0, "pass": true },
+    { "fact_count": 20,  "cut_k": 4, "recall_at_1": 1.0, "recall_at_3": 1.0, "answer_exact_match": 1.0, "pass": true },
+    { "fact_count": 20,  "cut_k": 8, "recall_at_1": 1.0, "recall_at_3": 1.0, "answer_exact_match": 1.0, "pass": true },
+    { "fact_count": 50,  "cut_k": 2, "recall_at_1": 1.0, "recall_at_3": 1.0, "answer_exact_match": 1.0, "pass": true },
+    { "fact_count": 50,  "cut_k": 4, "recall_at_1": 1.0, "recall_at_3": 1.0, "answer_exact_match": 1.0, "pass": true },
+    { "fact_count": 50,  "cut_k": 8, "recall_at_1": 1.0, "recall_at_3": 1.0, "answer_exact_match": 1.0, "pass": true },
+    { "fact_count": 100, "cut_k": 2, "recall_at_1": 1.0, "recall_at_3": 1.0, "answer_exact_match": 1.0, "pass": true },
+    { "fact_count": 100, "cut_k": 4, "recall_at_1": 1.0, "recall_at_3": 1.0, "answer_exact_match": 1.0, "pass": true },
+    { "fact_count": 100, "cut_k": 8, "recall_at_1": 1.0, "recall_at_3": 1.0, "answer_exact_match": 1.0, "pass": true }
+  ]
+}
