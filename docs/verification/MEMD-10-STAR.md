@@ -42,7 +42,7 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 | Session continuity | 20% | 4/10 | A4 ledger survives compaction (seal → restore 10/10 loop) + B4 contract-gated enforce wrapper with trace + budget + per-(session,event) lock + A5 substrate-native cross-session-recall benchmark with locked floor + nightly regression gate |
 | Correction retention | 15% | 1/10 | mechanics exist, no end-to-end flow, never proven in a session |
 | Procedural reuse | 15% | 1/10 | detect dead code, RetrievalIntent::Procedural unreachable, table empty |
-| Cross-harness continuity | 15% | 2/10 | 6 presets, never cross-tested, handoff unverified |
+| Cross-harness continuity | 15% | 2/10 | 6 presets, never cross-tested, handoff unverified — V5 C5 substrate suite landed 2026-04-25 (banked +1, materializes 2→4 atomically when V4 G4 closes 2026-05-02) |
 | Raw retrieval strength | 15% | 4/10 | search works, wake/working excludes most kinds, no LongMemEval |
 | Token efficiency | 10% | 2/10 | budget enforced, no cost measurement, noise burns budget |
 | Trust + provenance | 10% | 3/10 | explain + hook-trace NDJSON with ts_ms/trace_id/session_id/failure_class per hook line + doctor --check contract |
@@ -80,6 +80,17 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 - *Locked floor `docs/verification/substrate-baselines/b5-2026-04-25.json` — 3 scenarios (query_session ∈ {3,5,8}), tolerance 0.03, in-process recording backend (driver+scorer correctness)*
 - *Nightly + push-gate `.github/workflows/substrate-bench.yml` — paths-filter extended to substrate_b5_tests, B5 reproducibility step added (`--suite correction-propagation --seed 43`)*
 - *HTTP backend deferred (same caveat as A5); B5 floor will be re-locked downward when real memd-server proves the gate.*
+
+*2026-04-25: C5 cross-harness-continuity substrate suite landed. Per 0.1.0-AXIS-OWNERSHIP V5 owns cross_harness 3→4, but the prerequisite V4 G4 lift (2→3) is still in `harness-built-watch-active` (7-day CI watch closes 2026-05-02). Axis row held at 2/10 until G4 closes; C5's +1 is banked and will materialize 2→4 atomically when V4 G4 lands. Composite stays 2.50/10. Evidence:*
+- *Plan + tests `docs/phases/v5/phase-c5-plan.md` (10 numbered tests, 6 atomic tasks C5.1–C5.6)*
+- *Suite code `crates/memd-client/src/benchmark/substrate/cross_harness.rs` + `harness_adapter/{mod,claude_code,codex}.rs` — HarnessAdapter trait, MemdGateway DI, InMemoryGateway with `with_leak_local()` fault knob, Scope (Project/Local/Global) visibility match arms, C5RunConfig (seed=44, claude_code↔codex pairs, 3 scenarios × per_scenario_facts=10), C5PassGate (0.95/0/2000ms), run_c5_with_adapters / run_c5_with_skip / run_c5_in_process driver, allow_skip_from_env() (CI-aware)*
+- *ClaudeCodeAdapter detects `~/.claude/settings.json`, CodexAdapter detects `~/.codex/hooks.json` — file-existence + JSON parse availability check; subprocess wiring deferred (gateway-driven scripts cover the bench surface)*
+- *Truth-conservation scorer filters to Project-scope reads only (avoids conflating isolation success with availability failure); visibility-leak scorer flags Local-scope hits from foreign harness OR cross-project hits (hard 0 floor)*
+- *Integration tests `crates/memd-client/src/main_tests/substrate_c5_tests/mod.rs` (tests 7–10 + skip-disabled error guard + dir-tree) — graceful skip when codex unavailable, error when skip disabled, happy both pairs, seed reproducibility, baseline-floor regression*
+- *Locked floor `docs/verification/substrate-baselines/c5-2026-04-25.json` — 6 scenarios (2 pairs × 3 scenarios), tolerance 0.03, in-process InMemoryGateway (driver+scorer+visibility-auditor correctness, NOT memd's actual cross-harness retrieval quality)*
+- *Nightly + push-gate `.github/workflows/substrate-bench.yml` — paths-filter extended to substrate_c5_tests, C5 reproducibility step with `MEMD_SUBSTRATE_C5_HARNESS_ALLOW_SKIP=1` (`--suite cross-harness --seed 44`)*
+- *HTTP backend deferred (same caveat as A5/B5); C5 floor will be re-locked downward when real memd-server roundtrip lands and pass-gate truth_conservation may need to drop.*
+- *Banked axis bump applies post 2026-05-02 once V4 G4 closes — at that point cross_harness moves 2→4 atomically (+1 V4 G4, +1 V5 C5) and composite gains +0.30 → 2.80.*
 
 *MILESTONE-v4's historical `composite_pre: 2.15` is superseded — see 0.1.0-CONTRACT.md baseline.*
 
