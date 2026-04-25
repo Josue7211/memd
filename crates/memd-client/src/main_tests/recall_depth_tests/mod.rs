@@ -1,7 +1,7 @@
 use super::*;
 use crate::runtime::recall::{
-    clamp_lookup_limit, dispatch_lookup_with_depth, synth_resume_args, synth_wake_args,
-    RecallDepth, LOOKUP_DEPTH_RECORD_CAP,
+    clamp_lookup_limit, dispatch_lookup_with_depth, escalation, run_lookup_arm_inner,
+    synth_resume_args, synth_wake_args, RecallDepth, LOOKUP_DEPTH_RECORD_CAP,
 };
 
 fn baseline_lookup_args(output: PathBuf, query: &str, depth: RecallDepth) -> LookupArgs {
@@ -151,4 +151,95 @@ fn lookup_depth_resume_returns_full_task_state() {
     assert_eq!(resume.namespace.as_deref(), Some("main"));
     assert!(!resume.prompt, "resume arm returns the full snapshot, not the prompt form");
     assert!(!resume.summary, "resume arm returns the full snapshot, not the summary form");
+}
+
+// E4.3 — Test 3: "the X task/plan/issue/decision/bug/feature" specifier.
+#[test]
+fn escalation_detector_fires_on_the_x_task_pattern() {
+    assert!(escalation::detect("the migration task"));
+    assert!(escalation::detect("THE migration TASK"));
+    assert!(escalation::detect("my caching plan"));
+    assert!(escalation::detect("our recent decision"));
+    assert!(escalation::detect("the auth bug we hit yesterday"));
+    assert!(escalation::detect("the new search feature"));
+}
+
+// E4.3 — Test 4: "what (was|were) (I|we) (doing|working on|trying)".
+#[test]
+fn escalation_detector_fires_on_what_was_i_doing() {
+    assert!(escalation::detect("what was I doing yesterday"));
+    assert!(escalation::detect("What were we working on this morning?"));
+    assert!(escalation::detect("what was I trying to fix"));
+    assert!(escalation::detect("where did I leave off"));
+    assert!(escalation::detect("Where did we leave off last night"));
+}
+
+// E4.3 — Test 5: Neutral queries do not match the specifier set.
+#[test]
+fn escalation_detector_ignores_neutral_query() {
+    assert!(!escalation::detect("configuration files"));
+    assert!(!escalation::detect("how do I parse JSON"));
+    assert!(!escalation::detect("server logs"));
+    assert!(!escalation::detect("the"));
+    assert!(!escalation::detect("task"));
+    assert!(!escalation::detect(""));
+}
+
+// E4.3 — Test 11: Zero-hit lookup with specifier query → outcome carries
+// the canonical hint string (dispatcher prints to stderr; here we assert
+// at the runtime layer where stderr capture is unnecessary).
+#[tokio::test]
+async fn lookup_depth_lookup_zero_hit_emits_escalation_hint_when_specifier() {
+    let bundle =
+        std::env::temp_dir().join(format!("memd-recall-hint-pos-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&bundle).expect("create bundle root");
+
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+    let client = MemdClient::new(&base_url).expect("client");
+
+    // mock_search returns no items for arbitrary tagless queries by default
+    // unless the query matches one of its hardcoded branches; "the migration
+    // plan" does not match any → zero-hit.
+    let mut args = baseline_lookup_args(
+        bundle,
+        "the migration plan we shelved",
+        RecallDepth::Lookup,
+    );
+    args.tag = vec!["resume_state".to_string()];
+
+    let outcome = run_lookup_arm_inner(&client, args)
+        .await
+        .expect("dispatch lookup inner");
+
+    assert!(outcome.response.items.is_empty(), "expected zero hits");
+    let hint = outcome.escalation_hint.expect("expected escalation hint");
+    assert!(hint.starts_with("hint: zero results at lookup depth."));
+    assert!(hint.contains("--depth resume"));
+    assert!(hint.contains("the migration plan we shelved"));
+}
+
+// E4.3 — Test 12: Zero-hit lookup with neutral query → no hint.
+#[tokio::test]
+async fn lookup_depth_lookup_zero_hit_no_hint_on_neutral_query() {
+    let bundle =
+        std::env::temp_dir().join(format!("memd-recall-hint-neg-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&bundle).expect("create bundle root");
+
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+    let client = MemdClient::new(&base_url).expect("client");
+
+    let mut args = baseline_lookup_args(bundle, "configuration files", RecallDepth::Lookup);
+    args.tag = vec!["resume_state".to_string()];
+
+    let outcome = run_lookup_arm_inner(&client, args)
+        .await
+        .expect("dispatch lookup inner");
+
+    assert!(outcome.response.items.is_empty(), "expected zero hits");
+    assert!(
+        outcome.escalation_hint.is_none(),
+        "neutral query must not trigger the escalation hint"
+    );
 }

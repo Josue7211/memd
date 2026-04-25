@@ -1406,6 +1406,7 @@ dependencies = [
  "memd-sidecar",
  "mime_guess",
  "notify",
+ "regex",
  "reqwest",
  "rusqlite",
  "serde",

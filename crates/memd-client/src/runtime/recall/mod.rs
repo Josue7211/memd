@@ -1,6 +1,7 @@
 use super::*;
 
 pub(crate) mod depth;
+pub(crate) mod escalation;
 
 pub(crate) use depth::{depth_flag_enabled, escalation_hint_enabled, RecallDepth};
 
@@ -36,20 +37,45 @@ async fn run_resume_arm(args: &LookupArgs, base_url: &str) -> anyhow::Result<()>
 }
 
 async fn run_lookup_arm(client: &MemdClient, args: LookupArgs) -> anyhow::Result<()> {
+    let outcome = run_lookup_arm_inner(client, args).await?;
+    if let Some(hint) = outcome.escalation_hint.as_deref() {
+        eprintln!("{hint}");
+    }
+    if outcome.json {
+        crate::print_json(&outcome.response)
+    } else {
+        println!("{}", outcome.markdown);
+        Ok(())
+    }
+}
+
+pub(crate) struct LookupArmOutcome {
+    pub(crate) response: memd_schema::SearchMemoryResponse,
+    pub(crate) markdown: String,
+    pub(crate) json: bool,
+    pub(crate) escalation_hint: Option<String>,
+}
+
+pub(crate) async fn run_lookup_arm_inner(
+    client: &MemdClient,
+    args: LookupArgs,
+) -> anyhow::Result<LookupArmOutcome> {
     let runtime = read_bundle_runtime_config(&args.output)?;
     let mut args = crate::cli::apply_lookup_bundle_defaults(args, runtime.as_ref());
     args.limit = Some(clamp_lookup_limit(args.limit));
     let req = build_lookup_request(&args, runtime.as_ref())?;
     let response = lookup_with_fallbacks(client, &req, &args.query).await?;
-    if args.json {
-        crate::print_json(&response)
-    } else {
-        println!(
-            "{}",
-            render_lookup_markdown(&args.query, &req, &response, args.verbose)
-        );
-        Ok(())
-    }
+    let escalation_hint = (response.items.is_empty()
+        && escalation_hint_enabled()
+        && escalation::detect(&args.query))
+    .then(|| escalation::hint_line(&args.query));
+    let markdown = render_lookup_markdown(&args.query, &req, &response, args.verbose);
+    Ok(LookupArmOutcome {
+        response,
+        markdown,
+        json: args.json,
+        escalation_hint,
+    })
 }
 
 pub(crate) fn clamp_lookup_limit(limit: Option<usize>) -> usize {

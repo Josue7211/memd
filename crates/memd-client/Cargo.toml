@@ -24,6 +24,7 @@ memdrive = { package = "walkdir", version = "2" }
 url = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
 notify = "6"
+regex = "1"
 tempfile = "3"
 shell-words = "1"
 
