@@ -72,6 +72,15 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 - *Nightly + push-gate `.github/workflows/substrate-bench.yml` — paths-filtered to substrate code/baselines/scripts, 04:00 UTC cron, uploads results artifact*
 - *HTTP backend (real memd-server, not perfect-recall recorder) deferred to follow-up after V5 substrate gate; floor will be re-locked downward at that point*
 
+*2026-04-25: B5 correction-propagation substrate suite landed. No axis bump per 0.1.0-AXIS-OWNERSHIP overlap rule (V4 C4 owns correction_retention 1→4, V7 A7/C7 owns 4→5); B5 is bench infra that will be reused as the V7 happy-path harness. Evidence:*
+- *Plan + tests `docs/phases/v5/phase-b5-plan.md` (9 numbered tests, 7 atomic tasks B5.1–B5.7)*
+- *Suite code `crates/memd-client/src/benchmark/substrate/correction_propagation.rs` — B5RunConfig, B5PassGate (0.85/0.80/0.95), B5Backend trait + InProcessB5Backend perfect-recall recorder + DegradedB5Backend, run_b5_in_process / run_b5_with_backend driver*
+- *ProvenanceChainScorer `crates/memd-client/src/benchmark/substrate/scorers.rs` — provenance_chain_cites_correction (forward-only, exactly-one-occurrence) + provenance_correctness_rate aggregator*
+- *Integration tests `crates/memd-client/src/main_tests/substrate_b5_tests/mod.rs` (tests 5–8) — happy path, pass-gate miss w/ DegradedB5Backend, seed reproducibility, results dir tree, baseline-floor regression. Plus tests 1–4 + test 9 (rollback-reassert chain integrity) in correction_propagation.rs unit tests*
+- *Locked floor `docs/verification/substrate-baselines/b5-2026-04-25.json` — 3 scenarios (query_session ∈ {3,5,8}), tolerance 0.03, in-process recording backend (driver+scorer correctness)*
+- *Nightly + push-gate `.github/workflows/substrate-bench.yml` — paths-filter extended to substrate_b5_tests, B5 reproducibility step added (`--suite correction-propagation --seed 43`)*
+- *HTTP backend deferred (same caveat as A5); B5 floor will be re-locked downward when real memd-server proves the gate.*
+
 *MILESTONE-v4's historical `composite_pre: 2.15` is superseded — see 0.1.0-CONTRACT.md baseline.*
 
 ## 11 Pillars — Current Reality
