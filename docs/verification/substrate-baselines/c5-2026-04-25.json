@@ -1,0 +1,35 @@
+{
+  "suite": "cross-harness",
+  "captured_on": "2026-04-25",
+  "phase": "C5",
+  "memd_sha": "research/mining @ C5.5",
+  "backend": "in_memory_gateway",
+  "seed": 44,
+  "per_scenario_facts": 10,
+  "project": "c5-demo",
+  "pairs": [
+    ["claude_code", "codex"],
+    ["codex", "claude_code"]
+  ],
+  "scenarios": ["fact_roundtrip", "preference_roundtrip", "correction_roundtrip"],
+  "notes": [
+    "Captured against the perfect-recall InMemoryGateway with both ClaudeCodeAdapter and CodexAdapter wired through their respective config-file detection paths.",
+    "Floor numbers represent driver+scorer+visibility-auditor correctness, not memd's actual cross-harness retrieval quality.",
+    "When the HTTP-backed gateway lands (real memd-server roundtrip), this floor is replaced and pass-gate truth_conservation may need to drop.",
+    "Regression check: per-scenario truth_conservation_rate must not drop below floor - tolerance; visibility_leak_count must remain 0 (hard floor)."
+  ],
+  "tolerance": 0.03,
+  "pass_gate": {
+    "truth_conservation_rate": 0.95,
+    "visibility_leak_count": 0,
+    "latency_p95_ms": 2000
+  },
+  "scenarios_floor": [
+    { "pair_index": 0, "scenario": "fact_roundtrip", "truth_conservation_rate": 1.0, "visibility_leak_count": 0, "pass": true },
+    { "pair_index": 0, "scenario": "preference_roundtrip", "truth_conservation_rate": 1.0, "visibility_leak_count": 0, "pass": true },
+    { "pair_index": 0, "scenario": "correction_roundtrip", "truth_conservation_rate": 1.0, "visibility_leak_count": 0, "pass": true },
+    { "pair_index": 1, "scenario": "fact_roundtrip", "truth_conservation_rate": 1.0, "visibility_leak_count": 0, "pass": true },
+    { "pair_index": 1, "scenario": "preference_roundtrip", "truth_conservation_rate": 1.0, "visibility_leak_count": 0, "pass": true },
+    { "pair_index": 1, "scenario": "correction_roundtrip", "truth_conservation_rate": 1.0, "visibility_leak_count": 0, "pass": true }
+  ]
+}

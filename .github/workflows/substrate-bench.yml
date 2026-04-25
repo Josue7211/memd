@@ -16,6 +16,7 @@ on:
       - 'crates/memd-client/src/benchmark/substrate/**'
       - 'crates/memd-client/src/main_tests/substrate_a5_tests/**'
       - 'crates/memd-client/src/main_tests/substrate_b5_tests/**'
+      - 'crates/memd-client/src/main_tests/substrate_c5_tests/**'
       - 'docs/verification/substrate-baselines/**'
       - 'scripts/substrate-bench-reproduce.sh'
       - '.github/workflows/substrate-bench.yml'
@@ -24,6 +25,7 @@ on:
       - 'crates/memd-client/src/benchmark/substrate/**'
       - 'crates/memd-client/src/main_tests/substrate_a5_tests/**'
       - 'crates/memd-client/src/main_tests/substrate_b5_tests/**'
+      - 'crates/memd-client/src/main_tests/substrate_c5_tests/**'
       - 'docs/verification/substrate-baselines/**'
       - 'scripts/substrate-bench-reproduce.sh'
       - '.github/workflows/substrate-bench.yml'
@@ -70,6 +72,17 @@ jobs:
             benchmark substrate --suite correction-propagation --seed 43 \
             --output /tmp/memd-substrate-b5-out \
             --report /tmp/memd-substrate-b5-report.md
+
+      - name: Substrate C5 reproducibility (release path, skip if harness configs missing)
+        env:
+          MEMD_SUBSTRATE_C5_HARNESS_ALLOW_SKIP: "1"
+        run: |
+          set -euo pipefail
+          CARGO_TARGET_DIR=/tmp/memd-target \
+            cargo run --release --target-dir /tmp/memd-target -p memd-client -- \
+            benchmark substrate --suite cross-harness --seed 44 \
+            --output /tmp/memd-substrate-c5-out \
+            --report /tmp/memd-substrate-c5-report.md
 
       - name: Upload substrate results
         if: always()

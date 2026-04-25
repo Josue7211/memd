@@ -136,6 +136,80 @@ fn cli_c5_reproducibility_same_seed() {
     }
 }
 
+/// C5 Test 10 — `c5_baseline_lock`.
+/// Loads the latest `c5-*.json` and asserts the in-memory gateway
+/// still meets every scenario's truth-conservation floor and the hard
+/// zero-leak floor. Auto-picks newest filename — drop a fresh
+/// `c5-YYYY-MM-DD.json` when the HTTP-backed gateway relands the floor.
+#[test]
+fn c5_baseline_current_memd_canonical_numbers() {
+    let baselines_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/verification/substrate-baselines");
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(&baselines_dir)
+        .unwrap_or_else(|e| panic!("read baseline dir {baselines_dir:?}: {e}"))
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|s| s.to_str())
+                .is_some_and(|n| n.starts_with("c5-") && n.ends_with(".json"))
+        })
+        .collect();
+    entries.sort();
+    let latest = entries.last().expect("at least one c5-*.json baseline");
+
+    #[derive(serde::Deserialize)]
+    struct BaselineScenario {
+        pair_index: usize,
+        scenario: String,
+        truth_conservation_rate: f64,
+        visibility_leak_count: u64,
+    }
+    #[derive(serde::Deserialize)]
+    struct Baseline {
+        tolerance: f64,
+        scenarios_floor: Vec<BaselineScenario>,
+    }
+
+    let baseline: Baseline = serde_json::from_slice(&std::fs::read(latest).unwrap())
+        .unwrap_or_else(|e| panic!("parse {latest:?}: {e}"));
+
+    let dir = tempdir().unwrap();
+    let (claude, codex) = ready_adapters(dir.path());
+    let gateway = InMemoryGateway::new();
+    let cfg = C5RunConfig::default_with_results_dir(dir.path().to_path_buf());
+    let adapters: Vec<(&str, &dyn HarnessAdapter)> =
+        vec![("claude_code", &claude), ("codex", &codex)];
+    let outcome = run_c5_with_adapters(&cfg, &adapters, &gateway).unwrap();
+
+    for floor in &baseline.scenarios_floor {
+        let actual = outcome
+            .records
+            .iter()
+            .find(|r| r.cut_k == floor.pair_index && r.suite.contains(&floor.scenario))
+            .unwrap_or_else(|| {
+                panic!(
+                    "no record for pair_index={} scenario={}",
+                    floor.pair_index, floor.scenario
+                )
+            });
+        assert!(
+            actual.recall_at_1 + baseline.tolerance >= floor.truth_conservation_rate,
+            "regression: pair={} scenario={} truth {:.3} < floor {:.3} (tol {:.3})",
+            floor.pair_index,
+            floor.scenario,
+            actual.recall_at_1,
+            floor.truth_conservation_rate,
+            baseline.tolerance,
+        );
+        // Hard floor — no tolerance.
+        assert_eq!(
+            actual.recall_at_3 as u64, floor.visibility_leak_count,
+            "regression: pair={} scenario={} leaks {} != floor {} (hard 0)",
+            floor.pair_index, floor.scenario, actual.recall_at_3, floor.visibility_leak_count,
+        );
+    }
+}
+
 /// Output dir layout — NDJSON per suite + runs.jsonl aggregator.
 #[test]
 fn cli_c5_writes_results_dir_tree() {
