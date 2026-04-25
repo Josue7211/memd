@@ -8,12 +8,16 @@
 
 use crate::cli::SubstrateArgs;
 
+pub(crate) mod correction_propagation;
 pub(crate) mod cross_session_recall;
 pub(crate) mod fixtures;
 pub(crate) mod report;
 pub(crate) mod scorers;
 pub(crate) mod session_driver;
 
+use crate::benchmark::substrate::correction_propagation::{
+    run_b5_in_process, B5RunConfig,
+};
 use crate::benchmark::substrate::cross_session_recall::{
     run_a5_in_process, A5RunConfig,
 };
@@ -26,7 +30,11 @@ pub(crate) const REGISTERED_SUITES: &[(&str, &str)] = &[
         "cross-session-recall",
         "A5 — recall across simulated session cuts (PostCompact restore path)",
     ),
-    // B5..G5 register themselves here as they land.
+    (
+        "correction-propagation",
+        "B5 — corrections in session 2 propagate forward; provenance chain cites correction turn",
+    ),
+    // C5..G5 register themselves here as they land.
 ];
 
 /// Top-level dispatcher for `memd bench substrate`.
@@ -80,6 +88,39 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
                 upsert_markdown_section(
                     &args.report,
                     "cross-session-recall",
+                    &outcome.records,
+                )
+                .map_err(|e| {
+                    anyhow::anyhow!("substrate: report write failed: {e}")
+                })?;
+                if !outcome.overall_pass {
+                    overall_pass = false;
+                }
+                if args.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&outcome.records)
+                            .unwrap_or_else(|_| "[]".into())
+                    );
+                } else {
+                    println!(
+                        "substrate {suite}: {} scenarios, pass={}",
+                        outcome.records.len(),
+                        outcome.overall_pass
+                    );
+                }
+            }
+            "correction-propagation" => {
+                let mut cfg = B5RunConfig::default_with_results_dir(args.output.clone());
+                if let Some(seed) = args.seed {
+                    cfg.seed = seed;
+                }
+                let outcome = run_b5_in_process(&cfg).map_err(|e| {
+                    anyhow::anyhow!("substrate correction-propagation runner io error: {e}")
+                })?;
+                upsert_markdown_section(
+                    &args.report,
+                    "correction-propagation",
                     &outcome.records,
                 )
                 .map_err(|e| {
