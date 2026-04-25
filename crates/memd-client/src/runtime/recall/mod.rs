@@ -2,8 +2,11 @@ use super::*;
 
 pub(crate) mod depth;
 pub(crate) mod escalation;
+pub(crate) mod telemetry;
 
 pub(crate) use depth::{depth_flag_enabled, escalation_hint_enabled, RecallDepth};
+
+use std::time::Instant;
 
 /// Hard cap on records returned at `--depth lookup`, per
 /// `docs/contracts/recall-depth.md` ("1–3 records").
@@ -18,11 +21,59 @@ pub(crate) async fn dispatch_lookup_with_depth(
         anyhow::bail!("--depth flag is disabled (set MEMD_E4_DEPTH_FLAG=1 to enable)");
     }
 
-    match args.depth {
-        RecallDepth::Wake => run_wake_arm(&args, base_url).await,
-        RecallDepth::Lookup => run_lookup_arm(client, args).await,
-        RecallDepth::Resume => run_resume_arm(&args, base_url).await,
-    }
+    let bundle_root = args.output.clone();
+    let session_id = read_bundle_runtime_config(&bundle_root)
+        .ok()
+        .flatten()
+        .and_then(|c| c.session);
+    let query = args.query.clone();
+    let depth = args.depth;
+    let started = Instant::now();
+
+    let (result, records, tokens, hint) = match depth {
+        RecallDepth::Wake => {
+            let res = run_wake_arm(&args, base_url).await;
+            (res, 0_usize, 0_usize, None)
+        }
+        RecallDepth::Lookup => {
+            let outcome = run_lookup_arm_inner(client, args).await;
+            match outcome {
+                Ok(out) => {
+                    let hint = out.escalation_hint.clone();
+                    if let Some(h) = hint.as_deref() {
+                        eprintln!("{h}");
+                    }
+                    let render_result: anyhow::Result<()> = if out.json {
+                        crate::print_json(&out.response)
+                    } else {
+                        println!("{}", out.markdown);
+                        Ok(())
+                    };
+                    let records = out.response.items.len();
+                    let tokens = telemetry::approx_tokens(out.markdown.len());
+                    (render_result, records, tokens, hint)
+                }
+                Err(err) => (Err(err), 0, 0, None),
+            }
+        }
+        RecallDepth::Resume => {
+            let res = run_resume_arm(&args, base_url).await;
+            (res, 0, 0, None)
+        }
+    };
+
+    let _ = telemetry::record(telemetry::RecordOpts {
+        bundle_root: &bundle_root,
+        session_id: session_id.as_deref(),
+        query: &query,
+        depth,
+        records_returned: records,
+        tokens_returned: tokens,
+        latency_ms: started.elapsed().as_millis() as u64,
+        escalation_hint: hint.as_deref(),
+    });
+
+    result
 }
 
 async fn run_wake_arm(args: &LookupArgs, base_url: &str) -> anyhow::Result<()> {
@@ -34,19 +85,6 @@ async fn run_resume_arm(args: &LookupArgs, base_url: &str) -> anyhow::Result<()>
     let resume_args = synth_resume_args(args);
     let snapshot = read_bundle_resume(&resume_args, base_url).await?;
     crate::print_json(&snapshot)
-}
-
-async fn run_lookup_arm(client: &MemdClient, args: LookupArgs) -> anyhow::Result<()> {
-    let outcome = run_lookup_arm_inner(client, args).await?;
-    if let Some(hint) = outcome.escalation_hint.as_deref() {
-        eprintln!("{hint}");
-    }
-    if outcome.json {
-        crate::print_json(&outcome.response)
-    } else {
-        println!("{}", outcome.markdown);
-        Ok(())
-    }
 }
 
 pub(crate) struct LookupArmOutcome {

@@ -1,7 +1,7 @@
 use super::*;
 use crate::runtime::recall::{
     clamp_lookup_limit, dispatch_lookup_with_depth, escalation, run_lookup_arm_inner,
-    synth_resume_args, synth_wake_args, RecallDepth, LOOKUP_DEPTH_RECORD_CAP,
+    synth_resume_args, synth_wake_args, telemetry, RecallDepth, LOOKUP_DEPTH_RECORD_CAP,
 };
 
 fn baseline_lookup_args(output: PathBuf, query: &str, depth: RecallDepth) -> LookupArgs {
@@ -242,4 +242,118 @@ async fn lookup_depth_lookup_zero_hit_no_hint_on_neutral_query() {
         outcome.escalation_hint.is_none(),
         "neutral query must not trigger the escalation hint"
     );
+}
+
+fn read_depth_log(bundle_root: &PathBuf) -> Vec<serde_json::Value> {
+    let path = telemetry::log_path(bundle_root);
+    let raw = fs::read_to_string(&path).unwrap_or_default();
+    raw.lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).expect("ndjson parse"))
+        .collect()
+}
+
+// E4.4 — Test 6: Every dispatcher call writes exactly one NDJSON line.
+#[tokio::test]
+async fn telemetry_writes_one_ndjson_per_call() {
+    let bundle =
+        std::env::temp_dir().join(format!("memd-recall-telem-one-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&bundle).expect("create bundle root");
+
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+    let client = MemdClient::new(&base_url).expect("client");
+
+    for query in ["alpha probe", "beta probe", "gamma probe"] {
+        let args = baseline_lookup_args(bundle.clone(), query, RecallDepth::Lookup);
+        dispatch_lookup_with_depth(&client, &base_url, args)
+            .await
+            .expect("dispatch lookup");
+    }
+
+    let lines = read_depth_log(&bundle);
+    assert_eq!(lines.len(), 3, "one telemetry line per dispatch call");
+    for line in &lines {
+        assert_eq!(line["depth"], "lookup");
+        assert!(line["ts_ms"].is_i64());
+        assert!(line["records_returned"].is_u64());
+        assert!(line["tokens_returned"].is_u64());
+        assert!(line["latency_ms"].is_u64());
+    }
+}
+
+// E4.4 — Test 7: Zero-hit + specifier query records the hint string in
+// the `escalation_hint` column.
+#[tokio::test]
+async fn telemetry_records_zero_hit_with_escalation_hint() {
+    let bundle =
+        std::env::temp_dir().join(format!("memd-recall-telem-hint-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&bundle).expect("create bundle root");
+
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+    let client = MemdClient::new(&base_url).expect("client");
+
+    let mut args = baseline_lookup_args(
+        bundle.clone(),
+        "the migration plan we shelved",
+        RecallDepth::Lookup,
+    );
+    args.tag = vec!["resume_state".to_string()];
+
+    dispatch_lookup_with_depth(&client, &base_url, args)
+        .await
+        .expect("dispatch lookup");
+
+    let lines = read_depth_log(&bundle);
+    assert_eq!(lines.len(), 1);
+    let hint = lines[0]["escalation_hint"]
+        .as_str()
+        .expect("escalation_hint should be a string when set");
+    assert!(hint.starts_with("hint: zero results at lookup depth."));
+    assert_eq!(lines[0]["records_returned"], 0);
+}
+
+// E4.4 — Test 14: Standalone `memd wake` writes a depth telemetry line
+// so wake calls show up in the recall-depth distribution alongside
+// `lookup --depth wake`.
+#[tokio::test]
+async fn wake_cli_writes_depth_telemetry_line() {
+    let bundle =
+        std::env::temp_dir().join(format!("memd-recall-telem-wake-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&bundle).expect("create bundle root");
+
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+    write_test_bundle_config(&bundle, &base_url);
+
+    let wake = WakeArgs {
+        output: bundle.clone(),
+        project: None,
+        namespace: None,
+        agent: None,
+        workspace: None,
+        visibility: None,
+        route: None,
+        intent: None,
+        limit: None,
+        rehydration_limit: None,
+        semantic: false,
+        verbose: false,
+        write: false,
+        summary: true,
+        raw: true,
+        budget_tokens: 0,
+        include_bucket: Vec::new(),
+        exclude_bucket: Vec::new(),
+    };
+
+    crate::run_bundle_wake_command(&wake, &base_url)
+        .await
+        .expect("run wake");
+
+    let lines = read_depth_log(&bundle);
+    assert_eq!(lines.len(), 1, "wake CLI must emit one depth-telemetry line");
+    assert_eq!(lines[0]["depth"], "wake");
+    assert_eq!(lines[0]["query"], "wake");
 }

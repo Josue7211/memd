@@ -2,6 +2,7 @@ use super::*;
 use memd_schema::IngestLanesRequest;
 
 pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> anyhow::Result<()> {
+    let recall_started = std::time::Instant::now();
     // F2: Re-ingest lane source files on every wake so modified files are picked up.
     if let Some(project_root) = infer_bundle_project_root(&args.output) {
         let runtime = read_bundle_runtime_config(&args.output).ok().flatten();
@@ -185,6 +186,22 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
     } else {
         println!("{wakeup}");
     }
+
+    // E4.4: every wake invocation logs a depth-telemetry line so the
+    // `recall-depth.ndjson` distribution captures wake calls too.
+    let _ = crate::runtime::recall::telemetry::record(
+        crate::runtime::recall::telemetry::RecordOpts {
+            bundle_root: &args.output,
+            session_id: session_id.as_deref(),
+            query: "wake",
+            depth: crate::runtime::recall::RecallDepth::Wake,
+            records_returned: snapshot.context.records.len() + snapshot.working.records.len(),
+            tokens_returned: crate::runtime::recall::telemetry::approx_tokens(wakeup.len()),
+            latency_ms: recall_started.elapsed().as_millis() as u64,
+            escalation_hint: None,
+        },
+    );
+
     Ok(())
 }
 
