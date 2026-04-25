@@ -43,7 +43,7 @@ Agent spends the right amount of tokens for the job. Cheap queries stay cheap; e
 
 ## Evidence
 
-- `docs/contracts/recall-depth.md`
+- [`docs/contracts/recall-depth.md`](../../contracts/recall-depth.md) — normative depth + telemetry contract
 - 7-day depth distribution histogram
 - Per-turn token cost pre vs post
 
