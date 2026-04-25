@@ -16,7 +16,7 @@ use super::CorrectionCandidate;
 
 /// Average cost per judge call. Approximation; refine when the proxy
 /// reports usage in headers.
-const DEFAULT_COST_PER_CALL_USD: f32 = 0.01;
+pub const DEFAULT_COST_PER_CALL_USD: f32 = 0.01;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -209,7 +209,7 @@ fn write_cache(path: &Path, verdict: &JudgeVerdict) -> Result<()> {
     Ok(())
 }
 
-fn read_budget(path: &Path) -> Result<JudgeBudgetState> {
+pub fn read_budget(path: &Path) -> Result<JudgeBudgetState> {
     match fs::read_to_string(path) {
         Ok(body) => Ok(serde_json::from_str(&body).unwrap_or_default()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(JudgeBudgetState::default()),
@@ -217,7 +217,7 @@ fn read_budget(path: &Path) -> Result<JudgeBudgetState> {
     }
 }
 
-fn write_budget(path: &Path, state: &JudgeBudgetState) -> Result<()> {
+pub fn write_budget(path: &Path, state: &JudgeBudgetState) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -225,7 +225,7 @@ fn write_budget(path: &Path, state: &JudgeBudgetState) -> Result<()> {
     Ok(())
 }
 
-fn ensure_current_month(state: &mut JudgeBudgetState) {
+pub fn ensure_current_month(state: &mut JudgeBudgetState) {
     let now = chrono::Utc::now().format("%Y-%m").to_string();
     if state.month != now {
         state.month = now;
@@ -316,24 +316,24 @@ impl JudgeTransport for ReqwestTransport {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests_support {
+    //! Public stub transport shared with F4's preference-drift tests.
     use super::*;
     use std::sync::Mutex;
-    use tempfile::TempDir;
 
-    struct StubTransport {
-        responses: Mutex<Vec<RawJudgeResponse>>,
-        calls: Mutex<u32>,
+    pub struct StubTransport {
+        pub responses: Mutex<Vec<RawJudgeResponse>>,
+        pub calls: Mutex<u32>,
     }
 
     impl StubTransport {
-        fn new(responses: Vec<RawJudgeResponse>) -> Self {
+        pub fn new(responses: Vec<RawJudgeResponse>) -> Self {
             Self {
                 responses: Mutex::new(responses),
                 calls: Mutex::new(0),
             }
         }
-        fn call_count(&self) -> u32 {
+        pub fn call_count(&self) -> u32 {
             *self.calls.lock().unwrap()
         }
     }
@@ -348,6 +348,13 @@ mod tests {
             Ok(q.remove(0))
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::tests_support::StubTransport;
+    use tempfile::TempDir;
 
     fn cfg(dir: &Path) -> JudgeConfig {
         JudgeConfig {

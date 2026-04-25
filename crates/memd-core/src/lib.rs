@@ -4,6 +4,7 @@ pub mod enforcement;
 pub mod file_ledger;
 pub mod hook_runtime;
 pub mod lifecycle_probe;
+pub mod preference;
 
 use memd_schema::{
     CandidateMemoryRequest, CompactContextResponse, CompactionDecision, CompactionOpenLoop,
