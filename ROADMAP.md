@@ -7,19 +7,19 @@ truth_date: 2026-04-25
 version: v4
 version_status: in_progress
 current_milestone: V4
-milestone_status: code-complete-dogfood-running
-current_phase: F4
-phase_status: code-complete-dogfood-running
+milestone_status: harness-built-watch-active
+current_phase: G4
+phase_status: g4_1_through_g4_5_landed_g4_6_pass_1_green_g4_7_awaiting_clocks
 next_milestone: V5
 post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 → V14 → V15 → V16 → V17 → V18 → V19 → V20 (see V4–V20 block below; composite **8.50 at V13** = 0.1.0 release gate per docs/verification/0.1.0-CONTRACT.md; composite **10.00 at V20** = 1.0.0 release gate per docs/verification/1.0.0-CONTRACT.md; V10 production-floor, V13 ships 0.1.0, V14-V20 ceiling push pulls every axis to 10/10, V20 ships 1.0.0; 0.1.0 gate = composite ≥8.0 AND every axis ≥7; 1.0.0 gate = composite =10.00 AND every axis =10 per docs/theory/MEMD-SOTA-THEORY.md; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
-next_step: F4.7 dogfood clock running (started 2026-04-25, MEMD_F4_PREF_DRIFT=1 in ~/.zshrc, earliest harvest 2026-05-01). D4.8 + E4.7 + F4.7 all converge 2026-05-01; then F4.8 10-STAR rescore. See docs/handoff/LATEST.md.
+next_step: G4 harness machinery complete (G4.1–G4.5, commits c0f83cc → fd7691e). G4.6 stability pass #1 = 10/10 local (docs/verification/v4-proof-runs/2026-04-25-stability-pass-1.md). Awaiting (a) 7-day CI nightly watch closing 2026-05-02, (b) D4.8/E4.7/F4.7 dogfood harvest earliest 2026-05-01, (c) G4.7 = invoke G4.4 regenerator against harvested NDJSON, then close MILESTONE-v4 if composite ≥3.45.
 active_blockers: []
 v3_tail_deferred: []
 v3_tail_followups: ["canonical rerun: LongMemEval/LoCoMo/ConvoMem via codex-lb route (OPENAI_BASE_URL=http://127.0.0.1:2455/v1 OPENAI_API_KEY=$CODEX_LB_API_KEY)"]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
 note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. A3 Continuity Foundation closed 2026-04-17: Part 1 (file-interaction ledger + prime-reads + PreCompact non-blocking + PreEdit prime), Part 2 (hooks consolidation under .memd/hooks, contract v0.2, write-path hook gate, preference replay), Part 3 (file_layout v0.3 guarantee, backlog/phases regroup under v1/v2/v3, LATEST.md symlink fix, MANIFEST.json + `memd hooks doctor` green/red, lifecycle-probe NDJSON log, cross-harness pre-send validator pure function + 4 tests). B3 Part 2 plumbing landed 2026-04-18 (optional RAG fan-out, dense candidate injection, healthz rag state, dual-mode bench rows, turn diagnostics opt-in). 2026-04-20: 500-Q intrinsic product-path rerun on the real dense blend lands `session_recall_any@5 = 0.936` — gate 0.92 passed. The prior 0.828/0.882 numbers were lexical-only fallback because the bench search path left `source_agent=None` and `MemoryVisibility::Private` denied every item; one-line fix at public_benchmark.rs:1770 unblocked dense. V3 phase order: A3 ✓ → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty.
-last_handoff: f4_code_complete_dogfood_started_2026-04-25
+last_handoff: g4_harness_built_watch_active_2026-04-25
 bench_cadence: every_two_phases  # test every TWO phases per user directive 2026-04-21
 -->
 

@@ -1,14 +1,18 @@
 ---
 milestone: v4
 name: Live Loop Repair
-status: planned
+status: harness-built-watch-active
 opened: 2026-04-22
-revised: 2026-04-22
+revised: 2026-04-25
 depends_on: [v3]
 composite_pre: 1.80
 composite_target: 3.45
 axes_lifted: [session_continuity, correction_retention, cross_harness, token_efficiency, trust_provenance]
 axes_seeded_no_credit: [procedural_reuse]
+gates_pending:
+  - g4_6_seven_day_ci_stability_watch  # closes 2026-05-02
+  - d4_8_e4_7_f4_7_dogfood_harvest     # earliest 2026-05-01
+  - g4_7_composite_rescore_at_3_45     # invoke G4.4 regenerator post-harvest
 ---
 
 # Milestone v4 Audit — Live Loop Repair
@@ -91,6 +95,35 @@ Missing any assertion → axis does not lift, milestone does not close.
   docs/contracts/federated-memory-visibility.md but not enforced)
 - procedural axis to 3+ (V5 scope; V4 only seeds)
 
+## Pass evidence (G4.7 — accumulating)
+
+- G4.1 fixtures (commit `c0f83cc`) — 3-session scenario + expected cuts +
+  seed-state + inject-faults README in `crates/memd-client/fixtures/g4/`.
+- G4.2 driver (commit `fecaea5`) — `crates/memd-client/src/main_tests/v4_proof_harness/mod.rs`,
+  2 tests green (parse + 3-session run with simulated PreCompact).
+- G4.3 cross-V4 assertions (commit `445040d`) — 6 asserters (A4/B4/C4/D4/E4/F4)
+  + 6 fault-inject fixtures in `crates/memd-client/fixtures/g4/inject-faults/`.
+- G4.4 scorecard regenerator (commit `251539d`) — strict mode refuses
+  over-claims; updates `## 10-Star Composite Scorecard` table in place.
+- G4.5 CI entrypoint + workflow (commit `fd7691e`) — `scripts/ci/v4-proof-harness.sh`
+  + `.github/workflows/v4-proof-harness.yml` (push gate + nightly cron 03:00 UTC).
+- G4.6 stability pass #1 (2026-04-25) — `docs/verification/v4-proof-runs/2026-04-25-stability-pass-1.md`,
+  10/10 local back-to-back green. 7-day CI watch underway.
+
+## Open gates before V4 closes
+
+1. **G4.6 7-day CI stability** — `.github/workflows/v4-proof-harness.yml`
+   nightly must hit 10/10 by 2026-05-02. Any flake → root-cause source phase.
+2. **Dogfood harvest** — D4.8 / E4.7 / F4.7 7-day env-flag clocks (running
+   since 2026-04-25 for F4) earliest harvest 2026-05-01. Required for
+   correction_retention + token_efficiency + procedural_reuse axis evidence.
+3. **G4.7 composite rescore** — invoke G4.4 regenerator against the
+   harvested NDJSON; must produce composite ≥ 3.45 (NOT the legacy 4.0
+   that still appears in `expected-cut-3.json::scorecard.composite_min` —
+   reconcile the fixture in the close commit).
+4. **`continuity-breach.log`** — must remain empty across all 7 days of
+   nightly + the harvest dogfood window.
+
 ## Changelog
 
 - 2026-04-22 opened.
@@ -99,3 +132,7 @@ Missing any assertion → axis does not lift, milestone does not close.
   demoted 1→3 to 1→2 (F4.7 seed only, no behavior credit); cross-harness
   flip assertion added to G4 gate; per-axis harness assertions table added
   to enforce "no axis credit without harness proof" rule from 0.1.0-CONTRACT.
+- 2026-04-25 G4 harness machinery landed (G4.1–G4.5, commits c0f83cc → fd7691e),
+  G4.6 stability pass #1 logged (10/10 local). Status moved planned →
+  harness-built-watch-active. Awaiting 7-day CI watch + 2026-05-01 dogfood
+  harvest before G4.7 close + composite rescore.
