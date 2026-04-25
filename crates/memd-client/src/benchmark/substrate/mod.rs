@@ -9,6 +9,7 @@
 use crate::cli::SubstrateArgs;
 
 pub(crate) mod fixtures;
+pub(crate) mod session_driver;
 
 /// Static registry of every substrate suite the dispatcher knows about.
 /// Each `(suite_id, summary)` pair shows up in `--help` and `--all`.
