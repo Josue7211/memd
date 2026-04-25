@@ -207,6 +207,7 @@ mod recall_depth_tests;
 mod runtime_memory_tests;
 mod runtime_verification_tests;
 mod skill_workflow_tests;
+mod substrate_a5_tests;
 mod tasks_hive_tests;
 mod test_support;
 mod v4_proof_harness;

@@ -132,7 +132,7 @@ impl A5Scenario {
                 let prev = self.session_id(s - 1);
                 backend.restore_session(&sid, &prev);
             }
-            let start = s * batch_size;
+            let start = (s * batch_size).min(self.facts.len());
             let end = (start + batch_size).min(self.facts.len());
             for f in &self.facts[start..end] {
                 backend.ingest_fact(&sid, f);
@@ -260,6 +260,22 @@ mod tests {
         let backend = RecordingBackend::default();
         let outcome = small_scenario(2).run(&backend);
         assert_eq!(outcome.session_count, 3);
+        assert!((outcome.recall_at_1 - 1.0).abs() < f64::EPSILON);
+    }
+
+    /// Regression: cut_k larger than fact count must not panic; later
+    /// sessions just receive empty batches.
+    #[test]
+    fn driver_handles_cut_k_larger_than_facts() {
+        let backend = RecordingBackend::default();
+        let scenario = A5Scenario {
+            suite: "cross-session-recall".into(),
+            seed: 42,
+            facts: generate_corpus(42, 20, &KindMix::default()),
+            cut_k: 8,
+        };
+        let outcome = scenario.run(&backend);
+        assert_eq!(outcome.session_count, 9);
         assert!((outcome.recall_at_1 - 1.0).abs() < f64::EPSILON);
     }
 }

@@ -8,10 +8,16 @@
 
 use crate::cli::SubstrateArgs;
 
+pub(crate) mod cross_session_recall;
 pub(crate) mod fixtures;
 pub(crate) mod report;
 pub(crate) mod scorers;
 pub(crate) mod session_driver;
+
+use crate::benchmark::substrate::cross_session_recall::{
+    run_a5_in_process, A5RunConfig,
+};
+use crate::benchmark::substrate::report::upsert_markdown_section;
 
 /// Static registry of every substrate suite the dispatcher knows about.
 /// Each `(suite_id, summary)` pair shows up in `--help` and `--all`.
@@ -51,18 +57,59 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
         vec![args.suite.as_deref().unwrap()]
     };
 
+    let mut overall_pass = true;
     for suite in suites {
         match suite {
             "cross-session-recall" => {
-                anyhow::bail!(
-                    "substrate suite '{suite}': runner not yet implemented (A5.2+); \
-                     scaffolding landed in A5.1."
-                );
+                let mut cfg = A5RunConfig::default_with_results_dir(args.output.clone());
+                if let Some(seed) = args.seed {
+                    cfg.seed = seed;
+                }
+                if let Some(only) = args.only_cuts.as_deref() {
+                    let parsed: Result<Vec<usize>, _> = only
+                        .split(',')
+                        .map(|s| s.trim().parse::<usize>())
+                        .collect();
+                    cfg.cuts = parsed.map_err(|e| {
+                        anyhow::anyhow!("substrate: --only-cuts parse failure: {e}")
+                    })?;
+                }
+                let outcome = run_a5_in_process(&cfg).map_err(|e| {
+                    anyhow::anyhow!("substrate cross-session-recall runner io error: {e}")
+                })?;
+                upsert_markdown_section(
+                    &args.report,
+                    "cross-session-recall",
+                    &outcome.records,
+                )
+                .map_err(|e| {
+                    anyhow::anyhow!("substrate: report write failed: {e}")
+                })?;
+                if !outcome.overall_pass {
+                    overall_pass = false;
+                }
+                if args.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&outcome.records)
+                            .unwrap_or_else(|_| "[]".into())
+                    );
+                } else {
+                    println!(
+                        "substrate {suite}: {} scenarios, pass={}",
+                        outcome.records.len(),
+                        outcome.overall_pass
+                    );
+                }
             }
             other => anyhow::bail!("substrate: unknown suite '{other}'"),
         }
     }
 
+    if !overall_pass {
+        // Exit-1 contract from phase-a5-plan.md §3.
+        std::process::exit(1);
+    }
     Ok(())
 }
 
