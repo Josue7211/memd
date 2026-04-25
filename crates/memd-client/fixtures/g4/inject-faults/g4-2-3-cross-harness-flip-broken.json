@@ -1,0 +1,10 @@
+{
+  "fault_id": "g4-2-3-cross-harness-flip-broken",
+  "phase": "G4.2.3",
+  "test": "ch_flip_01",
+  "description": "Cross-harness flip regression — codex S2 lookup for `primary ID` in workspace v4-dogfood returns the pre-correction value (uuid) or the provenance chain is missing the corrected-by edge. Cross_harness axis cannot lift past 2 without this.",
+  "mutation": {
+    "override_returned_value": "uuid",
+    "drop_provenance_edge": "corrected-by"
+  }
+}

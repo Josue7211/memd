@@ -42,6 +42,25 @@ pub(crate) struct PreferenceDriftState {
     pub outstanding_count: usize,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct CrossHarnessLookup {
+    /// e.g. "claude-code:g4-runner" — preset that issued the original claim.
+    pub origin_agent: String,
+    /// e.g. "codex:g4-runner" — preset that observes via lookup.
+    pub observing_agent: String,
+    pub workspace_id: String,
+    pub query: String,
+    pub returned_value: String,
+    /// Provenance edges traversed to get the corrected value back; must
+    /// include "corrected-by" for the assertion to pass.
+    pub provenance_edges: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct F47CounterSnapshot {
+    pub routine_candidates_observed: usize,
+}
+
 pub(crate) fn assert_a4_postcompact_restore_ran(restored_before_first_tool: bool) -> Result<(), String> {
     if restored_before_first_tool {
         Ok(())
@@ -130,6 +149,58 @@ pub(crate) fn assert_f4_drift_detected(
         return Err(format!(
             "F4 regression: outstanding drift count {} below expected minimum {}",
             drift.outstanding_count, min_outstanding
+        ));
+    }
+    Ok(())
+}
+
+/// G4.2.3 — cross-harness flip. Lookup issued by one preset against a value
+/// corrected by another preset must return the corrected value AND the
+/// provenance chain must show the cross-harness edge ("corrected-by"). Either
+/// failure caps the cross_harness axis at 2.
+pub(crate) fn assert_cross_harness_flip(
+    lookup: &CrossHarnessLookup,
+    must_contain: &str,
+    must_not_contain: &str,
+) -> Result<(), String> {
+    if lookup.origin_agent == lookup.observing_agent {
+        return Err(format!(
+            "G4.2.3 regression: cross-harness flip requires distinct presets, got origin={} observing={}",
+            lookup.origin_agent, lookup.observing_agent
+        ));
+    }
+    if !lookup.returned_value.contains(must_contain) {
+        return Err(format!(
+            "G4.2.3 regression: workspace `{}` lookup `{}` from `{}` returned `{}`, missing corrected value `{}`",
+            lookup.workspace_id, lookup.query, lookup.observing_agent, lookup.returned_value, must_contain
+        ));
+    }
+    if lookup.returned_value.contains(must_not_contain) {
+        return Err(format!(
+            "G4.2.3 regression: workspace `{}` lookup `{}` from `{}` returned stale value containing `{}`",
+            lookup.workspace_id, lookup.query, lookup.observing_agent, must_not_contain
+        ));
+    }
+    if !lookup.provenance_edges.iter().any(|e| e == "corrected-by") {
+        return Err(format!(
+            "G4.2.3 regression: provenance chain for workspace `{}` lookup `{}` missing `corrected-by` edge (saw {:?})",
+            lookup.workspace_id, lookup.query, lookup.provenance_edges
+        ));
+    }
+    Ok(())
+}
+
+/// G4.2.4 — F4.7 instrumentation. Counter must increment on the live path;
+/// zero axis credit but proves the procedural_reuse seed is not silently
+/// faked.
+pub(crate) fn assert_f47_routine_candidates(
+    snapshot: &F47CounterSnapshot,
+    min_observed: usize,
+) -> Result<(), String> {
+    if snapshot.routine_candidates_observed < min_observed {
+        return Err(format!(
+            "G4.2.4 regression: routine_candidates_observed = {} below floor {}",
+            snapshot.routine_candidates_observed, min_observed
         ));
     }
     Ok(())
@@ -269,6 +340,79 @@ mod tests {
         let err = assert_e4_lookup_returns_corrected(&faulted, "ulid", "uuid")
             .expect_err("stale lookup must be detected");
         assert!(err.contains("E4 regression"));
+    }
+
+    /// G4.2.3 — cross-harness flip CH-FLIP-01 (codex S2 sees claude-code S1
+    /// correction). Healthy: ulid + corrected-by edge; faulted: stale uuid +
+    /// missing edge.
+    #[test]
+    fn g4_2_3_ch_flip_01_codex_sees_claude_code_correction() {
+        let healthy = CrossHarnessLookup {
+            origin_agent: "claude-code:g4-runner".into(),
+            observing_agent: "codex:g4-runner".into(),
+            workspace_id: "v4-dogfood".into(),
+            query: "primary ID".into(),
+            returned_value: "ulid".into(),
+            provenance_edges: vec!["original-claim".into(), "corrected-by".into()],
+        };
+        assert_cross_harness_flip(&healthy, "ulid", "uuid").expect("healthy flip passes");
+
+        let fault = load_fault("g4-2-3-cross-harness-flip-broken.json");
+        let stale = mutation(&fault)["override_returned_value"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let dropped_edge = mutation(&fault)["drop_provenance_edge"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let mut faulted = healthy.clone();
+        faulted.returned_value = stale;
+        faulted.provenance_edges.retain(|e| e != &dropped_edge);
+
+        let err = assert_cross_harness_flip(&faulted, "ulid", "uuid")
+            .expect_err("cross-harness flip regression must be detected");
+        assert!(err.contains("G4.2.3 regression"));
+    }
+
+    /// G4.2.3 — same-preset lookup must be rejected as not-a-flip (guards
+    /// against tests that accidentally use one preset both sides).
+    #[test]
+    fn g4_2_3_same_preset_not_a_flip() {
+        let same = CrossHarnessLookup {
+            origin_agent: "claude-code:g4-runner".into(),
+            observing_agent: "claude-code:g4-runner".into(),
+            workspace_id: "v4-dogfood".into(),
+            query: "primary ID".into(),
+            returned_value: "ulid".into(),
+            provenance_edges: vec!["corrected-by".into()],
+        };
+        let err = assert_cross_harness_flip(&same, "ulid", "uuid")
+            .expect_err("same-preset must not satisfy flip assertion");
+        assert!(err.contains("requires distinct presets"));
+    }
+
+    /// G4.2.4 — F4.7 instrumentation counter. Healthy: ≥ floor; faulted:
+    /// stuck at zero.
+    #[test]
+    fn g4_2_4_f47_counter_at_or_above_floor() {
+        let healthy = F47CounterSnapshot {
+            routine_candidates_observed: 3,
+        };
+        assert_f47_routine_candidates(&healthy, 1).expect("healthy s2 floor");
+        assert_f47_routine_candidates(&healthy, 3).expect("healthy s3 floor");
+
+        let fault = load_fault("g4-2-4-f47-counter-stuck-zero.json");
+        let zero = mutation(&fault)["override_routine_candidates_observed"]
+            .as_u64()
+            .unwrap() as usize;
+        let faulted = F47CounterSnapshot {
+            routine_candidates_observed: zero,
+        };
+        let err = assert_f47_routine_candidates(&faulted, 1)
+            .expect_err("stuck-zero counter must be detected");
+        assert!(err.contains("G4.2.4 regression"));
+        assert!(err.contains("routine_candidates_observed = 0"));
     }
 
     /// Test 8 — F4 drift detector silently skips verbose-drift turn.

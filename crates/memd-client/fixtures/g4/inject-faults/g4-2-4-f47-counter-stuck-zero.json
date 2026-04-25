@@ -1,0 +1,7 @@
+{
+  "fault_id": "g4-2-4-f47-counter-stuck-zero",
+  "phase": "G4.2.4",
+  "test": "f47_01_and_02",
+  "description": "F4.7 instrumentation regression — routine_candidates_observed counter never increments. Asserter must fail because instrumentation is no-op (mocked) instead of live-path. This is zero axis credit (procedural_reuse stays at 2 either way) but proves the counter is not silently faked.",
+  "mutation": { "override_routine_candidates_observed": 0 }
+}
