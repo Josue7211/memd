@@ -529,6 +529,64 @@ mod tests {
         }
     }
 
+    /// B5 Test 9 — `b5_rollback_reassert_preserves_chain`.
+    /// After a user corrects in s2 and then re-asserts the original
+    /// value in s5, the provenance chain must contain BOTH the
+    /// correction turn and the re-assertion turn (forward-only, no
+    /// rewrite). This is the "user changed their mind back" case and
+    /// guards against backends that silently drop the in-between state.
+    #[test]
+    fn b5_rollback_reassert_preserves_chain() {
+        let backend = InProcessB5Backend::default();
+        let s1 = session_id(43, 1);
+        let s2 = session_id(43, 2);
+        let s5 = session_id(43, 5);
+
+        let fact = Fact {
+            id: 7,
+            kind: "canonical".into(),
+            subject: "alice".into(),
+            predicate: "lives_in".into(),
+            value: "berlin".into(),
+        };
+
+        backend.open_session(&s1);
+        backend.ingest_fact(&s1, &fact);
+        backend.seal_session(&s1);
+
+        backend.open_session(&s2);
+        backend.restore_session(&s2, &s1);
+        backend.apply_correction(&s2, fact.id, "tokyo");
+        backend.seal_session(&s2);
+
+        // Re-assert the original value in s5. Chain must keep both
+        // correction-s2 and re-assert-s5 turns.
+        backend.open_session(&s5);
+        backend.restore_session(&s5, &s2);
+        backend.apply_correction(&s5, fact.id, "berlin");
+
+        let correction_turn = correction_turn_id(&s2, fact.id);
+        let reassert_turn = correction_turn_id(&s5, fact.id);
+
+        let hit = backend
+            .query_with_provenance(&s5, fact.id, &correction_turn)
+            .expect("fact must be retrievable");
+        assert_eq!(hit.value, "berlin", "current value must reflect re-assertion");
+        assert!(
+            hit.cites_correction_turn,
+            "chain must still cite the s2 correction turn"
+        );
+
+        // Re-asking with reassert turn must also pass.
+        let hit2 = backend
+            .query_with_provenance(&s5, fact.id, &reassert_turn)
+            .expect("fact must be retrievable");
+        assert!(
+            hit2.cites_correction_turn,
+            "chain must cite the s5 re-assertion turn"
+        );
+    }
+
     /// Degraded backend (returns None for every query) must miss every
     /// pass-gate axis.
     #[test]
