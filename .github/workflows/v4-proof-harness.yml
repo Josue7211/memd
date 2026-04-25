@@ -1,0 +1,57 @@
+name: v4-proof-harness
+
+# G4.5 — V4 proof harness gate.
+# Push gate: runs on touches to v4-proof code/fixtures.
+# Nightly: runs at 03:00 UTC for the G4.6 7-day stability watch.
+#
+# Security note: this workflow uses only trusted GitHub-provided context
+# values (runner.os, hashFiles, github.run_id). No untrusted event inputs
+# (issue/PR/commit text) are interpolated into run: commands.
+
+on:
+  push:
+    paths:
+      - 'crates/memd-client/src/main_tests/v4_proof_harness/**'
+      - 'crates/memd-client/fixtures/g4/**'
+      - 'scripts/ci/v4-proof-harness.sh'
+      - '.github/workflows/v4-proof-harness.yml'
+  pull_request:
+    paths:
+      - 'crates/memd-client/src/main_tests/v4_proof_harness/**'
+      - 'crates/memd-client/fixtures/g4/**'
+      - 'scripts/ci/v4-proof-harness.sh'
+      - '.github/workflows/v4-proof-harness.yml'
+  schedule:
+    - cron: '0 3 * * *'
+
+jobs:
+  proof-harness:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            /tmp/memd-target
+          key: v4-proof-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: v4-proof-${{ runner.os }}-
+
+      - name: Run V4 proof harness
+        run: bash scripts/ci/v4-proof-harness.sh
+
+      - name: Upload stderr on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-proof-stderr-${{ github.run_id }}
+          path: /tmp/v4-proof-*.log
+          if-no-files-found: ignore

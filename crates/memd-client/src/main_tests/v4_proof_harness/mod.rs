@@ -8,6 +8,7 @@
 //! through the scenario and produce on-disk artifacts.
 
 mod assertions;
+mod ci;
 mod scorecard;
 
 use super::*;
