@@ -82,3 +82,65 @@ fn cli_b5_writes_results_dir_tree() {
     let runs_body = std::fs::read_to_string(&runs_jsonl).unwrap();
     assert!(runs_body.contains("correction-propagation"));
 }
+
+/// B5 Test 8 — `b5_baseline_lock`.
+/// Loads the latest `b5-*.json` and asserts the in-process backend
+/// still meets every scenario floor within tolerance. When the HTTP
+/// backend lands and floor changes, drop a fresh `b5-YYYY-MM-DD.json`
+/// and the test auto-picks the latest by filename sort.
+#[test]
+fn b5_baseline_current_memd_canonical_numbers() {
+    let baselines_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/verification/substrate-baselines");
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(&baselines_dir)
+        .unwrap_or_else(|e| panic!("read baseline dir {baselines_dir:?}: {e}"))
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|s| s.to_str())
+                .is_some_and(|n| n.starts_with("b5-") && n.ends_with(".json"))
+        })
+        .collect();
+    entries.sort();
+    let latest = entries.last().expect("at least one b5-*.json baseline");
+
+    #[derive(serde::Deserialize)]
+    struct BaselineScenario {
+        query_session: usize,
+        recall_at_1: f64,
+        recall_at_3: f64,
+    }
+    #[derive(serde::Deserialize)]
+    struct Baseline {
+        tolerance: f64,
+        scenarios: Vec<BaselineScenario>,
+    }
+
+    let baseline: Baseline = serde_json::from_slice(&std::fs::read(latest).unwrap())
+        .unwrap_or_else(|e| panic!("parse {latest:?}: {e}"));
+
+    let dir = tempdir().unwrap();
+    let cfg = B5RunConfig::default_with_results_dir(dir.path().to_path_buf());
+    let outcome = run_b5_in_process(&cfg).unwrap();
+
+    for floor in &baseline.scenarios {
+        let actual = outcome
+            .records
+            .iter()
+            .find(|r| r.cut_k == floor.query_session)
+            .unwrap_or_else(|| panic!(
+                "no record for query_session={}",
+                floor.query_session
+            ));
+        assert!(
+            actual.recall_at_1 + baseline.tolerance >= floor.recall_at_1,
+            "regression: query_session={} propagation_rate {:.3} < floor {:.3} (tol {:.3})",
+            floor.query_session, actual.recall_at_1, floor.recall_at_1, baseline.tolerance,
+        );
+        assert!(
+            actual.recall_at_3 + baseline.tolerance >= floor.recall_at_3,
+            "regression: query_session={} provenance_correctness {:.3} < floor {:.3} (tol {:.3})",
+            floor.query_session, actual.recall_at_3, floor.recall_at_3, baseline.tolerance,
+        );
+    }
+}

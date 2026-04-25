@@ -1,0 +1,29 @@
+{
+  "suite": "correction-propagation",
+  "captured_on": "2026-04-25",
+  "phase": "B5",
+  "memd_sha": "research/mining @ B5.5",
+  "backend": "in_process_recording",
+  "seed": 43,
+  "fact_count": 20,
+  "correct_in_session": 2,
+  "query_sessions": [3, 5, 8],
+  "kind_mix": { "canonical": 0.5, "semantic": 0.3, "preference": 0.2 },
+  "notes": [
+    "Captured against the perfect-recall InProcessB5Backend.",
+    "Floor numbers represent driver+scorer correctness, not memd retrieval quality.",
+    "When the HTTP backend wires in (follow-up after V5 substrate gate), this floor is replaced with real-memd numbers and the propagation_rate / provenance_correctness pass-gate knobs may need to drop accordingly.",
+    "Regression check: per-scenario recall_at_1 (propagation_rate) and recall_at_3 (provenance_correctness) must not drop below floor - tolerance."
+  ],
+  "tolerance": 0.03,
+  "pass_gate": {
+    "propagation_rate_s3": 0.85,
+    "propagation_rate_s8": 0.80,
+    "provenance_correctness": 0.95
+  },
+  "scenarios": [
+    { "query_session": 3, "recall_at_1": 1.0, "recall_at_3": 1.0, "answer_exact_match": 1.0, "pass": true },
+    { "query_session": 5, "recall_at_1": 1.0, "recall_at_3": 1.0, "answer_exact_match": 1.0, "pass": true },
+    { "query_session": 8, "recall_at_1": 1.0, "recall_at_3": 1.0, "answer_exact_match": 1.0, "pass": true }
+  ]
+}
