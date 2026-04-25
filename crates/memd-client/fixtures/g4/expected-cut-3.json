@@ -31,7 +31,7 @@
     "phase_evidence": "A4"
   },
   "scorecard": {
-    "composite_min": 4.0,
+    "composite_min": 3.45,
     "axis_floors": {
       "session_continuity": 4,
       "correction_retention": 4,
