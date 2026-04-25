@@ -9,6 +9,7 @@
 //! - [`drift`]: detector + outstanding-state helpers.
 
 pub mod drift;
+pub mod outstanding;
 
 use serde::{Deserialize, Serialize};
 
