@@ -280,6 +280,24 @@ fn filter_excluded(mut input: CompilerInput, exclude: &HashSet<BucketKind>) -> C
     input
 }
 
+/// IO helper: read F4 outstanding drift state for `memd_dir` and render
+/// each entry as a one-line note. Kept separate from `input_from_snapshot`
+/// to preserve that adapter's pure-transform contract.
+///
+/// Returns an empty vec when the state file is missing or unreadable —
+/// drift surfacing is best-effort, never blocks wake.
+pub fn drift_notes_from_outstanding(memd_dir: &std::path::Path) -> Vec<String> {
+    let path = memd_core::preference::outstanding::outstanding_state_path(memd_dir);
+    match memd_core::preference::outstanding::read_outstanding(&path) {
+        Ok(state) => state
+            .entries
+            .values()
+            .map(|entry| entry.render_line())
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Adapter: build a CompilerInput from the existing ResumeSnapshot. Lives
 /// here so the snapshot shape is the only thing that ever reaches the
 /// compiler — keeps the pure-transform contract.

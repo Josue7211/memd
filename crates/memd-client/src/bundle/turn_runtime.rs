@@ -131,7 +131,9 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
             .with_tokens(tokens)
             .with_includes(&args.include_bucket)
             .with_excludes(&args.exclude_bucket);
-        let input = crate::runtime::resume::compiler::input_from_snapshot(&snapshot);
+        let mut input = crate::runtime::resume::compiler::input_from_snapshot(&snapshot);
+        input.drift_notes =
+            crate::runtime::resume::compiler::drift_notes_from_outstanding(&args.output);
         let compiled = crate::runtime::resume::compiler::compile_wake(input, budget);
         let _ = crate::runtime::resume::compiler::ledger::write_budget_line(
             &args.output,

@@ -1,0 +1,9 @@
+{"day":1,"role":"user","restate":false,"content":"add the drift wire-up"}
+{"day":1,"role":"user","restate":true,"content":"please be terse, voice=terse"}
+{"day":2,"role":"user","restate":false,"content":"continue F4.5"}
+{"day":2,"role":"user","restate":true,"content":"caveman voice please, stop summarizing"}
+{"day":3,"role":"user","restate":false,"content":"test 13 next"}
+{"day":4,"role":"user","restate":true,"content":"voice=terse, no trailing summaries"}
+{"day":5,"role":"user","restate":false,"content":"green?"}
+{"day":6,"role":"user","restate":true,"content":"please use caveman voice — I have asked four times now"}
+{"day":7,"role":"user","restate":false,"content":"ship it"}

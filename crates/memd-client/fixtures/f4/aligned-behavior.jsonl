@@ -1,0 +1,10 @@
+{"turn":"t-1","role":"assistant","content":"fix in turn_runtime.rs:134"}
+{"turn":"t-2","role":"assistant","content":"adding drift_notes wire-up"}
+{"turn":"t-3","role":"assistant","content":"build clean"}
+{"turn":"t-4","role":"assistant","content":"writing test 13"}
+{"turn":"t-5","role":"assistant","content":"fixture seeded"}
+{"turn":"t-6","role":"assistant","content":"green"}
+{"turn":"t-7","role":"assistant","content":"committed"}
+{"turn":"t-8","role":"assistant","content":"next: test 14"}
+{"turn":"t-9","role":"assistant","content":"counting restates"}
+{"turn":"t-10","role":"assistant","content":"done"}

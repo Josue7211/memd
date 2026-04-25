@@ -1,0 +1,5 @@
+{"id":"pref-voice-terse","content":"Reply in caveman-ultra: terse, fix don't explain, no trailing summaries."}
+{"id":"pref-tabs-not-spaces","content":"Use tabs, not spaces, for indentation."}
+{"id":"pref-no-emojis","content":"Do not use emojis in any communication."}
+{"id":"pref-commit-caveman","content":"Commit messages stay caveman: imperative, terse, no boilerplate."}
+{"id":"pref-no-ai-footer","content":"Never append 'Generated with Claude Code' footers to commits or PRs."}
