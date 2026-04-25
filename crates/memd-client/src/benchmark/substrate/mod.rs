@@ -9,6 +9,7 @@
 use crate::cli::SubstrateArgs;
 
 pub(crate) mod fixtures;
+pub(crate) mod scorers;
 pub(crate) mod session_driver;
 
 /// Static registry of every substrate suite the dispatcher knows about.
