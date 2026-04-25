@@ -8,6 +8,15 @@ next_step: dogfood gate (D4.8) — needs 7 days of live captures behind MEMD_D4_
 
 # D4 code complete — dogfood gate is the only thing left
 
+## Pickup quickstart (30s read)
+
+- **Branch**: `research/mining` (8 commits ahead of `e7bfdbb`)
+- **Tip**: `efa54fe docs(d4): mark code-complete, defer D4.8 dogfood + D4.9 rescore`
+- **Verify green**: `CARGO_TARGET_DIR=/tmp/memd-target cargo test -p memd-client --bin memd` → 552 passed
+- **Next executable phase**: **E4 Progressive Depth Recall** — plan at `docs/phases/v4/phase-e4-plan.md`, spec at `docs/phases/v4/phase-e4-progressive-depth-recall.md`. No code-side blocker on D4.8.
+- **Only thing blocked**: D4.8 (7-day live dogfood) and D4.9 (10-STAR rescore) — measurement gates, not code.
+- **Don't do**: don't flip `compiler_enabled()` default to ON until D4.8 passes. Don't re-run the anonymizer plan (sealed dirs lack typed records — see "Fixture deviation" below).
+
 ## What landed this session
 
 | Task | Commit | Status |
