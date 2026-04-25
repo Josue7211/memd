@@ -1,18 +1,22 @@
 //! B5 correction-propagation runner.
 //!
-//! Plant N facts in session 1, correct each in session 2, query in
-//! sessions {3, 5, 8} and verify both value propagation (lookup returns
-//! corrected value) and provenance linkage (returned record cites the
-//! correction turn).
+//! Plant N facts in session 1, correct each in `correct_in_session`,
+//! query in `query_sessions` {3, 5, 8} and verify both:
+//!   1. value propagation — the lookup returns the corrected value,
+//!   2. provenance linkage — the returned record's chain cites the
+//!      correction turn.
 //!
-//! Runner stub — full impl lands in B5.3 / B5.4. Trait surface and
-//! config types are defined here so the dispatcher arm in `mod.rs` can
-//! reference them in B5.4.
+//! Backend is `B5Backend`. The default `InProcessB5Backend` is a
+//! perfect-recall recorder that proves driver+scorer correctness; the
+//! HTTP backend is a follow-up.
 
 use crate::benchmark::substrate::fixtures::{generate_corpus, Fact, KindMix};
 use crate::benchmark::substrate::report::{append_ndjson, ScenarioRecord};
+use crate::benchmark::substrate::scorers::provenance_chain_cites_correction;
 use chrono::Utc;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use uuid::Uuid;
 
 /// What pass/fail looks like for B5. Matches `phase-b5-plan.md` §2
@@ -88,7 +92,12 @@ pub(crate) trait B5Backend {
     /// Returns `(value, cites_correction_turn)` if the backend has any
     /// record for `fact_id`. The boolean asserts whether the returned
     /// record's provenance chain references the correction-turn session.
-    fn query_with_provenance(&self, session: &str, fact_id: u32) -> Option<QueryHit>;
+    fn query_with_provenance(
+        &self,
+        session: &str,
+        fact_id: u32,
+        correction_turn: &str,
+    ) -> Option<QueryHit>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,25 +106,269 @@ pub(crate) struct QueryHit {
     pub(crate) cites_correction_turn: bool,
 }
 
-/// Run B5 with the in-process perfect-recall recorder. Used by
-/// integration tests + the dispatcher's default path until the HTTP
-/// backend lands.
-pub(crate) fn run_b5_in_process(_config: &B5RunConfig) -> std::io::Result<B5Outcome> {
-    // B5.1 stub — real implementation in B5.3. Returns an empty pass
-    // so `cargo test` stays green while tests for the scorer + driver
-    // are written in B5.2/B5.3.
+/// Events captured by the in-process backend so tests can assert
+/// ordering without inspecting backend internals.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum B5Event {
+    SessionOpened(String),
+    FactIngested { session: String, fact_id: u32 },
+    CorrectionApplied { session: String, fact_id: u32, value: String },
+    SessionSealed(String),
+    SessionRestored { id: String, from: String },
+    Query { session: String, fact_id: u32 },
+}
+
+/// Per-fact backing store: current value + ordered provenance chain of
+/// turn IDs that contributed to the value.
+#[derive(Debug, Clone)]
+struct FactState {
+    value: String,
+    chain: Vec<String>,
+}
+
+/// Perfect-recall, in-process B5 backend. Used by the default runner +
+/// integration tests. Doubles as a recording backend so unit tests can
+/// assert event ordering.
+#[derive(Default)]
+pub(crate) struct InProcessB5Backend {
+    state: Mutex<HashMap<u32, FactState>>,
+    events: Mutex<Vec<B5Event>>,
+}
+
+impl InProcessB5Backend {
+    pub(crate) fn events(&self) -> Vec<B5Event> {
+        self.events.lock().unwrap().clone()
+    }
+}
+
+impl B5Backend for InProcessB5Backend {
+    fn open_session(&self, id: &str) {
+        self.events.lock().unwrap().push(B5Event::SessionOpened(id.to_string()));
+    }
+
+    fn ingest_fact(&self, session: &str, fact: &Fact) {
+        let turn = format!("{session}-ingest-{:03}", fact.id);
+        self.state.lock().unwrap().insert(
+            fact.id,
+            FactState {
+                value: fact.value.clone(),
+                chain: vec![turn],
+            },
+        );
+        self.events.lock().unwrap().push(B5Event::FactIngested {
+            session: session.to_string(),
+            fact_id: fact.id,
+        });
+    }
+
+    fn apply_correction(&self, session: &str, fact_id: u32, corrected_value: &str) {
+        let turn = correction_turn_id(session, fact_id);
+        let mut st = self.state.lock().unwrap();
+        let entry = st.entry(fact_id).or_insert_with(|| FactState {
+            value: corrected_value.to_string(),
+            chain: Vec::new(),
+        });
+        entry.value = corrected_value.to_string();
+        entry.chain.push(turn);
+        drop(st);
+        self.events.lock().unwrap().push(B5Event::CorrectionApplied {
+            session: session.to_string(),
+            fact_id,
+            value: corrected_value.to_string(),
+        });
+    }
+
+    fn seal_session(&self, id: &str) {
+        self.events.lock().unwrap().push(B5Event::SessionSealed(id.to_string()));
+    }
+
+    fn restore_session(&self, id: &str, restored_from: &str) {
+        self.events.lock().unwrap().push(B5Event::SessionRestored {
+            id: id.to_string(),
+            from: restored_from.to_string(),
+        });
+    }
+
+    fn query_with_provenance(
+        &self,
+        session: &str,
+        fact_id: u32,
+        correction_turn: &str,
+    ) -> Option<QueryHit> {
+        self.events.lock().unwrap().push(B5Event::Query {
+            session: session.to_string(),
+            fact_id,
+        });
+        let st = self.state.lock().unwrap();
+        st.get(&fact_id).map(|s| QueryHit {
+            value: s.value.clone(),
+            cites_correction_turn: provenance_chain_cites_correction(&s.chain, correction_turn),
+        })
+    }
+}
+
+/// A backend that loses corrections (returns original value or None) —
+/// used to exercise the pass-gate-miss path in tests.
+#[derive(Default)]
+pub(crate) struct DegradedB5Backend;
+
+impl B5Backend for DegradedB5Backend {
+    fn open_session(&self, _id: &str) {}
+    fn ingest_fact(&self, _session: &str, _fact: &Fact) {}
+    fn apply_correction(&self, _session: &str, _fact_id: u32, _corrected_value: &str) {}
+    fn seal_session(&self, _id: &str) {}
+    fn restore_session(&self, _id: &str, _restored_from: &str) {}
+    fn query_with_provenance(
+        &self,
+        _session: &str,
+        _fact_id: u32,
+        _correction_turn: &str,
+    ) -> Option<QueryHit> {
+        None
+    }
+}
+
+pub(crate) fn correction_turn_id(session: &str, fact_id: u32) -> String {
+    format!("{session}-correct-{fact_id:03}")
+}
+
+pub(crate) fn session_id(seed: u64, session_idx: usize) -> String {
+    format!("b5-seed{seed}-s{session_idx}")
+}
+
+/// Build a corrected value for `fact` such that it is detectably
+/// different from the original — appended `-v2` suffix is enough for
+/// exact-match scoring.
+pub(crate) fn corrected_value(fact: &Fact) -> String {
+    format!("{}-v2", fact.value)
+}
+
+/// Run B5 with the in-process perfect-recall backend.
+pub(crate) fn run_b5_in_process(config: &B5RunConfig) -> std::io::Result<B5Outcome> {
+    let backend = InProcessB5Backend::default();
+    run_b5_with_backend(config, &backend)
+}
+
+/// Backend-generic entry point.
+pub(crate) fn run_b5_with_backend<B: B5Backend>(
+    config: &B5RunConfig,
+    backend: &B,
+) -> std::io::Result<B5Outcome> {
     let run_id = Uuid::new_v4().to_string();
     let ts_ms = Utc::now().timestamp_millis();
-    let records: Vec<ScenarioRecord> = Vec::new();
-    let ndjson_path = ndjson_path_for(&_config.results_dir, ts_ms);
+    let facts = generate_corpus(config.seed, config.fact_count, &config.kind_mix);
+
+    // Determine highest session we need to drive (max of correct + queries).
+    let max_session = config
+        .query_sessions
+        .iter()
+        .copied()
+        .chain(std::iter::once(config.correct_in_session))
+        .max()
+        .unwrap_or(1);
+
+    // Session 1: ingest.
+    let s1 = session_id(config.seed, 1);
+    backend.open_session(&s1);
+    for f in &facts {
+        backend.ingest_fact(&s1, f);
+    }
+    backend.seal_session(&s1);
+
+    // Sessions 2..=max_session: open+restore from previous, apply
+    // correction in `correct_in_session`. Seal between hops.
+    let mut prev = s1.clone();
+    for s_idx in 2..=max_session {
+        let sid = session_id(config.seed, s_idx);
+        backend.open_session(&sid);
+        backend.restore_session(&sid, &prev);
+        if s_idx == config.correct_in_session {
+            for f in &facts {
+                backend.apply_correction(&sid, f.id, &corrected_value(f));
+            }
+        }
+        if s_idx < max_session {
+            backend.seal_session(&sid);
+        }
+        prev = sid;
+    }
+
+    // Per query_session: query each fact, score propagation + provenance.
+    let correction_session = session_id(config.seed, config.correct_in_session);
+    let mut records = Vec::with_capacity(config.query_sessions.len());
+    let mut overall_pass = true;
+    let mut prov_correct_total = 0usize;
+    let mut prov_correct_hits = 0usize;
+
+    for &qs in &config.query_sessions {
+        let qsid = session_id(config.seed, qs);
+        let mut prop_hits = 0usize;
+        let mut prov_hits = 0usize;
+        for f in &facts {
+            let want = corrected_value(f);
+            let turn = correction_turn_id(&correction_session, f.id);
+            if let Some(hit) = backend.query_with_provenance(&qsid, f.id, &turn) {
+                if hit.value == want {
+                    prop_hits += 1;
+                }
+                if hit.cites_correction_turn {
+                    prov_hits += 1;
+                }
+            }
+        }
+        let n = facts.len().max(1) as f64;
+        let prop_rate = prop_hits as f64 / n;
+        let prov_rate = prov_hits as f64 / n;
+        prov_correct_total += facts.len();
+        prov_correct_hits += prov_hits;
+
+        let prop_floor = if qs <= 3 {
+            config.pass_gate.propagation_rate_s3
+        } else {
+            config.pass_gate.propagation_rate_s8
+        };
+        let pass = prop_rate >= prop_floor && prov_rate >= config.pass_gate.provenance_correctness;
+        if !pass {
+            overall_pass = false;
+        }
+
+        records.push(ScenarioRecord {
+            suite: "correction-propagation".into(),
+            run_id: run_id.clone(),
+            ts_ms,
+            seed: config.seed,
+            fact_count: config.fact_count,
+            cut_k: qs,
+            recall_at_1: prop_rate,
+            recall_at_3: prov_rate,
+            answer_exact_match: prop_rate,
+            tokens_per_recall: 0,
+            latency_ms_p50: 0,
+            latency_ms_p95: 0,
+            pass,
+        });
+    }
+
+    // Belt-and-braces: also enforce the aggregate provenance rate floor.
+    let agg_prov = if prov_correct_total > 0 {
+        prov_correct_hits as f64 / prov_correct_total as f64
+    } else {
+        0.0
+    };
+    if agg_prov < config.pass_gate.provenance_correctness {
+        overall_pass = false;
+    }
+
+    let ndjson_path = ndjson_path_for(&config.results_dir, ts_ms);
     if !records.is_empty() {
         append_ndjson(&ndjson_path, &records)?;
     }
-    write_run_metadata(&_config.results_dir, &run_id, ts_ms, _config)?;
+    write_run_metadata(&config.results_dir, &run_id, ts_ms, config)?;
+
     Ok(B5Outcome {
         records,
         ndjson_path,
-        overall_pass: true,
+        overall_pass,
     })
 }
 
@@ -154,8 +407,6 @@ fn write_run_metadata(
 }
 
 /// Reference to the deterministic source corpus B5 plants in session 1.
-/// Exposed so tests can plant + assert against the same set the runner
-/// will use.
 pub(crate) fn b5_source_corpus(config: &B5RunConfig) -> Vec<Fact> {
     generate_corpus(config.seed, config.fact_count, &config.kind_mix)
 }
@@ -178,11 +429,11 @@ mod tests {
     }
 
     #[test]
-    fn b5_stub_runner_writes_runs_metadata() {
+    fn b5_runner_writes_runs_metadata() {
         let dir = tempdir().unwrap();
         let cfg = B5RunConfig::default_with_results_dir(dir.path().to_path_buf());
         let outcome = run_b5_in_process(&cfg).unwrap();
-        assert!(outcome.overall_pass, "stub returns pass until B5.3");
+        assert!(outcome.overall_pass);
         let runs = std::fs::read_to_string(dir.path().join("runs.jsonl")).unwrap();
         assert!(runs.contains("correction-propagation"));
     }
@@ -195,5 +446,101 @@ mod tests {
         let b = b5_source_corpus(&cfg);
         assert_eq!(a, b);
         assert_eq!(a.len(), 20);
+    }
+
+    /// B5 Test 3 — `runner_applies_correction_in_session_2_via_c4_path`.
+    /// The driver must emit a CorrectionApplied event in session 2
+    /// after restore, and only in session 2.
+    #[test]
+    fn runner_applies_correction_in_session_2_via_c4_path() {
+        let dir = tempdir().unwrap();
+        let cfg = B5RunConfig {
+            fact_count: 5,
+            ..B5RunConfig::default_with_results_dir(dir.path().to_path_buf())
+        };
+        let backend = InProcessB5Backend::default();
+        run_b5_with_backend(&cfg, &backend).unwrap();
+        let events = backend.events();
+
+        let s2 = session_id(cfg.seed, 2);
+        let corrections_in_s2: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                B5Event::CorrectionApplied { session, fact_id, .. } if session == &s2 => {
+                    Some(*fact_id)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            corrections_in_s2.len(),
+            cfg.fact_count,
+            "every fact must be corrected in s2"
+        );
+
+        // No corrections outside s2.
+        let other_corrections = events.iter().any(|e| matches!(
+            e,
+            B5Event::CorrectionApplied { session, .. } if session != &s2
+        ));
+        assert!(!other_corrections, "corrections must only fire in correct_in_session");
+
+        // Restore must precede correction.
+        let restore_pos = events
+            .iter()
+            .position(|e| matches!(e, B5Event::SessionRestored { id, .. } if id == &s2))
+            .expect("s2 restore missing");
+        let first_correction = events
+            .iter()
+            .position(|e| matches!(e, B5Event::CorrectionApplied { session, .. } if session == &s2))
+            .expect("s2 correction missing");
+        assert!(restore_pos < first_correction);
+    }
+
+    /// B5 Test 4 — `runner_queries_each_target_session`.
+    /// Every configured query_session must produce exactly N queries
+    /// (one per fact) and emit a ScenarioRecord per session.
+    #[test]
+    fn runner_queries_each_target_session() {
+        let dir = tempdir().unwrap();
+        let cfg = B5RunConfig {
+            fact_count: 4,
+            query_sessions: vec![3, 5],
+            ..B5RunConfig::default_with_results_dir(dir.path().to_path_buf())
+        };
+        let backend = InProcessB5Backend::default();
+        let outcome = run_b5_with_backend(&cfg, &backend).unwrap();
+        let events = backend.events();
+
+        for &qs in &cfg.query_sessions {
+            let qsid = session_id(cfg.seed, qs);
+            let n_queries = events
+                .iter()
+                .filter(|e| matches!(e, B5Event::Query { session, .. } if session == &qsid))
+                .count();
+            assert_eq!(n_queries, cfg.fact_count, "wrong query count for session {qs}");
+        }
+        assert_eq!(outcome.records.len(), cfg.query_sessions.len());
+        // Perfect backend should pass every gate.
+        assert!(outcome.overall_pass);
+        for r in &outcome.records {
+            assert!((r.recall_at_1 - 1.0).abs() < f64::EPSILON);
+            assert!((r.recall_at_3 - 1.0).abs() < f64::EPSILON);
+        }
+    }
+
+    /// Degraded backend (returns None for every query) must miss every
+    /// pass-gate axis.
+    #[test]
+    fn runner_pass_gate_misses_with_degraded_backend() {
+        let dir = tempdir().unwrap();
+        let cfg = B5RunConfig::default_with_results_dir(dir.path().to_path_buf());
+        let outcome = run_b5_with_backend(&cfg, &DegradedB5Backend).unwrap();
+        assert!(!outcome.overall_pass);
+        for r in &outcome.records {
+            assert!(!r.pass);
+            assert!((r.recall_at_1 - 0.0).abs() < f64::EPSILON);
+            assert!((r.recall_at_3 - 0.0).abs() < f64::EPSILON);
+        }
     }
 }
