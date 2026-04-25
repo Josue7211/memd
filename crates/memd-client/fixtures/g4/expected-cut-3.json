@@ -1,0 +1,45 @@
+{
+  "cut": 3,
+  "session": "session-3",
+  "wake_brief": {
+    "drift_surface_line_in_preferences_section": true,
+    "drift_surface_preferences": ["P1"],
+    "corrections_in_canonical_section": ["fact-A", "fact-B"],
+    "wake_token_budget_max": 2000,
+    "phase_evidence": ["D4", "F4", "C4"]
+  },
+  "agent_answers": [
+    {
+      "turn": "t-21",
+      "must_contain": "2026-05-15",
+      "must_not_contain": "2026-05-01",
+      "phase_evidence": "E4"
+    },
+    {
+      "turn": "t-22",
+      "must_contain": "ulid",
+      "must_not_contain": "uuid",
+      "phase_evidence": "E4"
+    }
+  ],
+  "preference_drift": {
+    "outstanding_count_after_t23": 0,
+    "phase_evidence": "F4"
+  },
+  "continuity": {
+    "continuity_breach_log_lines_across_all_sessions": 0,
+    "phase_evidence": "A4"
+  },
+  "scorecard": {
+    "composite_min": 4.0,
+    "axis_floors": {
+      "session_continuity": 4,
+      "correction_retention": 4,
+      "cross_harness": 3,
+      "raw_retrieval": 4,
+      "token_efficiency": 4,
+      "trust_provenance": 3
+    },
+    "phase_evidence": "G4"
+  }
+}

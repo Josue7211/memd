@@ -1,0 +1,11 @@
+{"turn":"s2-wake","role":"system","event":"SessionStart","wake_compiler":"d4","expect_postcompact_restore":true}
+{"turn":"t-11","role":"assistant","tool":"Read","path":"src/migrations/004.sql"}
+{"turn":"t-12","role":"user","content":"What is the primary ID?","memd":"lookup --query \"primary ID\" --depth lookup","expect_returns":"ulid","expect_not_returns":"uuid"}
+{"turn":"t-13","role":"assistant","tool":"touch_fact","fact_id":"fact-A"}
+{"turn":"t-14","role":"assistant","tool":"touch_fact","fact_id":"fact-B"}
+{"turn":"t-15","role":"assistant","tool":"touch_preference","preference_id":"P1"}
+{"turn":"t-16","role":"assistant","content":"Acknowledged."}
+{"turn":"t-17","role":"assistant","content":"Acknowledged."}
+{"turn":"t-18","role":"user","content":"No, migration deadline is 2026-05-15.","fact_id":"fact-B","fact_value":"2026-05-15","corrects":"t-7","correction_id":"C2"}
+{"turn":"t-19","role":"assistant","content":"Certainly! I would be absolutely delighted to provide a wonderfully comprehensive and exhaustively detailed explanation of every consideration involved in this migration, including a thorough analysis of edge cases, historical context, and best-practice recommendations drawn from the wider Postgres community.","preference_violation":"P1","seed":"verbose-drift"}
+{"turn":"t-20","role":"system","event":"PreCompact"}

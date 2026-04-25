@@ -1,0 +1,53 @@
+{
+  "cut": 2,
+  "session": "session-2",
+  "wake_brief": {
+    "preferences_section_present": true,
+    "preferences_must_include": ["P1", "P2"],
+    "preferences_non_demoted": true,
+    "focus_section_contains": "Q1 migration",
+    "wake_token_budget_max": 2000,
+    "postcompact_restore_ran_before_first_tool_call": true,
+    "phase_evidence": ["D4", "F4", "A4"]
+  },
+  "lookup_results": [
+    {
+      "turn": "t-12",
+      "query": "primary ID",
+      "depth": "lookup",
+      "must_return_value": "ulid",
+      "must_not_return_value": "uuid",
+      "phase_evidence": ["E4", "C4"]
+    }
+  ],
+  "facts": [
+    {
+      "id": "fact-A",
+      "current_value": "ulid",
+      "phase_evidence": "C4"
+    },
+    {
+      "id": "fact-B",
+      "current_value": "2026-05-15",
+      "corrects_turn": "t-7",
+      "correction_id": "C2",
+      "provenance_required": true,
+      "phase_evidence": "C4"
+    }
+  ],
+  "preference_drift": {
+    "outstanding_count": 1,
+    "outstanding_preferences": ["P1"],
+    "ndjson_min_lines": 1,
+    "phase_evidence": "F4"
+  },
+  "read_ledger": {
+    "min_files": 4,
+    "expected_paths_include": ["src/migrations/004.sql"],
+    "phase_evidence": "A4"
+  },
+  "hook_trace": {
+    "no_silent_failures": true,
+    "phase_evidence": "B4"
+  }
+}

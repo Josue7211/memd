@@ -1,0 +1,21 @@
+{
+  "description": "Empty memd starting state for the V4 proof harness. The harness initializes a fresh bundle root + workspace and uses these IDs across all 3 sessions.",
+  "workspace_id": "v4-dogfood",
+  "agent_id": "g4-runner",
+  "namespace": "main",
+  "project": "memd-v4-proof",
+  "bundle_root_relative": ".memd",
+  "memd_env": {
+    "MEMD_RATE_LIMIT_DISABLED": "1",
+    "MEMD_A4_LEDGER_SURVIVAL": "1",
+    "MEMD_C4_CORRECTION_DETECT": "1",
+    "MEMD_D4_COMPILER": "1",
+    "MEMD_E4_DEPTH_FLAG": "1",
+    "MEMD_E4_ESCALATION_HINT": "1",
+    "MEMD_F4_PREF_DRIFT": "1",
+    "MEMD_WAKE_BUDGET_TOKENS": "2000"
+  },
+  "preload_facts": [],
+  "preload_preferences": [],
+  "preload_episodes": []
+}

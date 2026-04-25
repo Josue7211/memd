@@ -1,0 +1,6 @@
+{"turn":"s3-wake","role":"system","event":"SessionStart","wake_compiler":"d4","expect_drift_surface":["P1"],"expect_corrections_in_canonical":["fact-A","fact-B"]}
+{"turn":"t-21","role":"user","content":"What's the migration deadline?","expect_assistant_answer_contains":"2026-05-15","expect_assistant_answer_excludes":"2026-05-01"}
+{"turn":"t-22","role":"user","content":"And the primary ID?","expect_assistant_answer_contains":"ulid","expect_assistant_answer_excludes":"uuid"}
+{"turn":"t-23","role":"user","content":"Confirm, drop the drift note — I noticed.","memd":"preference confirm P1"}
+{"turn":"t-24","role":"assistant","content":"Done.","preference_compliant":"P1"}
+{"turn":"t-25","role":"system","event":"SessionEnd"}

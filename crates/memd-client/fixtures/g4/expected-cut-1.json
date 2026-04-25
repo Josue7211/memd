@@ -1,0 +1,41 @@
+{
+  "cut": 1,
+  "session": "session-1",
+  "facts": [
+    {
+      "id": "fact-A",
+      "current_value": "ulid",
+      "corrects_turn": "t-2",
+      "phase_evidence": "C4"
+    },
+    {
+      "id": "fact-B",
+      "current_value": "2026-05-01",
+      "corrects_turn": null,
+      "phase_evidence": "C4"
+    }
+  ],
+  "preferences": [
+    {"id": "P1", "tag": "terse", "kind": "Preference", "phase_evidence": "F4"},
+    {"id": "P2", "tag": "no-emojis", "kind": "Preference", "phase_evidence": "F4"}
+  ],
+  "read_ledger": {
+    "min_files": 3,
+    "expected_paths": [
+      "src/migrations/001.sql",
+      "src/migrations/002.sql",
+      "src/migrations/003.sql"
+    ],
+    "phase_evidence": "A4"
+  },
+  "hook_trace": {
+    "ordered_events": ["SessionStart", "PostToolUse", "PreCompact"],
+    "min_post_tool_use_count": 3,
+    "must_end_with_seal": true,
+    "phase_evidence": "B4"
+  },
+  "preference_drift": {
+    "outstanding_count": 0,
+    "phase_evidence": "F4"
+  }
+}

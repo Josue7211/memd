@@ -1,0 +1,11 @@
+{"turn":"t-1","role":"user","content":"We use Postgres for the ledger."}
+{"turn":"t-2","role":"user","content":"The primary ID is uuid.","fact_id":"fact-A","fact_value":"uuid"}
+{"turn":"t-3","role":"user","content":"No wait, actually the primary ID is ulid.","fact_id":"fact-A","fact_value":"ulid","corrects":"t-2"}
+{"turn":"t-4","role":"user","content":"Prefer terse replies.","preference_id":"P1","preference_tag":"terse"}
+{"turn":"t-5","role":"user","content":"No emojis ever.","preference_id":"P2","preference_tag":"no-emojis"}
+{"turn":"t-6","role":"user","content":"Focus: finish the Q1 migration."}
+{"turn":"t-7","role":"user","content":"The migration deadline is 2026-05-01.","fact_id":"fact-B","fact_value":"2026-05-01"}
+{"turn":"t-8","role":"assistant","tool":"Read","path":"src/migrations/001.sql"}
+{"turn":"t-8b","role":"assistant","tool":"Read","path":"src/migrations/002.sql"}
+{"turn":"t-9","role":"assistant","tool":"Read","path":"src/migrations/003.sql"}
+{"turn":"t-10","role":"system","event":"PreCompact"}
