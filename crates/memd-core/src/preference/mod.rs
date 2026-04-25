@@ -10,6 +10,7 @@
 
 pub mod drift;
 pub mod outstanding;
+pub mod tick;
 
 use serde::{Deserialize, Serialize};
 

@@ -16,11 +16,14 @@ use memd_core::preference::drift::{DriftCheck, DriftVerdict};
 use memd_core::preference::outstanding::{
     self, OutstandingDriftState, outstanding_state_path,
 };
+use memd_core::preference::tick::{
+    self, drift_tick_enabled, drift_tick_state_path, n_turns_from_env,
+};
 use serde::{Deserialize, Serialize};
 
 use super::args::{
     PreferenceConfirmArgs, PreferenceDriftArgs, PreferenceListArgs,
-    PreferencePromoteArgs,
+    PreferencePromoteArgs, PreferenceTickArgs,
 };
 use super::{
     CorrectionCaptureArgs, run_correction_capture,
@@ -153,6 +156,40 @@ pub(crate) fn run_preference_confirm(args: &PreferenceConfirmArgs) -> Result<()>
         args.preference_id,
         cleared.entries.len()
     );
+    Ok(())
+}
+
+pub(crate) fn run_preference_tick(args: &PreferenceTickArgs) -> Result<()> {
+    let enabled = args.force_enabled || drift_tick_enabled();
+    if !enabled {
+        if args.json {
+            println!(
+                r#"{{"enabled":false,"counter":null,"fire":false,"reason":"MEMD_F4_PREF_DRIFT off"}}"#
+            );
+        } else {
+            println!("drift-tick disabled (MEMD_F4_PREF_DRIFT off)");
+        }
+        return Ok(());
+    }
+    let n = args.n_turns.unwrap_or_else(n_turns_from_env);
+    let path = drift_tick_state_path(&args.output);
+    let outcome = tick::record_turn(&path, n)?;
+    if args.json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "enabled": true,
+                "counter": outcome.counter,
+                "n_turns": n,
+                "fire": outcome.should_fire,
+            })
+        );
+    } else {
+        println!(
+            "drift-tick counter={} n={} fire={}",
+            outcome.counter, n, outcome.should_fire
+        );
+    }
     Ok(())
 }
 
@@ -330,6 +367,51 @@ mod tests {
             json: false,
         };
         assert!(run_preference_drift(&args).is_err());
+    }
+
+    #[test]
+    fn cli_preference_tick_fires_every_n_turns_when_forced() {
+        let tmp = TempDir::new().unwrap();
+        let mut fires = 0;
+        for _ in 0..6 {
+            run_preference_tick(&PreferenceTickArgs {
+                n_turns: Some(2),
+                force_enabled: true,
+                output: tmp.path().to_path_buf(),
+                json: false,
+            })
+            .unwrap();
+        }
+        let state = tick::read_tick_state(&drift_tick_state_path(tmp.path())).unwrap();
+        assert_eq!(state.counter, 6);
+        // Turns 2, 4, 6 → 3 fires; last_fire_counter = 6.
+        assert_eq!(state.last_fire_counter, 6);
+        // Sanity: count fires manually too.
+        for _ in 0..4 {
+            let outcome = tick::record_turn(&drift_tick_state_path(tmp.path()), 3).unwrap();
+            if outcome.should_fire {
+                fires += 1;
+            }
+        }
+        assert!(fires >= 1, "fires accumulated across n=3 sequence");
+    }
+
+    #[test]
+    fn cli_preference_tick_no_op_when_gate_off() {
+        let tmp = TempDir::new().unwrap();
+        // Force disabled by leaving force_enabled = false; env may be unset.
+        unsafe {
+            std::env::remove_var("MEMD_F4_PREF_DRIFT");
+        }
+        run_preference_tick(&PreferenceTickArgs {
+            n_turns: Some(1),
+            force_enabled: false,
+            output: tmp.path().to_path_buf(),
+            json: false,
+        })
+        .unwrap();
+        // No state file written.
+        assert!(!drift_tick_state_path(tmp.path()).exists());
     }
 
     #[test]

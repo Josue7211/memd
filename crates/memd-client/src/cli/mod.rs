@@ -985,6 +985,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             PreferenceSubcommand::Drift(a) => run_preference_drift(&a)?,
             PreferenceSubcommand::Confirm(a) => run_preference_confirm(&a)?,
             PreferenceSubcommand::Promote(a) => run_preference_promote(&a)?,
+            PreferenceSubcommand::Tick(a) => run_preference_tick(&a)?,
         },
     }
 

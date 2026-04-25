@@ -198,6 +198,9 @@ pub(crate) enum PreferenceSubcommand {
     Confirm(PreferenceConfirmArgs),
     /// Promote a preference via the C4 correction-capture path.
     Promote(PreferencePromoteArgs),
+    /// Per-turn drift tick. Invoked from PostToolUse hook; rate-limited by
+    /// MEMD_F4_DRIFT_N_TURNS (default 10). Prints `fire=true` every Nth turn.
+    Tick(PreferenceTickArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -256,6 +259,21 @@ pub(crate) struct PreferenceConfirmArgs {
     pub(crate) confidence: f32,
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     pub(crate) output: PathBuf,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PreferenceTickArgs {
+    /// Override turn interval. Default reads `MEMD_F4_DRIFT_N_TURNS` (10).
+    #[arg(long)]
+    pub(crate) n_turns: Option<u32>,
+    /// Force the gate open even when `MEMD_F4_PREF_DRIFT` is unset. Used by
+    /// tests; production callers honor the env gate by default.
+    #[arg(long, default_value_t = false)]
+    pub(crate) force_enabled: bool,
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Clone, Args)]
