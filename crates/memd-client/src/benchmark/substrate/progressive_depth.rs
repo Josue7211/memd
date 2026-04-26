@@ -61,6 +61,45 @@ pub(crate) struct D5Outcome {
     pub(crate) overall_pass: bool,
 }
 
+/// Scorer for D5: measures completeness against required facts.
+///
+/// Returns the proportion of required_facts found in the response.
+/// If required_facts is empty, returns 1.0 (vacuously complete).
+pub(crate) fn score_completeness(
+    required_facts: &[&str],
+    response_facts: &[&str],
+) -> f64 {
+    if required_facts.is_empty() {
+        return 1.0;
+    }
+
+    let found = required_facts
+        .iter()
+        .filter(|fact| response_facts.contains(fact))
+        .count();
+
+    found as f64 / required_facts.len() as f64
+}
+
+/// Scorer for D5: measures proportion of irrelevant records in response.
+///
+/// Returns the proportion of response_facts that are not in required_facts.
+pub(crate) fn score_irrelevant_record_ratio(
+    required_facts: &[&str],
+    response_facts: &[&str],
+) -> f64 {
+    if response_facts.is_empty() {
+        return 0.0;
+    }
+
+    let irrelevant = response_facts
+        .iter()
+        .filter(|fact| !required_facts.contains(fact))
+        .count();
+
+    irrelevant as f64 / response_facts.len() as f64
+}
+
 /// Run the D5 suite using the perfect-recall in-process backend.
 pub(crate) fn run_d5_in_process(_config: &D5RunConfig) -> std::io::Result<D5Outcome> {
     // TODO: implement full runner

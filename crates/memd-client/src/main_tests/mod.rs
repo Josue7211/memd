@@ -210,6 +210,7 @@ mod skill_workflow_tests;
 mod substrate_a5_tests;
 mod substrate_b5_tests;
 mod substrate_c5_tests;
+mod substrate_d5_tests;
 mod substrate_e5_tests;
 mod tasks_hive_tests;
 mod test_support;

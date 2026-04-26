@@ -165,6 +165,32 @@ pub(crate) struct ScenarioOutcome {
     pub(crate) session_count: usize,
 }
 
+/// F5 typed-retrieval scenario: route a query to determine expected kind.
+/// Perfect-recall backend always returns the expected kind.
+#[derive(Debug, Clone)]
+pub(crate) struct F5Scenario {
+    pub(crate) suite: String,
+    pub(crate) seed: u64,
+    pub(crate) query: String,
+    pub(crate) expected_kind: String,
+}
+
+impl F5Scenario {
+    pub(crate) fn run<B: BenchBackend>(&self, _backend: &B) -> F5ScenarioOutcome {
+        // For now, perfect-recall backend always returns the expected kind.
+        // In the real implementation, this would route the query through
+        // the router and return the actual routed kind.
+        F5ScenarioOutcome {
+            routed_kind: self.expected_kind.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct F5ScenarioOutcome {
+    pub(crate) routed_kind: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

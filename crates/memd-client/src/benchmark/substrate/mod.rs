@@ -19,6 +19,7 @@ pub(crate) mod provenance_integrity;
 pub(crate) mod report;
 pub(crate) mod scorers;
 pub(crate) mod session_driver;
+pub(crate) mod typed_retrieval;
 
 use crate::benchmark::substrate::correction_propagation::{
     run_b5_in_process, B5RunConfig,
@@ -31,6 +32,7 @@ use crate::benchmark::substrate::progressive_depth::{run_d5_in_process, D5RunCon
 use crate::benchmark::substrate::provenance_integrity::{
     run_e5_in_process, E5RunConfig,
 };
+use crate::benchmark::substrate::typed_retrieval::{run_f5_in_process, F5RunConfig};
 use crate::benchmark::substrate::report::upsert_markdown_section;
 
 /// Static registry of every substrate suite the dispatcher knows about.
@@ -56,7 +58,11 @@ pub(crate) const REGISTERED_SUITES: &[(&str, &str)] = &[
         "provenance-integrity",
         "E5 — every retrieved record has source_turn/captured_by/captured_at; hard 1.000 floor",
     ),
-    // F5..G5 register themselves here as they land.
+    (
+        "typed-retrieval",
+        "F5 — query shape routes to right MemoryKind; correct-type-rate@1 ≥ 0.85",
+    ),
+    // G5 registers itself here as it lands.
 ];
 
 /// Top-level dispatcher for `memd bench substrate`.
@@ -253,6 +259,36 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
                     );
                 }
             }
+            "typed-retrieval" => {
+                let cfg = F5RunConfig::default_with_results_dir(args.output.clone());
+                let outcome = run_f5_in_process(&cfg).map_err(|e| {
+                    anyhow::anyhow!("substrate typed-retrieval runner io error: {e}")
+                })?;
+                if !outcome.overall_pass {
+                    overall_pass = false;
+                }
+                if args.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&outcome.records)
+                            .unwrap_or_else(|_| "[]".into())
+                    );
+                } else {
+                    let correct_count = outcome.records.iter().filter(|r| r.correct_at_1).count();
+                    let correct_rate = if outcome.records.is_empty() {
+                        0.0
+                    } else {
+                        correct_count as f64 / outcome.records.len() as f64
+                    };
+                    println!(
+                        "substrate {suite}: {}/{} correct (rate={:.3}), pass={}",
+                        correct_count,
+                        outcome.records.len(),
+                        correct_rate,
+                        outcome.overall_pass
+                    );
+                }
+            }
             other => anyhow::bail!("substrate: unknown suite '{other}'"),
         }
     }
@@ -286,6 +322,7 @@ mod tests {
             json: false,
             max_budget_usd: None,
             emit_fixtures: false,
+            inject_hole: false,
         };
         let err = run_substrate_command(&args).await.unwrap_err();
         assert!(err.to_string().contains("mutually exclusive"));
@@ -304,6 +341,7 @@ mod tests {
             json: false,
             max_budget_usd: None,
             emit_fixtures: false,
+            inject_hole: false,
         };
         let err = run_substrate_command(&args).await.unwrap_err();
         assert!(err.to_string().contains("--suite or --all is required"));
