@@ -321,6 +321,7 @@ mod tests {
                 json: false,
                 depth: crate::runtime::recall::RecallDepth::Lookup,
                 explain_depth: false,
+                explain_route: false,
             },
             None,
         );

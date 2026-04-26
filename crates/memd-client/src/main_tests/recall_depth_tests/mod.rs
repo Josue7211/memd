@@ -23,6 +23,7 @@ fn baseline_lookup_args(output: PathBuf, query: &str, depth: RecallDepth) -> Loo
         json: true,
         depth,
         explain_depth: false,
+                explain_route: false,
     }
 }
 

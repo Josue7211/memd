@@ -394,6 +394,7 @@ async fn lookup_cli_defaults_stay_on_repo_b_bundle_against_live_memory_server() 
         json: false,
         depth: crate::runtime::recall::RecallDepth::Lookup,
         explain_depth: false,
+                explain_route: false,
     };
 
     let client = MemdClient::new(&base_url).expect("client");

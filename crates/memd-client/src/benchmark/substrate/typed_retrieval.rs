@@ -230,7 +230,19 @@ pub(crate) fn run_f5_with_backend<B: BenchBackend>(
 
     // Write NDJSON
     let ndjson_path = config.results_dir.join("typed-retrieval.ndjson");
-    append_ndjson(&ndjson_path, &records)?;
+    if let Some(parent) = ndjson_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&ndjson_path)?;
+    for r in &records {
+        let line = serde_json::to_string(r).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+        })?;
+        writeln!(f, "{}", line)?;
+    }
 
     // Apply pass-gate thresholds
     if records.is_empty() {

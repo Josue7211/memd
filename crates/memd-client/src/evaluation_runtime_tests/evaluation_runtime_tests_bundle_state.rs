@@ -592,6 +592,7 @@
             json: false,
             depth: crate::runtime::recall::RecallDepth::Lookup,
             explain_depth: false,
+                explain_route: false,
         };
         let runtime = BundleRuntimeConfig {
             project: Some("memd".to_string()),
