@@ -3086,6 +3086,10 @@ pub(crate) struct SubstrateArgs {
     /// E5 only: inject a provenance hole to verify auditor catches it.
     #[arg(long, default_value_t = false)]
     pub(crate) inject_hole: bool,
+
+    /// D5 only: restrict to a single depth class (wake, lookup, or resume).
+    #[arg(long)]
+    pub(crate) depth_only: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
