@@ -1,0 +1,11 @@
+{
+  "suite": "provenance-integrity",
+  "completeness_rate": 1.0,
+  "chain_length_mean": 2.0,
+  "unsourced_count": 0,
+  "seed": 45,
+  "corpus_size": 500,
+  "query_count": 200,
+  "timestamp": "2026-04-25T00:00:00Z",
+  "notes": "Hard pass gate: completeness_rate = 1.000 (no tolerance), chain_length_mean >= 2.0"
+}

@@ -18,6 +18,7 @@ on:
       - 'crates/memd-client/src/main_tests/substrate_b5_tests/**'
       - 'crates/memd-client/src/main_tests/substrate_c5_tests/**'
       - 'crates/memd-client/src/main_tests/substrate_d5_tests/**'
+      - 'crates/memd-client/src/main_tests/substrate_e5_tests/**'
       - 'docs/verification/substrate-baselines/**'
       - 'scripts/substrate-bench-reproduce.sh'
       - '.github/workflows/substrate-bench.yml'
@@ -28,6 +29,7 @@ on:
       - 'crates/memd-client/src/main_tests/substrate_b5_tests/**'
       - 'crates/memd-client/src/main_tests/substrate_c5_tests/**'
       - 'crates/memd-client/src/main_tests/substrate_d5_tests/**'
+      - 'crates/memd-client/src/main_tests/substrate_e5_tests/**'
       - 'docs/verification/substrate-baselines/**'
       - 'scripts/substrate-bench-reproduce.sh'
       - '.github/workflows/substrate-bench.yml'
@@ -94,6 +96,15 @@ jobs:
             benchmark substrate --suite progressive-depth --seed 44 \
             --output /tmp/memd-substrate-d5-out \
             --report /tmp/memd-substrate-d5-report.md
+
+      - name: Substrate E5 reproducibility (release path)
+        run: |
+          set -euo pipefail
+          CARGO_TARGET_DIR=/tmp/memd-target \
+            cargo run --release --target-dir /tmp/memd-target -p memd-client -- \
+            benchmark substrate --suite provenance-integrity --seed 45 \
+            --output /tmp/memd-substrate-e5-out \
+            --report /tmp/memd-substrate-e5-report.md
 
       - name: Upload substrate results
         if: always()
