@@ -17,6 +17,7 @@
 !/.memd/hooks/
 !/.memd/hooks/**
 /.claude/scheduled_tasks.lock
+/.claude/worktrees/
 /.claw/
 /.watch-smoke-new
 /apps/node_modules/
