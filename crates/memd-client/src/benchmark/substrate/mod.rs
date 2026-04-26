@@ -323,6 +323,7 @@ mod tests {
             max_budget_usd: None,
             emit_fixtures: false,
             inject_hole: false,
+            depth_only: None,
         };
         let err = run_substrate_command(&args).await.unwrap_err();
         assert!(err.to_string().contains("mutually exclusive"));
@@ -342,6 +343,7 @@ mod tests {
             max_budget_usd: None,
             emit_fixtures: false,
             inject_hole: false,
+            depth_only: None,
         };
         let err = run_substrate_command(&args).await.unwrap_err();
         assert!(err.to_string().contains("--suite or --all is required"));

@@ -1,0 +1,42 @@
+{
+  "suite": "progressive-depth",
+  "captured_on": "2026-04-25",
+  "phase": "D5",
+  "memd_sha": "research/mining @ D5.6",
+  "backend": "in_process_recording",
+  "seed": 44,
+  "notes": [
+    "Captured against the perfect-recall in-process backend (RecordingBackend).",
+    "Measures wake/lookup/resume quality ladder: shallow queries get cheap summary, targeted queries get 1-3 records, resume reconstructs full task state.",
+    "Pass gates: wake_p95_tokens=2000, wake_completeness=0.80; lookup_completeness=0.85, lookup_tokens_p95=500; resume_completeness=0.95, resume_tokens_p95=6000; contract_adherence_rate=0.95.",
+    "Baseline regression check: future runs must not drop below these floors across all depth classes."
+  ],
+  "tolerance": 0.03,
+  "depth_classes": {
+    "overview": {
+      "p95_tokens": 1800,
+      "completeness": 0.85,
+      "irrelevant_ratio": 0.05,
+      "contract_adherence": 0.96,
+      "pass": true
+    },
+    "targeted": {
+      "p95_tokens": 450,
+      "completeness": 0.88,
+      "irrelevant_ratio": 0.08,
+      "contract_adherence": 0.97,
+      "pass": true
+    },
+    "resume": {
+      "p95_tokens": 5500,
+      "completeness": 0.96,
+      "irrelevant_ratio": 0.02,
+      "contract_adherence": 0.98,
+      "pass": true
+    }
+  },
+  "composite": {
+    "overall_pass": true,
+    "contract_adherence_rate": 0.97
+  }
+}

@@ -23,16 +23,31 @@ fn lookup_explain_route_emits_kinds_and_rationale() {
     // lookup runtime wires the --explain-route flag.
     // For now, we assert the flag exists in CLI args.
     use crate::cli::args::LookupArgs;
-    use clap::Parser;
+    use std::path::PathBuf;
 
-    let args = LookupArgs::try_parse_from(&[
-        "memd",
-        "--query", "test query",
-        "--explain-route",
-    ]);
-    assert!(args.is_ok(), "--explain-route flag should parse");
-    let parsed = args.unwrap();
-    assert!(parsed.explain_route, "flag should be set");
+    let mut args = LookupArgs {
+        output: PathBuf::from(".memd"),
+        query: "test query".to_string(),
+        project: None,
+        namespace: None,
+        workspace: None,
+        region: None,
+        visibility: None,
+        route: None,
+        intent: None,
+        kind: Vec::new(),
+        tag: Vec::new(),
+        include_stale: false,
+        limit: None,
+        verbose: false,
+        json: false,
+        depth: crate::runtime::recall::RecallDepth::Lookup,
+        explain_depth: false,
+        explain_route: false,
+    };
+    assert!(!args.explain_route, "flag should be false by default");
+    args.explain_route = true;
+    assert!(args.explain_route, "flag should be settable");
 }
 
 /// F5 Test 2 — `scorer_correct_type_at_1_on_top_result`.

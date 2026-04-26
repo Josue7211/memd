@@ -179,3 +179,56 @@ fn cli_d5_reproducibility_full() {
     let outcome_b = run_d5_in_process(&cfg_b).unwrap();
     assert_eq!(outcome_a.overall_pass, outcome_b.overall_pass);
 }
+
+/// Test 9 — `d5_baseline_lock`.
+/// The baseline file `d5-2026-04-25.json` exists and contains expected floors.
+#[test]
+fn d5_baseline_lock() {
+    let baseline_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/verification/substrate-baselines/d5-2026-04-25.json")
+        .canonicalize()
+        .expect("d5-2026-04-25.json missing");
+
+    assert!(baseline_path.exists(), "baseline file missing");
+
+    let baseline_text = std::fs::read_to_string(&baseline_path)
+        .expect("failed to read baseline file");
+
+    let baseline: serde_json::Value = serde_json::from_str(&baseline_text)
+        .expect("baseline JSON parse failed");
+
+    // Verify key fields exist
+    assert_eq!(
+        baseline["suite"].as_str(),
+        Some("progressive-depth"),
+        "suite name mismatch"
+    );
+    assert_eq!(
+        baseline["phase"].as_str(),
+        Some("D5"),
+        "phase mismatch"
+    );
+
+    // Verify depth classes with expected structure
+    let depths = baseline["depth_classes"].as_object()
+        .expect("depth_classes missing");
+    assert!(depths.contains_key("overview"), "overview depth class missing");
+    assert!(depths.contains_key("targeted"), "targeted depth class missing");
+    assert!(depths.contains_key("resume"), "resume depth class missing");
+
+    // Verify composite pass gate
+    let composite = baseline["composite"].as_object()
+        .expect("composite section missing");
+    assert_eq!(
+        composite["overall_pass"].as_bool(),
+        Some(true),
+        "composite overall_pass must be true"
+    );
+
+    // Verify all depth classes pass
+    for (depth_class, metrics) in depths.iter() {
+        let pass = metrics["pass"].as_bool()
+            .unwrap_or_else(|| panic!("pass field missing for {}", depth_class));
+        assert!(pass, "{} depth class must pass", depth_class);
+    }
+}
