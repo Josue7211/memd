@@ -1459,6 +1459,10 @@ pub(crate) struct LookupArgs {
     /// E4: print the chosen depth + rationale alongside the result.
     #[arg(long)]
     pub(crate) explain_depth: bool,
+
+    /// F5: emit routed_kinds and router_rationale in JSON output.
+    #[arg(long)]
+    pub(crate) explain_route: bool,
 }
 
 #[derive(Debug, Clone, Args)]
