@@ -100,6 +100,15 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 - *Nightly + push-gate `.github/workflows/substrate-bench.yml` — paths-filter extended to substrate_e5_tests, E5 reproducibility step (`--suite provenance-integrity --seed 45`)*
 - *Auditor reusable for B5 scorers (provenance_chain_cites_correction) and future G5 (semantic completeness); minimal stable API via AuditOutcome.*
 
+*2026-04-25: F5 typed-retrieval substrate suite landed. Per 0.1.0-AXIS-OWNERSHIP F5 feeds raw_retrieval without direct axis bump (V6 A6 owns raw_retrieval 1→3, V7 A7 owns 3→5). Composite stays 2.50/10. Evidence:*
+- *Plan + tests `docs/phases/v5/phase-f5-plan.md` (9 numbered tests, 6 atomic tasks F5.1–F5.6)*
+- *Taxonomy card `docs/contracts/type-taxonomy.md` — 12 MemoryKind definitions with routing heuristics, confusion matrix boundaries (0.85 correct-type-rate@1, 0.75 per-kind min, 0.05 wrong-type ratio)*
+- *Suite code `crates/memd-client/src/benchmark/substrate/typed_retrieval.rs` — ConfusionMatrix 12×12 tracking, CorrectTypeScorer (1.0 on match, 0.0 on mismatch), F5RunConfig (seed=42, queries_per_kind=50, 550 total), F5PassGate (correct_type_rate_at_1=0.85), run_f5_in_process / run_f5_with_backend driver with perfect-recall backend*
+- *Integration tests `crates/memd-client/src/main_tests/substrate_f5_tests/mod.rs` (9 tests) — explain-route flag, scorer correctness, confusion matrix CSV, 550-query execution, CLI happy path, pass-gate enforcement, reproducibility, baseline-floor regression*
+- *Locked floor `docs/verification/substrate-baselines/f5-2026-04-25.json` — 550 queries (50 × 11 kinds, excluding Correction), correct_type_rate@1 = 1.000, per-kind rates all 1.000 except Correction (out of scope), in-process perfect-recall router*
+- *Nightly + push-gate `.github/workflows/substrate-bench.yml` — paths-filter extended to substrate_f5_tests, F5 reproducibility step (`--suite typed-retrieval --seed 46`)*
+- *Router integration deferred; F5 scorer uses synthetic perfect-recall backend. Real router with --explain-route emits routed_kinds + rationale for G5 integration.*
+
 *MILESTONE-v4's historical `composite_pre: 2.15` is superseded — see 0.1.0-CONTRACT.md baseline.*
 
 ## 11 Pillars — Current Reality

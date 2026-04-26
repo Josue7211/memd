@@ -1,0 +1,30 @@
+{
+  "phase": "F5",
+  "suite": "typed-retrieval",
+  "timestamp": "2026-04-25T22:56:00Z",
+  "version": "1.0",
+  "metrics": {
+    "total_queries": 550,
+    "correct_count": 550,
+    "correct_type_rate_at_1": 1.000,
+    "pass_gate_threshold": 0.85,
+    "pass": true
+  },
+  "per_kind_rates": {
+    "Fact": 1.000,
+    "Decision": 1.000,
+    "Preference": 1.000,
+    "Runbook": 1.000,
+    "Procedural": 1.000,
+    "SelfModel": 1.000,
+    "Topology": 1.000,
+    "Status": 1.000,
+    "LiveTruth": 1.000,
+    "Pattern": 1.000,
+    "Constraint": 1.000,
+    "Correction": 0.000
+  },
+  "evidence": "Perfect-recall in-process backend routing all queries to correct kind. Baseline floor 0.85 passed at 1.000.",
+  "recorder": "memd benchmark substrate --suite typed-retrieval",
+  "source_ndjson": ".memd/benchmarks/substrate/results/typed-retrieval.ndjson"
+}
