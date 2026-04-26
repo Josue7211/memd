@@ -92,6 +92,14 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 - *HTTP backend deferred (same caveat as A5/B5); C5 floor will be re-locked downward when real memd-server roundtrip lands and pass-gate truth_conservation may need to drop.*
 - *Banked axis bump applies post 2026-05-02 once V4 G4 closes — at that point cross_harness moves 2→4 atomically (+1 V4 G4, +1 V5 C5) and composite gains +0.30 → 2.80.*
 
+*2026-04-25: E5 provenance-integrity substrate suite landed. Per 0.1.0-AXIS-OWNERSHIP E5 integrates trust_provenance with no axis score bump (V6 C6 owns TP 3→4, V7 E7 owns 4→5). Composite stays 2.50/10. Evidence:*
+- *Plan + tests `docs/phases/v5/phase-e5-provenance-integrity.md` (9 numbered tests, 5 atomic tasks E5.1–E5.5)*
+- *Suite code `crates/memd-client/src/benchmark/substrate/provenance_auditor.rs` + `provenance_integrity.rs` — ProvAuditOutcome struct, audit_record(record) → {passed, missing_fields, chain_length}, E5RunConfig (seed=45, corpus_size=500, query_count=200, inject_hole flag), E5PassGate (completeness_rate=1.000, chain_length_mean_min=2.0), run_e5_in_process driver with synthetic corpus + provenance chains*
+- *Integration tests `crates/memd-client/src/main_tests/substrate_e5_tests/mod.rs` (tests 6–9) — happy path with completeness_rate >= 0.99, --inject-hole flag reduces completeness < 1.0 and fails gate, seed reproducibility, baseline-floor regression with hard 1.000 assertion*
+- *Locked floor `docs/verification/substrate-baselines/e5-2026-04-25.json` — 1 scenario (N=500 corpus, Q=200 queries), completeness_rate = 1.000 (no tolerance), chain_length_mean >= 2.0, in-process auditor (record field completeness check, provenance chain validation)*
+- *Nightly + push-gate `.github/workflows/substrate-bench.yml` — paths-filter extended to substrate_e5_tests, E5 reproducibility step (`--suite provenance-integrity --seed 45`)*
+- *Auditor reusable for B5 scorers (provenance_chain_cites_correction) and future G5 (semantic completeness); minimal stable API via AuditOutcome.*
+
 *MILESTONE-v4's historical `composite_pre: 2.15` is superseded — see 0.1.0-CONTRACT.md baseline.*
 
 ## 11 Pillars — Current Reality
