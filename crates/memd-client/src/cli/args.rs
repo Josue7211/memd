@@ -3078,6 +3078,10 @@ pub(crate) struct SubstrateArgs {
     /// Regenerate locked fixtures under .memd/benchmarks/substrate/fixtures/<suite>/.
     #[arg(long, default_value_t = false)]
     pub(crate) emit_fixtures: bool,
+
+    /// E5 only: inject a provenance hole to verify auditor catches it.
+    #[arg(long, default_value_t = false)]
+    pub(crate) inject_hole: bool,
 }
 
 #[derive(Debug, Clone, Args)]

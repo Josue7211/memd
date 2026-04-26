@@ -13,6 +13,9 @@ pub(crate) mod cross_harness;
 pub(crate) mod cross_session_recall;
 pub(crate) mod fixtures;
 pub(crate) mod harness_adapter;
+pub(crate) mod progressive_depth;
+pub(crate) mod provenance_auditor;
+pub(crate) mod provenance_integrity;
 pub(crate) mod report;
 pub(crate) mod scorers;
 pub(crate) mod session_driver;
@@ -23,6 +26,10 @@ use crate::benchmark::substrate::correction_propagation::{
 use crate::benchmark::substrate::cross_harness::{run_c5_in_process, C5RunConfig};
 use crate::benchmark::substrate::cross_session_recall::{
     run_a5_in_process, A5RunConfig,
+};
+use crate::benchmark::substrate::progressive_depth::{run_d5_in_process, D5RunConfig};
+use crate::benchmark::substrate::provenance_integrity::{
+    run_e5_in_process, E5RunConfig,
 };
 use crate::benchmark::substrate::report::upsert_markdown_section;
 
@@ -41,7 +48,15 @@ pub(crate) const REGISTERED_SUITES: &[(&str, &str)] = &[
         "cross-harness",
         "C5 — claude_code and codex roundtrip facts via memd; visibility leaks hard 0",
     ),
-    // D5..G5 register themselves here as they land.
+    (
+        "progressive-depth",
+        "D5 — wake/lookup/resume quality ladder; quality-per-token at each depth",
+    ),
+    (
+        "provenance-integrity",
+        "E5 — every retrieved record has source_turn/captured_by/captured_at; hard 1.000 floor",
+    ),
+    // F5..G5 register themselves here as they land.
 ];
 
 /// Top-level dispatcher for `memd bench substrate`.
@@ -180,6 +195,60 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
                     println!(
                         "substrate {suite}: {} scenarios, pass={}",
                         outcome.records.len(),
+                        outcome.overall_pass
+                    );
+                }
+            }
+            "progressive-depth" => {
+                let cfg = D5RunConfig::default_with_results_dir(args.output.clone());
+                let outcome = run_d5_in_process(&cfg).map_err(|e| {
+                    anyhow::anyhow!("substrate progressive-depth runner io error: {e}")
+                })?;
+                if !outcome.overall_pass {
+                    overall_pass = false;
+                }
+                if args.json {
+                    println!("{{\"suite\": \"progressive-depth\", \"pass\": {}}}", outcome.overall_pass);
+                } else {
+                    println!(
+                        "substrate {suite}: pass={}",
+                        outcome.overall_pass
+                    );
+                }
+            }
+            "provenance-integrity" => {
+                let mut cfg = E5RunConfig::default_with_results_dir(args.output.clone());
+                if let Some(seed) = args.seed {
+                    cfg.seed = seed;
+                }
+                if args.inject_hole {
+                    cfg.inject_hole = true;
+                }
+                let outcome = run_e5_in_process(&cfg).map_err(|e| {
+                    anyhow::anyhow!("substrate provenance-integrity runner io error: {e}")
+                })?;
+                upsert_markdown_section(
+                    &args.report,
+                    "provenance-integrity",
+                    &outcome.records,
+                )
+                .map_err(|e| {
+                    anyhow::anyhow!("substrate: report write failed: {e}")
+                })?;
+                if !outcome.overall_pass {
+                    overall_pass = false;
+                }
+                if args.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&outcome.records)
+                            .unwrap_or_else(|_| "[]".into())
+                    );
+                } else {
+                    println!(
+                        "substrate {suite}: completeness_rate={:.3}, unsourced={}, pass={}",
+                        outcome.completeness_rate,
+                        outcome.unsourced_count,
                         outcome.overall_pass
                     );
                 }
