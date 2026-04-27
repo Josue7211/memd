@@ -303,6 +303,53 @@ fn aggregator_writes_10star_composite_section() {
     assert!(matches!(err, RegenError::CeilingExceeded { .. }));
 }
 
+/// G5 Test 13 — `cli_bench_substrate_all_end_to_end_on_clean_tree`.
+/// Running the V5 aggregator on a fresh, empty results tree must:
+///   - produce one summary per suite,
+///   - regenerate `SUBSTRATE_BENCHMARKS.md` containing every suite,
+///   - leave the working tree consistent (idempotent on re-run).
+/// Also asserts the nightly CI workflow includes the `--all` step so
+/// the gate cannot silently drop out of CI.
+#[test]
+fn cli_bench_substrate_all_end_to_end_on_clean_tree() {
+    use crate::benchmark::substrate::aggregator::{
+        regenerate_substrate_benchmarks_md, run_aggregator, AggregatorOptions, SUITE_ORDER,
+    };
+
+    let dir = tempdir().unwrap();
+    let opts = AggregatorOptions::with_results_dir(dir.path().to_path_buf());
+    let summaries = run_aggregator(&opts);
+    assert_eq!(summaries.len(), SUITE_ORDER.len());
+    assert!(
+        summaries.iter().all(|s| s.pass),
+        "perfect-recall in-process backends must pass on a clean tree"
+    );
+
+    let report = dir.path().join("SUBSTRATE_BENCHMARKS.md");
+    regenerate_substrate_benchmarks_md(&report, &summaries).unwrap();
+    assert!(report.exists());
+
+    // Idempotent on re-run: running the aggregator + regenerator twice
+    // leaves only one open marker per suite.
+    let summaries2 = run_aggregator(&opts);
+    regenerate_substrate_benchmarks_md(&report, &summaries2).unwrap();
+    let body = std::fs::read_to_string(&report).unwrap();
+    for id in SUITE_ORDER {
+        let open = format!("<!-- substrate-agg:{id}:open -->");
+        assert_eq!(body.matches(&open).count(), 1);
+    }
+
+    // Workflow must include the V5 aggregator gate step; otherwise CI
+    // could silently regress.
+    let workflow = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../.github/workflows/substrate-bench.yml");
+    let yml = std::fs::read_to_string(&workflow).expect("workflow exists");
+    assert!(
+        yml.contains("benchmark substrate --all"),
+        "substrate-bench workflow missing the --all aggregator gate step"
+    );
+}
+
 /// G5 Test 11 — `reproducibility_script_matches_within_0_03_on_fresh_clone`.
 /// Two aggregator runs at the same seed must produce identical metric
 /// vectors (well within the 0.03 tolerance). Also asserts the third-party

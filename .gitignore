@@ -16,10 +16,15 @@
 # A3 Part 2: hook scripts are part of the continuity foundation.
 !/.memd/hooks/
 !/.memd/hooks/**
-# G5: small documentation fixtures consumed by substrate render tests.
+# G5: re-include only the small documentation fixtures consumed by
+# substrate render tests; runtime artefacts under .memd/benchmarks/
+# (results/, baselines/, datasets/, etc.) stay ignored.
 !/.memd/benchmarks/
+/.memd/benchmarks/*
 !/.memd/benchmarks/substrate/
+/.memd/benchmarks/substrate/*
 !/.memd/benchmarks/substrate/fixtures/
+/.memd/benchmarks/substrate/fixtures/*
 !/.memd/benchmarks/substrate/fixtures/g5/
 !/.memd/benchmarks/substrate/fixtures/g5/**
 /.claude/scheduled_tasks.lock

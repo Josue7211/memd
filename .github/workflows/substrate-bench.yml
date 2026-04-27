@@ -4,7 +4,9 @@ name: substrate-bench
 #
 # Push gate: runs on touches to substrate suite code/baselines/scripts.
 # Nightly: runs at 04:00 UTC and fails if recall regresses below the
-# locked baseline tolerance.
+# locked baseline tolerance. G5.6 layers the V5 aggregator gate
+# (`memd benchmark substrate --all`) on top so a missing composite
+# fails the build.
 #
 # Security note: only trusted GitHub-provided context (runner.os,
 # hashFiles, github.run_id) is interpolated into run: commands. No
@@ -20,7 +22,12 @@ on:
       - 'crates/memd-client/src/main_tests/substrate_d5_tests/**'
       - 'crates/memd-client/src/main_tests/substrate_e5_tests/**'
       - 'crates/memd-client/src/main_tests/substrate_f5_tests/**'
+      - 'crates/memd-client/src/main_tests/substrate_g5_tests/**'
       - 'docs/verification/substrate-baselines/**'
+      - 'docs/verification/SUBSTRATE_BENCHMARKS.md'
+      - 'docs/verification/SUBSTRATE_COMPETITOR.md'
+      - 'docs/verification/MEMD-10-STAR.md'
+      - '.memd/benchmarks/substrate/fixtures/**'
       - 'scripts/substrate-bench-reproduce.sh'
       - '.github/workflows/substrate-bench.yml'
   pull_request:
@@ -32,7 +39,12 @@ on:
       - 'crates/memd-client/src/main_tests/substrate_d5_tests/**'
       - 'crates/memd-client/src/main_tests/substrate_e5_tests/**'
       - 'crates/memd-client/src/main_tests/substrate_f5_tests/**'
+      - 'crates/memd-client/src/main_tests/substrate_g5_tests/**'
       - 'docs/verification/substrate-baselines/**'
+      - 'docs/verification/SUBSTRATE_BENCHMARKS.md'
+      - 'docs/verification/SUBSTRATE_COMPETITOR.md'
+      - 'docs/verification/MEMD-10-STAR.md'
+      - '.memd/benchmarks/substrate/fixtures/**'
       - 'scripts/substrate-bench-reproduce.sh'
       - '.github/workflows/substrate-bench.yml'
   schedule:
@@ -117,10 +129,37 @@ jobs:
             --output /tmp/memd-substrate-f5-out \
             --report /tmp/memd-substrate-f5-report.md
 
+      - name: Substrate G5 reproducibility (release path)
+        run: |
+          set -euo pipefail
+          CARGO_TARGET_DIR=/tmp/memd-target \
+            cargo run --release --target-dir /tmp/memd-target -p memd-client -- \
+            benchmark substrate --suite adversarial-noise --seed 40 \
+            --output /tmp/memd-substrate-g5-out \
+            --report /tmp/memd-substrate-g5-report.md
+
+      - name: V5 aggregator gate (memd benchmark substrate --all)
+        run: |
+          set -euo pipefail
+          CARGO_TARGET_DIR=/tmp/memd-target \
+            cargo run --release --target-dir /tmp/memd-target -p memd-client -- \
+            benchmark substrate --all \
+            --output /tmp/memd-substrate-all-out \
+            --report /tmp/memd-substrate-all-report.md \
+            --regenerate-report
+
       - name: Upload substrate results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: substrate-results-${{ github.run_id }}
           path: .memd/benchmarks/substrate/results/
+          if-no-files-found: ignore
+
+      - name: Upload V5 aggregator report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: substrate-aggregator-report-${{ github.run_id }}
+          path: /tmp/memd-substrate-all-report.md
           if-no-files-found: ignore
