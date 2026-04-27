@@ -3090,6 +3090,22 @@ pub(crate) struct SubstrateArgs {
     /// D5 only: restrict to a single depth class (wake, lookup, or resume).
     #[arg(long)]
     pub(crate) depth_only: Option<String>,
+
+    /// G5 only: regenerate the canonical SUBSTRATE_BENCHMARKS.md after `--all`.
+    #[arg(long, default_value_t = false)]
+    pub(crate) regenerate_report: bool,
+
+    /// G5 only: regenerate MEMD-10-STAR.md V5 axes after `--all`.
+    #[arg(long, default_value_t = false)]
+    pub(crate) regenerate_10star: bool,
+
+    /// G5 only: halt on the first failing suite when running `--all`.
+    #[arg(long, default_value_t = false)]
+    pub(crate) fail_fast: bool,
+
+    /// G5 only: allow regenerator to write composite below 4.20 target.
+    #[arg(long, default_value_t = false)]
+    pub(crate) allow_below_target: bool,
 }
 
 #[derive(Debug, Clone, Args)]

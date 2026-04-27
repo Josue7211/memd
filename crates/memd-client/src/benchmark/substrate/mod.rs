@@ -9,6 +9,7 @@
 use crate::cli::SubstrateArgs;
 
 pub(crate) mod adversarial_noise;
+pub(crate) mod aggregator;
 pub(crate) mod correction_propagation;
 pub(crate) mod cross_harness;
 pub(crate) mod cross_session_recall;
@@ -23,6 +24,9 @@ pub(crate) mod session_driver;
 pub(crate) mod typed_retrieval;
 
 use crate::benchmark::substrate::adversarial_noise::{run_g5_in_process, G5RunConfig};
+use crate::benchmark::substrate::aggregator::{
+    regenerate_substrate_benchmarks_md, run_aggregator, AggregatorOptions,
+};
 use crate::benchmark::substrate::correction_propagation::{
     run_b5_in_process, B5RunConfig,
 };
@@ -92,11 +96,42 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
         anyhow::bail!("substrate: --suite or --all is required");
     }
 
-    let suites: Vec<&str> = if args.all {
-        REGISTERED_SUITES.iter().map(|(id, _)| *id).collect()
-    } else {
-        vec![args.suite.as_deref().unwrap()]
-    };
+    if args.all {
+        // G5 aggregator path — runs every suite in fixed order, optionally
+        // regenerates SUBSTRATE_BENCHMARKS.md.
+        let mut opts = AggregatorOptions::with_results_dir(args.output.clone());
+        opts.seed = args.seed;
+        opts.fail_fast = args.fail_fast;
+        let summaries = run_aggregator(&opts);
+
+        if args.regenerate_report {
+            regenerate_substrate_benchmarks_md(&args.report, &summaries).map_err(|e| {
+                anyhow::anyhow!("substrate aggregator: report regeneration failed: {e}")
+            })?;
+        }
+
+        let pass_count = summaries.iter().filter(|s| s.pass).count();
+        let total = summaries.iter().filter(|s| !s.skipped).count();
+        if args.json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&summaries).unwrap_or_else(|_| "[]".into())
+            );
+        } else {
+            for s in &summaries {
+                let status = if s.skipped { "skip" } else if s.pass { "pass" } else { "fail" };
+                println!("substrate {}: {}", s.id, status);
+            }
+            println!("substrate aggregator: {pass_count}/{total} suites passing");
+        }
+
+        if pass_count < total {
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
+    let suites: Vec<&str> = vec![args.suite.as_deref().unwrap()];
 
     let mut overall_pass = true;
     for suite in suites {
@@ -357,6 +392,10 @@ mod tests {
             emit_fixtures: false,
             inject_hole: false,
             depth_only: None,
+            regenerate_report: false,
+            regenerate_10star: false,
+            fail_fast: false,
+            allow_below_target: false,
         };
         let err = run_substrate_command(&args).await.unwrap_err();
         assert!(err.to_string().contains("mutually exclusive"));
@@ -377,6 +416,10 @@ mod tests {
             emit_fixtures: false,
             inject_hole: false,
             depth_only: None,
+            regenerate_report: false,
+            regenerate_10star: false,
+            fail_fast: false,
+            allow_below_target: false,
         };
         let err = run_substrate_command(&args).await.unwrap_err();
         assert!(err.to_string().contains("--suite or --all is required"));
