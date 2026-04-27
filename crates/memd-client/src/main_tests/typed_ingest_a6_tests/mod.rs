@@ -10,6 +10,7 @@ use std::io::Write as _;
 use crate::benchmark::typed_ingest::bench_loaders::lme::LmeAdapter;
 use crate::benchmark::typed_ingest::bench_loaders::locomo::LocomoAdapter;
 use crate::benchmark::typed_ingest::bench_loaders::membench::MembenchAdapter;
+use crate::benchmark::typed_ingest::bench_loaders::convomem::ConvomemAdapter;
 
 /// A6 Test 1 — `bench_loader_lme_yields_typed_episodic`.
 /// LME loader yields `EpisodicTurn` records with bench_id="longmemeval"
@@ -188,4 +189,61 @@ fn bench_loader_membench_yields_typed_episodic() {
     assert_eq!(turns[2].provenance.turn_index, 2);
     assert_eq!(turns[3].provenance.turn_index, 3);
     assert_ne!(turns[0].provenance.source_hash, turns[1].provenance.source_hash);
+}
+
+/// A6 Test 4 — `bench_loader_convomem_yields_typed_episodic`.
+/// ConvoMem loader walks `items[].metadata.conversations[].messages[]`,
+/// keys session by `<item_id>::<conversation_id>`, leaves `captured_at`
+/// empty (ConvoMem ships no per-message timestamps).
+#[test]
+fn bench_loader_convomem_yields_typed_episodic() {
+    let fixture = serde_json::json!({
+        "benchmark_id": "convomem",
+        "items": [
+            {
+                "item_id": "item_0",
+                "metadata": {
+                    "conversations": [
+                        {
+                            "id": "conv_0",
+                            "containsEvidence": true,
+                            "messages": [
+                                {"speaker": "User", "text": "hi"},
+                                {"speaker": "Assistant", "text": "hello"}
+                            ]
+                        },
+                        {
+                            "id": "conv_1",
+                            "messages": [
+                                {"speaker": "User", "text": "later"}
+                            ]
+                        }
+                    ]
+                }
+            }
+        ]
+    });
+    let mut tmp = tempfile::NamedTempFile::new().unwrap();
+    tmp.write_all(fixture.to_string().as_bytes()).unwrap();
+
+    let mut adapter = ConvomemAdapter::from_path(tmp.path()).expect("loader");
+    assert_eq!(adapter.bench_id(), "convomem");
+
+    let mut turns = Vec::new();
+    while let Some(t) = adapter.next_turn() {
+        turns.push(t);
+    }
+    assert_eq!(turns.len(), 3);
+
+    assert_eq!(turns[0].content, "hi");
+    assert_eq!(turns[0].provenance.session_id, "item_0::conv_0");
+    assert_eq!(turns[0].provenance.turn_index, 0);
+    assert_eq!(turns[0].provenance.speaker, "User");
+    assert_eq!(turns[0].provenance.captured_at, "");
+    assert_eq!(turns[0].provenance.source_hash.len(), 64);
+
+    assert_eq!(turns[1].provenance.turn_index, 1);
+
+    assert_eq!(turns[2].provenance.session_id, "item_0::conv_1");
+    assert_eq!(turns[2].provenance.turn_index, 0);
 }
