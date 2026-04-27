@@ -7,6 +7,7 @@
 
 pub(crate) mod episodic;
 pub(crate) mod bench_loaders;
+pub(crate) mod ingest_card;
 
 pub(crate) use episodic::{EpisodicAdapter, EpisodicProvenance};
 

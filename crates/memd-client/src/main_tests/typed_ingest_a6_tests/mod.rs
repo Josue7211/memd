@@ -373,6 +373,41 @@ fn runtime_dispatches_to_episodic_when_flag_set() {
     assert!(err.to_string().contains("does not support"));
 }
 
+/// A6 Test 9 — `baseline_lock_no_regression_lme_10turn`.
+/// Running the LME adapter against the locked 10-turn fixture must
+/// match `BASELINE_LME_10TURN` exactly. Drift = regression.
+#[test]
+fn baseline_lock_no_regression_lme_10turn() {
+    use crate::benchmark::typed_ingest::dispatch_typed_ingest_episodic;
+    use crate::benchmark::typed_ingest::ingest_card::{assert_baseline, BASELINE_LME_10TURN};
+
+    let lme_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/typed_ingest/a6/lme-sample-10turn.json");
+    let report = dispatch_typed_ingest_episodic("longmemeval", &lme_path).unwrap();
+    assert_baseline(&report, &BASELINE_LME_10TURN).expect("no regression");
+}
+
+/// A6 Test 10 — `ingest_card_renders_per_bench_summary`.
+/// `render_ingest_card` emits the stable lines the A6.9 nightly gate
+/// parses (bench_id, turn_count, session_count, pipeline, schema).
+#[test]
+fn ingest_card_renders_per_bench_summary() {
+    use crate::benchmark::typed_ingest::dispatch_typed_ingest_episodic;
+    use crate::benchmark::typed_ingest::ingest_card::render_ingest_card;
+
+    let lme_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/typed_ingest/a6/lme-sample-10turn.json");
+    let report = dispatch_typed_ingest_episodic("longmemeval", &lme_path).unwrap();
+    let card = render_ingest_card(&report);
+
+    assert!(card.contains("## Typed Ingest Card"), "header missing");
+    assert!(card.contains("bench_id: `longmemeval`"));
+    assert!(card.contains("turn_count: 10"));
+    assert!(card.contains("session_count: 2"));
+    assert!(card.contains("pipeline: episodic"));
+    assert!(card.contains("EpisodicProvenance"));
+}
+
 /// A6 Test 6 — `episodic_turn_serde_round_trip`.
 /// `EpisodicTurn` round-trips through JSON without loss. This is the
 /// minimal contract the `--typed-ingest` pipeline relies on when shipping
