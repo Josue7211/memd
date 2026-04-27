@@ -215,6 +215,7 @@ mod substrate_e5_tests;
 mod substrate_f5_tests;
 mod substrate_g5_tests;
 mod tasks_hive_tests;
+mod typed_ingest_a6_tests;
 mod test_support;
 mod v4_proof_harness;
 mod wake_continuity_tests;
