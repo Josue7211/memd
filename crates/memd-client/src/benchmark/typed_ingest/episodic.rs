@@ -1,8 +1,11 @@
-//! Episodic adapter scaffold (A6).
+//! Episodic adapter contract (A6).
 //!
-//! Per-bench loaders convert public-bench turns into
-//! `MemoryRecord { kind: Episodic, provenance: ... }` for ingestion.
-//! Tasks A6.2–A6.6 fill in adapter bodies + provenance + round-trip.
+//! Per-bench loaders convert public-bench turns into typed
+//! `EpisodicTurn { content, provenance }` records for ingestion.
+//! Schema policy (per `phase-a6-plan.md` §2 + advisor reconcile):
+//! `MemoryKind::Episodic` does NOT exist on `memd-schema`. Episodic is an
+//! adapter-layer concept; ingestion lands turns as `MemoryKind::Fact` plus
+//! the `EpisodicProvenance` sidecar carried in record metadata.
 
 use serde::{Deserialize, Serialize};
 
@@ -18,11 +21,15 @@ pub(crate) struct EpisodicProvenance {
     pub captured_at: String,
 }
 
+/// Single typed turn yielded by an `EpisodicAdapter`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct EpisodicTurn {
+    pub content: String,
+    pub provenance: EpisodicProvenance,
+}
+
 /// Adapter trait implemented per bench under `bench_loaders/`.
 pub(crate) trait EpisodicAdapter {
-    type Turn;
-
     fn bench_id(&self) -> &'static str;
-    fn next_turn(&mut self) -> Option<Self::Turn>;
-    fn provenance(&self, turn: &Self::Turn) -> EpisodicProvenance;
+    fn next_turn(&mut self) -> Option<EpisodicTurn>;
 }
