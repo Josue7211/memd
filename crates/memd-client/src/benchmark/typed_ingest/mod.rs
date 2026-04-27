@@ -8,6 +8,9 @@
 pub(crate) mod episodic;
 pub(crate) mod bench_loaders;
 pub(crate) mod ingest_card;
+pub(crate) mod distiller;
+pub(crate) mod dedupe;
+pub(crate) mod candidate_store;
 
 pub(crate) use episodic::{EpisodicAdapter, EpisodicProvenance};
 
@@ -19,6 +22,34 @@ use bench_loaders::{
     convomem::ConvomemAdapter, lme::LmeAdapter, locomo::LocomoAdapter,
     membench::MembenchAdapter,
 };
+
+/// Format the user-visible notice emitted by the runtime when
+/// `--typed-ingest=…` is set. Pure — runtime calls this and forwards
+/// to eprintln; tests exercise it directly.
+pub(crate) fn typed_ingest_runtime_notice(
+    mode: &str,
+    env_active: bool,
+    distill_model: &str,
+    budget_milli_usd: u64,
+) -> String {
+    let distill_note = if mode == "episodic+semantic" {
+        format!(
+            " distill_model={} budget_milli_usd={}",
+            distill_model, budget_milli_usd
+        )
+    } else {
+        String::new()
+    };
+    let activation = if env_active {
+        "ACTIVE (preview)"
+    } else {
+        "gated — flag is a no-op until A6.9"
+    };
+    format!(
+        "[bench] --typed-ingest={} recognised;{} runtime activation {} (env MEMD_V6_TYPED_INGEST=1 graduates in A6.9)",
+        mode, distill_note, activation
+    )
+}
 
 /// Outcome of a typed-ingest dispatch — counts and provenance hashes
 /// (deterministic enough for ingest-card baseline locks in A6.8).

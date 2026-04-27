@@ -3189,11 +3189,30 @@ pub(crate) struct PublicBenchmarkArgs {
     #[arg(long, default_value_t = false)]
     pub(crate) record: bool,
 
-    /// V6/A6 typed-ingest pipeline. `episodic` routes turns through the
-    /// per-bench `EpisodicAdapter` and ingests with `EpisodicProvenance`
-    /// metadata. Off by default; gated runtime activation arrives in A6.9.
-    #[arg(long, value_parser = ["episodic"])]
+    /// V6 typed-ingest pipeline. Values:
+    /// - `episodic` (A6) — per-bench `EpisodicAdapter`, ingests with
+    ///   `EpisodicProvenance` metadata.
+    /// - `episodic+semantic` (B6) — A6 + B6 semantic distillation,
+    ///   emits `stage=candidate` records via the codex-lb judge.
+    /// Off by default; runtime activation gated by env
+    /// `MEMD_V6_TYPED_INGEST=1` and the V5 calendar gate (graduates in A6.9).
+    #[arg(long, value_parser = ["episodic", "episodic+semantic"])]
     pub(crate) typed_ingest: Option<String>,
+
+    /// V6/B6 distillation judge model. Default `gpt-5.4` via codex-lb.
+    /// Overridable per run; also overridable via `MEMD_V6_DISTILL_MODEL`.
+    #[arg(long, default_value = "gpt-5.4")]
+    pub(crate) distill_model: String,
+
+    /// V6/B6 per-run distillation budget in milli-USD. The judge stops
+    /// emitting candidates once spend ≥ budget; cache hits are free.
+    #[arg(long, default_value_t = 100u64)]
+    pub(crate) distill_budget_milli_usd: u64,
+
+    /// V6/B6 distillation cache directory. Defaults to
+    /// `.memd/benchmarks/public/cache/distill/` relative to the bundle.
+    #[arg(long)]
+    pub(crate) distill_cache_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Args)]

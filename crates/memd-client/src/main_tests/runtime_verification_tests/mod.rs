@@ -449,6 +449,9 @@ async fn run_public_locomo_command_writes_artifacts() {
         ci: false,
         record: false,
         typed_ingest: None,
+        distill_model: "gpt-5.4".to_string(),
+        distill_budget_milli_usd: 100,
+        distill_cache_dir: None,
     })
     .await
     .expect("run locomo public benchmark");
@@ -503,6 +506,9 @@ async fn run_public_convomem_command_writes_artifacts() {
         ci: false,
         record: false,
         typed_ingest: None,
+        distill_model: "gpt-5.4".to_string(),
+        distill_budget_milli_usd: 100,
+        distill_cache_dir: None,
     })
     .await
     .expect("run convomem public benchmark");
@@ -557,6 +563,9 @@ async fn run_public_membench_command_writes_artifacts() {
         ci: false,
         record: false,
         typed_ingest: None,
+        distill_model: "gpt-5.4".to_string(),
+        distill_budget_milli_usd: 100,
+        distill_cache_dir: None,
     })
     .await
     .expect("run membench public benchmark");

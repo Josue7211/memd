@@ -1312,15 +1312,21 @@ pub(crate) async fn run_public_benchmark_command(
 ) -> anyhow::Result<PublicBenchmarkRunReport> {
     validate_public_benchmark_args(args)?;
 
-    // V6/A6.7: surface --typed-ingest flag so silent-no-op can't masquerade
-    // as success. Runtime activation is gated by MEMD_V6_TYPED_INGEST=1 and
-    // graduates from "scaffold only" to "active" in A6.9 (post V5 close).
+    // V6/A6.7+B6.5: surface --typed-ingest flag so silent-no-op can't
+    // masquerade as success. Runtime activation is gated by
+    // MEMD_V6_TYPED_INGEST=1 and graduates from "scaffold only" to
+    // "active" in A6.9 (post V5 close 2026-05-02). B6 layers semantic
+    // distillation; same gate applies to `episodic+semantic`.
     if let Some(mode) = args.typed_ingest.as_deref() {
         let active = std::env::var("MEMD_V6_TYPED_INGEST").ok().as_deref() == Some("1");
         eprintln!(
-            "[bench] --typed-ingest={} recognised; runtime activation {} (env MEMD_V6_TYPED_INGEST=1 graduates in A6.9)",
-            mode,
-            if active { "ACTIVE (preview)" } else { "gated — flag is a no-op until A6.9" }
+            "{}",
+            crate::benchmark::typed_ingest::typed_ingest_runtime_notice(
+                mode,
+                active,
+                &args.distill_model,
+                args.distill_budget_milli_usd,
+            )
         );
     }
 

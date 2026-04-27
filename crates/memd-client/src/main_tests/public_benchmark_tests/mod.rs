@@ -573,6 +573,9 @@ async fn resolve_public_benchmark_dataset_rejects_unknown_sources() {
         ci: false,
         record: false,
         typed_ingest: None,
+        distill_model: "gpt-5.4".to_string(),
+        distill_budget_milli_usd: 100,
+        distill_cache_dir: None,
     })
     .await
     .expect_err("unknown benchmark should be rejected");
@@ -621,6 +624,9 @@ async fn run_public_longmemeval_community_standard_requires_hypotheses_file() {
         ci: false,
         record: false,
         typed_ingest: None,
+        distill_model: "gpt-5.4".to_string(),
+        distill_budget_milli_usd: 100,
+        distill_cache_dir: None,
     })
     .await
     .expect_err("community-standard longmemeval should require hypotheses");
@@ -662,6 +668,9 @@ fn validate_rejects_empty_dataset_without_all_flag() {
         ci: false,
         record: false,
         typed_ingest: None,
+        distill_model: "gpt-5.4".to_string(),
+        distill_budget_milli_usd: 100,
+        distill_cache_dir: None,
     };
     let err = validate_public_benchmark_args(&args).expect_err("should reject empty dataset");
     assert!(err.to_string().contains("dataset is required"));
@@ -695,6 +704,9 @@ fn validate_accepts_empty_dataset_with_all_flag() {
         ci: false,
         record: false,
         typed_ingest: None,
+        distill_model: "gpt-5.4".to_string(),
+        distill_budget_milli_usd: 100,
+        distill_cache_dir: None,
     };
     validate_public_benchmark_args(&args).expect("--all should accept empty dataset");
 }
@@ -1561,6 +1573,9 @@ async fn run_public_longmemeval_dual_dry_run_emits_two_rows_per_question() {
         ci: false,
         record: false,
         typed_ingest: None,
+        distill_model: "gpt-5.4".to_string(),
+        distill_budget_milli_usd: 100,
+        distill_cache_dir: None,
     })
     .await
     .expect("run dual dry-run public benchmark");
@@ -2035,6 +2050,9 @@ async fn run_public_longmemeval_command_writes_artifacts_and_docs() {
         ci: false,
         record: false,
         typed_ingest: None,
+        distill_model: "gpt-5.4".to_string(),
+        distill_budget_milli_usd: 100,
+        distill_cache_dir: None,
     })
     .await
     .expect("run public benchmark");
@@ -2110,6 +2128,9 @@ async fn run_public_longmemeval_hybrid_command_sets_metadata() {
         ci: false,
         record: false,
         typed_ingest: None,
+        distill_model: "gpt-5.4".to_string(),
+        distill_budget_milli_usd: 100,
+        distill_cache_dir: None,
     })
     .await
     .expect("run hybrid public benchmark");
@@ -2172,6 +2193,9 @@ async fn render_public_leaderboard_marks_fixture_backed_partial_parity() {
         ci: false,
         record: false,
         typed_ingest: None,
+        distill_model: "gpt-5.4".to_string(),
+        distill_budget_milli_usd: 100,
+        distill_cache_dir: None,
     })
     .await
     .expect("run public benchmark");
@@ -2324,6 +2348,9 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
             ci: false,
             record: false,
             typed_ingest: None,
+            distill_model: "gpt-5.4".to_string(),
+            distill_budget_milli_usd: 100,
+            distill_cache_dir: None,
         })
         .await
         .expect("run public benchmark");
@@ -2356,6 +2383,9 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
         ci: false,
         record: false,
         typed_ingest: None,
+        distill_model: "gpt-5.4".to_string(),
+        distill_budget_milli_usd: 100,
+        distill_cache_dir: None,
     })
     .await
     .expect("run latest public benchmark");
@@ -2444,6 +2474,9 @@ async fn benchmark_public_all_write_refreshes_each_latest_artifact() {
                 ci: false,
                 record: false,
                 typed_ingest: None,
+                distill_model: "gpt-5.4".to_string(),
+                distill_budget_milli_usd: 100,
+                distill_cache_dir: None,
             })),
         },
         "http://127.0.0.1:8787",
