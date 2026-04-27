@@ -159,6 +159,23 @@ pub(crate) fn validate_distill_json(raw: &str) -> Result<DistillOutput, String> 
     Ok(DistillOutput { candidates: out })
 }
 
+/// Resolve the effective distill model. `MEMD_V6_DISTILL_MODEL`
+/// overrides the CLI default when set non-empty. Mirrors A6.8's env-var
+/// read-site pattern so the contract doc and code agree.
+pub(crate) fn effective_distill_model(cli_default: &str) -> String {
+    match std::env::var("MEMD_V6_DISTILL_MODEL") {
+        Ok(s) if !s.trim().is_empty() => s,
+        _ => cli_default.to_string(),
+    }
+}
+
+/// Cache enabled? Default true. `MEMD_V6_DISTILL_CACHE=0` disables. The
+/// runtime checks this before calling `cache_get`/`cache_put` (graduates
+/// alongside A6.9 when judge calls go live).
+pub(crate) fn cache_enabled() -> bool {
+    !matches!(std::env::var("MEMD_V6_DISTILL_CACHE").as_deref(), Ok("0"))
+}
+
 /// Cache key for one turn × prompt-version. SHA-256 hex of
 /// `prompt_version || source_hash`. Stable across runs.
 pub(crate) fn cache_key(prompt_version: &str, source_hash: &str) -> String {

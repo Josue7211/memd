@@ -25,17 +25,21 @@ use bench_loaders::{
 
 /// Format the user-visible notice emitted by the runtime when
 /// `--typed-ingest=…` is set. Pure — runtime calls this and forwards
-/// to eprintln; tests exercise it directly.
+/// to eprintln; tests exercise it directly. `distill_model` is the
+/// already-env-resolved value (see `distiller::effective_distill_model`).
 pub(crate) fn typed_ingest_runtime_notice(
     mode: &str,
     env_active: bool,
     distill_model: &str,
     budget_milli_usd: u64,
+    cache_enabled: bool,
 ) -> String {
     let distill_note = if mode == "episodic+semantic" {
         format!(
-            " distill_model={} budget_milli_usd={}",
-            distill_model, budget_milli_usd
+            " distill_model={} budget_milli_usd={} cache={}",
+            distill_model,
+            budget_milli_usd,
+            if cache_enabled { "on" } else { "off" }
         )
     } else {
         String::new()

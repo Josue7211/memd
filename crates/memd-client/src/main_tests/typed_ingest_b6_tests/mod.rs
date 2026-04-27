@@ -396,6 +396,7 @@ fn candidate_provenance_references_source_turns() {
 /// when (and only when) the semantic mode is on.
 #[test]
 fn flag_routing_episodic_plus_semantic() {
+    use crate::benchmark::typed_ingest::distiller::{cache_enabled, effective_distill_model};
     use crate::benchmark::typed_ingest::typed_ingest_runtime_notice;
     use crate::cli::args::PublicBenchmarkArgs;
     use clap::Parser;
@@ -441,19 +442,65 @@ fn flag_routing_episodic_plus_semantic() {
     assert!(bad.is_err());
 
     // Notice formatting:
-    // - episodic+semantic notice mentions the distill model + budget.
-    let n_full = typed_ingest_runtime_notice("episodic+semantic", false, "gpt-5.4", 50);
+    // - episodic+semantic notice mentions the distill model + budget + cache state.
+    let n_full = typed_ingest_runtime_notice("episodic+semantic", false, "gpt-5.4", 50, true);
     assert!(n_full.contains("--typed-ingest=episodic+semantic"));
     assert!(n_full.contains("distill_model=gpt-5.4"));
     assert!(n_full.contains("budget_milli_usd=50"));
+    assert!(n_full.contains("cache=on"));
     assert!(n_full.contains("gated"));
     // - episodic-only notice does not mention distill.
-    let n_a6 = typed_ingest_runtime_notice("episodic", false, "gpt-5.4", 50);
+    let n_a6 = typed_ingest_runtime_notice("episodic", false, "gpt-5.4", 50, true);
     assert!(!n_a6.contains("distill_model"));
     assert!(!n_a6.contains("budget_milli_usd"));
+    assert!(!n_a6.contains("cache="));
     // - env-active flips the activation phrase.
-    let n_active = typed_ingest_runtime_notice("episodic+semantic", true, "gpt-5.4", 50);
+    let n_active = typed_ingest_runtime_notice("episodic+semantic", true, "gpt-5.4", 50, true);
     assert!(n_active.contains("ACTIVE"));
+    // - cache=off surfaces when MEMD_V6_DISTILL_CACHE=0.
+    let n_no_cache =
+        typed_ingest_runtime_notice("episodic+semantic", false, "gpt-5.4", 50, false);
+    assert!(n_no_cache.contains("cache=off"));
+
+    // Env-var read sites (mirrors A6.8 notice/eprintln pattern):
+    // MEMD_V6_DISTILL_MODEL overrides the CLI default; MEMD_V6_DISTILL_CACHE=0
+    // disables the cache. Save/restore the old values so parallel tests
+    // don't see the override leak. Rust 2024 edition: env mutators are
+    // unsafe because process-global state is racy across threads.
+    let prev_model = std::env::var("MEMD_V6_DISTILL_MODEL").ok();
+    let prev_cache = std::env::var("MEMD_V6_DISTILL_CACHE").ok();
+
+    unsafe { std::env::remove_var("MEMD_V6_DISTILL_MODEL") };
+    assert_eq!(effective_distill_model("gpt-5.4"), "gpt-5.4");
+
+    unsafe { std::env::set_var("MEMD_V6_DISTILL_MODEL", "gpt-foo") };
+    assert_eq!(effective_distill_model("gpt-5.4"), "gpt-foo");
+
+    unsafe { std::env::set_var("MEMD_V6_DISTILL_MODEL", "   ") };
+    assert_eq!(
+        effective_distill_model("gpt-5.4"),
+        "gpt-5.4",
+        "whitespace-only override falls back to CLI default"
+    );
+
+    unsafe { std::env::remove_var("MEMD_V6_DISTILL_CACHE") };
+    assert!(cache_enabled(), "cache enabled by default");
+    unsafe { std::env::set_var("MEMD_V6_DISTILL_CACHE", "0") };
+    assert!(!cache_enabled(), "MEMD_V6_DISTILL_CACHE=0 disables cache");
+    unsafe { std::env::set_var("MEMD_V6_DISTILL_CACHE", "1") };
+    assert!(cache_enabled(), "non-zero values keep cache on");
+
+    // Restore prior environment.
+    unsafe {
+        match prev_model {
+            Some(v) => std::env::set_var("MEMD_V6_DISTILL_MODEL", v),
+            None => std::env::remove_var("MEMD_V6_DISTILL_MODEL"),
+        }
+        match prev_cache {
+            Some(v) => std::env::set_var("MEMD_V6_DISTILL_CACHE", v),
+            None => std::env::remove_var("MEMD_V6_DISTILL_CACHE"),
+        }
+    }
 }
 
 /// B6 Test 10 — `b6_baseline_lifts_lme_qa_accuracy_at_least_0_02`.
