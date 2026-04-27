@@ -9,6 +9,7 @@ use std::io::Write as _;
 
 use crate::benchmark::typed_ingest::bench_loaders::lme::LmeAdapter;
 use crate::benchmark::typed_ingest::bench_loaders::locomo::LocomoAdapter;
+use crate::benchmark::typed_ingest::bench_loaders::membench::MembenchAdapter;
 
 /// A6 Test 1 — `bench_loader_lme_yields_typed_episodic`.
 /// LME loader yields `EpisodicTurn` records with bench_id="longmemeval"
@@ -129,4 +130,62 @@ fn bench_loader_locomo_yields_typed_episodic() {
 
     assert_eq!(turns[2].provenance.session_id, "loco_0::session_2");
     assert_eq!(turns[2].provenance.captured_at, "2:00 pm on 2 Jan, 2024");
+}
+
+/// A6 Test 3 — `bench_loader_membench_yields_typed_episodic`.
+/// MemBench loader walks `<category>[].message_list[i][j]` turns, splits
+/// each `{user, assistant}` pair into two `EpisodicTurn`s with stable
+/// `turn_index = mid*2 + role_offset` and `session_id` keyed by category +
+/// tid + list index.
+#[test]
+fn bench_loader_membench_yields_typed_episodic() {
+    let fixture = serde_json::json!({
+        "book": [
+            {
+                "tid": "tid_0",
+                "QA": [],
+                "message_list": [[
+                    {
+                        "mid": 0,
+                        "time": "'2024-10-01 08:00' Tuesday",
+                        "place": "Boston, MA",
+                        "user": "I love Seinlanguage",
+                        "assistant": "Cool!"
+                    },
+                    {
+                        "mid": 1,
+                        "time": "'2024-10-02 09:00' Wednesday",
+                        "place": "Boston, MA",
+                        "user": "What about Catch-22?",
+                        "assistant": "A classic."
+                    }
+                ]]
+            }
+        ]
+    });
+    let mut tmp = tempfile::NamedTempFile::new().unwrap();
+    tmp.write_all(fixture.to_string().as_bytes()).unwrap();
+
+    let mut adapter = MembenchAdapter::from_path(tmp.path()).expect("loader");
+    assert_eq!(adapter.bench_id(), "membench");
+
+    let mut turns = Vec::new();
+    while let Some(t) = adapter.next_turn() {
+        turns.push(t);
+    }
+    assert_eq!(turns.len(), 4, "two pairs → four typed turns");
+
+    assert_eq!(turns[0].content, "I love Seinlanguage");
+    assert_eq!(turns[0].provenance.session_id, "book::tid_0::list_0");
+    assert_eq!(turns[0].provenance.speaker, "user");
+    assert_eq!(turns[0].provenance.turn_index, 0);
+    assert_eq!(turns[0].provenance.captured_at, "'2024-10-01 08:00' Tuesday");
+
+    assert_eq!(turns[1].content, "Cool!");
+    assert_eq!(turns[1].provenance.speaker, "assistant");
+    assert_eq!(turns[1].provenance.turn_index, 1);
+
+    assert_eq!(turns[2].provenance.turn_index, 2);
+    assert_eq!(turns[3].provenance.turn_index, 3);
+    assert_ne!(turns[0].provenance.source_hash, turns[1].provenance.source_hash);
 }
