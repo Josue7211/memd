@@ -22,6 +22,7 @@ pub(crate) mod scorers;
 pub(crate) mod session_driver;
 pub(crate) mod typed_retrieval;
 
+use crate::benchmark::substrate::adversarial_noise::{run_g5_in_process, G5RunConfig};
 use crate::benchmark::substrate::correction_propagation::{
     run_b5_in_process, B5RunConfig,
 };
@@ -63,7 +64,10 @@ pub(crate) const REGISTERED_SUITES: &[(&str, &str)] = &[
         "typed-retrieval",
         "F5 — query shape routes to right MemoryKind; correct-type-rate@1 ≥ 0.85",
     ),
-    // G5 registers itself here as it lands.
+    (
+        "adversarial-noise",
+        "G5 — canonical beats noise siblings under recency-bias trap; canonical_wins ≥ 0.90, noise_leak ≤ 0.05",
+    ),
 ];
 
 /// Top-level dispatcher for `memd bench substrate`.
@@ -286,6 +290,34 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
                         correct_count,
                         outcome.records.len(),
                         correct_rate,
+                        outcome.overall_pass
+                    );
+                }
+            }
+            "adversarial-noise" => {
+                let mut cfg = G5RunConfig::default_with_results_dir(args.output.clone());
+                if let Some(seed) = args.seed {
+                    cfg.seed = seed;
+                }
+                let outcome = run_g5_in_process(&cfg).map_err(|e| {
+                    anyhow::anyhow!("substrate adversarial-noise runner io error: {e}")
+                })?;
+                if !outcome.overall_pass {
+                    overall_pass = false;
+                }
+                if args.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&outcome.records)
+                            .unwrap_or_else(|_| "[]".into())
+                    );
+                } else {
+                    println!(
+                        "substrate {suite}: {} canonical, wins={:.3}, leak={:.3}, tie_break_prov={:.3}, pass={}",
+                        outcome.records.len(),
+                        outcome.canonical_wins_rate,
+                        outcome.noise_leak_rate,
+                        outcome.tie_break_by_provenance_rate,
                         outcome.overall_pass
                     );
                 }

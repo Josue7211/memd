@@ -145,3 +145,49 @@ fn runner_50_canonical_150_noise_complete() {
         assert!(r.pass);
     }
 }
+
+/// G5 Test 5 — `cli_g5_noise_happy`.
+/// Default invocation passes pass-gate and writes adversarial-noise.ndjson.
+#[test]
+fn cli_g5_noise_happy() {
+    let dir = tempdir().unwrap();
+    let cfg = small_config(dir.path().to_path_buf());
+    let outcome = run_g5_in_process(&cfg).unwrap();
+    assert!(outcome.overall_pass, "perfect-canonical backend must pass");
+    let body = std::fs::read_to_string(&outcome.ndjson_path).unwrap();
+    assert!(body.lines().count() > 0, "NDJSON should have records");
+    for line in body.lines() {
+        assert!(line.contains("\"suite\":\"adversarial-noise\""));
+    }
+}
+
+/// G5 Test 6 — `cli_g5_noise_reproducibility`.
+/// Same seed produces identical per-query records (latency excluded).
+#[test]
+fn cli_g5_noise_reproducibility() {
+    let dir_a = tempdir().unwrap();
+    let dir_b = tempdir().unwrap();
+    let cfg_a = small_config(dir_a.path().to_path_buf());
+    let cfg_b = small_config(dir_b.path().to_path_buf());
+    let a = run_g5_in_process(&cfg_a).unwrap();
+    let b = run_g5_in_process(&cfg_b).unwrap();
+    assert_eq!(a.records.len(), b.records.len());
+    for (ra, rb) in a.records.iter().zip(b.records.iter()) {
+        assert_eq!(ra.canonical_id, rb.canonical_id);
+        assert_eq!(ra.winner_is_canonical, rb.winner_is_canonical);
+        assert_eq!(ra.leaked_noise_id, rb.leaked_noise_id);
+        assert_eq!(ra.pass, rb.pass);
+    }
+    assert!((a.canonical_wins_rate - b.canonical_wins_rate).abs() < f64::EPSILON);
+    assert!((a.noise_leak_rate - b.noise_leak_rate).abs() < f64::EPSILON);
+}
+
+/// Pass-gate sanity: thresholds are wired correctly.
+#[test]
+fn pass_gate_thresholds_match_plan() {
+    use crate::benchmark::substrate::adversarial_noise::PassGate;
+    let g = PassGate::default();
+    assert_eq!(g.canonical_wins_rate, 0.90);
+    assert_eq!(g.noise_leak_rate, 0.05);
+    assert_eq!(g.tie_break_by_provenance_rate, 0.75);
+}
