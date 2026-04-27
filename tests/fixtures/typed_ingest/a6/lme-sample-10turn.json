@@ -1,0 +1,28 @@
+[
+  {
+    "question_id": "fixture_a6_q0",
+    "question_type": "single-session-user",
+    "question": "what river puzzle did the user describe?",
+    "question_date": "2024-01-01",
+    "answer": "fox-chicken-grain crossing",
+    "answer_session_ids": ["a6_sess_1"],
+    "haystack_dates": ["2024-01-01", "2024-01-02"],
+    "haystack_session_ids": ["a6_sess_1", "a6_sess_2"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "Solve the fox/chicken/grain river puzzle."},
+        {"role": "assistant", "content": "Take chicken first, return alone."},
+        {"role": "user", "content": "Then?"},
+        {"role": "assistant", "content": "Take fox across, bring chicken back."},
+        {"role": "user", "content": "Continue."},
+        {"role": "assistant", "content": "Take grain across, leave with fox."},
+        {"role": "user", "content": "Final step?"},
+        {"role": "assistant", "content": "Return for chicken — all three across."}
+      ],
+      [
+        {"role": "user", "content": "Recap the strategy?"},
+        {"role": "assistant", "content": "Chicken is the constraint that anchors every move."}
+      ]
+    ]
+  }
+]

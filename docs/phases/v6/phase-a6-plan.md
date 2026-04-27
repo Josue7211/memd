@@ -40,7 +40,12 @@ Ship `--typed-ingest=episodic` on all four public-bench runners. Every turn inge
 
 ## 2. Schema changes
 
-None. Uses existing `MemoryRecord { kind: MemoryKind::Episodic, provenance: {…} }`.
+None. `MemoryKind::Episodic` is **not** a schema kind on `memd-schema` (the
+12-kind taxonomy stays as-is per F5); episodic is an adapter-layer concept.
+Each turn ingests as `MemoryKind::Fact` with the `EpisodicProvenance`
+sidecar attached to record metadata. The bench adapters yield
+`EpisodicTurn { content, provenance }` for the ingest pipeline to fold into
+`MemoryRecord` extras at the dispatcher boundary (A6.7).
 
 Provenance fields required per ingest:
 

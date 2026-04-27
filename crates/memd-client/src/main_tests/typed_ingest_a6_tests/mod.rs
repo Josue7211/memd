@@ -247,3 +247,93 @@ fn bench_loader_convomem_yields_typed_episodic() {
     assert_eq!(turns[2].provenance.session_id, "item_0::conv_1");
     assert_eq!(turns[2].provenance.turn_index, 0);
 }
+
+/// A6 Test 5 — `provenance_fields_populated_across_all_loaders`.
+/// Every adapter yields turns whose provenance has `bench_id` set, a
+/// non-empty `session_id` and `speaker`, a 64-hex `source_hash`, and a
+/// `turn_index` (zero counts as populated).
+#[test]
+fn provenance_fields_populated_across_all_loaders() {
+    let lme_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/typed_ingest/a6/lme-sample-10turn.json");
+    let mut lme = LmeAdapter::from_path(&lme_path).expect("lme fixture");
+    let mut count_lme = 0;
+    while let Some(t) = lme.next_turn() {
+        count_lme += 1;
+        assert_eq!(t.provenance.bench_id, "longmemeval");
+        assert!(!t.provenance.session_id.is_empty(), "lme session_id empty");
+        assert!(!t.provenance.speaker.is_empty(), "lme speaker empty");
+        assert_eq!(t.provenance.source_hash.len(), 64, "lme hash len");
+        assert!(!t.provenance.captured_at.is_empty(), "lme captured_at empty");
+    }
+    assert_eq!(count_lme, 10, "10-turn fixture");
+
+    // LoCoMo: small inline fixture
+    let loco_fixture = serde_json::json!([
+        {"sample_id":"loco_x","conversation":{
+            "speaker_a":"A","speaker_b":"B",
+            "session_1_date_time":"now",
+            "session_1":[{"speaker":"A","dia_id":"D1","text":"x"}]
+        }}
+    ]);
+    let mut tmp = tempfile::NamedTempFile::new().unwrap();
+    tmp.write_all(loco_fixture.to_string().as_bytes()).unwrap();
+    let mut loco = LocomoAdapter::from_path(tmp.path()).unwrap();
+    while let Some(t) = loco.next_turn() {
+        assert_eq!(t.provenance.bench_id, "locomo");
+        assert!(!t.provenance.session_id.is_empty());
+        assert!(!t.provenance.speaker.is_empty());
+        assert_eq!(t.provenance.source_hash.len(), 64);
+    }
+
+    // MemBench
+    let mb_fixture = serde_json::json!({
+        "x": [{"tid":"t","QA":[],"message_list":[[
+            {"mid":0,"time":"t0","place":"p","user":"u","assistant":"a"}
+        ]]}]
+    });
+    let mut tmp = tempfile::NamedTempFile::new().unwrap();
+    tmp.write_all(mb_fixture.to_string().as_bytes()).unwrap();
+    let mut mb = MembenchAdapter::from_path(tmp.path()).unwrap();
+    while let Some(t) = mb.next_turn() {
+        assert_eq!(t.provenance.bench_id, "membench");
+        assert!(!t.provenance.session_id.is_empty());
+        assert!(matches!(t.provenance.speaker.as_str(), "user" | "assistant"));
+        assert_eq!(t.provenance.source_hash.len(), 64);
+        assert_eq!(t.provenance.captured_at, "t0");
+    }
+
+    // ConvoMem
+    let cm_fixture = serde_json::json!({
+        "items":[{"item_id":"i","metadata":{"conversations":[
+            {"id":"c","messages":[{"speaker":"User","text":"hi"}]}
+        ]}}]
+    });
+    let mut tmp = tempfile::NamedTempFile::new().unwrap();
+    tmp.write_all(cm_fixture.to_string().as_bytes()).unwrap();
+    let mut cm = ConvomemAdapter::from_path(tmp.path()).unwrap();
+    while let Some(t) = cm.next_turn() {
+        assert_eq!(t.provenance.bench_id, "convomem");
+        assert!(!t.provenance.session_id.is_empty());
+        assert!(!t.provenance.speaker.is_empty());
+        assert_eq!(t.provenance.source_hash.len(), 64);
+        // captured_at intentionally empty for ConvoMem (no per-message dates).
+    }
+}
+
+/// A6 Test 6 — `episodic_turn_serde_round_trip`.
+/// `EpisodicTurn` round-trips through JSON without loss. This is the
+/// minimal contract the `--typed-ingest` pipeline relies on when shipping
+/// turns from loader → ingester → record metadata.
+#[test]
+fn episodic_turn_serde_round_trip() {
+    let lme_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/typed_ingest/a6/lme-sample-10turn.json");
+    let mut lme = LmeAdapter::from_path(&lme_path).expect("lme fixture");
+    let original = lme.next_turn().expect("at least one turn");
+    let json = serde_json::to_string(&original).expect("serialize");
+    let parsed: crate::benchmark::typed_ingest::episodic::EpisodicTurn =
+        serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(parsed.content, original.content);
+    assert_eq!(parsed.provenance, original.provenance);
+}
