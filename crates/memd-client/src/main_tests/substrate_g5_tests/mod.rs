@@ -241,6 +241,68 @@ fn aggregator_fail_fast_stops_on_first_fail() {
     assert_eq!(halt_count, SUITE_ORDER.len() - 1);
 }
 
+/// G5 Test 10 — `aggregator_writes_10star_composite_section`.
+/// Strict-mode regenerator writes the V5-owned axes only, refuses
+/// composite < 4.20 unless `--allow-below-target`, and lands exactly
+/// 4.20 on the V4-post baseline + V5 lift.
+#[test]
+fn aggregator_writes_10star_composite_section() {
+    use crate::benchmark::substrate::ten_star_writer::{
+        axis_scores_from_summaries, regenerate_10star_md, AxisScores, COMPOSITE_TARGET,
+        RegenError,
+    };
+    use crate::benchmark::substrate::aggregator::{run_aggregator, AggregatorOptions};
+
+    let dir = tempdir().unwrap();
+    let opts = AggregatorOptions::with_results_dir(dir.path().to_path_buf());
+    let summaries = run_aggregator(&opts);
+    let scores = axis_scores_from_summaries(&summaries);
+    assert_eq!(
+        scores,
+        AxisScores { pr: 4, ch: 4, rr: 6 },
+        "perfect-recall aggregator must yield the V5 ceiling lift"
+    );
+
+    // Seed a baseline 10-STAR file at V4-post (CR=4).
+    let path = dir.path().join("MEMD-10-STAR.md");
+    std::fs::write(
+        &path,
+        "# 10-Star\n\n## 10-Star Composite Scorecard\n\n\
+         | Axis | Weight | Score | Status |\n\
+         |------|--------|-------|--------|\n\
+         | Session continuity | 20% | 4/10 | x |\n\
+         | Correction retention | 15% | 4/10 | x |\n\
+         | Procedural reuse | 15% | 1/10 | x |\n\
+         | Cross-harness continuity | 15% | 4/10 | x |\n\
+         | Raw retrieval strength | 15% | 4/10 | x |\n\
+         | Token efficiency | 10% | 4/10 | x |\n\
+         | Trust + provenance | 10% | 3/10 | x |\n\
+         \n\
+         **Composite: 0.00/10 (placeholder)**\n",
+    )
+    .unwrap();
+
+    let composite = regenerate_10star_md(&path, &scores, false).unwrap();
+    assert!(
+        (composite - COMPOSITE_TARGET).abs() < 1e-6,
+        "composite must equal V5 gate 4.20, got {composite}"
+    );
+    let body = std::fs::read_to_string(&path).unwrap();
+    assert!(body.contains("**Composite: 4.20/10"));
+    assert!(body.contains("| Procedural reuse | 15% | 4/10"));
+    assert!(body.contains("| Raw retrieval strength | 15% | 6/10"));
+
+    // Refuses below target without flag.
+    let weak = AxisScores { pr: 1, ch: 2, rr: 4 };
+    let err = regenerate_10star_md(&path, &weak, false).unwrap_err();
+    assert!(matches!(err, RegenError::CompositeBelowTarget { .. }));
+
+    // Refuses ceiling violations even with override flag.
+    let bad = AxisScores { pr: 4, ch: 4, rr: 7 };
+    let err = regenerate_10star_md(&path, &bad, true).unwrap_err();
+    assert!(matches!(err, RegenError::CeilingExceeded { .. }));
+}
+
 /// G5 Test 9 — `aggregator_writes_substrate_benchmarks_md`.
 /// Regenerator emits canonical doc with one block per suite and a
 /// composite + history footer.

@@ -21,6 +21,7 @@ pub(crate) mod provenance_integrity;
 pub(crate) mod report;
 pub(crate) mod scorers;
 pub(crate) mod session_driver;
+pub(crate) mod ten_star_writer;
 pub(crate) mod typed_retrieval;
 
 use crate::benchmark::substrate::adversarial_noise::{run_g5_in_process, G5RunConfig};
@@ -37,6 +38,9 @@ use crate::benchmark::substrate::cross_session_recall::{
 use crate::benchmark::substrate::progressive_depth::{run_d5_in_process, D5RunConfig};
 use crate::benchmark::substrate::provenance_integrity::{
     run_e5_in_process, E5RunConfig,
+};
+use crate::benchmark::substrate::ten_star_writer::{
+    axis_scores_from_summaries, regenerate_10star_md,
 };
 use crate::benchmark::substrate::typed_retrieval::{run_f5_in_process, F5RunConfig};
 use crate::benchmark::substrate::report::upsert_markdown_section;
@@ -108,6 +112,20 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
             regenerate_substrate_benchmarks_md(&args.report, &summaries).map_err(|e| {
                 anyhow::anyhow!("substrate aggregator: report regeneration failed: {e}")
             })?;
+        }
+
+        if args.regenerate_10star {
+            let scores = axis_scores_from_summaries(&summaries);
+            let ten_star_path =
+                std::path::Path::new("docs/verification/MEMD-10-STAR.md").to_path_buf();
+            match regenerate_10star_md(&ten_star_path, &scores, args.allow_below_target) {
+                Ok(composite) => {
+                    println!("substrate aggregator: 10-STAR composite {composite:.2}/10");
+                }
+                Err(e) => {
+                    anyhow::bail!("substrate aggregator: 10-STAR regeneration failed: {e}");
+                }
+            }
         }
 
         let pass_count = summaries.iter().filter(|s| s.pass).count();
