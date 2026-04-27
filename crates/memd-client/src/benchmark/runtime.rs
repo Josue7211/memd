@@ -1312,6 +1312,18 @@ pub(crate) async fn run_public_benchmark_command(
 ) -> anyhow::Result<PublicBenchmarkRunReport> {
     validate_public_benchmark_args(args)?;
 
+    // V6/A6.7: surface --typed-ingest flag so silent-no-op can't masquerade
+    // as success. Runtime activation is gated by MEMD_V6_TYPED_INGEST=1 and
+    // graduates from "scaffold only" to "active" in A6.9 (post V5 close).
+    if let Some(mode) = args.typed_ingest.as_deref() {
+        let active = std::env::var("MEMD_V6_TYPED_INGEST").ok().as_deref() == Some("1");
+        eprintln!(
+            "[bench] --typed-ingest={} recognised; runtime activation {} (env MEMD_V6_TYPED_INGEST=1 graduates in A6.9)",
+            mode,
+            if active { "ACTIVE (preview)" } else { "gated — flag is a no-op until A6.9" }
+        );
+    }
+
     // --all: run all implemented benchmarks sequentially, return the last report
     if args.all {
         let mut last_report = None;
