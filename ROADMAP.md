@@ -8,8 +8,8 @@ version: v4
 version_status: in_progress
 current_milestone: V4
 milestone_status: harness-built-watch-active
-current_phase: G4
-phase_status: g4_1_through_g4_5_landed_g4_6_pass_1_green_g4_7_awaiting_clocks
+current_phase: G5
+phase_status: in-progress
 next_milestone: V5
 post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 → V14 → V15 → V16 → V17 → V18 → V19 → V20 (see V4–V20 block below; composite **8.50 at V13** = 0.1.0 release gate per docs/verification/0.1.0-CONTRACT.md; composite **10.00 at V20** = 1.0.0 release gate per docs/verification/1.0.0-CONTRACT.md; V10 production-floor, V13 ships 0.1.0, V14-V20 ceiling push pulls every axis to 10/10, V20 ships 1.0.0; 0.1.0 gate = composite ≥8.0 AND every axis ≥7; 1.0.0 gate = composite =10.00 AND every axis =10 per docs/theory/MEMD-SOTA-THEORY.md; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
 next_step: G4 harness machinery complete (G4.1–G4.5, commits c0f83cc → fd7691e). G4.6 stability pass #1 = 10/10 local (docs/verification/v4-proof-runs/2026-04-25-stability-pass-1.md). Awaiting (a) 7-day CI nightly watch closing 2026-05-02, (b) D4.8/E4.7/F4.7 dogfood harvest earliest 2026-05-01, (c) G4.7 = invoke G4.4 regenerator against harvested NDJSON, then close MILESTONE-v4 if composite ≥3.45.
