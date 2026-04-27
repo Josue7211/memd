@@ -321,6 +321,58 @@ fn provenance_fields_populated_across_all_loaders() {
     }
 }
 
+/// A6 Test 7 — `cli_args_accept_typed_ingest_episodic`.
+/// `PublicBenchmarkArgs` parses `--typed-ingest=episodic`; default is None;
+/// any other value is rejected by clap's value_parser.
+#[test]
+fn cli_args_accept_typed_ingest_episodic() {
+    use crate::cli::args::PublicBenchmarkArgs;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Wrap {
+        #[command(flatten)]
+        a: PublicBenchmarkArgs,
+    }
+
+    let on = Wrap::try_parse_from([
+        "memd",
+        "longmemeval",
+        "--typed-ingest=episodic",
+    ])
+    .expect("parse");
+    assert_eq!(on.a.typed_ingest.as_deref(), Some("episodic"));
+
+    let off = Wrap::try_parse_from(["memd", "longmemeval"]).expect("parse default");
+    assert!(off.a.typed_ingest.is_none());
+
+    let bad = Wrap::try_parse_from([
+        "memd",
+        "longmemeval",
+        "--typed-ingest=semantic",
+    ]);
+    assert!(bad.is_err(), "only `episodic` is accepted in A6");
+}
+
+/// A6 Test 8 — `runtime_dispatches_to_episodic_when_flag_set`.
+/// `dispatch_typed_ingest_episodic` selects the right adapter per dataset
+/// id, walks the full turn stream, and returns deterministic counts.
+#[test]
+fn runtime_dispatches_to_episodic_when_flag_set() {
+    use crate::benchmark::typed_ingest::dispatch_typed_ingest_episodic;
+
+    let lme_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/typed_ingest/a6/lme-sample-10turn.json");
+    let report = dispatch_typed_ingest_episodic("longmemeval", &lme_path).unwrap();
+    assert_eq!(report.bench_id, "longmemeval");
+    assert_eq!(report.turn_count, 10);
+    assert_eq!(report.session_count, 2);
+
+    // Unknown dataset → error.
+    let err = dispatch_typed_ingest_episodic("unknown_bench", &lme_path).unwrap_err();
+    assert!(err.to_string().contains("does not support"));
+}
+
 /// A6 Test 6 — `episodic_turn_serde_round_trip`.
 /// `EpisodicTurn` round-trips through JSON without loss. This is the
 /// minimal contract the `--typed-ingest` pipeline relies on when shipping

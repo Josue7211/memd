@@ -572,6 +572,7 @@ async fn resolve_public_benchmark_dataset_rejects_unknown_sources() {
         out: output.clone(),
         ci: false,
         record: false,
+        typed_ingest: None,
     })
     .await
     .expect_err("unknown benchmark should be rejected");
@@ -619,6 +620,7 @@ async fn run_public_longmemeval_community_standard_requires_hypotheses_file() {
         all: false,
         ci: false,
         record: false,
+        typed_ingest: None,
     })
     .await
     .expect_err("community-standard longmemeval should require hypotheses");
@@ -659,6 +661,7 @@ fn validate_rejects_empty_dataset_without_all_flag() {
         all: false,
         ci: false,
         record: false,
+        typed_ingest: None,
     };
     let err = validate_public_benchmark_args(&args).expect_err("should reject empty dataset");
     assert!(err.to_string().contains("dataset is required"));
@@ -691,6 +694,7 @@ fn validate_accepts_empty_dataset_with_all_flag() {
         all: true,
         ci: false,
         record: false,
+        typed_ingest: None,
     };
     validate_public_benchmark_args(&args).expect("--all should accept empty dataset");
 }
@@ -1556,6 +1560,7 @@ async fn run_public_longmemeval_dual_dry_run_emits_two_rows_per_question() {
         out: output.clone(),
         ci: false,
         record: false,
+        typed_ingest: None,
     })
     .await
     .expect("run dual dry-run public benchmark");
@@ -2029,6 +2034,7 @@ async fn run_public_longmemeval_command_writes_artifacts_and_docs() {
         out: output.clone(),
         ci: false,
         record: false,
+        typed_ingest: None,
     })
     .await
     .expect("run public benchmark");
@@ -2103,6 +2109,7 @@ async fn run_public_longmemeval_hybrid_command_sets_metadata() {
         out: output.clone(),
         ci: false,
         record: false,
+        typed_ingest: None,
     })
     .await
     .expect("run hybrid public benchmark");
@@ -2164,6 +2171,7 @@ async fn render_public_leaderboard_marks_fixture_backed_partial_parity() {
         out: output.clone(),
         ci: false,
         record: false,
+        typed_ingest: None,
     })
     .await
     .expect("run public benchmark");
@@ -2315,6 +2323,7 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
             out: output.clone(),
             ci: false,
             record: false,
+            typed_ingest: None,
         })
         .await
         .expect("run public benchmark");
@@ -2346,6 +2355,7 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
         out: output.clone(),
         ci: false,
         record: false,
+        typed_ingest: None,
     })
     .await
     .expect("run latest public benchmark");
@@ -2433,6 +2443,7 @@ async fn benchmark_public_all_write_refreshes_each_latest_artifact() {
                 out: output.clone(),
                 ci: false,
                 record: false,
+                typed_ingest: None,
             })),
         },
         "http://127.0.0.1:8787",

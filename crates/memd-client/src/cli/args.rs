@@ -3188,6 +3188,12 @@ pub(crate) struct PublicBenchmarkArgs {
     /// Record results to benchmark-registry.json with git SHA and timestamp.
     #[arg(long, default_value_t = false)]
     pub(crate) record: bool,
+
+    /// V6/A6 typed-ingest pipeline. `episodic` routes turns through the
+    /// per-bench `EpisodicAdapter` and ingests with `EpisodicProvenance`
+    /// metadata. Off by default; gated runtime activation arrives in A6.9.
+    #[arg(long, value_parser = ["episodic"])]
+    pub(crate) typed_ingest: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
