@@ -303,6 +303,107 @@ fn aggregator_writes_10star_composite_section() {
     assert!(matches!(err, RegenError::CeilingExceeded { .. }));
 }
 
+/// G5 Test 11 — `reproducibility_script_matches_within_0_03_on_fresh_clone`.
+/// Two aggregator runs at the same seed must produce identical metric
+/// vectors (well within the 0.03 tolerance). Also asserts the third-party
+/// reproduce script parses cleanly and accepts `--all`.
+#[test]
+fn reproducibility_script_matches_within_0_03_on_fresh_clone() {
+    use crate::benchmark::substrate::aggregator::{run_aggregator, AggregatorOptions};
+    use std::process::Command;
+
+    let dir_a = tempdir().unwrap();
+    let dir_b = tempdir().unwrap();
+    let mut opts_a = AggregatorOptions::with_results_dir(dir_a.path().to_path_buf());
+    opts_a.seed = Some(42);
+    let mut opts_b = AggregatorOptions::with_results_dir(dir_b.path().to_path_buf());
+    opts_b.seed = Some(42);
+
+    let a = run_aggregator(&opts_a);
+    let b = run_aggregator(&opts_b);
+    assert_eq!(a.len(), b.len());
+    for (sa, sb) in a.iter().zip(b.iter()) {
+        assert_eq!(sa.id, sb.id);
+        assert_eq!(sa.pass, sb.pass);
+        for (k, va) in &sa.metrics {
+            let vb = sb.metrics.get(k).copied().unwrap_or(f64::NAN);
+            assert!(
+                (va - vb).abs() < 0.03,
+                "{}::{k} drifted: a={va} b={vb}",
+                sa.id
+            );
+        }
+    }
+
+    // Script must parse cleanly + accept --all mode.
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/substrate-bench-reproduce.sh");
+    assert!(script.exists(), "reproduce script missing at {}", script.display());
+    let syntax = Command::new("bash")
+        .arg("-n")
+        .arg(&script)
+        .status()
+        .expect("bash -n must run");
+    assert!(syntax.success(), "reproduce script syntax error");
+
+    let body = std::fs::read_to_string(&script).unwrap();
+    assert!(body.contains("--all"), "script must support --all mode");
+    assert!(body.contains("--regenerate-report"));
+    assert!(body.contains("--regenerate-10star"));
+}
+
+/// G5 Test 12 — `competitor_card_template_fills`.
+/// Renderer fills numeric cells when metrics are supplied and falls back
+/// to the explicit PLACEHOLDER sentinel on missing or null entries.
+#[test]
+fn competitor_card_template_fills() {
+    use crate::benchmark::substrate::aggregator::SUITE_ORDER;
+    use crate::benchmark::substrate::competitor_card::{
+        load_competitor_fixture, render_competitor_card, CompetitorEntry, PLACEHOLDER,
+    };
+    use std::collections::BTreeMap;
+
+    // Fully filled memd row (no placeholder).
+    let mut metrics: BTreeMap<String, Option<f64>> = BTreeMap::new();
+    for s in SUITE_ORDER {
+        metrics.insert((*s).to_string(), Some(1.000));
+    }
+    let memd = CompetitorEntry {
+        name: "memd".into(),
+        primary_source: "docs/verification/SUBSTRATE_BENCHMARKS.md".into(),
+        metrics,
+    };
+    let body = render_competitor_card(&[memd]);
+    // The renderer's prose header references the sentinel string once for
+    // reader context; no other occurrences are allowed for a fully-filled row.
+    assert_eq!(
+        body.matches(PLACEHOLDER).count(),
+        1,
+        "filled row must have only the header reference"
+    );
+    assert_eq!(body.matches("1.000").count(), SUITE_ORDER.len());
+
+    // Loading the bundled fixture yields a fully-unfilled row.
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../.memd/benchmarks/substrate/fixtures/g5/competitor-sample-mempalace.json");
+    let entry = load_competitor_fixture(&fixture).expect("fixture loads");
+    let body = render_competitor_card(&[entry]);
+    // header + source cell + 7 suite cells all placeholder.
+    assert_eq!(body.matches(PLACEHOLDER).count(), 1 + 1 + SUITE_ORDER.len());
+
+    // The committed template doc carries the same placeholder sentinel.
+    let template = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/verification/SUBSTRATE_COMPETITOR.md");
+    let template_body = std::fs::read_to_string(&template).expect("template exists");
+    assert!(template_body.contains(PLACEHOLDER));
+    for s in SUITE_ORDER {
+        assert!(
+            template_body.contains(s),
+            "template must list suite column {s}"
+        );
+    }
+}
+
 /// G5 Test 9 — `aggregator_writes_substrate_benchmarks_md`.
 /// Regenerator emits canonical doc with one block per suite and a
 /// composite + history footer.

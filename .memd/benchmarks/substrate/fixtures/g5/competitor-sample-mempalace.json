@@ -1,0 +1,14 @@
+{
+  "name": "MemPalace (sample, NOT a real measurement)",
+  "primary_source": "<< PLACEHOLDER — FILL FROM PRIMARY SOURCE >>",
+  "metrics": {
+    "cross-session-recall": null,
+    "correction-propagation": null,
+    "cross-harness": null,
+    "progressive-depth": null,
+    "provenance-integrity": null,
+    "typed-retrieval": null,
+    "adversarial-noise": null
+  },
+  "_note": "This fixture is documentation scaffolding for the competitor card render path. All metrics are null (placeholder); a real entry replaces nulls with primary-source-cited values at three decimal places."
+}

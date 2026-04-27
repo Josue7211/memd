@@ -10,6 +10,7 @@ use crate::cli::SubstrateArgs;
 
 pub(crate) mod adversarial_noise;
 pub(crate) mod aggregator;
+pub(crate) mod competitor_card;
 pub(crate) mod correction_propagation;
 pub(crate) mod cross_harness;
 pub(crate) mod cross_session_recall;
