@@ -13,7 +13,13 @@
 use std::path::Path;
 
 use anyhow::{anyhow, Context, Result};
+use memd_schema::CompactMemoryRecord;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::runtime::resume::compiler::{
+    compile_wake, BucketKind, CompiledWake, CompilerInput, WakeBudget,
+};
 
 /// Schema version pin. Bumping the major invalidates prior budget files.
 pub(crate) const BENCH_COMPILER_VERSION: &str = "bench-compiler/v1";
@@ -68,6 +74,121 @@ fn major_version(v: &str) -> &str {
 /// and the runtime agree on one source of truth.
 pub(crate) fn default_budgets_path() -> &'static str {
     ".memd/benchmarks/public/compiler-budgets.json"
+}
+
+/// Bench-shim input. Each field is a list of free-form strings —
+/// callers project their typed-ingest records into the bucket vocab
+/// before calling `compile_for_bench`. Order within each bucket is
+/// preserved verbatim; V4's priority order across buckets is fixed
+/// (canonical > preference > focus > correction > episodic > semantic
+/// > candidate).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct BenchCompilerInput {
+    pub canonical: Vec<String>,
+    pub preferences: Vec<String>,
+    pub recent_episodic: Vec<String>,
+    pub semantic: Vec<String>,
+    pub raw_episodic: Vec<String>,
+}
+
+/// Outcome surfaced to the runtime layer. Fields mirror the telemetry
+/// NDJSON schema in the contract — runtime appends them verbatim.
+#[derive(Debug, Clone)]
+pub(crate) struct BenchCompilerOutcome {
+    pub markdown: String,
+    pub tokens: usize,
+    pub sections_included: Vec<String>,
+    pub sections_dropped: Vec<String>,
+    pub tokens_before_drop: usize,
+}
+
+/// Compile a bench prompt window. Pure: no IO. Maps the bench-shim
+/// vocabulary onto V4 D4's `CompilerInput` then defers admission +
+/// dedupe + render to `compile_wake`. Profile's `budget_tokens` is the
+/// operational lever; profile's `priority` field is bench-side
+/// documentation (V4's fixed order is the authoritative tie-breaker).
+pub(crate) fn compile_for_bench(
+    input: BenchCompilerInput,
+    profile: &BudgetProfile,
+) -> BenchCompilerOutcome {
+    let tokens_before_drop: usize = total_chars(&input);
+
+    let v4_input = CompilerInput {
+        canonical: lift(input.canonical),
+        preferences: lift(input.preferences),
+        focus: lift(input.recent_episodic),
+        episodic: lift(input.raw_episodic),
+        semantic: lift(input.semantic),
+        corrections: Vec::new(),
+        candidates: Vec::new(),
+        drift_notes: Vec::new(),
+    };
+
+    let budget = WakeBudget::default_2000().with_tokens(profile.budget_tokens);
+    let compiled: CompiledWake = compile_wake(v4_input, budget);
+
+    let mut sections_included: Vec<String> = Vec::new();
+    let mut sections_dropped: Vec<String> = Vec::new();
+    for kind in BucketKind::ALL {
+        let label = bench_label_for(kind);
+        let report = compiled.bucket_report.get(&kind).cloned().unwrap_or_default();
+        if report.admitted > 0 {
+            sections_included.push(label.to_string());
+        } else if report.demoted > 0 {
+            sections_dropped.push(label.to_string());
+        }
+    }
+
+    BenchCompilerOutcome {
+        markdown: compiled.markdown.clone(),
+        tokens: compiled.tokens,
+        sections_included,
+        sections_dropped,
+        tokens_before_drop,
+    }
+}
+
+fn lift(records: Vec<String>) -> Vec<CompactMemoryRecord> {
+    records
+        .into_iter()
+        .filter(|r| !r.trim().is_empty())
+        .map(|record| CompactMemoryRecord {
+            id: Uuid::new_v4(),
+            record,
+        })
+        .collect()
+}
+
+fn total_chars(input: &BenchCompilerInput) -> usize {
+    let mut n = 0usize;
+    for v in [
+        &input.canonical,
+        &input.preferences,
+        &input.recent_episodic,
+        &input.semantic,
+        &input.raw_episodic,
+    ] {
+        for s in v {
+            n = n.saturating_add(s.len());
+        }
+    }
+    n
+}
+
+/// Translate V4 `BucketKind` into the bench-shim vocabulary. Inverse
+/// of the contract's label table (`docs/contracts/bench-compiler.md`
+/// §2). `Correction` and `Candidate` are inert at the shim layer —
+/// they are not surfaced from typed-ingest at the bench surface.
+fn bench_label_for(kind: BucketKind) -> &'static str {
+    match kind {
+        BucketKind::Canonical => "canonical",
+        BucketKind::Preference => "preferences",
+        BucketKind::Focus => "recent_episodic",
+        BucketKind::Episodic => "raw_episodic",
+        BucketKind::Semantic => "semantic",
+        BucketKind::Correction => "correction",
+        BucketKind::Candidate => "candidate",
+    }
 }
 
 #[cfg(test)]
