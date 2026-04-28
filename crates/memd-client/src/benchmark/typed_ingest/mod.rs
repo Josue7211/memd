@@ -14,6 +14,8 @@ pub(crate) mod candidate_store;
 pub(crate) mod promotion;
 pub(crate) mod canonical_index;
 pub(crate) mod compiler;
+pub(crate) mod depth_router;
+pub(crate) mod depth_policy;
 
 pub(crate) use episodic::{EpisodicAdapter, EpisodicProvenance};
 
@@ -94,6 +96,49 @@ pub(crate) fn compiler_active(cli_value: &str) -> bool {
         return true;
     }
     cli_value == "on"
+}
+
+/// E6 depth-routing resolution: env `MEMD_V6_DEPTH_ROUTING=0` forces
+/// off; otherwise the CLI flag wins, default `on`. `cli_value` is the
+/// raw `--depth-routing=on|off` value.
+pub(crate) fn depth_routing_active(cli_value: &str) -> bool {
+    if std::env::var("MEMD_V6_DEPTH_ROUTING").ok().as_deref() == Some("0") {
+        return false;
+    }
+    cli_value != "off"
+}
+
+/// User-visible notice emitted when `--depth-routing=…` is set on a
+/// public benchmark run. Pure — runtime forwards to eprintln. Mirrors
+/// the D6 compiler notice pattern: the off-path stays observably
+/// flat-RAG and is the only stable signal the runtime emits when the
+/// router is disabled.
+pub(crate) fn depth_routing_runtime_notice(
+    mode: &str,
+    env_active: bool,
+    max_calls: usize,
+    max_retrieval_tokens: usize,
+) -> String {
+    let active = depth_routing_active(mode);
+    let resolution = if env_active && mode == "off" {
+        " (env MEMD_V6_DEPTH_ROUTING=1 overrode --depth-routing=off)"
+    } else {
+        ""
+    };
+    if active {
+        format!(
+            "[bench] --depth-routing=on engaged; max_calls={} max_retrieval_tokens={} router={}{}",
+            max_calls,
+            max_retrieval_tokens,
+            depth_router::DEPTH_ROUTER_VERSION,
+            resolution
+        )
+    } else {
+        format!(
+            "[bench] --depth-routing={} (off-path: single-call answer, no escalation)",
+            mode
+        )
+    }
 }
 
 /// User-visible notice emitted when `--compiler=…` is set on a public
