@@ -16,6 +16,9 @@ pub(crate) mod canonical_index;
 pub(crate) mod compiler;
 pub(crate) mod depth_router;
 pub(crate) mod depth_policy;
+pub(crate) mod reasoning;
+pub(crate) mod report_aggregator;
+pub(crate) mod star_regen;
 
 pub(crate) use episodic::{EpisodicAdapter, EpisodicProvenance};
 
@@ -106,6 +109,43 @@ pub(crate) fn depth_routing_active(cli_value: &str) -> bool {
         return false;
     }
     cli_value != "off"
+}
+
+/// F6 reasoning resolution: env `MEMD_V6_REASONING=0` forces off;
+/// otherwise the CLI flag wins, default `on`. `cli_value` is the raw
+/// `--reasoning=on|off` value.
+pub(crate) fn reasoning_active(cli_value: &str) -> bool {
+    if std::env::var("MEMD_V6_REASONING").ok().as_deref() == Some("0") {
+        return false;
+    }
+    cli_value != "off"
+}
+
+/// User-visible notice emitted when `--reasoning=…` is set on a public
+/// benchmark run. Mirrors the E6 depth-routing notice pattern.
+pub(crate) fn reasoning_runtime_notice(
+    mode: &str,
+    env_active: bool,
+    max_steps: usize,
+    max_tokens: usize,
+) -> String {
+    let active = reasoning_active(mode);
+    let resolution = if env_active && mode == "off" {
+        " (env MEMD_V6_REASONING=1 overrode --reasoning=off)"
+    } else {
+        ""
+    };
+    if active {
+        format!(
+            "[bench] --reasoning=on engaged; max_steps={} max_tokens={} harness={}{}",
+            max_steps, max_tokens, reasoning::REASONING_VERSION, resolution
+        )
+    } else {
+        format!(
+            "[bench] --reasoning={} (off-path: E6 single-call answer, no scratchpad)",
+            mode
+        )
+    }
 }
 
 /// User-visible notice emitted when `--depth-routing=…` is set on a

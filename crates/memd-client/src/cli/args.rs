@@ -3252,6 +3252,43 @@ pub(crate) struct PublicBenchmarkArgs {
     /// (chars-as-tokens, V4 convention). Default 10000.
     #[arg(long, default_value_t = 10_000usize)]
     pub(crate) max_retrieval_tokens: usize,
+
+    /// V6/F6 iterative-reasoning harness. `on` (default) chains up to
+    /// `--max-reasoning-steps` depth-routed lookups into a single
+    /// answer scratchpad. `off` preserves the E6 single-call path.
+    /// Forced off by `MEMD_V6_REASONING=0`. Runtime activation is
+    /// calendar-gated alongside A6.9/B6/C6/D6/E6 (post-2026-05-02).
+    #[arg(long, value_parser = ["on", "off"], default_value = "on")]
+    pub(crate) reasoning: String,
+
+    /// V6/F6 hard cap on reasoning steps per question. Default 5.
+    /// Override via `MEMD_V6_MAX_REASONING_STEPS`.
+    #[arg(long, default_value_t = 5usize)]
+    pub(crate) max_reasoning_steps: usize,
+
+    /// V6/F6 hard cap on retrieved-content tokens across the full
+    /// reasoning chain. Default 20000 (above E6's per-answer cap so
+    /// multi-step chains have slack).
+    #[arg(long, default_value_t = 20_000usize)]
+    pub(crate) max_reasoning_tokens: usize,
+
+    /// V6/F6 regenerate `docs/verification/PUBLIC_BENCHMARKS.md`
+    /// after running the canonical sweep. No-op when no per-bench
+    /// scorecards have been written yet.
+    #[arg(long, default_value_t = false)]
+    pub(crate) regenerate_report: bool,
+
+    /// V6/F6 regenerate `docs/verification/MEMD-10-STAR.md` from the
+    /// V6 axis deltas. Refuses to publish a 10-STAR claim with
+    /// composite < 7.0 unless `--allow-below-target` is set.
+    #[arg(long, default_value_t = false)]
+    pub(crate) regenerate_10star: bool,
+
+    /// V6/F6 allow the 10-STAR regenerator to publish a composite
+    /// below the 7.0 publishable threshold (V6 milestone target is
+    /// 4.45). Also forced on by `MEMD_V6_ALLOW_BELOW_TARGET=1`.
+    #[arg(long, default_value_t = false)]
+    pub(crate) allow_below_target: bool,
 }
 
 #[derive(Debug, Clone, Args)]
