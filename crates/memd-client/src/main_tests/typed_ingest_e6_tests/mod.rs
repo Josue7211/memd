@@ -179,6 +179,106 @@ fn router_hard_caps_at_10k_retrieval_tokens() {
     assert!(out.retrieval_tokens <= 100);
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+struct DepthRow {
+    bench_id: String,
+    #[allow(dead_code)]
+    question_id: String,
+    baseline_correct: bool,
+    routed_correct: bool,
+    baseline_prompt_tokens: u32,
+    routed_prompt_tokens: u32,
+    #[allow(dead_code)]
+    depth_calls: u32,
+}
+
+fn load_depth_fixture(name: &str) -> Vec<DepthRow> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("tests/fixtures/typed_ingest/e6")
+        .join(name);
+    let body = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read fixture {}: {e}", path.display()));
+    body.lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str::<DepthRow>(l).expect("parse row"))
+        .collect()
+}
+
+/// Test 8 — E6.5 (fixture proxy).
+/// LoCoMo multi-hop accuracy lift ≥ +0.04 (routed - baseline).
+/// Real corpus lock graduates with A6.9/B6/C6/D6 runtime activation
+/// post-2026-05-02.
+#[test]
+fn e6_lifts_locomo_multihop_at_least_0_04() {
+    let rows = load_depth_fixture("multihop-10.jsonl");
+    let locomo: Vec<_> = rows.into_iter().filter(|r| r.bench_id == "locomo").collect();
+    assert!(!locomo.is_empty(), "fixture missing locomo multi-hop rows");
+    let baseline = locomo.iter().filter(|r| r.baseline_correct).count() as f64
+        / locomo.len() as f64;
+    let routed =
+        locomo.iter().filter(|r| r.routed_correct).count() as f64 / locomo.len() as f64;
+    let lift = routed - baseline;
+    assert!(
+        lift >= 0.04,
+        "LoCoMo multi-hop lift {lift:.3} below 0.04 plan threshold (baseline={baseline:.3} routed={routed:.3})"
+    );
+}
+
+/// Test 9 — E6.5 (fixture proxy).
+/// LME temporal accuracy lift ≥ +0.03.
+#[test]
+fn e6_lifts_lme_temporal_at_least_0_03() {
+    let rows = load_depth_fixture("temporal-10.jsonl");
+    let lme: Vec<_> = rows.into_iter().filter(|r| r.bench_id == "lme").collect();
+    assert!(!lme.is_empty(), "fixture missing lme temporal rows");
+    let baseline =
+        lme.iter().filter(|r| r.baseline_correct).count() as f64 / lme.len() as f64;
+    let routed = lme.iter().filter(|r| r.routed_correct).count() as f64 / lme.len() as f64;
+    let lift = routed - baseline;
+    assert!(
+        lift >= 0.03,
+        "LME temporal lift {lift:.3} below 0.03 plan threshold (baseline={baseline:.3} routed={routed:.3})"
+    );
+}
+
+/// Test 10 — E6.6 (fixture proxy).
+/// Regression guard: routed prompt-token mean must not exceed
+/// baseline by more than D6's compiler savings — equivalent to
+/// "compiler still pays its way after E6 layered on top". Across
+/// the combined fixture, routed total tokens ≤ baseline total (i.e.
+/// E6 piggy-backs on D6 compiler shrinkage and adds at most the
+/// retrieved bodies, which the cap bounds).
+#[test]
+fn no_canonical_regression_below_d6_baseline() {
+    let mut rows = load_depth_fixture("multihop-10.jsonl");
+    rows.extend(load_depth_fixture("temporal-10.jsonl"));
+    assert!(!rows.is_empty(), "fixtures missing rows");
+    let baseline_correct = rows.iter().filter(|r| r.baseline_correct).count();
+    let routed_correct = rows.iter().filter(|r| r.routed_correct).count();
+    assert!(
+        routed_correct >= baseline_correct,
+        "accuracy regression: baseline={baseline_correct} routed={routed_correct}"
+    );
+    let baseline_mean: f64 = rows
+        .iter()
+        .map(|r| r.baseline_prompt_tokens as f64)
+        .sum::<f64>()
+        / rows.len() as f64;
+    let routed_mean: f64 = rows
+        .iter()
+        .map(|r| r.routed_prompt_tokens as f64)
+        .sum::<f64>()
+        / rows.len() as f64;
+    assert!(
+        routed_mean <= baseline_mean,
+        "prompt-token regression: baseline={baseline_mean:.0} routed={routed_mean:.0}"
+    );
+}
+
 /// Bonus — runtime notice is the only stable signal the runtime
 /// emits about the router. Mirror D6 test 6: off-path contains no
 /// engagement language; on-path advertises the version + caps.

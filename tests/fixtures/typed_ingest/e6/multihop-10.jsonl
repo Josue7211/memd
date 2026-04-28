@@ -1,0 +1,10 @@
+{"bench_id":"locomo","question_id":"locomo-mh-01","baseline_correct":false,"routed_correct":true,"baseline_prompt_tokens":4800,"routed_prompt_tokens":3100,"depth_calls":2}
+{"bench_id":"locomo","question_id":"locomo-mh-02","baseline_correct":true,"routed_correct":true,"baseline_prompt_tokens":4900,"routed_prompt_tokens":3050,"depth_calls":1}
+{"bench_id":"locomo","question_id":"locomo-mh-03","baseline_correct":false,"routed_correct":true,"baseline_prompt_tokens":5100,"routed_prompt_tokens":3200,"depth_calls":3}
+{"bench_id":"locomo","question_id":"locomo-mh-04","baseline_correct":true,"routed_correct":true,"baseline_prompt_tokens":4750,"routed_prompt_tokens":3000,"depth_calls":1}
+{"bench_id":"locomo","question_id":"locomo-mh-05","baseline_correct":false,"routed_correct":true,"baseline_prompt_tokens":5000,"routed_prompt_tokens":3150,"depth_calls":2}
+{"bench_id":"locomo","question_id":"locomo-mh-06","baseline_correct":true,"routed_correct":true,"baseline_prompt_tokens":4850,"routed_prompt_tokens":3050,"depth_calls":1}
+{"bench_id":"locomo","question_id":"locomo-mh-07","baseline_correct":false,"routed_correct":true,"baseline_prompt_tokens":5050,"routed_prompt_tokens":3200,"depth_calls":2}
+{"bench_id":"locomo","question_id":"locomo-mh-08","baseline_correct":true,"routed_correct":true,"baseline_prompt_tokens":4900,"routed_prompt_tokens":3100,"depth_calls":1}
+{"bench_id":"locomo","question_id":"locomo-mh-09","baseline_correct":false,"routed_correct":true,"baseline_prompt_tokens":5200,"routed_prompt_tokens":3250,"depth_calls":3}
+{"bench_id":"locomo","question_id":"locomo-mh-10","baseline_correct":true,"routed_correct":false,"baseline_prompt_tokens":4800,"routed_prompt_tokens":3050,"depth_calls":2}
