@@ -1,0 +1,21 @@
+{
+  "version": "bench-compiler/v1",
+  "benches": {
+    "lme": {
+      "budget_tokens": 2000,
+      "priority": ["canonical", "preferences", "recent_episodic", "semantic", "raw_episodic"]
+    },
+    "locomo": {
+      "budget_tokens": 3500,
+      "priority": ["canonical", "preferences", "recent_episodic", "semantic", "raw_episodic"]
+    },
+    "membench": {
+      "budget_tokens": 2500,
+      "priority": ["canonical", "semantic", "recent_episodic", "preferences", "raw_episodic"]
+    },
+    "convomem": {
+      "budget_tokens": 3000,
+      "priority": ["canonical", "preferences", "recent_episodic", "semantic", "raw_episodic"]
+    }
+  }
+}

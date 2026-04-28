@@ -13,6 +13,7 @@ pub(crate) mod dedupe;
 pub(crate) mod candidate_store;
 pub(crate) mod promotion;
 pub(crate) mod canonical_index;
+pub(crate) mod compiler;
 
 pub(crate) use episodic::{EpisodicAdapter, EpisodicProvenance};
 

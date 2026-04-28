@@ -27,6 +27,10 @@
 /.memd/benchmarks/substrate/fixtures/*
 !/.memd/benchmarks/substrate/fixtures/g5/
 !/.memd/benchmarks/substrate/fixtures/g5/**
+# D6: bench-compiler budget profile is a published contract artefact.
+!/.memd/benchmarks/public/
+/.memd/benchmarks/public/*
+!/.memd/benchmarks/public/compiler-budgets.json
 /.claude/scheduled_tasks.lock
 /.claude/worktrees/
 /.claw/
