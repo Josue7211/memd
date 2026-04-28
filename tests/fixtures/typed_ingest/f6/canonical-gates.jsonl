@@ -1,0 +1,5 @@
+{"bench_id":"lme","metric":"qa_accuracy","value":0.86,"target":0.85}
+{"bench_id":"locomo","metric":"token_f1_avg","value":0.76,"target":0.75}
+{"bench_id":"membench","metric":"mc_accuracy","value":0.76,"target":0.75}
+{"bench_id":"convomem","metric":"judge_accuracy","value":0.91,"target":0.90}
+{"bench_id":"lme","metric":"session_recall_any_at_5","value":0.96,"target":0.95}

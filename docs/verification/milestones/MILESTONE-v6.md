@@ -1,9 +1,9 @@
 ---
 milestone: v6
 name: Typed Ingest for Public Benches
-status: planned
+status: landed-scaffold-symmetric
 opened: 2026-04-22
-revised: 2026-04-22
+revised: 2026-04-27
 depends_on: [v5]
 composite_pre: 4.20
 composite_target: 4.45
@@ -86,7 +86,21 @@ Missing any assertion → axis does not lift, milestone does not close.
 
 D4 owns token_efficiency (2→4); V6 integrates D4 compiler on bench inputs with zero TE-axis credit (enforced by strict-mode scorecard regenerator).
 
+## Scaffold-symmetric status (2026-04-27)
+
+A6 → F6 all landed as scaffold-symmetric: pure parser/policy/engine modules + fixture-proxy lift tests against synthetic 10-row corpora. Live runtime activation (CLI → distill / promote / compile / route / reason against a real bench corpus) shares one calendar gate with the V5 typed-ingest graduation — earliest 2026-05-02. All four method cards (`docs/verification/method-cards/{lme,locomo,membench,convomem}-v6.md`) and the 10-STAR composite gate (`memd-10-star/v1`, threshold 7.0; V6 publishes 4.45 via `--allow-below-target` per axis-ownership rules) ship landed but unrun.
+
+| Phase | Module | Status | Tests | Method card |
+| --- | --- | --- | --- | --- |
+| A6 | `typed_ingest::episodic` + `bench_loaders` | landed | typed_ingest_a6_tests | n/a (loaders) |
+| B6 | `distiller` + `dedupe` + `candidate_store` | landed | typed_ingest_b6_tests | n/a (semantic) |
+| C6 | `promotion` + `canonical_index` | landed | typed_ingest_c6_tests | n/a (canonical) |
+| D6 | `compiler` | landed | typed_ingest_d6_tests | per-bench |
+| E6 | `depth_router` + `depth_policy` | landed | typed_ingest_e6_tests | per-bench |
+| F6 | `reasoning` + `report_aggregator` + `star_regen` | landed | typed_ingest_f6_tests (18) | all four + 10-STAR |
+
 ## Changelog
 
 - 2026-04-22 opened.
 - 2026-04-22 revised: composite_pre 5.5 → 4.20 (V5-post baseline), composite_target 7.0 → 4.45 (contract target); axes_lifted narrowed to [raw_retrieval, trust_provenance] per 0.1.0-AXIS-OWNERSHIP; axes_integrated_with [token_efficiency] added; axis targets clarified (no SC/CR/PR/CH lifts); non-goals expanded; per-axis harness assertions table added to enforce "no axis credit without G6 harness proof" rule; public-bench parity table added to show RR-lift scope; provenance queryability assertion added for TP lift.
+- 2026-04-27 status `planned` → `landed-scaffold-symmetric`: A6–F6 modules + fixture-proxy lift tests landed; runtime activation shares the V5 calendar gate (≥2026-05-02). 10-STAR composite gate, four method cards, repro script, and reasoning contract all landed; live canonical sweep deferred to gate-clear.

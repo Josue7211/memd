@@ -1,0 +1,10 @@
+{"bench_id":"locomo","question_id":"locomo-seq-01","baseline_correct":false,"reasoned_correct":true,"steps_used":3,"baseline_prompt_tokens":5100,"reasoned_prompt_tokens":3300}
+{"bench_id":"locomo","question_id":"locomo-seq-02","baseline_correct":true,"reasoned_correct":true,"steps_used":2,"baseline_prompt_tokens":4900,"reasoned_prompt_tokens":3100}
+{"bench_id":"locomo","question_id":"locomo-seq-03","baseline_correct":false,"reasoned_correct":true,"steps_used":4,"baseline_prompt_tokens":5300,"reasoned_prompt_tokens":3400}
+{"bench_id":"locomo","question_id":"locomo-seq-04","baseline_correct":true,"reasoned_correct":true,"steps_used":2,"baseline_prompt_tokens":4850,"reasoned_prompt_tokens":3050}
+{"bench_id":"locomo","question_id":"locomo-seq-05","baseline_correct":false,"reasoned_correct":true,"steps_used":3,"baseline_prompt_tokens":5200,"reasoned_prompt_tokens":3300}
+{"bench_id":"locomo","question_id":"locomo-seq-06","baseline_correct":true,"reasoned_correct":true,"steps_used":2,"baseline_prompt_tokens":4750,"reasoned_prompt_tokens":3000}
+{"bench_id":"locomo","question_id":"locomo-seq-07","baseline_correct":false,"reasoned_correct":true,"steps_used":3,"baseline_prompt_tokens":5050,"reasoned_prompt_tokens":3250}
+{"bench_id":"locomo","question_id":"locomo-seq-08","baseline_correct":true,"reasoned_correct":true,"steps_used":2,"baseline_prompt_tokens":4950,"reasoned_prompt_tokens":3150}
+{"bench_id":"locomo","question_id":"locomo-seq-09","baseline_correct":false,"reasoned_correct":true,"steps_used":4,"baseline_prompt_tokens":5300,"reasoned_prompt_tokens":3400}
+{"bench_id":"locomo","question_id":"locomo-seq-10","baseline_correct":true,"reasoned_correct":false,"steps_used":3,"baseline_prompt_tokens":4900,"reasoned_prompt_tokens":3100}

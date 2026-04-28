@@ -1,0 +1,10 @@
+{"bench_id":"lme","question_id":"lme-temp-01","baseline_correct":false,"reasoned_correct":true,"steps_used":3,"baseline_prompt_tokens":4900,"reasoned_prompt_tokens":3200}
+{"bench_id":"lme","question_id":"lme-temp-02","baseline_correct":true,"reasoned_correct":true,"steps_used":2,"baseline_prompt_tokens":4750,"reasoned_prompt_tokens":3050}
+{"bench_id":"lme","question_id":"lme-temp-03","baseline_correct":false,"reasoned_correct":true,"steps_used":4,"baseline_prompt_tokens":5100,"reasoned_prompt_tokens":3300}
+{"bench_id":"lme","question_id":"lme-temp-04","baseline_correct":true,"reasoned_correct":true,"steps_used":2,"baseline_prompt_tokens":4900,"reasoned_prompt_tokens":3100}
+{"bench_id":"lme","question_id":"lme-temp-05","baseline_correct":false,"reasoned_correct":true,"steps_used":3,"baseline_prompt_tokens":5050,"reasoned_prompt_tokens":3250}
+{"bench_id":"lme","question_id":"lme-temp-06","baseline_correct":true,"reasoned_correct":true,"steps_used":2,"baseline_prompt_tokens":4800,"reasoned_prompt_tokens":3000}
+{"bench_id":"lme","question_id":"lme-temp-07","baseline_correct":false,"reasoned_correct":true,"steps_used":3,"baseline_prompt_tokens":5000,"reasoned_prompt_tokens":3200}
+{"bench_id":"lme","question_id":"lme-temp-08","baseline_correct":true,"reasoned_correct":true,"steps_used":2,"baseline_prompt_tokens":4850,"reasoned_prompt_tokens":3100}
+{"bench_id":"lme","question_id":"lme-temp-09","baseline_correct":false,"reasoned_correct":true,"steps_used":4,"baseline_prompt_tokens":5150,"reasoned_prompt_tokens":3300}
+{"bench_id":"lme","question_id":"lme-temp-10","baseline_correct":true,"reasoned_correct":false,"steps_used":3,"baseline_prompt_tokens":4900,"reasoned_prompt_tokens":3100}
