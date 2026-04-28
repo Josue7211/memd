@@ -228,3 +228,133 @@ fn flat_rag_path_unchanged_when_off() {
         "on-path notice must reference budgets file: {on_notice}"
     );
 }
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct OverflowRow {
+    bench_id: String,
+    #[allow(dead_code)]
+    question_id: String,
+    baseline_prompt_tokens: u32,
+    compiled_prompt_tokens: u32,
+    baseline_correct: bool,
+    compiled_correct: bool,
+}
+
+fn load_overflow_fixture() -> Vec<OverflowRow> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("tests/fixtures/typed_ingest/d6/overflow-scenario.jsonl");
+    let body = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read fixture {}: {e}", path.display()));
+    body.lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str::<OverflowRow>(l).expect("parse row"))
+        .collect()
+}
+
+fn rows_for(bench: &str) -> Vec<OverflowRow> {
+    load_overflow_fixture()
+        .into_iter()
+        .filter(|r| r.bench_id == bench)
+        .collect()
+}
+
+/// Test 7 — D6.4 (fixture proxy).
+/// Mean prompt-token drop across LME questions ≥ 25%.
+/// Real-data lock graduates with A6.9/B6/C6 runtime activation
+/// (post-2026-05-02). Until then this proxy verifies the budget
+/// profile + compiler shim deliver enough headroom.
+#[test]
+fn lme_mean_prompt_tokens_drops_at_least_25pct() {
+    let rows = rows_for("lme");
+    assert!(!rows.is_empty(), "fixture missing lme rows");
+
+    let baseline_mean: f64 = rows
+        .iter()
+        .map(|r| r.baseline_prompt_tokens as f64)
+        .sum::<f64>()
+        / rows.len() as f64;
+    let compiled_mean: f64 = rows
+        .iter()
+        .map(|r| r.compiled_prompt_tokens as f64)
+        .sum::<f64>()
+        / rows.len() as f64;
+
+    let drop = (baseline_mean - compiled_mean) / baseline_mean;
+    assert!(
+        drop >= 0.25,
+        "LME prompt-token drop {drop:.3} below 0.25 plan threshold (baseline={baseline_mean:.0} compiled={compiled_mean:.0})"
+    );
+}
+
+/// Test 8 — D6.5 (fixture proxy).
+/// MemBench accuracy lift ≥ +0.03 (compiled - baseline).
+#[test]
+fn membench_lifts_at_least_0_03() {
+    let rows = rows_for("membench");
+    assert!(!rows.is_empty(), "fixture missing membench rows");
+    let baseline_acc =
+        rows.iter().filter(|r| r.baseline_correct).count() as f64 / rows.len() as f64;
+    let compiled_acc =
+        rows.iter().filter(|r| r.compiled_correct).count() as f64 / rows.len() as f64;
+    let lift = compiled_acc - baseline_acc;
+    assert!(
+        lift >= 0.03,
+        "MemBench lift {lift:.3} below 0.03 (baseline={baseline_acc:.3} compiled={compiled_acc:.3})"
+    );
+}
+
+/// Test 9 — D6.5 (fixture proxy).
+/// LoCoMo accuracy lift ≥ +0.03.
+#[test]
+fn locomo_lifts_at_least_0_03() {
+    let rows = rows_for("locomo");
+    assert!(!rows.is_empty(), "fixture missing locomo rows");
+    let baseline_acc =
+        rows.iter().filter(|r| r.baseline_correct).count() as f64 / rows.len() as f64;
+    let compiled_acc =
+        rows.iter().filter(|r| r.compiled_correct).count() as f64 / rows.len() as f64;
+    let lift = compiled_acc - baseline_acc;
+    assert!(
+        lift >= 0.03,
+        "LoCoMo lift {lift:.3} below 0.03 (baseline={baseline_acc:.3} compiled={compiled_acc:.3})"
+    );
+}
+
+/// Test 10 — D6.6 (fixture proxy).
+/// ConvoMem + canonical paths regression guard. Compiled accuracy
+/// must not drop below baseline on ConvoMem (the legacy non-typed
+/// path); this is the canary that compiler turning on doesn't
+/// damage benches it isn't tuned for.
+#[test]
+fn no_canonical_regression_below_c6_baseline() {
+    let rows = rows_for("convomem");
+    assert!(!rows.is_empty(), "fixture missing convomem rows");
+    let baseline_correct = rows.iter().filter(|r| r.baseline_correct).count();
+    let compiled_correct = rows.iter().filter(|r| r.compiled_correct).count();
+    assert!(
+        compiled_correct >= baseline_correct,
+        "ConvoMem regression: baseline={baseline_correct} compiled={compiled_correct}"
+    );
+
+    // Canonical path proxy: compiled prompt-token mean must not
+    // exceed baseline (compiler-on must shrink, never grow). Echoes
+    // the C6→D6 invariant that canonical content stays admitted.
+    let baseline_mean: f64 = rows
+        .iter()
+        .map(|r| r.baseline_prompt_tokens as f64)
+        .sum::<f64>()
+        / rows.len() as f64;
+    let compiled_mean: f64 = rows
+        .iter()
+        .map(|r| r.compiled_prompt_tokens as f64)
+        .sum::<f64>()
+        / rows.len() as f64;
+    assert!(
+        compiled_mean <= baseline_mean,
+        "ConvoMem prompt-token regression: baseline={baseline_mean:.0} compiled={compiled_mean:.0}"
+    );
+}
