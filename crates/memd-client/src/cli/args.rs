@@ -3231,6 +3231,27 @@ pub(crate) struct PublicBenchmarkArgs {
     /// promoted to `on` by `MEMD_V6_COMPILER=1`.
     #[arg(long, value_parser = ["on", "off"], default_value = "off")]
     pub(crate) compiler: String,
+
+    /// V6/E6 progressive-depth routing. `on` (default) enables the
+    /// multi-call tool-call loop: model can re-query memd mid-answer
+    /// across the wake/targeted/resume tiers, capped by
+    /// `--max-depth-calls` and `--max-retrieval-tokens`. `off`
+    /// preserves the single-call legacy path. Also forced off by
+    /// `MEMD_V6_DEPTH_ROUTING=0`. Runtime activation is calendar-gated
+    /// alongside A6.9/B6/C6/D6 (post-2026-05-02 V5 close); until then
+    /// the flag is recognised + surfaced but not dispatched.
+    #[arg(long, value_parser = ["on", "off"], default_value = "on")]
+    pub(crate) depth_routing: String,
+
+    /// V6/E6 hard cap on lookups per answer. Default 3. Override via
+    /// `MEMD_V6_MAX_DEPTH_CALLS`.
+    #[arg(long, default_value_t = 3usize)]
+    pub(crate) max_depth_calls: usize,
+
+    /// V6/E6 hard cap on retrieved-content tokens per answer
+    /// (chars-as-tokens, V4 convention). Default 10000.
+    #[arg(long, default_value_t = 10_000usize)]
+    pub(crate) max_retrieval_tokens: usize,
 }
 
 #[derive(Debug, Clone, Args)]

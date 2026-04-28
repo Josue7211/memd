@@ -454,6 +454,9 @@ async fn run_public_locomo_command_writes_artifacts() {
         distill_cache_dir: None,
         promotion_dry_run: false,
         compiler: "off".to_string(),
+        depth_routing: "on".to_string(),
+        max_depth_calls: 3,
+        max_retrieval_tokens: 10_000,
     })
     .await
     .expect("run locomo public benchmark");
@@ -513,6 +516,9 @@ async fn run_public_convomem_command_writes_artifacts() {
         distill_cache_dir: None,
         promotion_dry_run: false,
         compiler: "off".to_string(),
+        depth_routing: "on".to_string(),
+        max_depth_calls: 3,
+        max_retrieval_tokens: 10_000,
     })
     .await
     .expect("run convomem public benchmark");
@@ -572,6 +578,9 @@ async fn run_public_membench_command_writes_artifacts() {
         distill_cache_dir: None,
         promotion_dry_run: false,
         compiler: "off".to_string(),
+        depth_routing: "on".to_string(),
+        max_depth_calls: 3,
+        max_retrieval_tokens: 10_000,
     })
     .await
     .expect("run membench public benchmark");
