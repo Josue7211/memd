@@ -86,6 +86,41 @@ pub(crate) fn promotion_dry_run_active(cli_flag: bool) -> bool {
     cli_flag
 }
 
+/// D6 compiler resolution: env `MEMD_V6_COMPILER=1` always forces the
+/// compiler ON; otherwise the CLI flag wins. `cli_value` is the raw
+/// `--compiler=on|off` value. Pure read.
+pub(crate) fn compiler_active(cli_value: &str) -> bool {
+    if std::env::var("MEMD_V6_COMPILER").ok().as_deref() == Some("1") {
+        return true;
+    }
+    cli_value == "on"
+}
+
+/// User-visible notice emitted when `--compiler=…` is set on a public
+/// benchmark run. Pure — runtime forwards to eprintln. The `off` mode
+/// must produce no compiler-specific text other than the resolution
+/// echo so the flat-RAG path stays observably unchanged (test 6).
+pub(crate) fn compiler_runtime_notice(mode: &str, env_active: bool) -> String {
+    let active = compiler_active(mode);
+    let resolution = if env_active && mode != "on" {
+        " (env MEMD_V6_COMPILER=1 overrode --compiler=off)"
+    } else {
+        ""
+    };
+    if active {
+        format!(
+            "[bench] --compiler=on engaged; budgets={}{}",
+            compiler::default_budgets_path(),
+            resolution
+        )
+    } else {
+        format!(
+            "[bench] --compiler={} (off-path: legacy flat-RAG prompt unchanged)",
+            mode
+        )
+    }
+}
+
 /// Outcome of a typed-ingest dispatch — counts and provenance hashes
 /// (deterministic enough for ingest-card baseline locks in A6.8).
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -453,6 +453,7 @@ async fn run_public_locomo_command_writes_artifacts() {
         distill_budget_milli_usd: 100,
         distill_cache_dir: None,
         promotion_dry_run: false,
+        compiler: "off".to_string(),
     })
     .await
     .expect("run locomo public benchmark");
@@ -511,6 +512,7 @@ async fn run_public_convomem_command_writes_artifacts() {
         distill_budget_milli_usd: 100,
         distill_cache_dir: None,
         promotion_dry_run: false,
+        compiler: "off".to_string(),
     })
     .await
     .expect("run convomem public benchmark");
@@ -569,6 +571,7 @@ async fn run_public_membench_command_writes_artifacts() {
         distill_budget_milli_usd: 100,
         distill_cache_dir: None,
         promotion_dry_run: false,
+        compiler: "off".to_string(),
     })
     .await
     .expect("run membench public benchmark");

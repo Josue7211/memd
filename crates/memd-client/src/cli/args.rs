@@ -3222,6 +3222,15 @@ pub(crate) struct PublicBenchmarkArgs {
     /// forced on by `MEMD_V6_PROMOTION_DRY_RUN=1`.
     #[arg(long, default_value_t = false)]
     pub(crate) promotion_dry_run: bool,
+
+    /// V6/D6 bench-compiler A/B switch. `on` routes the answer prompt
+    /// through `runtime::resume::compiler::compile_wake` with the
+    /// per-bench budget profile from
+    /// `.memd/benchmarks/public/compiler-budgets.json`. `off` (default)
+    /// preserves the legacy flat-RAG prompt path verbatim. Also
+    /// promoted to `on` by `MEMD_V6_COMPILER=1`.
+    #[arg(long, value_parser = ["on", "off"], default_value = "off")]
+    pub(crate) compiler: String,
 }
 
 #[derive(Debug, Clone, Args)]

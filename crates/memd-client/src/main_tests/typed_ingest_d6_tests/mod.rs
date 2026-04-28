@@ -6,10 +6,23 @@
 //!
 //! Coverage map → `docs/phases/v6/phase-d6-plan.md` §4.
 
+use std::sync::{Mutex, OnceLock};
+
 use crate::benchmark::typed_ingest::compiler::{
     compile_for_bench, load_budget_profile, BenchCompilerInput, BudgetProfile,
     BENCH_COMPILER_VERSION,
 };
+use crate::benchmark::typed_ingest::{compiler_active, compiler_runtime_notice};
+
+/// Serialise tests that mutate `MEMD_V6_COMPILER`.
+static COMPILER_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    COMPILER_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("env lock poisoned")
+}
 
 /// Test 1 — D6.1.
 /// Loads the per-bench budget profile from the canonical config path
@@ -155,4 +168,63 @@ fn compiler_emits_typed_window_to_prompt() {
         );
     }
     assert!(outcome.sections_included.contains(&"canonical".to_string()));
+}
+
+/// Test 5 — D6.3.
+/// CLI flag and env override resolve cleanly. `compiler_active`:
+/// - `--compiler=off` → off
+/// - `--compiler=on` → on
+/// - `MEMD_V6_COMPILER=1` overrides any CLI value to on.
+#[test]
+fn ab_harness_flag_toggles_cleanly() {
+    let _g = env_lock();
+
+    unsafe { std::env::remove_var("MEMD_V6_COMPILER"); }
+    assert!(!compiler_active("off"), "default off");
+    assert!(compiler_active("on"), "explicit on");
+
+    unsafe { std::env::set_var("MEMD_V6_COMPILER", "1"); }
+    assert!(compiler_active("off"), "env=1 forces on over CLI off");
+    assert!(compiler_active("on"), "env=1 keeps on");
+
+    unsafe { std::env::set_var("MEMD_V6_COMPILER", "0"); }
+    assert!(!compiler_active("off"), "env=0 falls back to CLI off");
+    assert!(compiler_active("on"), "env=0 keeps CLI on");
+
+    unsafe { std::env::remove_var("MEMD_V6_COMPILER"); }
+}
+
+/// Test 6 — D6.3.
+/// `--compiler=off` notice carries no compiler-engagement language —
+/// the legacy flat-RAG prompt path stays observably unchanged. The
+/// off-path notice is the only stable signal (eprintln) the runtime
+/// emits about the compiler when it's disabled.
+#[test]
+fn flat_rag_path_unchanged_when_off() {
+    let _g = env_lock();
+    unsafe { std::env::remove_var("MEMD_V6_COMPILER"); }
+
+    let off_notice = compiler_runtime_notice("off", false);
+    assert!(
+        !off_notice.contains("engaged"),
+        "off-path leaks compiler engagement: {off_notice}"
+    );
+    assert!(
+        !off_notice.contains("budgets="),
+        "off-path leaks budget-table reference: {off_notice}"
+    );
+    assert!(
+        off_notice.contains("flat-RAG"),
+        "off-path notice must label legacy path: {off_notice}"
+    );
+
+    let on_notice = compiler_runtime_notice("on", false);
+    assert!(
+        on_notice.contains("engaged"),
+        "on-path notice missing engagement: {on_notice}"
+    );
+    assert!(
+        on_notice.contains("budgets="),
+        "on-path notice must reference budgets file: {on_notice}"
+    );
 }
