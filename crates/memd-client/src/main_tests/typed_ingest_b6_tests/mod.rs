@@ -443,23 +443,26 @@ fn flag_routing_episodic_plus_semantic() {
 
     // Notice formatting:
     // - episodic+semantic notice mentions the distill model + budget + cache state.
-    let n_full = typed_ingest_runtime_notice("episodic+semantic", false, "gpt-5.4", 50, true);
+    let n_full = typed_ingest_runtime_notice("episodic+semantic", false, "gpt-5.4", 50, true, false);
     assert!(n_full.contains("--typed-ingest=episodic+semantic"));
     assert!(n_full.contains("distill_model=gpt-5.4"));
     assert!(n_full.contains("budget_milli_usd=50"));
     assert!(n_full.contains("cache=on"));
     assert!(n_full.contains("gated"));
+    // B6 mode does not surface the C6 rule version or dry-run flag.
+    assert!(!n_full.contains("promotion_rule"));
+    assert!(!n_full.contains("dry_run"));
     // - episodic-only notice does not mention distill.
-    let n_a6 = typed_ingest_runtime_notice("episodic", false, "gpt-5.4", 50, true);
+    let n_a6 = typed_ingest_runtime_notice("episodic", false, "gpt-5.4", 50, true, false);
     assert!(!n_a6.contains("distill_model"));
     assert!(!n_a6.contains("budget_milli_usd"));
     assert!(!n_a6.contains("cache="));
     // - env-active flips the activation phrase.
-    let n_active = typed_ingest_runtime_notice("episodic+semantic", true, "gpt-5.4", 50, true);
+    let n_active = typed_ingest_runtime_notice("episodic+semantic", true, "gpt-5.4", 50, true, false);
     assert!(n_active.contains("ACTIVE"));
     // - cache=off surfaces when MEMD_V6_DISTILL_CACHE=0.
     let n_no_cache =
-        typed_ingest_runtime_notice("episodic+semantic", false, "gpt-5.4", 50, false);
+        typed_ingest_runtime_notice("episodic+semantic", false, "gpt-5.4", 50, false, false);
     assert!(n_no_cache.contains("cache=off"));
 
     // Env-var read sites (mirrors A6.8 notice/eprintln pattern):

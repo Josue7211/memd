@@ -1323,6 +1323,9 @@ pub(crate) async fn run_public_benchmark_command(
             &args.distill_model,
         );
         let cache_on = crate::benchmark::typed_ingest::distiller::cache_enabled();
+        let dry_run = crate::benchmark::typed_ingest::promotion_dry_run_active(
+            args.promotion_dry_run,
+        );
         eprintln!(
             "{}",
             crate::benchmark::typed_ingest::typed_ingest_runtime_notice(
@@ -1331,6 +1334,7 @@ pub(crate) async fn run_public_benchmark_command(
                 &model,
                 args.distill_budget_milli_usd,
                 cache_on,
+                dry_run,
             )
         );
     }

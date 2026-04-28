@@ -3194,9 +3194,12 @@ pub(crate) struct PublicBenchmarkArgs {
     ///   `EpisodicProvenance` metadata.
     /// - `episodic+semantic` (B6) — A6 + B6 semantic distillation,
     ///   emits `stage=candidate` records via the codex-lb judge.
+    /// - `episodic+semantic+canonical` (C6) — B6 + C6 canonical
+    ///   promotion under the rule card (corroboration ≥ 2, confidence
+    ///   ≥ 0.8, session-age ≥ 3 turns, contradiction reuse via C4).
     /// Off by default; runtime activation gated by env
     /// `MEMD_V6_TYPED_INGEST=1` and the V5 calendar gate (graduates in A6.9).
-    #[arg(long, value_parser = ["episodic", "episodic+semantic"])]
+    #[arg(long, value_parser = ["episodic", "episodic+semantic", "episodic+semantic+canonical"])]
     pub(crate) typed_ingest: Option<String>,
 
     /// V6/B6 distillation judge model. Default `gpt-5.4` via codex-lb.
@@ -3213,6 +3216,12 @@ pub(crate) struct PublicBenchmarkArgs {
     /// `.memd/benchmarks/public/cache/distill/` relative to the bundle.
     #[arg(long)]
     pub(crate) distill_cache_dir: Option<PathBuf>,
+
+    /// V6/C6 promotion dry-run. Emits the same NDJSON telemetry as a
+    /// real promotion but does not write to the canonical index. Also
+    /// forced on by `MEMD_V6_PROMOTION_DRY_RUN=1`.
+    #[arg(long, default_value_t = false)]
+    pub(crate) promotion_dry_run: bool,
 }
 
 #[derive(Debug, Clone, Args)]

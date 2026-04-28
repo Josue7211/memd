@@ -11,6 +11,8 @@ pub(crate) mod ingest_card;
 pub(crate) mod distiller;
 pub(crate) mod dedupe;
 pub(crate) mod candidate_store;
+pub(crate) mod promotion;
+pub(crate) mod canonical_index;
 
 pub(crate) use episodic::{EpisodicAdapter, EpisodicProvenance};
 
@@ -27,19 +29,34 @@ use bench_loaders::{
 /// `--typed-ingest=…` is set. Pure — runtime calls this and forwards
 /// to eprintln; tests exercise it directly. `distill_model` is the
 /// already-env-resolved value (see `distiller::effective_distill_model`).
+/// `promotion_dry_run` is the env-resolved C6 dry-run flag (see
+/// `promotion_dry_run_active`); only surfaced when the mode includes
+/// `+canonical`.
 pub(crate) fn typed_ingest_runtime_notice(
     mode: &str,
     env_active: bool,
     distill_model: &str,
     budget_milli_usd: u64,
     cache_enabled: bool,
+    promotion_dry_run: bool,
 ) -> String {
-    let distill_note = if mode == "episodic+semantic" {
+    let semantic_on = mode == "episodic+semantic" || mode == "episodic+semantic+canonical";
+    let canonical_on = mode == "episodic+semantic+canonical";
+    let distill_note = if semantic_on {
         format!(
             " distill_model={} budget_milli_usd={} cache={}",
             distill_model,
             budget_milli_usd,
             if cache_enabled { "on" } else { "off" }
+        )
+    } else {
+        String::new()
+    };
+    let canonical_note = if canonical_on {
+        format!(
+            " promotion_rule={} dry_run={}",
+            promotion::PROMOTION_RULE_VERSION,
+            if promotion_dry_run { "on" } else { "off" }
         )
     } else {
         String::new()
@@ -50,9 +67,22 @@ pub(crate) fn typed_ingest_runtime_notice(
         "gated — flag is a no-op until A6.9"
     };
     format!(
-        "[bench] --typed-ingest={} recognised;{} runtime activation {} (env MEMD_V6_TYPED_INGEST=1 graduates in A6.9)",
-        mode, distill_note, activation
+        "[bench] --typed-ingest={} recognised;{}{} runtime activation {} (env MEMD_V6_TYPED_INGEST=1 graduates in A6.9; C6 promotion shares the same gate)",
+        mode, distill_note, canonical_note, activation
     )
+}
+
+/// C6 dry-run resolution: env `MEMD_V6_PROMOTION_DRY_RUN=1` always
+/// forces dry-run; otherwise falls back to the CLI flag. Pure read.
+pub(crate) fn promotion_dry_run_active(cli_flag: bool) -> bool {
+    if std::env::var("MEMD_V6_PROMOTION_DRY_RUN")
+        .ok()
+        .as_deref()
+        == Some("1")
+    {
+        return true;
+    }
+    cli_flag
 }
 
 /// Outcome of a typed-ingest dispatch — counts and provenance hashes
