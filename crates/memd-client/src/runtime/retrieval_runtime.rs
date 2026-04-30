@@ -344,7 +344,10 @@ pub(crate) fn default_kinds_for_intent(intent: RetrievalIntent) -> Vec<MemoryKin
             MemoryKind::Topology,
             MemoryKind::LiveTruth,
         ],
-        RetrievalIntent::Skill => vec![], // Phase 1: stub kind mapping
+        // Phase 1: stub kind mapping. FIXME(living-skills Task 2): once SkillBody
+        // is defined, populate with `vec![MemoryKind::Skill]` so intent-driven
+        // lookup (`memd lookup --intent skill`) returns skill records.
+        RetrievalIntent::Skill => vec![],
     }
 }
 
