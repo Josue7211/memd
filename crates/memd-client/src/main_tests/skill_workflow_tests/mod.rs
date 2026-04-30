@@ -299,6 +299,66 @@ description: route project chat through a compact visible lane
 }
 
 #[test]
+fn skill_lifecycle_roundtrip_mirror_catalog_wake_remove() {
+    let bundle = std::env::temp_dir().join(format!("memd-skill-roundtrip-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&bundle).expect("create bundle root");
+
+    let (body, mirror_path) = prepare_and_mirror_skill(
+        &bundle,
+        "living-skills-bootstrap",
+        "Phase 1 wedge: route project skills through memd records",
+        "## Use\n\nWhen the user adds a project-local skill, store the body as kind=skill and mirror it to disk.\n".to_string(),
+    )
+    .expect("prepare and mirror skill");
+    assert_eq!(body.frontmatter.name, "living-skills-bootstrap");
+    assert!(mirror_path.ends_with("skills/living-skills-bootstrap/SKILL.md"));
+    assert!(mirror_path.exists());
+
+    let catalog = build_skill_catalog(&bundle.join("skills")).expect("build skill catalog");
+    let entry = catalog
+        .custom
+        .iter()
+        .find(|c| c.name == "living-skills-bootstrap")
+        .expect("custom skill present in catalog");
+    assert_eq!(
+        entry.summary,
+        "Phase 1 wedge: route project skills through memd records"
+    );
+
+    let snapshot = codex_test_snapshot("memd", "main", "claude-code");
+    let wakeup = render_bundle_wakeup_markdown(&bundle, &snapshot, false);
+    assert!(
+        wakeup.contains("## Active Skills"),
+        "wake render missing Active Skills section: {wakeup}"
+    );
+    assert!(
+        wakeup.contains("living-skills-bootstrap"),
+        "wake render missing skill name: {wakeup}"
+    );
+
+    memd_core::skill_mirror::remove_mirror(&bundle, "living-skills-bootstrap")
+        .expect("remove mirror");
+    assert!(!mirror_path.exists());
+
+    let catalog_after = build_skill_catalog(&bundle.join("skills")).expect("build skill catalog after remove");
+    assert!(
+        catalog_after
+            .custom
+            .iter()
+            .all(|c| c.name != "living-skills-bootstrap"),
+        "catalog still surfaces removed skill"
+    );
+
+    let wakeup_after = render_bundle_wakeup_markdown(&bundle, &snapshot, false);
+    assert!(
+        !wakeup_after.contains("living-skills-bootstrap"),
+        "wake render still mentions removed skill: {wakeup_after}"
+    );
+
+    fs::remove_dir_all(&bundle).expect("cleanup roundtrip bundle");
+}
+
+#[test]
 fn inspiration_search_reuses_cache_for_unchanged_files() {
     let root = std::env::temp_dir().join(format!("memd-inspiration-{}", uuid::Uuid::new_v4()));
     let lane_dir = root.join(".memd").join("lanes").join("inspiration");
