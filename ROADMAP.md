@@ -553,6 +553,14 @@ Protocol + cadence: [[docs/verification/PUBLIC_BENCHMARKS.md]]
 
 Donor-to-phase mapping: [[docs/theory/2026-04-14-donor-extraction-to-v2-phases.md]]
 
+## Living Skills
+
+Donor: `mattpocock/skills` — folder-as-skill convention with YAML frontmatter (`name`, `description`) and free-form markdown body. Goal: skills become first-class memd memories so they participate in the same canonical / promotion / sync pipeline as facts and decisions, while remaining discoverable by every harness that already reads `<bundle>/skills/<name>/SKILL.md`.
+
+- **Phase 1 (in flight, branch `research/mining`)** — Foundation wedge: `MemoryKind::Skill`, `RetrievalIntent::Skill`, atomic mirror writer, `memd skill {add,list,show,retire}`, optional `record_id` on `SkillCatalogEntry`, `## Active Skills` block in `wake.md`, in-process roundtrip test. Plan: [[docs/superpowers/plans/2026-04-29-living-skills-phase1-foundation.md]]. Contract: [[docs/contracts/skill-record.md]].
+- **Phase 2 (queued)** — Records-as-truth: `memd skill sync` regenerates the mirror from records, retire deletes record by default, B6 distiller treats skill records as semantic candidates with explicit gating, ranked Active Skills surface keyed on salience.
+- **Phase 3 (queued)** — Cross-project sharing: `--scope global` writes a global mirror surface, `record_id` round-trip enables catalog-without-rescan.
+
 ## Backlog
 
 84 items tracked. Full index: `docs/backlog/` directory.
