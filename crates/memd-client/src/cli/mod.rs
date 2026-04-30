@@ -51,6 +51,9 @@ pub(crate) use cli_correction_runtime::*;
 mod cli_preference_runtime;
 pub(crate) use cli_preference_runtime::*;
 
+mod skill_runtime;
+pub(crate) use skill_runtime::*;
+
 pub(crate) mod skill_catalog;
 
 pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
@@ -789,6 +792,9 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         }
         Commands::Inspiration(args) => {
             run_inspiration_command(args, &base_url).await?;
+        }
+        Commands::Skill(args) => {
+            run_skill_command(&client, &base_url, args).await?;
         }
         Commands::Skills(args) => {
             run_skill_catalog_command(args)?;
