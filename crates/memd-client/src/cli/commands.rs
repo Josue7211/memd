@@ -25,8 +25,9 @@ pub(crate) fn parse_memory_kind_value(value: &str) -> anyhow::Result<MemoryKind>
         "live_truth" | "live-truth" | "truth" => Ok(MemoryKind::LiveTruth),
         "pattern" => Ok(MemoryKind::Pattern),
         "constraint" => Ok(MemoryKind::Constraint),
+        "skill" => Ok(MemoryKind::Skill),
         _ => anyhow::bail!(
-            "invalid memory kind '{value}'; expected fact, decision, preference, runbook, procedural, self_model, topology, status, live_truth, pattern, or constraint"
+            "invalid memory kind '{value}'; expected fact, decision, preference, runbook, procedural, self_model, topology, status, live_truth, pattern, constraint, or skill"
         ),
     }
 }
@@ -201,6 +202,10 @@ mod tests {
         assert_eq!(
             parse_memory_kind_value("live-truth").unwrap(),
             MemoryKind::LiveTruth
+        );
+        assert_eq!(
+            parse_memory_kind_value("skill").unwrap(),
+            MemoryKind::Skill
         );
     }
 
