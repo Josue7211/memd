@@ -3,6 +3,7 @@ use anyhow::Context;
 use memd_schema::skill::{SkillBody, SkillFrontmatter};
 use std::fs;
 use std::io::Read;
+use std::path::{Path, PathBuf};
 
 pub(crate) async fn run_skill_command(
     client: &MemdClient,
@@ -17,13 +18,33 @@ pub(crate) async fn run_skill_command(
     }
 }
 
+pub(crate) fn prepare_and_mirror_skill(
+    output: &Path,
+    name: &str,
+    description: &str,
+    body_text: String,
+) -> anyhow::Result<(SkillBody, PathBuf)> {
+    memd_core::skill_mirror::validate_skill_name(name)?;
+
+    let skill_body = SkillBody {
+        frontmatter: SkillFrontmatter {
+            name: name.to_string(),
+            description: description.to_string(),
+        },
+        body: body_text,
+    };
+
+    let mirror_path = memd_core::skill_mirror::write_mirror(output, &skill_body)
+        .context("write skill mirror")?;
+
+    Ok((skill_body, mirror_path))
+}
+
 async fn run_skill_add(
     client: &MemdClient,
     base_url: &str,
     args: SkillAddArgs,
 ) -> anyhow::Result<()> {
-    memd_core::skill_mirror::validate_skill_name(&args.name)?;
-
     let body_text = if let Some(body) = &args.body {
         body.clone()
     } else if let Some(path) = &args.body_file {
@@ -38,16 +59,12 @@ async fn run_skill_add(
         anyhow::bail!("provide --body, --body-file, or --stdin");
     };
 
-    let skill_body = SkillBody {
-        frontmatter: SkillFrontmatter {
-            name: args.name.clone(),
-            description: args.description.clone(),
-        },
-        body: body_text,
-    };
-
-    let mirror_path = memd_core::skill_mirror::write_mirror(&args.output, &skill_body)
-        .context("write skill mirror")?;
+    let (skill_body, mirror_path) = prepare_and_mirror_skill(
+        &args.output,
+        &args.name,
+        &args.description,
+        body_text,
+    )?;
 
     let mut remember_args = RememberArgs {
         output: args.output.clone(),
@@ -70,7 +87,7 @@ async fn run_skill_add(
         stdin: false,
     };
 
-    remember_args.tag.push(format!("skill:{}", args.name));
+    remember_args.tag.push(format!("skill:{}", &args.name));
 
     let response = remember_with_bundle_defaults(&remember_args, base_url)
         .await
@@ -246,5 +263,41 @@ mod tests {
 
         assert!(run_skill_retire(args.clone()).is_ok());
         assert!(run_skill_retire(args).is_ok());
+    }
+
+    #[test]
+    fn prepare_and_mirror_skill_writes_skill_md() {
+        let tmp = tempdir().unwrap();
+        let (body, mirror_path) = prepare_and_mirror_skill(
+            tmp.path(),
+            "demo",
+            "demo skill",
+            "## Body\nhello\n".to_string(),
+        )
+        .unwrap();
+
+        let written = std::fs::read_to_string(&mirror_path).unwrap();
+        assert!(written.starts_with("---\nname: demo\n"));
+        assert!(written.contains("description: demo skill"));
+        assert!(written.contains("## Body\nhello"));
+        assert_eq!(body.frontmatter.name, "demo");
+        assert_eq!(mirror_path, tmp.path().join("skills/demo/SKILL.md"));
+    }
+
+    #[test]
+    fn prepare_and_mirror_skill_rejects_invalid_name_without_writing() {
+        let tmp = tempdir().unwrap();
+        let result = prepare_and_mirror_skill(
+            tmp.path(),
+            "../escape",
+            "x",
+            String::new(),
+        );
+        assert!(result.is_err());
+        let skills = tmp.path().join("skills");
+        if skills.exists() {
+            let count = std::fs::read_dir(&skills).unwrap().count();
+            assert_eq!(count, 0, "no skill dir should be created on invalid name");
+        }
     }
 }
