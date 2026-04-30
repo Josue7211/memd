@@ -346,6 +346,8 @@ pub(crate) fn render_bundle_wakeup_markdown(
         &mut seen_ids,
     ));
 
+    prefix.push_str(&render_active_skills_block(output));
+
     // E2: Atlas region hints in wake packet
     if !snapshot.atlas_region_hints.is_empty() && !claude_strict {
         prefix.push_str("## Atlas\n\n");
@@ -517,6 +519,107 @@ pub(crate) fn render_bundle_wakeup_markdown(
     };
 
     enforce_wake_char_budget(&prefix, &protocol, budget)
+}
+
+fn collect_active_skills(bundle_root: &Path, limit: usize) -> Vec<(String, String, String)> {
+    let dir = bundle_root.join("skills");
+    if !dir.is_dir() {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let skill_md = path.join("SKILL.md");
+        if !skill_md.is_file() {
+            continue;
+        }
+        let raw = match std::fs::read_to_string(&skill_md) {
+            Ok(raw) => raw,
+            Err(_) => continue,
+        };
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) if !name.is_empty() => name.to_string(),
+            _ => continue,
+        };
+        let (description, body) = split_skill_frontmatter(&raw);
+        found.push((name, description, body));
+    }
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    found.truncate(limit);
+    found
+}
+
+fn split_skill_frontmatter(raw: &str) -> (String, String) {
+    let mut description = String::new();
+    let mut body = String::new();
+    let mut iter = raw.lines();
+    let Some(first) = iter.next() else {
+        return (description, body);
+    };
+    if first.trim() != "---" {
+        return (description, raw.to_string());
+    }
+    let mut in_fm = true;
+    for line in iter {
+        if in_fm {
+            let trimmed = line.trim();
+            if trimmed == "---" {
+                in_fm = false;
+                continue;
+            }
+            if let Some(value) = trimmed.strip_prefix("description:") {
+                description = value
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .to_string();
+            }
+        } else {
+            body.push_str(line);
+            body.push('\n');
+        }
+    }
+    (description, body)
+}
+
+fn render_active_skills_block(bundle_root: &Path) -> String {
+    let skills = collect_active_skills(bundle_root, 3);
+    if skills.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("## Active Skills\n\n");
+    for (i, (name, description, body)) in skills.iter().enumerate() {
+        if i == 0 {
+            out.push_str(&format!("- **{}** — {}\n", name, description));
+            let trimmed = body.trim();
+            if !trimmed.is_empty() {
+                let truncated: String = if trimmed.chars().count() > 500 {
+                    let mut s: String = trimmed.chars().take(500).collect();
+                    s.push('…');
+                    s
+                } else {
+                    trimmed.to_string()
+                };
+                for line in truncated.lines() {
+                    out.push_str(&format!("  {}\n", line));
+                }
+            }
+        } else {
+            out.push_str(&format!(
+                "- {} — `memd lookup --kind skill --name {}`\n",
+                name, name
+            ));
+        }
+    }
+    out.push('\n');
+    out
 }
 
 pub(crate) fn render_bundle_wakeup_summary(snapshot: &ResumeSnapshot) -> String {
@@ -1223,5 +1326,33 @@ mod tests {
             6,
             "registry should have 6 harnesses: codex, claude-code, agent-zero, openclaw, hermes, opencode"
         );
+    }
+
+    fn write_skill_md(bundle: &Path, name: &str, description: &str, body: &str) {
+        let dir = bundle.join("skills").join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let payload = format!(
+            "---\nname: {}\ndescription: {}\n---\n\n{}",
+            name, description, body
+        );
+        std::fs::write(dir.join("SKILL.md"), payload).unwrap();
+    }
+
+    #[test]
+    fn active_skills_block_omitted_when_no_skills() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        assert_eq!(render_active_skills_block(tmp.path()), "");
+    }
+
+    #[test]
+    fn active_skills_block_lists_skills_with_inlined_first_body() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        write_skill_md(tmp.path(), "tdd", "drive features test-first", "## Steps\n1. Red\n2. Green\n");
+        write_skill_md(tmp.path(), "review", "second skill", "body two");
+        let block = render_active_skills_block(tmp.path());
+        assert!(block.starts_with("## Active Skills"));
+        assert!(block.contains("- **review** — second skill"));
+        assert!(block.contains("body two"));
+        assert!(block.contains("- tdd — `memd lookup --kind skill --name tdd`"));
     }
 }
