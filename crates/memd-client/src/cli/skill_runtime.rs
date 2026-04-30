@@ -91,18 +91,22 @@ async fn run_skill_add(
 
     let response = remember_with_bundle_defaults(&remember_args, base_url)
         .await
-        .map_err(|e| {
-            let _ = memd_core::skill_mirror::remove_mirror(&args.output, &args.name);
-            e
+        .map_err(|e| match memd_core::skill_mirror::remove_mirror(&args.output, &args.name) {
+            Ok(()) => e,
+            Err(rollback_err) => anyhow::anyhow!(
+                "remember failed and rollback also failed (mirror left at {}/skills/{}/SKILL.md): original={e}; rollback={rollback_err}",
+                args.output.display(),
+                args.name
+            ),
         })?;
 
     let record_id = response.item.id.clone();
-    println!(
-        "{{\"skill\":\"{}\",\"mirror\":\"{}\",\"record_id\":\"{}\"}}",
-        args.name,
-        mirror_path.display(),
-        record_id
-    );
+    let payload = serde_json::json!({
+        "skill": args.name,
+        "mirror": mirror_path.display().to_string(),
+        "record_id": record_id,
+    });
+    println!("{}", serde_json::to_string(&payload)?);
 
     Ok(())
 }
@@ -161,12 +165,17 @@ fn run_skill_retire(args: SkillRetireArgs) -> anyhow::Result<()> {
         .context("remove skill mirror")?;
 
     if !args.keep_record {
-        println!(
-            "{{\"retired\":\"{}\",\"note\":\"record retirement pending (Phase 2)\"}}",
-            args.name
-        );
+        let payload = serde_json::json!({
+            "retired": args.name,
+            "note": "record retirement pending (Phase 2)",
+        });
+        println!("{}", serde_json::to_string(&payload)?);
     } else {
-        println!("{{\"retired\":\"{}\",\"mirror_deleted\":true}}", args.name);
+        let payload = serde_json::json!({
+            "retired": args.name,
+            "mirror_deleted": true,
+        });
+        println!("{}", serde_json::to_string(&payload)?);
     }
 
     Ok(())
