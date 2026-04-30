@@ -27,6 +27,11 @@ impl SkillBody {
     }
 
     /// Derive the relative mirror path inside a memd bundle.
+    ///
+    /// **WARNING:** Does not validate `name`. A malicious or unchecked name
+    /// (e.g., `"../escape"`) yields a traversal path. Always pair with
+    /// `memd_core::skill_mirror::validate_skill_name` before any FS write —
+    /// `write_mirror` does this for you; direct callers must replicate it.
     pub fn mirror_relpath(&self) -> std::path::PathBuf {
         std::path::PathBuf::from("skills")
             .join(&self.frontmatter.name)
