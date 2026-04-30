@@ -5,6 +5,7 @@ pub mod file_ledger;
 pub mod hook_runtime;
 pub mod lifecycle_probe;
 pub mod preference;
+pub mod skill_mirror;
 
 use memd_schema::{
     CandidateMemoryRequest, CompactContextResponse, CompactionDecision, CompactionOpenLoop,
