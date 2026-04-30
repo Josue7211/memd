@@ -114,6 +114,7 @@ pub fn classify_relation(item: &MemoryItem) -> EpisodeFactRelation {
             EpisodeFactRelation::Reference
         }
         Correction => EpisodeFactRelation::Outcome,
+        Skill => EpisodeFactRelation::Reference, // Phase 1: stub classification
     }
 }
 
@@ -177,6 +178,7 @@ fn kind_tag(kind: memd_schema::MemoryKind) -> &'static str {
         Pattern => "pattern",
         Constraint => "constraint",
         Correction => "correction",
+        Skill => "skill", // Phase 1: stub tag
     }
 }
 

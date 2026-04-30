@@ -15,6 +15,7 @@ fn freshness_window_days(kind: MemoryKind) -> i64 {
         | MemoryKind::SelfModel
         | MemoryKind::Topology => 30,
         MemoryKind::Correction => 30,
+        MemoryKind::Skill => 30, // Phase 1: stub freshness window
     }
 }
 

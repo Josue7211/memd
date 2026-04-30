@@ -19,6 +19,7 @@ pub enum MemoryKind {
     Pattern,
     Constraint,
     Correction,
+    Skill,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -75,6 +76,7 @@ pub enum RetrievalIntent {
     Preference,
     Fact,
     Pattern,
+    Skill,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -4723,5 +4725,23 @@ mod tests {
         assert!(!legacy_json.contains("correction_meta"));
         let decoded: MemoryItem = serde_json::from_str(&legacy_json).unwrap();
         assert!(decoded.correction_meta.is_none());
+    }
+
+    #[test]
+    fn memory_kind_skill_serializes_snake_case() {
+        let json = serde_json::to_string(&MemoryKind::Skill).unwrap();
+        assert_eq!(json, "\"skill\"");
+    }
+
+    #[test]
+    fn memory_kind_skill_round_trips() {
+        let parsed: MemoryKind = serde_json::from_str("\"skill\"").unwrap();
+        assert_eq!(parsed, MemoryKind::Skill);
+    }
+
+    #[test]
+    fn retrieval_intent_skill_serializes() {
+        let json = serde_json::to_string(&RetrievalIntent::Skill).unwrap();
+        assert_eq!(json, "\"skill\"");
     }
 }

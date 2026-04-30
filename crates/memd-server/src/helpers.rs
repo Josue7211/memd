@@ -726,6 +726,7 @@ pub(crate) fn enum_label_intent(intent: RetrievalIntent) -> &'static str {
         RetrievalIntent::Preference => "preference",
         RetrievalIntent::Fact => "fact",
         RetrievalIntent::Pattern => "pattern",
+        RetrievalIntent::Skill => "skill", // Phase 1: stub for diagnostics
     }
 }
 
@@ -806,6 +807,7 @@ pub(crate) fn enum_label_kind(kind: MemoryKind) -> &'static str {
         MemoryKind::Pattern => "pattern",
         MemoryKind::Constraint => "constraint",
         MemoryKind::Correction => "correction",
+        MemoryKind::Skill => "skill", // Phase 1: stub label
     }
 }
 

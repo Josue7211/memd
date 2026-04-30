@@ -856,6 +856,7 @@ pub(crate) fn region_bucket_key(item: &MemoryItem, lane_filter: Option<&str>) ->
         MemoryKind::Pattern => "patterns",
         MemoryKind::SelfModel | MemoryKind::Topology => "model",
         MemoryKind::Correction => "corrections",
+        MemoryKind::Skill => "skills", // Phase 1: stub for atlas grouping
     };
 
     if lane_filter.is_some() {

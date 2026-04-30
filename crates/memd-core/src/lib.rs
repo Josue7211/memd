@@ -544,6 +544,7 @@ fn enum_label_intent(intent: RetrievalIntent) -> &'static str {
         RetrievalIntent::Preference => "preference",
         RetrievalIntent::Fact => "fact",
         RetrievalIntent::Pattern => "pattern",
+        RetrievalIntent::Skill => "skill", // Phase 1: unsupported in ranking for now
     }
 }
 #[cfg(test)]

@@ -409,7 +409,8 @@ fn typed_memory_label(kind: MemoryKind, stage: MemoryStage) -> String {
         | MemoryKind::Topology
         | MemoryKind::LiveTruth
         | MemoryKind::Constraint
-        | MemoryKind::Correction => "semantic",
+        | MemoryKind::Correction
+        | MemoryKind::Skill => "semantic", // Phase 1: stub classification
     };
     let stage = match stage {
         MemoryStage::Candidate => "candidate",

@@ -267,6 +267,7 @@ pub(crate) fn enum_label_kind(kind: MemoryKind) -> &'static str {
         MemoryKind::Pattern => "pattern",
         MemoryKind::Constraint => "constraint",
         MemoryKind::Correction => "correction",
+        MemoryKind::Skill => "skill", // Phase 1: stub label
     }
 }
 
@@ -306,6 +307,7 @@ pub(crate) fn enum_label_intent(intent: RetrievalIntent) -> &'static str {
         RetrievalIntent::Preference => "preference",
         RetrievalIntent::Fact => "fact",
         RetrievalIntent::Pattern => "pattern",
+        RetrievalIntent::Skill => "skill", // Phase 1: stub label
     }
 }
 
@@ -342,6 +344,7 @@ pub(crate) fn default_kinds_for_intent(intent: RetrievalIntent) -> Vec<MemoryKin
             MemoryKind::Topology,
             MemoryKind::LiveTruth,
         ],
+        RetrievalIntent::Skill => vec![], // Phase 1: stub kind mapping
     }
 }
 
@@ -358,7 +361,8 @@ pub(crate) fn typed_memory_axes(kind: MemoryKind, stage: MemoryStage) -> Vec<&'s
         | MemoryKind::Topology
         | MemoryKind::LiveTruth
         | MemoryKind::Constraint
-        | MemoryKind::Correction => axes.push("semantic"),
+        | MemoryKind::Correction
+        | MemoryKind::Skill => axes.push("semantic"), // Phase 1: stub axes
     }
     match stage {
         MemoryStage::Candidate => axes.push("candidate"),

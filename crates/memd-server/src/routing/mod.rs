@@ -136,6 +136,7 @@ impl RetrievalPlan {
                 MemoryScope::Synced => 0.45,
                 MemoryScope::Local => 0.15,
             },
+            RetrievalIntent::Skill => 0.0, // Phase 1: stub bonus (no routing for skills yet)
         }
     }
 }
@@ -150,6 +151,7 @@ fn default_route_for_intent(intent: RetrievalIntent) -> RetrievalRoute {
         | RetrievalIntent::Topology => RetrievalRoute::ProjectFirst,
         RetrievalIntent::Preference | RetrievalIntent::Pattern => RetrievalRoute::GlobalFirst,
         RetrievalIntent::SelfModel => RetrievalRoute::LocalFirst,
+        RetrievalIntent::Skill => RetrievalRoute::ProjectFirst, // Phase 1: stub route
     }
 }
 
