@@ -18,6 +18,7 @@ pub(crate) struct SkillCatalogEntry {
     pub(crate) status: String,
     pub(crate) usage: String,
     pub(crate) decision: String,
+    pub(crate) record_id: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +37,8 @@ struct SkillCatalogCacheEntry {
     status: String,
     usage: String,
     decision: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    record_id: Option<uuid::Uuid>,
 }
 
 pub(crate) fn resolve_skill_catalog_root(explicit: Option<&Path>) -> anyhow::Result<PathBuf> {
@@ -165,6 +168,7 @@ fn skill_entry(
         status: status.to_string(),
         usage: usage.to_string(),
         decision: decision.to_string(),
+        record_id: None,
     }
 }
 
@@ -253,11 +257,12 @@ fn discover_custom_skill_entries(
                 status: cached.status.clone(),
                 usage: cached.usage.clone(),
                 decision: cached.decision.clone(),
+                record_id: cached.record_id,
             }
         } else {
             let raw = fs::read_to_string(&path)
                 .with_context(|| format!("read skill {}", path.display()))?;
-            let (name, summary) = parse_skill_metadata(&path, &raw);
+            let (name, summary, record_id) = parse_skill_metadata(&path, &raw);
             SkillCatalogEntry {
                 name,
                 path: Some(path),
@@ -266,6 +271,7 @@ fn discover_custom_skill_entries(
                 status: "custom".to_string(),
                 usage: "edit the file, then propose via skill-policy".to_string(),
                 decision: "custom skills stay project-local until promoted by policy".to_string(),
+                record_id,
             }
         };
         cache_to_write.push(SkillCatalogCacheEntry {
@@ -278,6 +284,7 @@ fn discover_custom_skill_entries(
             status: record.status.clone(),
             usage: record.usage.clone(),
             decision: record.decision.clone(),
+            record_id: record.record_id,
         });
         entries.push(record);
     }
@@ -292,7 +299,7 @@ fn discover_custom_skill_entries(
     Ok((entries, cache_hits, cache_scanned))
 }
 
-fn parse_skill_metadata(path: &Path, raw: &str) -> (String, String) {
+fn parse_skill_metadata(path: &Path, raw: &str) -> (String, String, Option<uuid::Uuid>) {
     let fallback_name = path
         .parent()
         .and_then(|parent| parent.file_name())
@@ -302,6 +309,7 @@ fn parse_skill_metadata(path: &Path, raw: &str) -> (String, String) {
 
     let mut name = None;
     let mut summary = None;
+    let mut record_id = None;
     let mut lines = raw.lines();
     if lines.next().is_some_and(|line| line.trim() == "---") {
         for line in lines {
@@ -329,6 +337,13 @@ fn parse_skill_metadata(path: &Path, raw: &str) -> (String, String) {
                 if !value.is_empty() {
                     summary = Some(value);
                 }
+                continue;
+            }
+            if let Some(value) = trimmed.strip_prefix("record_id:") {
+                let value = value.trim().trim_matches('"').trim_matches('\'');
+                if let Ok(parsed) = uuid::Uuid::parse_str(value) {
+                    record_id = Some(parsed);
+                }
             }
         }
     }
@@ -350,7 +365,7 @@ fn parse_skill_metadata(path: &Path, raw: &str) -> (String, String) {
         })
         .unwrap_or_else(|| "custom skill".to_string());
 
-    (name.unwrap_or(fallback_name), summary)
+    (name.unwrap_or(fallback_name), summary, record_id)
 }
 
 pub(crate) fn find_skill_catalog_matches<'a>(
@@ -393,4 +408,44 @@ fn normalize_skill_search_text(value: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entry_record_id_optional_default_none() {
+        let e = SkillCatalogEntry {
+            name: "tdd".into(),
+            path: None,
+            summary: "x".into(),
+            source: "builtin".into(),
+            status: "active".into(),
+            usage: "always".into(),
+            decision: "active".into(),
+            record_id: None,
+        };
+        assert!(e.record_id.is_none());
+    }
+
+    #[test]
+    fn parse_skill_metadata_extracts_record_id_when_present() {
+        let raw = "---\nname: demo\ndescription: x\nrecord_id: 550e8400-e29b-41d4-a716-446655440000\n---\n\nbody\n";
+        let (name, summary, record_id) =
+            parse_skill_metadata(Path::new("skills/demo/SKILL.md"), raw);
+        assert_eq!(name, "demo");
+        assert_eq!(summary, "x");
+        assert_eq!(
+            record_id,
+            Some(uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap())
+        );
+    }
+
+    #[test]
+    fn parse_skill_metadata_tolerates_missing_record_id() {
+        let raw = "---\nname: demo\ndescription: x\n---\n\nbody\n";
+        let (_, _, record_id) = parse_skill_metadata(Path::new("skills/demo/SKILL.md"), raw);
+        assert!(record_id.is_none());
+    }
 }
