@@ -267,7 +267,12 @@ fn aggregator_writes_10star_composite_section() {
     };
 
     let dir = tempdir().unwrap();
-    let opts = AggregatorOptions::with_results_dir(dir.path().to_path_buf());
+    let mut opts = AggregatorOptions::with_results_dir(dir.path().to_path_buf());
+    // Decouple from `$HOME/.claude/settings.json`: sibling tests in the
+    // same binary mutate `HOME` via `set_var`, which can flip the C5
+    // adapter `is_available()` to false mid-suite. Force graceful skip
+    // so the cross-harness suite reports `pass=true` regardless of host.
+    opts.c5_allow_skip = Some(true);
     let summaries = run_aggregator(&opts);
     let scores = axis_scores_from_summaries(&summaries);
     assert_eq!(
@@ -342,7 +347,8 @@ fn cli_bench_substrate_all_end_to_end_on_clean_tree() {
     };
 
     let dir = tempdir().unwrap();
-    let opts = AggregatorOptions::with_results_dir(dir.path().to_path_buf());
+    let mut opts = AggregatorOptions::with_results_dir(dir.path().to_path_buf());
+    opts.c5_allow_skip = Some(true);
     let summaries = run_aggregator(&opts);
     assert_eq!(summaries.len(), SUITE_ORDER.len());
     assert!(

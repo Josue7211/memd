@@ -220,6 +220,20 @@ pub(crate) fn run_c5_with_adapters(
 /// real claude-code/codex adapters. Used by `run_substrate_command`
 /// in the dispatcher.
 pub(crate) fn run_c5_in_process(config: &C5RunConfig) -> std::io::Result<C5Outcome> {
+    let allow_skip = allow_skip_from_env();
+    run_c5_in_process_with_allow_skip(config, allow_skip)
+}
+
+/// Test seam: same shape as `run_c5_in_process` but with an explicit
+/// `allow_skip` override. The aggregator threads
+/// `AggregatorOptions::c5_allow_skip` here so G5 unit tests are not
+/// coupled to `$HOME/.claude/settings.json` — sibling tests in the
+/// same binary call `std::env::set_var("HOME", tempdir)`, which would
+/// otherwise flip `is_available()` to `false` mid-suite.
+pub(crate) fn run_c5_in_process_with_allow_skip(
+    config: &C5RunConfig,
+    allow_skip: bool,
+) -> std::io::Result<C5Outcome> {
     use crate::benchmark::substrate::harness_adapter::{
         claude_code::ClaudeCodeAdapter, codex::CodexAdapter,
     };
@@ -228,7 +242,6 @@ pub(crate) fn run_c5_in_process(config: &C5RunConfig) -> std::io::Result<C5Outco
     let codex = CodexAdapter::from_home();
     let adapters: Vec<(&str, &dyn HarnessAdapter)> =
         vec![("claude_code", &claude), ("codex", &codex)];
-    let allow_skip = allow_skip_from_env();
     run_c5_with_skip(config, &adapters, &gateway, allow_skip)
 }
 

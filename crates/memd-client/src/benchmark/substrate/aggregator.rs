@@ -11,7 +11,9 @@
 
 use crate::benchmark::substrate::adversarial_noise::{G5RunConfig, run_g5_in_process};
 use crate::benchmark::substrate::correction_propagation::{B5RunConfig, run_b5_in_process};
-use crate::benchmark::substrate::cross_harness::{C5RunConfig, run_c5_in_process};
+use crate::benchmark::substrate::cross_harness::{
+    C5RunConfig, run_c5_in_process, run_c5_in_process_with_allow_skip,
+};
 use crate::benchmark::substrate::cross_session_recall::{A5RunConfig, run_a5_in_process};
 use crate::benchmark::substrate::progressive_depth::{D5RunConfig, run_d5_in_process};
 use crate::benchmark::substrate::provenance_integrity::{E5RunConfig, run_e5_in_process};
@@ -193,6 +195,12 @@ pub(crate) struct AggregatorOptions {
     pub(crate) results_dir: PathBuf,
     pub(crate) seed: Option<u64>,
     pub(crate) fail_fast: bool,
+    /// Override the C5 harness allow-skip decision. When `Some(true)`,
+    /// the cross-harness suite treats unavailable harness configs as a
+    /// graceful skip (empty pass) instead of an error. Used by tests
+    /// to decouple from `$HOME/.claude/settings.json`, which sibling
+    /// tests in the same binary mutate via `set_var("HOME", ...)`.
+    pub(crate) c5_allow_skip: Option<bool>,
 }
 
 impl AggregatorOptions {
@@ -201,6 +209,7 @@ impl AggregatorOptions {
             results_dir,
             seed: None,
             fail_fast: false,
+            c5_allow_skip: None,
         }
     }
 }
@@ -284,7 +293,11 @@ fn run_c5(opts: &AggregatorOptions) -> SuiteSummary {
     if let Some(s) = opts.seed {
         cfg.seed = s;
     }
-    match run_c5_in_process(&cfg) {
+    let result = match opts.c5_allow_skip {
+        Some(allow) => run_c5_in_process_with_allow_skip(&cfg, allow),
+        None => run_c5_in_process(&cfg),
+    };
+    match result {
         Ok(o) => {
             let mut m = BTreeMap::new();
             m.insert("scenarios".into(), o.records.len() as f64);
