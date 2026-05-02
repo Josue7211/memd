@@ -28,19 +28,24 @@ pub(crate) enum SessionEvent {
     Query { session: String, fact_id: u32 },
 }
 
-/// Backend the driver talks to. The real impl (`HttpMemdBackend`,
-/// landing in A5.6) opens a memd-server and translates these calls into
-/// HTTP. The test impl below records calls into a `Vec<SessionEvent>`.
+/// Backend the driver talks to. The real impl (`HttpMemdBackend`)
+/// opens a memd-server and translates these calls into HTTP. The test
+/// impl below records calls into a `Vec<SessionEvent>`.
+///
+/// `query_top_k` returns up to `k` candidate values ranked best-first.
+/// Empty vec = backend has no answer. The recording backend returns at
+/// most one hit (it stores facts by id); the real HTTP backend returns
+/// real top-k from semantic search so recall@3 ≠ recall@1.
 pub(crate) trait BenchBackend {
     fn open_session(&self, id: &str);
     fn ingest_fact(&self, session: &str, fact: &Fact);
     fn seal_session(&self, id: &str);
     fn restore_session(&self, id: &str, restored_from: &str);
-    fn query_for_fact(&self, session: &str, fact_id: u32) -> Option<String>;
+    fn query_top_k(&self, session: &str, fact: &Fact, k: usize) -> Vec<String>;
 }
 
 /// In-memory backend used by tests. Stores every call as a
-/// `SessionEvent`. Also remembers each ingested fact so `query_for_fact`
+/// `SessionEvent`. Also remembers each ingested fact so `query_top_k`
 /// can return the canonical value.
 #[derive(Default, Clone)]
 pub(crate) struct RecordingBackend {
@@ -90,17 +95,18 @@ impl BenchBackend for RecordingBackend {
             });
     }
 
-    fn query_for_fact(&self, session: &str, fact_id: u32) -> Option<String> {
+    fn query_top_k(&self, session: &str, fact: &Fact, _k: usize) -> Vec<String> {
         self.events.lock().unwrap().push(SessionEvent::Query {
             session: session.to_string(),
-            fact_id,
+            fact_id: fact.id,
         });
         self.facts
             .lock()
             .unwrap()
             .iter()
-            .find(|f| f.id == fact_id)
-            .map(|f| f.value.clone())
+            .find(|f| f.id == fact.id)
+            .map(|f| vec![f.value.clone()])
+            .unwrap_or_default()
     }
 }
 
@@ -151,18 +157,24 @@ impl A5Scenario {
             }
         }
 
-        // Recall pass from the final session.
+        // Recall pass from the final session. Computes both recall@1
+        // (top-1 candidate matches) and recall@3 (any of top-3 matches).
         let final_session = self.session_id(session_count - 1);
-        let mut hits = 0usize;
+        let mut r1_hits = 0usize;
+        let mut r3_hits = 0usize;
         for f in &self.facts {
-            if let Some(v) = backend.query_for_fact(&final_session, f.id) {
-                if v == f.value {
-                    hits += 1;
-                }
+            let candidates = backend.query_top_k(&final_session, f, 3);
+            if candidates.first().map(|v| v == &f.value).unwrap_or(false) {
+                r1_hits += 1;
+            }
+            if candidates.iter().any(|v| v == &f.value) {
+                r3_hits += 1;
             }
         }
+        let n = self.facts.len().max(1) as f64;
         ScenarioOutcome {
-            recall_at_1: hits as f64 / self.facts.len().max(1) as f64,
+            recall_at_1: r1_hits as f64 / n,
+            recall_at_3: r3_hits as f64 / n,
             session_count,
         }
     }
@@ -171,6 +183,7 @@ impl A5Scenario {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ScenarioOutcome {
     pub(crate) recall_at_1: f64,
+    pub(crate) recall_at_3: f64,
     pub(crate) session_count: usize,
 }
 

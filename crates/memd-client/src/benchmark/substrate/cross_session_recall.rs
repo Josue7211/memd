@@ -95,10 +95,7 @@ pub(crate) fn run_a5_with_backend<B: BenchBackend>(
             };
             let outcome = scenario.run(backend);
             let r1 = outcome.recall_at_1;
-            // recall@3 ≈ recall@1 for this synthetic backend; in the
-            // real-backend impl (follow-up) the driver will record
-            // top-k retrieval and compute distinct values.
-            let r3 = r1;
+            let r3 = outcome.recall_at_3;
             let pass = match cut_k {
                 k if k <= 2 => r3 >= config.pass_gate.recall_at_3_k2,
                 _ => r3 >= config.pass_gate.recall_at_3_k8,
@@ -177,8 +174,13 @@ impl BenchBackend for DegradedBackend {
     fn ingest_fact(&self, _session: &str, _fact: &crate::benchmark::substrate::fixtures::Fact) {}
     fn seal_session(&self, _id: &str) {}
     fn restore_session(&self, _id: &str, _restored_from: &str) {}
-    fn query_for_fact(&self, _session: &str, _fact_id: u32) -> Option<String> {
-        None
+    fn query_top_k(
+        &self,
+        _session: &str,
+        _fact: &crate::benchmark::substrate::fixtures::Fact,
+        _k: usize,
+    ) -> Vec<String> {
+        Vec::new()
     }
 }
 
