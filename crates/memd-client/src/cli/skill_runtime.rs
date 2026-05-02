@@ -30,6 +30,7 @@ pub(crate) fn prepare_and_mirror_skill(
         frontmatter: SkillFrontmatter {
             name: name.to_string(),
             description: description.to_string(),
+            record_id: None,
         },
         body: body_text,
     };
@@ -59,9 +60,12 @@ async fn run_skill_add(
         anyhow::bail!("provide --body, --body-file, or --stdin");
     };
 
-    let (skill_body, mirror_path) =
+    let (mut skill_body, mirror_path) =
         prepare_and_mirror_skill(&args.output, &args.name, &args.description, body_text)?;
 
+    // Records-as-truth (Phase 2 contract §10): the record content holds the
+    // full rendered SKILL.md so `memd skill sync` can regenerate the mirror
+    // without consulting external state.
     let mut remember_args = RememberArgs {
         output: args.output.clone(),
         project: None,
@@ -78,7 +82,7 @@ async fn run_skill_add(
         ttl_seconds: None,
         tag: args.tag,
         supersede: vec![],
-        content: Some(skill_body.body.clone()),
+        content: Some(skill_body.render_skill_md()),
         input: None,
         stdin: false,
     };
@@ -96,7 +100,15 @@ async fn run_skill_add(
             ),
         })?;
 
-    let record_id = response.item.id.clone();
+    let record_id = response.item.id;
+
+    // Re-stamp mirror with record_id now that the record exists. If this
+    // fails we keep the partial state (record + mirror without record_id);
+    // parse_skill_metadata tolerates absent record_id and `memd skill sync`
+    // will repair the frontmatter on next run.
+    skill_body.frontmatter.record_id = Some(record_id);
+    let _ = memd_core::skill_mirror::write_mirror(&args.output, &skill_body);
+
     let payload = serde_json::json!({
         "skill": args.name,
         "mirror": mirror_path.display().to_string(),
@@ -197,6 +209,7 @@ mod tests {
             frontmatter: SkillFrontmatter {
                 name: name.into(),
                 description: "test skill".into(),
+                record_id: None,
             },
             body: "## Test Body\nSome content".into(),
         }
@@ -287,6 +300,42 @@ mod tests {
         assert!(written.contains("## Body\nhello"));
         assert_eq!(body.frontmatter.name, "demo");
         assert_eq!(mirror_path, tmp.path().join("skills/demo/SKILL.md"));
+    }
+
+    #[test]
+    fn skill_body_with_record_id_writes_record_id_into_frontmatter() {
+        // P2.3 test 6: simulates the post-remember re-stamp step.
+        let tmp = tempdir().unwrap();
+        let id = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let mut body = sample_skill_body("demo");
+        body.frontmatter.record_id = Some(id);
+        memd_core::skill_mirror::write_mirror(tmp.path(), &body).unwrap();
+
+        let written = std::fs::read_to_string(tmp.path().join("skills/demo/SKILL.md")).unwrap();
+        assert!(
+            written.contains("record_id: 550e8400-e29b-41d4-a716-446655440000"),
+            "frontmatter must include record_id, got:\n{written}"
+        );
+    }
+
+    #[test]
+    fn skill_body_record_id_round_trips_via_load_skill_catalog() {
+        // P2.3 test 7: written record_id is recoverable through the public
+        // skill catalog load path (parse_skill_metadata under the hood).
+        use crate::cli::skill_catalog::build_skill_catalog;
+        let tmp = tempdir().unwrap();
+        let id = uuid::Uuid::parse_str("11111111-2222-3333-4444-555555555555").unwrap();
+        let mut body = sample_skill_body("round-trip");
+        body.frontmatter.record_id = Some(id);
+        memd_core::skill_mirror::write_mirror(tmp.path(), &body).unwrap();
+
+        let catalog = build_skill_catalog(&tmp.path().join("skills")).unwrap();
+        let entry = catalog
+            .custom
+            .iter()
+            .find(|e| e.name == "round-trip")
+            .expect("entry must exist");
+        assert_eq!(entry.record_id, Some(id));
     }
 
     #[test]

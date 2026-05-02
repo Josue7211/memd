@@ -1,12 +1,21 @@
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Frontmatter that is mirrored verbatim to `.memd/skills/<name>/SKILL.md`.
 /// Mirrors the shape used by Claude Code's native Skill tool so the existing
 /// SkillCatalog discovers our records without modification.
+///
+/// `record_id` is the canonical link from the on-disk SKILL.md back to the
+/// memd record (Phase 2 contract §8). Optional in the type because (a)
+/// Phase 1 mirrors omit it, and (b) `skill add` writes the mirror BEFORE it
+/// has a record_id (rolled back on remember failure); a second render
+/// stamps the id once `remember` returns.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SkillFrontmatter {
     pub name: String,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_id: Option<Uuid>,
 }
 
 /// The full content of a skill record. `frontmatter` is rendered into the
@@ -20,10 +29,17 @@ pub struct SkillBody {
 impl SkillBody {
     /// Render to the on-disk SKILL.md format consumed by SkillCatalog.
     pub fn render_skill_md(&self) -> String {
-        format!(
-            "---\nname: {}\ndescription: {}\n---\n\n{}\n",
-            self.frontmatter.name, self.frontmatter.description, self.body
-        )
+        let mut head = format!(
+            "---\nname: {}\ndescription: {}\n",
+            self.frontmatter.name, self.frontmatter.description
+        );
+        if let Some(rid) = &self.frontmatter.record_id {
+            head.push_str(&format!("record_id: {rid}\n"));
+        }
+        head.push_str("---\n\n");
+        head.push_str(&self.body);
+        head.push('\n');
+        head
     }
 
     /// Derive the relative mirror path inside a memd bundle.
@@ -48,6 +64,7 @@ mod tests {
             frontmatter: SkillFrontmatter {
                 name: "tdd".into(),
                 description: "drive features test-first".into(),
+                record_id: None,
             },
             body: "## Steps\n1. Red\n2. Green\n3. Refactor\n".into(),
         }
@@ -60,6 +77,20 @@ mod tests {
         assert!(rendered.starts_with("---\nname: tdd\n"));
         assert!(rendered.contains("description: drive features test-first"));
         assert!(rendered.contains("## Steps"));
+        assert!(
+            !rendered.contains("record_id:"),
+            "record_id must be omitted when None"
+        );
+    }
+
+    #[test]
+    fn render_skill_md_emits_record_id_when_present() {
+        let mut s = sample();
+        let id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        s.frontmatter.record_id = Some(id);
+        let rendered = s.render_skill_md();
+        assert!(rendered.contains("record_id: 550e8400-e29b-41d4-a716-446655440000"));
+        assert!(rendered.starts_with("---\nname: tdd\n"));
     }
 
     #[test]
@@ -80,6 +111,7 @@ mod tests {
             frontmatter: SkillFrontmatter {
                 name: "../escape".into(),
                 description: "x".into(),
+                record_id: None,
             },
             body: String::new(),
         };

@@ -71,6 +71,7 @@ mod tests {
             frontmatter: SkillFrontmatter {
                 name: name.into(),
                 description: "desc".into(),
+                record_id: None,
             },
             body: "body".into(),
         }
