@@ -1,1 +1,1 @@
-2026-05-02-living-skills-phase2-closed-merge-gated.md
+2026-05-02-a5-real-relock-closed-v5-bench-next.md
