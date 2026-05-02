@@ -14,7 +14,7 @@ pub(crate) async fn run_skill_command(
         SkillSubcommand::Add(add_args) => run_skill_add(client, base_url, add_args).await,
         SkillSubcommand::List(list_args) => run_skill_list(list_args),
         SkillSubcommand::Show(show_args) => run_skill_show(show_args),
-        SkillSubcommand::Retire(retire_args) => run_skill_retire(retire_args),
+        SkillSubcommand::Retire(retire_args) => run_skill_retire(client, retire_args).await,
     }
 }
 
@@ -168,25 +168,71 @@ fn run_skill_show(args: SkillShowArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_skill_retire(args: SkillRetireArgs) -> anyhow::Result<()> {
+async fn run_skill_retire(
+    client: &MemdClient,
+    args: SkillRetireArgs,
+) -> anyhow::Result<()> {
+    memd_core::skill_mirror::validate_skill_name(&args.name)?;
+
+    // Phase 2 contract §3: default `retire` deletes the record
+    // (operationally — via Expire(status=Expired); no DeleteMemory exists).
+    // `--keep-record` leaves it Active so operators can preserve history.
+    // record_id comes from the SKILL.md frontmatter we stamp in `skill add`.
+    let skill_md = args.output.join("skills").join(&args.name).join("SKILL.md");
+    let record_id = if skill_md.exists() {
+        let raw = fs::read_to_string(&skill_md)
+            .with_context(|| format!("read skill {}", skill_md.display()))?;
+        parse_record_id_from_skill_md(&raw)
+    } else {
+        None
+    };
+
+    let mut expired_record = false;
+    if !args.keep_record {
+        if let Some(id) = record_id {
+            client
+                .expire(&memd_schema::ExpireMemoryRequest {
+                    id,
+                    status: Some(memd_schema::MemoryStatus::Expired),
+                })
+                .await
+                .with_context(|| format!("expire skill record {id}"))?;
+            expired_record = true;
+        }
+    }
+
     memd_core::skill_mirror::remove_mirror(&args.output, &args.name)
         .context("remove skill mirror")?;
 
-    if !args.keep_record {
-        let payload = serde_json::json!({
-            "retired": args.name,
-            "note": "record retirement pending (Phase 2)",
-        });
-        println!("{}", serde_json::to_string(&payload)?);
-    } else {
-        let payload = serde_json::json!({
-            "retired": args.name,
-            "mirror_deleted": true,
-        });
-        println!("{}", serde_json::to_string(&payload)?);
-    }
+    let payload = serde_json::json!({
+        "retired": args.name,
+        "mirror_deleted": true,
+        "record_expired": expired_record,
+        "kept_record": args.keep_record,
+    });
+    println!("{}", serde_json::to_string(&payload)?);
 
     Ok(())
+}
+
+fn parse_record_id_from_skill_md(raw: &str) -> Option<uuid::Uuid> {
+    let mut lines = raw.lines();
+    if !lines.next().is_some_and(|line| line.trim() == "---") {
+        return None;
+    }
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed == "---" {
+            break;
+        }
+        if let Some(value) = trimmed.strip_prefix("record_id:") {
+            let value = value.trim().trim_matches('"').trim_matches('\'');
+            if let Ok(parsed) = uuid::Uuid::parse_str(value) {
+                return Some(parsed);
+            }
+        }
+    }
+    None
 }
 
 fn extract_description_from_skill_md(content: &str) -> String {
@@ -253,8 +299,14 @@ mod tests {
         assert!(run_skill_show(args).is_err());
     }
 
-    #[test]
-    fn retire_removes_mirror() {
+    fn dummy_client() -> MemdClient {
+        // Used by tests that exercise --keep-record (no HTTP call) and the
+        // record_id-less path (no HTTP call). Any non-connecting URL works.
+        MemdClient::new("http://127.0.0.1:1").expect("dummy client")
+    }
+
+    #[tokio::test]
+    async fn retire_removes_mirror() {
         let tmp = tempdir().unwrap();
         memd_core::skill_mirror::write_mirror(tmp.path(), &sample_skill_body("demo")).unwrap();
 
@@ -264,12 +316,12 @@ mod tests {
             keep_record: true,
         };
 
-        assert!(run_skill_retire(args).is_ok());
+        assert!(run_skill_retire(&dummy_client(), args).await.is_ok());
         assert!(!tmp.path().join("skills/demo").exists());
     }
 
-    #[test]
-    fn retire_is_idempotent() {
+    #[tokio::test]
+    async fn retire_is_idempotent() {
         let tmp = tempdir().unwrap();
         memd_core::skill_mirror::write_mirror(tmp.path(), &sample_skill_body("demo")).unwrap();
 
@@ -279,8 +331,91 @@ mod tests {
             keep_record: true,
         };
 
-        assert!(run_skill_retire(args.clone()).is_ok());
-        assert!(run_skill_retire(args).is_ok());
+        let client = dummy_client();
+        assert!(run_skill_retire(&client, args.clone()).await.is_ok());
+        assert!(run_skill_retire(&client, args).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn skill_retire_default_deletes_record_and_mirror() {
+        // P2.4 test 8: default retire (no --keep-record) calls Expire on the
+        // record and removes the mirror. Asserts the wiring: state.expired
+        // captures one ExpireMemoryRequest with our record_id and Expired status.
+        use crate::main_tests::{MockRuntimeState, spawn_mock_runtime_server};
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        let client = MemdClient::new(&base_url).expect("client");
+
+        let tmp = tempdir().unwrap();
+        let id = uuid::Uuid::parse_str("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let mut body = sample_skill_body("demo");
+        body.frontmatter.record_id = Some(id);
+        memd_core::skill_mirror::write_mirror(tmp.path(), &body).unwrap();
+
+        let args = SkillRetireArgs {
+            name: "demo".to_string(),
+            output: tmp.path().to_path_buf(),
+            keep_record: false,
+        };
+        run_skill_retire(&client, args).await.expect("retire ok");
+
+        assert!(!tmp.path().join("skills/demo").exists(), "mirror removed");
+        let expired = state.expired.lock().unwrap();
+        assert_eq!(expired.len(), 1, "one expire call");
+        assert_eq!(expired[0].id, id);
+        assert_eq!(expired[0].status, Some(memd_schema::MemoryStatus::Expired));
+    }
+
+    #[tokio::test]
+    async fn skill_retire_keep_record_preserves_record_status_retired() {
+        // P2.4 test 9: --keep-record removes mirror but leaves record alone
+        // (no Expire call). "retired" in the test name is the operation, not
+        // a MemoryStatus variant — that variant doesn't exist.
+        use crate::main_tests::{MockRuntimeState, spawn_mock_runtime_server};
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        let client = MemdClient::new(&base_url).expect("client");
+
+        let tmp = tempdir().unwrap();
+        let id = uuid::Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let mut body = sample_skill_body("demo");
+        body.frontmatter.record_id = Some(id);
+        memd_core::skill_mirror::write_mirror(tmp.path(), &body).unwrap();
+
+        let args = SkillRetireArgs {
+            name: "demo".to_string(),
+            output: tmp.path().to_path_buf(),
+            keep_record: true,
+        };
+        run_skill_retire(&client, args).await.expect("retire ok");
+
+        assert!(!tmp.path().join("skills/demo").exists(), "mirror removed");
+        let expired = state.expired.lock().unwrap();
+        assert!(
+            expired.is_empty(),
+            "--keep-record must not call expire, got {expired:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn skill_retire_keep_record_still_removes_mirror_file() {
+        // P2.4 test 10: --keep-record always removes the mirror file even
+        // when the record stays. Mirror is the visible surface; retiring
+        // means the harness should stop seeing it.
+        let tmp = tempdir().unwrap();
+        memd_core::skill_mirror::write_mirror(tmp.path(), &sample_skill_body("demo")).unwrap();
+        let mirror = tmp.path().join("skills/demo/SKILL.md");
+        assert!(mirror.exists(), "precondition");
+
+        let args = SkillRetireArgs {
+            name: "demo".to_string(),
+            output: tmp.path().to_path_buf(),
+            keep_record: true,
+        };
+        run_skill_retire(&dummy_client(), args).await.expect("retire ok");
+
+        assert!(!mirror.exists(), "SKILL.md removed");
+        assert!(!tmp.path().join("skills/demo").exists(), "skill dir removed");
     }
 
     #[test]

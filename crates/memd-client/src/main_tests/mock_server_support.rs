@@ -14,6 +14,7 @@ pub(crate) struct MockRuntimeState {
     pub(crate) stored: Arc<Mutex<Vec<memd_schema::StoreMemoryRequest>>>,
     pub(crate) candidates: Arc<Mutex<Vec<memd_schema::CandidateMemoryRequest>>>,
     pub(crate) repaired: Arc<Mutex<Vec<memd_schema::RepairMemoryRequest>>>,
+    pub(crate) expired: Arc<Mutex<Vec<memd_schema::ExpireMemoryRequest>>>,
     pub(crate) session_upserts: Arc<Mutex<Vec<memd_schema::HiveSessionUpsertRequest>>>,
     pub(crate) session_retires: Arc<Mutex<Vec<memd_schema::HiveSessionRetireRequest>>>,
     pub(crate) session_records: Arc<Mutex<Vec<memd_schema::HiveSessionRecord>>>,
@@ -1209,6 +1210,48 @@ pub(crate) async fn mock_repair_memory(
     })
 }
 
+pub(crate) async fn mock_expire_memory(
+    State(state): State<MockRuntimeState>,
+    Json(req): Json<memd_schema::ExpireMemoryRequest>,
+) -> Json<memd_schema::ExpireMemoryResponse> {
+    state
+        .expired
+        .lock()
+        .expect("lock expired")
+        .push(req.clone());
+    Json(memd_schema::ExpireMemoryResponse {
+        item: memd_schema::MemoryItem {
+            id: req.id,
+            content: "expired".to_string(),
+            redundancy_key: Some("expired".to_string()),
+            belief_branch: None,
+            preferred: false,
+            kind: memd_schema::MemoryKind::Skill,
+            scope: memd_schema::MemoryScope::Project,
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: memd_schema::MemoryVisibility::Private,
+            source_agent: None,
+            source_system: None,
+            source_path: None,
+            source_quality: None,
+            confidence: 0.7,
+            ttl_seconds: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_verified_at: None,
+            supersedes: vec![],
+            tags: vec![],
+            status: req.status.unwrap_or(memd_schema::MemoryStatus::Expired),
+            stage: memd_schema::MemoryStage::Canonical,
+            lane: None,
+            version: 1,
+            correction_meta: None,
+        },
+    })
+}
+
 pub(crate) async fn mock_hive_session_upsert(
     State(state): State<MockRuntimeState>,
     Json(req): Json<memd_schema::HiveSessionUpsertRequest>,
@@ -1758,6 +1801,7 @@ pub(crate) async fn spawn_mock_runtime_server(
         .route("/memory/store", post(mock_store_memory))
         .route("/memory/candidates", post(mock_candidate_memory))
         .route("/memory/repair", post(mock_repair_memory))
+        .route("/memory/expire", post(mock_expire_memory))
         .route("/coordination/inbox", get(mock_hive_coordination_inbox))
         .route(
             "/coordination/messages/send",
