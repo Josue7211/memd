@@ -15,6 +15,7 @@ pub(crate) async fn run_skill_command(
         SkillSubcommand::List(list_args) => run_skill_list(list_args),
         SkillSubcommand::Show(show_args) => run_skill_show(show_args),
         SkillSubcommand::Retire(retire_args) => run_skill_retire(client, retire_args).await,
+        SkillSubcommand::Sync(sync_args) => run_skill_sync(client, sync_args).await,
     }
 }
 
@@ -215,6 +216,67 @@ async fn run_skill_retire(
     Ok(())
 }
 
+async fn run_skill_sync(
+    client: &MemdClient,
+    args: SkillSyncArgs,
+) -> anyhow::Result<()> {
+    // Records-as-truth: pull every active Skill record across visible
+    // scopes and reconstruct the mirror from them. Deliberately no
+    // text query — kind+status filter is the whole filter set.
+    let req = memd_schema::SearchMemoryRequest {
+        query: None,
+        route: Some(memd_schema::RetrievalRoute::All),
+        intent: Some(memd_schema::RetrievalIntent::General),
+        scopes: vec![
+            memd_schema::MemoryScope::Project,
+            memd_schema::MemoryScope::Synced,
+            memd_schema::MemoryScope::Global,
+        ],
+        kinds: vec![memd_schema::MemoryKind::Skill],
+        statuses: vec![memd_schema::MemoryStatus::Active],
+        project: None,
+        namespace: None,
+        workspace: None,
+        visibility: None,
+        belief_branch: None,
+        source_agent: None,
+        region: None,
+        tags: vec![],
+        stages: vec![
+            memd_schema::MemoryStage::Canonical,
+            memd_schema::MemoryStage::Candidate,
+        ],
+        limit: None,
+        max_chars_per_item: None,
+    };
+    let response = client.search(&req).await.context("search skill records")?;
+
+    let mut records: Vec<memd_schema::skill::SkillBody> = Vec::new();
+    let mut skipped: Vec<uuid::Uuid> = Vec::new();
+    for item in &response.items {
+        match memd_schema::skill::SkillBody::parse_skill_md(&item.content) {
+            Some(body) => records.push(body),
+            None => skipped.push(item.id),
+        }
+    }
+
+    let report = memd_core::skill_mirror::apply_sync(&args.output, &records, args.dry_run, args.prune)?;
+
+    let payload = serde_json::json!({
+        "dry_run": args.dry_run,
+        "prune": args.prune,
+        "records_seen": response.items.len(),
+        "records_parsed": records.len(),
+        "records_skipped": skipped.len(),
+        "skipped_ids": skipped.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
+        "written": report.written.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+        "pruned": report.pruned.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+    });
+    println!("{}", serde_json::to_string(&payload)?);
+
+    Ok(())
+}
+
 fn parse_record_id_from_skill_md(raw: &str) -> Option<uuid::Uuid> {
     let mut lines = raw.lines();
     if !lines.next().is_some_and(|line| line.trim() == "---") {
@@ -395,6 +457,132 @@ mod tests {
             expired.is_empty(),
             "--keep-record must not call expire, got {expired:?}"
         );
+    }
+
+    fn skill_record_item(name: &str, body: &str) -> memd_schema::MemoryItem {
+        let s = SkillBody {
+            frontmatter: SkillFrontmatter {
+                name: name.into(),
+                description: format!("desc for {name}"),
+                record_id: Some(uuid::Uuid::new_v4()),
+            },
+            body: body.into(),
+        };
+        memd_schema::MemoryItem {
+            id: s.frontmatter.record_id.unwrap(),
+            content: s.render_skill_md(),
+            redundancy_key: Some(format!("Skill|Project|memd|main||{name}")),
+            belief_branch: None,
+            preferred: false,
+            kind: memd_schema::MemoryKind::Skill,
+            scope: memd_schema::MemoryScope::Project,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: memd_schema::MemoryVisibility::Private,
+            source_agent: None,
+            source_system: None,
+            source_path: None,
+            source_quality: None,
+            confidence: 0.9,
+            ttl_seconds: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            last_verified_at: None,
+            supersedes: vec![],
+            tags: vec![format!("skill:{name}")],
+            status: memd_schema::MemoryStatus::Active,
+            stage: memd_schema::MemoryStage::Canonical,
+            lane: None,
+            version: 1,
+            correction_meta: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn skill_sync_writes_mirrors_for_records_returned_by_search() {
+        // P2.2 wiring: search returns records, run_skill_sync parses them,
+        // apply_sync writes mirrors. Asserts both mirror files exist with
+        // record_id stamped (round-tripped through render → parse → render).
+        use crate::main_tests::{MockRuntimeState, spawn_mock_runtime_server};
+        let state = MockRuntimeState::default();
+        state
+            .injected_skill_records
+            .lock()
+            .unwrap()
+            .extend(vec![
+                skill_record_item("alpha", "## Alpha\n"),
+                skill_record_item("bravo", "## Bravo\n"),
+            ]);
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        let client = MemdClient::new(&base_url).expect("client");
+
+        let tmp = tempdir().unwrap();
+        let args = SkillSyncArgs {
+            output: tmp.path().to_path_buf(),
+            dry_run: false,
+            prune: false,
+        };
+        run_skill_sync(&client, args).await.expect("sync ok");
+
+        for name in ["alpha", "bravo"] {
+            let p = tmp.path().join(format!("skills/{name}/SKILL.md"));
+            assert!(p.exists(), "missing {p:?}");
+            let raw = std::fs::read_to_string(&p).unwrap();
+            assert!(raw.contains(&format!("name: {name}")));
+            assert!(raw.contains("record_id:"));
+        }
+    }
+
+    #[tokio::test]
+    async fn skill_sync_dry_run_writes_nothing() {
+        use crate::main_tests::{MockRuntimeState, spawn_mock_runtime_server};
+        let state = MockRuntimeState::default();
+        state
+            .injected_skill_records
+            .lock()
+            .unwrap()
+            .push(skill_record_item("solo", "## Body\n"));
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        let client = MemdClient::new(&base_url).expect("client");
+
+        let tmp = tempdir().unwrap();
+        let args = SkillSyncArgs {
+            output: tmp.path().to_path_buf(),
+            dry_run: true,
+            prune: false,
+        };
+        run_skill_sync(&client, args).await.expect("sync ok");
+        assert!(!tmp.path().join("skills/solo/SKILL.md").exists());
+    }
+
+    #[tokio::test]
+    async fn skill_sync_prune_removes_orphan_mirror() {
+        // E2E shape of test 16: mirror has an orphan dir whose record was
+        // retired. Sync --prune removes it; live records stay.
+        use crate::main_tests::{MockRuntimeState, spawn_mock_runtime_server};
+        let state = MockRuntimeState::default();
+        state
+            .injected_skill_records
+            .lock()
+            .unwrap()
+            .push(skill_record_item("kept", "## Keep\n"));
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        let client = MemdClient::new(&base_url).expect("client");
+
+        let tmp = tempdir().unwrap();
+        // Pre-existing orphan mirror with no matching record.
+        memd_core::skill_mirror::write_mirror(tmp.path(), &sample_skill_body("orphan")).unwrap();
+
+        let args = SkillSyncArgs {
+            output: tmp.path().to_path_buf(),
+            dry_run: false,
+            prune: true,
+        };
+        run_skill_sync(&client, args).await.expect("sync ok");
+
+        assert!(tmp.path().join("skills/kept/SKILL.md").exists(), "kept");
+        assert!(!tmp.path().join("skills/orphan").exists(), "orphan pruned");
     }
 
     #[tokio::test]

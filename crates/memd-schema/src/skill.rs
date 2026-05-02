@@ -42,6 +42,79 @@ impl SkillBody {
         head
     }
 
+    /// Inverse of `render_skill_md`. Parses a SKILL.md byte stream back
+    /// into structured frontmatter + body. Returns `None` if the input is
+    /// not in the rendered shape (no leading `---`, no closing `---`,
+    /// missing required `name`/`description` fields).
+    ///
+    /// Records-as-truth depends on this round-trip: P2.3 stores the full
+    /// `render_skill_md()` output as record content; P2.2 sync parses it
+    /// back to drive mirror regeneration.
+    pub fn parse_skill_md(raw: &str) -> Option<SkillBody> {
+        let mut lines = raw.lines();
+        if !lines.next().is_some_and(|line| line.trim() == "---") {
+            return None;
+        }
+        let mut name = None;
+        let mut description = None;
+        let mut record_id = None;
+        let mut closed = false;
+        let mut header_line_count = 1usize;
+        for line in &mut lines {
+            header_line_count += 1;
+            let trimmed = line.trim();
+            if trimmed == "---" {
+                closed = true;
+                break;
+            }
+            if let Some(value) = trimmed.strip_prefix("name:") {
+                name = Some(
+                    value
+                        .trim()
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .to_string(),
+                );
+            } else if let Some(value) = trimmed.strip_prefix("description:") {
+                description = Some(
+                    value
+                        .trim()
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .to_string(),
+                );
+            } else if let Some(value) = trimmed.strip_prefix("record_id:") {
+                let value = value.trim().trim_matches('"').trim_matches('\'');
+                record_id = uuid::Uuid::parse_str(value).ok();
+            }
+        }
+        if !closed {
+            return None;
+        }
+        let name = name?;
+        let description = description?;
+        // Body = everything after the closing `---` line. `render_skill_md`
+        // emits a blank line then the body then a trailing newline; we
+        // mirror that by trimming exactly one leading blank if present and
+        // exactly one trailing newline if present, so parse(render(x)) == x.
+        let mut body_lines: Vec<&str> = raw.lines().skip(header_line_count).collect();
+        if body_lines.first() == Some(&"") {
+            body_lines.remove(0);
+        }
+        let mut body = body_lines.join("\n");
+        if raw.ends_with('\n') && !body.ends_with('\n') {
+            body.push('\n');
+        }
+        Some(SkillBody {
+            frontmatter: SkillFrontmatter {
+                name,
+                description,
+                record_id,
+            },
+            body,
+        })
+    }
+
     /// Derive the relative mirror path inside a memd bundle.
     ///
     /// **WARNING:** Does not validate `name`. A malicious or unchecked name
@@ -91,6 +164,30 @@ mod tests {
         let rendered = s.render_skill_md();
         assert!(rendered.contains("record_id: 550e8400-e29b-41d4-a716-446655440000"));
         assert!(rendered.starts_with("---\nname: tdd\n"));
+    }
+
+    #[test]
+    fn parse_skill_md_round_trips_render_skill_md() {
+        // P2.2 records-as-truth: parse(render(x)) == x for the closed set
+        // of Phase 2 fields. Captures both the no-record_id and
+        // with-record_id shapes.
+        let mut s = sample();
+        let rendered_a = s.render_skill_md();
+        let parsed_a = SkillBody::parse_skill_md(&rendered_a).expect("parse a");
+        assert_eq!(parsed_a, s);
+
+        let id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        s.frontmatter.record_id = Some(id);
+        let rendered_b = s.render_skill_md();
+        let parsed_b = SkillBody::parse_skill_md(&rendered_b).expect("parse b");
+        assert_eq!(parsed_b, s);
+    }
+
+    #[test]
+    fn parse_skill_md_rejects_inputs_missing_frontmatter_fences() {
+        assert!(SkillBody::parse_skill_md("no frontmatter at all").is_none());
+        assert!(SkillBody::parse_skill_md("---\nname: x\ndescription: y\n").is_none());
+        assert!(SkillBody::parse_skill_md("---\nonly: stuff\n---\nbody").is_none());
     }
 
     #[test]

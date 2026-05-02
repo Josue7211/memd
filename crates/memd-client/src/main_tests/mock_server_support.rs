@@ -15,6 +15,7 @@ pub(crate) struct MockRuntimeState {
     pub(crate) candidates: Arc<Mutex<Vec<memd_schema::CandidateMemoryRequest>>>,
     pub(crate) repaired: Arc<Mutex<Vec<memd_schema::RepairMemoryRequest>>>,
     pub(crate) expired: Arc<Mutex<Vec<memd_schema::ExpireMemoryRequest>>>,
+    pub(crate) injected_skill_records: Arc<Mutex<Vec<memd_schema::MemoryItem>>>,
     pub(crate) session_upserts: Arc<Mutex<Vec<memd_schema::HiveSessionUpsertRequest>>>,
     pub(crate) session_retires: Arc<Mutex<Vec<memd_schema::HiveSessionRetireRequest>>>,
     pub(crate) session_records: Arc<Mutex<Vec<memd_schema::HiveSessionRecord>>>,
@@ -904,6 +905,20 @@ pub(crate) async fn mock_search_memory(
         .expect("lock search requests")
         .push(req.clone());
     let query = req.query.clone().unwrap_or_default();
+    // P2.2 skill sync test injection: when only kind=Skill is filtered and
+    // no query is set, return the records the test pre-loaded into state.
+    if req.kinds == vec![memd_schema::MemoryKind::Skill] && req.query.is_none() {
+        let injected = state
+            .injected_skill_records
+            .lock()
+            .expect("lock injected skill records")
+            .clone();
+        return Json(memd_schema::SearchMemoryResponse {
+            route: req.route.unwrap_or(memd_schema::RetrievalRoute::Auto),
+            intent: req.intent.unwrap_or(memd_schema::RetrievalIntent::General),
+            items: injected,
+        });
+    }
     let items = if req.tags.iter().any(|tag| tag == "resume_state") {
         Vec::new()
     } else if query.contains("ralph roadmap progress state") {

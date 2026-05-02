@@ -3922,6 +3922,7 @@ pub(crate) enum SkillSubcommand {
     List(SkillListArgs),
     Show(SkillShowArgs),
     Retire(SkillRetireArgs),
+    Sync(SkillSyncArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -3994,4 +3995,19 @@ pub(crate) struct SkillRetireArgs {
     /// Only delete disk mirror, leave record alive in memd.
     #[arg(long, default_value_t = false)]
     pub(crate) keep_record: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct SkillSyncArgs {
+    /// Bundle root (defaults to .memd).
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    /// Print would-write set without touching the filesystem.
+    #[arg(long, default_value_t = false)]
+    pub(crate) dry_run: bool,
+
+    /// Remove mirror dirs whose record is missing or retired.
+    #[arg(long, default_value_t = false)]
+    pub(crate) prune: bool,
 }
