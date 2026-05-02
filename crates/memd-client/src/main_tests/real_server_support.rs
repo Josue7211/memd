@@ -78,6 +78,7 @@ pub(crate) fn spawn_memd_server() -> Result<SpawnedServer> {
         .env("MEMD_BIND_ADDR", &bind_addr)
         .env("MEMD_DB_PATH", db_path.to_string_lossy().to_string())
         .env("MEMD_LOG_FORMAT", "compact")
+        .env("MEMD_RATE_LIMIT_DISABLED", "1")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()

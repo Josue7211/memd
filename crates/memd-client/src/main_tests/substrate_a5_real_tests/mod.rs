@@ -24,6 +24,7 @@ use memd_schema::{
     MemoryKind, MemoryScope, MemoryStatus, MemoryVisibility, SearchMemoryRequest,
     StoreMemoryRequest,
 };
+use std::path::PathBuf;
 use std::sync::Mutex;
 use tempfile::tempdir;
 use tokio::runtime::Runtime;
@@ -130,19 +131,30 @@ impl BenchBackend for HttpMemdBackend {
     }
 }
 
-/// Sanity floor: a real memd-server should retrieve _something_ for the
-/// synthetic corpus. The locked baseline (A5.4) tightens this to
-/// production thresholds.
-#[test]
-#[ignore]
-fn a5_real_backend_recall_non_trivial() {
-    let server = spawn_memd_server().expect("spawn memd-server");
-    let backend = HttpMemdBackend::new(&server.base_url, "a5-real-bench", "main");
+const A5_SCENARIOS: &[(usize, usize)] = &[
+    (20, 2),
+    (20, 4),
+    (20, 8),
+    (50, 2),
+    (50, 4),
+    (50, 8),
+    (100, 2),
+    (100, 4),
+    (100, 8),
+];
+
+fn run_one_scenario(
+    base_url: &str,
+    n: usize,
+    k: usize,
+) -> (f64, f64) {
+    let project = format!("a5-real-n{n}-k{k}");
+    let backend = HttpMemdBackend::new(base_url, &project, "main");
     let dir = tempdir().expect("tempdir for results");
     let cfg = A5RunConfig {
         seed: 42,
-        fact_counts: vec![20],
-        cuts: vec![2],
+        fact_counts: vec![n],
+        cuts: vec![k],
         kind_mix: KindMix::default(),
         pass_gate: PassGate {
             recall_at_3_k2: 0.0,
@@ -150,15 +162,95 @@ fn a5_real_backend_recall_non_trivial() {
         },
         results_dir: dir.path().to_path_buf(),
     };
-    let outcome = run_a5_with_backend(&cfg, &backend).expect("run a5 real");
-    let r1 = outcome.records[0].recall_at_1;
-    let r3 = outcome.records[0].recall_at_3;
-    eprintln!(
-        "a5-real n=20 k=2: recall@1={r1:.3} recall@3={r3:.3} pass={}",
-        outcome.records[0].pass
-    );
+    let outcome = run_a5_with_backend(&cfg, &backend).expect("run a5 real scenario");
+    let r = &outcome.records[0];
+    (r.recall_at_1, r.recall_at_3)
+}
+
+/// Sanity floor: a real memd-server should retrieve _something_ for the
+/// smallest synthetic corpus. The locked baseline test below tightens
+/// this to production thresholds across all 9 scenarios.
+#[test]
+#[ignore]
+fn a5_real_backend_recall_non_trivial() {
+    let server = spawn_memd_server().expect("spawn memd-server");
+    let (r1, r3) = run_one_scenario(&server.base_url, 20, 2);
+    eprintln!("a5-real n=20 k=2: recall@1={r1:.3} recall@3={r3:.3}");
     assert!(
         r3 > 0.0,
         "real backend must achieve non-trivial recall@3 (got {r3:.3})"
     );
+}
+
+/// One-shot baseline capture. Prints JSON-ready scenario rows to
+/// stdout. Run with `--nocapture` and paste into
+/// `docs/verification/substrate-baselines/a5_real-YYYY-MM-DD.json`.
+#[test]
+#[ignore]
+fn a5_real_capture_baseline_numbers() {
+    let server = spawn_memd_server().expect("spawn memd-server");
+    println!("--- a5_real baseline capture ---");
+    for &(n, k) in A5_SCENARIOS {
+        let (r1, r3) = run_one_scenario(&server.base_url, n, k);
+        let comma = if (n, k) == *A5_SCENARIOS.last().unwrap() {
+            ""
+        } else {
+            ","
+        };
+        println!(
+            "    {{ \"fact_count\": {n}, \"cut_k\": {k}, \"recall_at_1\": {r1}, \"recall_at_3\": {r3} }}{comma}"
+        );
+    }
+    println!("--- end capture ---");
+}
+
+/// Locked-baseline regression check. Loads the most-recent
+/// `a5_real-*.json` file, replays each scenario against a fresh real
+/// backend, and asserts every recall_at_3 stays within `tolerance` of
+/// the locked floor.
+#[test]
+#[ignore]
+fn a5_real_baseline_canonical_numbers() {
+    let baselines_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/verification/substrate-baselines");
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(&baselines_dir)
+        .unwrap_or_else(|e| panic!("read baseline dir {baselines_dir:?}: {e}"))
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|s| s.to_str())
+                .is_some_and(|n| n.starts_with("a5_real-") && n.ends_with(".json"))
+        })
+        .collect();
+    entries.sort();
+    let latest = entries.last().expect("at least one a5_real-*.json baseline");
+
+    #[derive(serde::Deserialize)]
+    struct BaselineScenario {
+        fact_count: usize,
+        cut_k: usize,
+        recall_at_3: f64,
+    }
+    #[derive(serde::Deserialize)]
+    struct Baseline {
+        tolerance: f64,
+        scenarios: Vec<BaselineScenario>,
+    }
+
+    let baseline: Baseline = serde_json::from_slice(&std::fs::read(latest).unwrap())
+        .unwrap_or_else(|e| panic!("parse {latest:?}: {e}"));
+
+    let server = spawn_memd_server().expect("spawn memd-server");
+    for floor in &baseline.scenarios {
+        let (_r1, r3) = run_one_scenario(&server.base_url, floor.fact_count, floor.cut_k);
+        assert!(
+            r3 + baseline.tolerance >= floor.recall_at_3,
+            "regression: n={} k={} recall_at_3 {:.3} < floor {:.3} (tol {:.3})",
+            floor.fact_count,
+            floor.cut_k,
+            r3,
+            floor.recall_at_3,
+            baseline.tolerance,
+        );
+    }
 }

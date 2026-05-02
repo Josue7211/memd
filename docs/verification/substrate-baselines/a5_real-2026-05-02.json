@@ -1,0 +1,19 @@
+{
+  "suite": "cross-session-recall",
+  "backend": "memd-server-http",
+  "captured_at": "2026-05-02",
+  "captured_on": "research/mining",
+  "tolerance": 0.05,
+  "notes": "A5 real-backend recall locked from memd-server subprocess (HttpMemdBackend). recall@3 floor must hold across 9 (fact_count, cut_k) scenarios. recall@1 captured for visibility only; gate is on recall@3.",
+  "scenarios": [
+    { "fact_count": 20,  "cut_k": 2, "recall_at_1": 1.00, "recall_at_3": 1.00 },
+    { "fact_count": 20,  "cut_k": 4, "recall_at_1": 1.00, "recall_at_3": 1.00 },
+    { "fact_count": 20,  "cut_k": 8, "recall_at_1": 1.00, "recall_at_3": 1.00 },
+    { "fact_count": 50,  "cut_k": 2, "recall_at_1": 0.96, "recall_at_3": 1.00 },
+    { "fact_count": 50,  "cut_k": 4, "recall_at_1": 0.96, "recall_at_3": 1.00 },
+    { "fact_count": 50,  "cut_k": 8, "recall_at_1": 0.96, "recall_at_3": 1.00 },
+    { "fact_count": 100, "cut_k": 2, "recall_at_1": 0.87, "recall_at_3": 1.00 },
+    { "fact_count": 100, "cut_k": 4, "recall_at_1": 0.87, "recall_at_3": 1.00 },
+    { "fact_count": 100, "cut_k": 8, "recall_at_1": 0.87, "recall_at_3": 1.00 }
+  ]
+}
