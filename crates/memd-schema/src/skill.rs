@@ -10,17 +10,22 @@ use uuid::Uuid;
 /// Phase 1 mirrors omit it, and (b) `skill add` writes the mirror BEFORE it
 /// has a record_id (rolled back on remember failure); a second render
 /// stamps the id once `remember` returns.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SkillFrontmatter {
     pub name: String,
     pub description: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record_id: Option<Uuid>,
+    /// Phase 2 §9: ranking signal for the wake's Active Skills section.
+    /// Optional because it's populated by sync (record-state fold) and
+    /// `skill add` stamps `None`. Sort uses 0.0 fallback when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub salience: Option<f32>,
 }
 
 /// The full content of a skill record. `frontmatter` is rendered into the
 /// SKILL.md YAML head; `body` is the markdown that follows.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SkillBody {
     pub frontmatter: SkillFrontmatter,
     pub body: String,
@@ -35,6 +40,9 @@ impl SkillBody {
         );
         if let Some(rid) = &self.frontmatter.record_id {
             head.push_str(&format!("record_id: {rid}\n"));
+        }
+        if let Some(s) = self.frontmatter.salience {
+            head.push_str(&format!("salience: {s}\n"));
         }
         head.push_str("---\n\n");
         head.push_str(&self.body);
@@ -58,6 +66,7 @@ impl SkillBody {
         let mut name = None;
         let mut description = None;
         let mut record_id = None;
+        let mut salience = None;
         let mut closed = false;
         let mut header_line_count = 1usize;
         for line in &mut lines {
@@ -86,6 +95,9 @@ impl SkillBody {
             } else if let Some(value) = trimmed.strip_prefix("record_id:") {
                 let value = value.trim().trim_matches('"').trim_matches('\'');
                 record_id = uuid::Uuid::parse_str(value).ok();
+            } else if let Some(value) = trimmed.strip_prefix("salience:") {
+                let value = value.trim().trim_matches('"').trim_matches('\'');
+                salience = value.parse::<f32>().ok();
             }
         }
         if !closed {
@@ -110,6 +122,7 @@ impl SkillBody {
                 name,
                 description,
                 record_id,
+                salience,
             },
             body,
         })
@@ -138,6 +151,7 @@ mod tests {
                 name: "tdd".into(),
                 description: "drive features test-first".into(),
                 record_id: None,
+                salience: None,
             },
             body: "## Steps\n1. Red\n2. Green\n3. Refactor\n".into(),
         }
@@ -181,6 +195,16 @@ mod tests {
         let rendered_b = s.render_skill_md();
         let parsed_b = SkillBody::parse_skill_md(&rendered_b).expect("parse b");
         assert_eq!(parsed_b, s);
+
+        // P2.5: salience must round-trip too — sync stamps it from records.
+        s.frontmatter.salience = Some(0.85);
+        let rendered_c = s.render_skill_md();
+        assert!(
+            rendered_c.contains("salience: 0.85"),
+            "salience missing from render: {rendered_c}"
+        );
+        let parsed_c = SkillBody::parse_skill_md(&rendered_c).expect("parse c");
+        assert_eq!(parsed_c, s);
     }
 
     #[test]
@@ -209,6 +233,7 @@ mod tests {
                 name: "../escape".into(),
                 description: "x".into(),
                 record_id: None,
+                salience: None,
             },
             body: String::new(),
         };

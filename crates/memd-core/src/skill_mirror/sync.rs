@@ -81,6 +81,7 @@ mod tests {
                 name: name.into(),
                 description: desc.into(),
                 record_id: None,
+                salience: None,
             },
             body: body.into(),
         }

@@ -526,11 +526,12 @@ fn collect_active_skills(bundle_root: &Path, limit: usize) -> Vec<(String, Strin
     if !dir.is_dir() {
         return Vec::new();
     }
-    let mut found = Vec::new();
     let entries = match std::fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(_) => return Vec::new(),
     };
+    // (salience, name, description, body) — salience used only for sort.
+    let mut found: Vec<(f32, String, String, String)> = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_dir() {
@@ -544,49 +545,37 @@ fn collect_active_skills(bundle_root: &Path, limit: usize) -> Vec<(String, Strin
             Ok(raw) => raw,
             Err(_) => continue,
         };
-        let name = match path.file_name().and_then(|n| n.to_str()) {
+        let dir_name = match path.file_name().and_then(|n| n.to_str()) {
             Some(name) if !name.is_empty() => name.to_string(),
             _ => continue,
         };
-        let (description, body) = split_skill_frontmatter(&raw);
-        found.push((name, description, body));
+        // Phase 2 §10 records-as-truth: SKILL.md mirrors a record. Fall back
+        // to dir name + empty desc if the file is malformed (legacy mirrors
+        // without proper fences) so wake doesn't black-hole on drift.
+        let (name, description, body, salience) =
+            match memd_schema::skill::SkillBody::parse_skill_md(&raw) {
+                Some(sb) => (
+                    if sb.frontmatter.name.is_empty() {
+                        dir_name
+                    } else {
+                        sb.frontmatter.name
+                    },
+                    sb.frontmatter.description,
+                    sb.body,
+                    sb.frontmatter.salience.unwrap_or(0.0),
+                ),
+                None => (dir_name, String::new(), raw, 0.0),
+            };
+        found.push((salience, name, description, body));
     }
-    found.sort_by(|a, b| a.0.cmp(&b.0));
+    // Phase 2 §9: salience desc, name asc on tie. None → 0.0 fallback above.
+    found.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.cmp(&b.1))
+    });
     found.truncate(limit);
-    found
-}
-
-fn split_skill_frontmatter(raw: &str) -> (String, String) {
-    let mut description = String::new();
-    let mut body = String::new();
-    let mut iter = raw.lines();
-    let Some(first) = iter.next() else {
-        return (description, body);
-    };
-    if first.trim() != "---" {
-        return (description, raw.to_string());
-    }
-    let mut in_fm = true;
-    for line in iter {
-        if in_fm {
-            let trimmed = line.trim();
-            if trimmed == "---" {
-                in_fm = false;
-                continue;
-            }
-            if let Some(value) = trimmed.strip_prefix("description:") {
-                description = value
-                    .trim()
-                    .trim_matches('"')
-                    .trim_matches('\'')
-                    .to_string();
-            }
-        } else {
-            body.push_str(line);
-            body.push('\n');
-        }
-    }
-    (description, body)
+    found.into_iter().map(|(_s, n, d, b)| (n, d, b)).collect()
 }
 
 fn render_active_skills_block(bundle_root: &Path) -> String {
@@ -1359,5 +1348,62 @@ mod tests {
         assert!(block.contains("- **review** — second skill"));
         assert!(block.contains("body two"));
         assert!(block.contains("- tdd — `memd lookup --kind skill --name tdd`"));
+    }
+
+    fn write_skill_md_with_salience(
+        bundle: &Path,
+        name: &str,
+        description: &str,
+        body: &str,
+        salience: f32,
+    ) {
+        let dir = bundle.join("skills").join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let payload = format!(
+            "---\nname: {}\ndescription: {}\nsalience: {}\n---\n\n{}",
+            name, description, salience, body
+        );
+        std::fs::write(dir.join("SKILL.md"), payload).unwrap();
+    }
+
+    #[test]
+    fn active_skills_section_orders_by_salience_descending() {
+        // P2.5 §9: high-salience skill must appear as the inlined headline,
+        // not the alphabetical winner. "alpha" < "zoom" lexically; salience
+        // wins.
+        let tmp = tempfile::TempDir::new().unwrap();
+        write_skill_md_with_salience(tmp.path(), "alpha", "low priority", "alpha body", 0.1);
+        write_skill_md_with_salience(tmp.path(), "zoom", "high priority", "zoom body", 0.9);
+        let block = render_active_skills_block(tmp.path());
+        let zoom_pos = block.find("zoom").expect("zoom present");
+        let alpha_pos = block.find("alpha").expect("alpha present");
+        assert!(
+            zoom_pos < alpha_pos,
+            "zoom (salience 0.9) must precede alpha (salience 0.1):\n{block}"
+        );
+        assert!(
+            block.contains("- **zoom** — high priority"),
+            "zoom should be the inlined headline:\n{block}"
+        );
+    }
+
+    #[test]
+    fn active_skills_section_falls_back_to_alphabetical_on_tie() {
+        // P2.5 §9: equal salience → name asc. Both at None (legacy mirrors
+        // without salience) collapse to 0.0 and tie.
+        let tmp = tempfile::TempDir::new().unwrap();
+        write_skill_md(tmp.path(), "bravo", "second alphabetical", "b body");
+        write_skill_md(tmp.path(), "alpha", "first alphabetical", "a body");
+        let block = render_active_skills_block(tmp.path());
+        let alpha_pos = block.find("alpha").expect("alpha present");
+        let bravo_pos = block.find("bravo").expect("bravo present");
+        assert!(
+            alpha_pos < bravo_pos,
+            "alpha must precede bravo when salience ties:\n{block}"
+        );
+        assert!(
+            block.contains("- **alpha** — first alphabetical"),
+            "alpha should be the inlined headline:\n{block}"
+        );
     }
 }

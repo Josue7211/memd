@@ -32,6 +32,7 @@ pub(crate) fn prepare_and_mirror_skill(
             name: name.to_string(),
             description: description.to_string(),
             record_id: None,
+            salience: None,
         },
         body: body_text,
     };
@@ -169,10 +170,7 @@ fn run_skill_show(args: SkillShowArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_skill_retire(
-    client: &MemdClient,
-    args: SkillRetireArgs,
-) -> anyhow::Result<()> {
+async fn run_skill_retire(client: &MemdClient, args: SkillRetireArgs) -> anyhow::Result<()> {
     memd_core::skill_mirror::validate_skill_name(&args.name)?;
 
     // Phase 2 contract §3: default `retire` deletes the record
@@ -216,10 +214,7 @@ async fn run_skill_retire(
     Ok(())
 }
 
-async fn run_skill_sync(
-    client: &MemdClient,
-    args: SkillSyncArgs,
-) -> anyhow::Result<()> {
+async fn run_skill_sync(client: &MemdClient, args: SkillSyncArgs) -> anyhow::Result<()> {
     // Records-as-truth: pull every active Skill record across visible
     // scopes and reconstruct the mirror from them. Deliberately no
     // text query — kind+status filter is the whole filter set.
@@ -260,7 +255,8 @@ async fn run_skill_sync(
         }
     }
 
-    let report = memd_core::skill_mirror::apply_sync(&args.output, &records, args.dry_run, args.prune)?;
+    let report =
+        memd_core::skill_mirror::apply_sync(&args.output, &records, args.dry_run, args.prune)?;
 
     let payload = serde_json::json!({
         "dry_run": args.dry_run,
@@ -318,6 +314,7 @@ mod tests {
                 name: name.into(),
                 description: "test skill".into(),
                 record_id: None,
+                salience: None,
             },
             body: "## Test Body\nSome content".into(),
         }
@@ -465,6 +462,7 @@ mod tests {
                 name: name.into(),
                 description: format!("desc for {name}"),
                 record_id: Some(uuid::Uuid::new_v4()),
+                salience: None,
             },
             body: body.into(),
         };
@@ -506,14 +504,10 @@ mod tests {
         // record_id stamped (round-tripped through render → parse → render).
         use crate::main_tests::{MockRuntimeState, spawn_mock_runtime_server};
         let state = MockRuntimeState::default();
-        state
-            .injected_skill_records
-            .lock()
-            .unwrap()
-            .extend(vec![
-                skill_record_item("alpha", "## Alpha\n"),
-                skill_record_item("bravo", "## Bravo\n"),
-            ]);
+        state.injected_skill_records.lock().unwrap().extend(vec![
+            skill_record_item("alpha", "## Alpha\n"),
+            skill_record_item("bravo", "## Bravo\n"),
+        ]);
         let base_url = spawn_mock_runtime_server(state.clone(), false).await;
         let client = MemdClient::new(&base_url).expect("client");
 
@@ -600,10 +594,15 @@ mod tests {
             output: tmp.path().to_path_buf(),
             keep_record: true,
         };
-        run_skill_retire(&dummy_client(), args).await.expect("retire ok");
+        run_skill_retire(&dummy_client(), args)
+            .await
+            .expect("retire ok");
 
         assert!(!mirror.exists(), "SKILL.md removed");
-        assert!(!tmp.path().join("skills/demo").exists(), "skill dir removed");
+        assert!(
+            !tmp.path().join("skills/demo").exists(),
+            "skill dir removed"
+        );
     }
 
     #[test]

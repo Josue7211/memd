@@ -43,8 +43,7 @@ pub fn apply_sync(
         let tmp_path = dir.join(".SKILL.md.tmp");
         std::fs::write(&tmp_path, &write.contents)
             .with_context(|| format!("write tmp {tmp_path:?}"))?;
-        std::fs::rename(&tmp_path, &abs_path)
-            .with_context(|| format!("rename to {abs_path:?}"))?;
+        std::fs::rename(&tmp_path, &abs_path).with_context(|| format!("rename to {abs_path:?}"))?;
     }
 
     if prune {
@@ -148,6 +147,7 @@ mod tests {
                 name: name.into(),
                 description: "desc".into(),
                 record_id: None,
+                salience: None,
             },
             body: "body".into(),
         }
