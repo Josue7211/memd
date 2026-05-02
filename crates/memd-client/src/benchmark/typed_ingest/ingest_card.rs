@@ -22,7 +22,10 @@ pub(crate) const BASELINE_LME_10TURN: TypedIngestReport = TypedIngestReport {
 /// exactly. Episodic counts are deterministic for a given fixture, so any
 /// difference is a regression — the loose ±1% from the plan applies to
 /// downstream retrieval scores, not to ingest counts.
-pub(crate) fn assert_baseline(actual: &TypedIngestReport, baseline: &TypedIngestReport) -> Result<(), String> {
+pub(crate) fn assert_baseline(
+    actual: &TypedIngestReport,
+    baseline: &TypedIngestReport,
+) -> Result<(), String> {
     if actual.bench_id != baseline.bench_id {
         return Err(format!(
             "bench_id drift: baseline `{}` got `{}`",

@@ -46,8 +46,8 @@ pub(crate) struct LocomoAdapter {
 
 impl LocomoAdapter {
     pub(crate) fn from_path(path: &Path) -> Result<Self> {
-        let bytes = fs::read(path)
-            .with_context(|| format!("read LoCoMo dataset {}", path.display()))?;
+        let bytes =
+            fs::read(path).with_context(|| format!("read LoCoMo dataset {}", path.display()))?;
         let items: Vec<LocomoItem> = serde_json::from_slice(&bytes)
             .with_context(|| format!("parse LoCoMo dataset {}", path.display()))?;
         Ok(Self::from_items(items))
@@ -56,7 +56,9 @@ impl LocomoAdapter {
     pub(crate) fn from_items(items: Vec<LocomoItem>) -> Self {
         let mut flat: Vec<FlatTurn> = Vec::new();
         for item in items.into_iter() {
-            let Some(conv) = item.conversation.as_object() else { continue };
+            let Some(conv) = item.conversation.as_object() else {
+                continue;
+            };
             let mut sessions: BTreeMap<u32, &str> = BTreeMap::new();
             for k in conv.keys() {
                 if let Some(rest) = k.strip_prefix("session_") {
@@ -75,7 +77,9 @@ impl LocomoAdapter {
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_string();
-                let Some(turns) = conv.get(key).and_then(Value::as_array) else { continue };
+                let Some(turns) = conv.get(key).and_then(Value::as_array) else {
+                    continue;
+                };
                 for (turn_idx, raw) in turns.iter().enumerate() {
                     let Ok(turn) = serde_json::from_value::<LocomoTurn>(raw.clone()) else {
                         continue;
@@ -89,7 +93,9 @@ impl LocomoAdapter {
                 }
             }
         }
-        Self { queue: flat.into_iter() }
+        Self {
+            queue: flat.into_iter(),
+        }
     }
 }
 

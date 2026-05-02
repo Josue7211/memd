@@ -6,13 +6,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use memd_core::correction::detector::{score, PriorClaim};
+use memd_core::correction::detector::{PriorClaim, score};
 use serde::Deserialize;
 use tempfile::TempDir;
 
-use crate::cli::{
-    corrections_log_path, run_correction_capture, CorrectionCaptureArgs,
-};
+use crate::cli::{CorrectionCaptureArgs, corrections_log_path, run_correction_capture};
 
 #[derive(Debug, Clone, Deserialize)]
 struct FixtureTurn {
@@ -71,7 +69,12 @@ fn e2e_assert_then_correct_3_turn_scenario() {
     let log = corrections_log_path(tmp.path());
     let body = fs::read_to_string(&log).unwrap();
     let lines: Vec<_> = body.lines().filter(|l| !l.is_empty()).collect();
-    assert_eq!(lines.len(), 1, "exactly one correction expected, got {}: {body}", lines.len());
+    assert_eq!(
+        lines.len(),
+        1,
+        "exactly one correction expected, got {}: {body}",
+        lines.len()
+    );
     assert!(lines[0].contains("\"corrects_id\":\"rec-t-1\""));
     assert!(lines[0].contains("\"turn\":\"t-3\""));
 }
@@ -91,7 +94,10 @@ fn e2e_correction_survives_compaction() {
     fs::copy(&sealed, &log).unwrap();
 
     let body = fs::read_to_string(&log).unwrap();
-    assert!(body.contains("master node is beta"), "post-restore body: {body}");
+    assert!(
+        body.contains("master node is beta"),
+        "post-restore body: {body}"
+    );
     assert!(body.contains("\"corrects_id\":\"rec-t-1\""));
 }
 

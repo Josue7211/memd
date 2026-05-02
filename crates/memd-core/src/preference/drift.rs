@@ -15,13 +15,12 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::correction::judge::{
-    ensure_current_month, read_budget, write_budget, JudgeTransport,
-    DEFAULT_COST_PER_CALL_USD,
+    DEFAULT_COST_PER_CALL_USD, JudgeTransport, ensure_current_month, read_budget, write_budget,
 };
 
 use super::PreferenceRecord;
@@ -264,8 +263,8 @@ fn truncate(s: &str, n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::correction::judge::{JudgeBudgetState, JudgeConfig, JudgeClient, RawJudgeResponse};
     use crate::correction::CorrectionCandidate;
+    use crate::correction::judge::{JudgeBudgetState, JudgeClient, JudgeConfig, RawJudgeResponse};
     use std::sync::Mutex;
     use tempfile::TempDir;
 
@@ -331,8 +330,10 @@ mod tests {
         let detector = DriftDetector::new(stub, cfg);
         let pref = pref_terse();
         let turns = vec![
-            "Sure! Here is a long-winded explanation of every step I took, with bullet points...".to_string(),
-            "Now let me also recap what we just did and outline next steps in detail...".to_string(),
+            "Sure! Here is a long-winded explanation of every step I took, with bullet points..."
+                .to_string(),
+            "Now let me also recap what we just did and outline next steps in detail..."
+                .to_string(),
             "Finally, a summary table comparing approaches and a list of follow-ups...".to_string(),
         ];
 
@@ -368,7 +369,8 @@ mod tests {
         let cfg = drift_cfg(tmp.path());
         let stub = StubTransport::new(vec![RawJudgeResponse {
             status: 200,
-            body: r#"{"verdict":"drift","confidence":0.8,"violation_count":2,"rationale":"x"}"#.into(),
+            body: r#"{"verdict":"drift","confidence":0.8,"violation_count":2,"rationale":"x"}"#
+                .into(),
         }]);
         let detector = DriftDetector::new(stub, cfg);
         let turns = vec!["long reply".into(), "another long reply".into()];
@@ -382,10 +384,17 @@ mod tests {
         // Different turn window should miss cache.
         let other = vec!["completely different turn".into()];
         // Queue another response so the call succeeds.
-        detector.transport.responses.lock().unwrap().push(RawJudgeResponse {
-            status: 200,
-            body: r#"{"verdict":"aligned","confidence":0.9,"violation_count":0,"rationale":"y"}"#.into(),
-        });
+        detector
+            .transport
+            .responses
+            .lock()
+            .unwrap()
+            .push(RawJudgeResponse {
+                status: 200,
+                body:
+                    r#"{"verdict":"aligned","confidence":0.9,"violation_count":0,"rationale":"y"}"#
+                        .into(),
+            });
         let v3 = detector.detect(&pref_terse(), &other).unwrap();
         assert!(!v3.cache_hit);
         assert_eq!(detector.transport.call_count(), 2);
@@ -398,13 +407,21 @@ mod tests {
         let cfg = drift_cfg(tmp.path());
         let stub = StubTransport::new(vec![RawJudgeResponse {
             status: 200,
-            body: r#"{"verdict":"aligned","confidence":0.9,"violation_count":0,"rationale":"x"}"#.into(),
+            body: r#"{"verdict":"aligned","confidence":0.9,"violation_count":0,"rationale":"x"}"#
+                .into(),
         }]);
         let detector = DriftDetector::new(stub, cfg);
-        let turns = vec!["alpha-marker".into(), "beta-marker".into(), "gamma-marker".into()];
+        let turns = vec![
+            "alpha-marker".into(),
+            "beta-marker".into(),
+            "gamma-marker".into(),
+        ];
         detector.detect(&pref_terse(), &turns).unwrap();
         let prompt = detector.transport.last_prompt().expect("prompt captured");
-        assert!(prompt.contains("voice=terse"), "prompt missing pref: {prompt}");
+        assert!(
+            prompt.contains("voice=terse"),
+            "prompt missing pref: {prompt}"
+        );
         for t in &turns {
             assert!(prompt.contains(t), "prompt missing turn {t}: {prompt}");
         }
@@ -425,12 +442,11 @@ mod tests {
             budget_usd: 0.015,
             disabled: false,
         };
-        let c4_stub = crate::correction::judge::tests_support::StubTransport::new(vec![
-            RawJudgeResponse {
+        let c4_stub =
+            crate::correction::judge::tests_support::StubTransport::new(vec![RawJudgeResponse {
                 status: 200,
                 body: r#"{"decision":"confirmed","confidence":0.9,"rationale":"x"}"#.into(),
-            },
-        ]);
+            }]);
         let c4_client = JudgeClient::new(c4_stub, c4_cfg);
         let candidate = CorrectionCandidate {
             score: 0.7,
@@ -458,7 +474,8 @@ mod tests {
         };
         let f4_stub = StubTransport::new(vec![RawJudgeResponse {
             status: 200,
-            body: r#"{"verdict":"drift","confidence":0.8,"violation_count":1,"rationale":"y"}"#.into(),
+            body: r#"{"verdict":"drift","confidence":0.8,"violation_count":1,"rationale":"y"}"#
+                .into(),
         }]);
         let f4 = DriftDetector::new(f4_stub, f4_cfg);
         let err = f4
@@ -470,5 +487,4 @@ mod tests {
         );
         assert_eq!(f4.transport.call_count(), 0);
     }
-
 }

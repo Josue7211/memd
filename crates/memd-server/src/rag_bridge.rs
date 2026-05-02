@@ -408,7 +408,10 @@ mod tests {
         let client = RagClient::new("http://127.0.0.1:1").expect("client");
         let item = dummy_item();
         let result = ingest_item(&client, &item).await;
-        assert!(result.is_err(), "ingest must surface final error after retries");
+        assert!(
+            result.is_err(),
+            "ingest must surface final error after retries"
+        );
         assert!(rag_failure_count() > before);
         unsafe { std::env::remove_var("MEMD_RAG_TIMEOUT_MS") };
     }

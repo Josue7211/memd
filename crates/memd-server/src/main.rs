@@ -58,29 +58,28 @@ use memd_schema::{
     AtlasExploreRequest, AtlasExploreResponse, AtlasListTrailsRequest, AtlasListTrailsResponse,
     AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest, AtlasRenameRegionResponse,
     AtlasSaveTrailRequest, AtlasSaveTrailResponse, CandidateMemoryRequest, CandidateMemoryResponse,
-    CompactContextResponse, CompactMemoryRecord, ContextRequest, ContextResponse,
-    ConsolidateEpisodesRequest, ConsolidateEpisodesResponse, CorrectMemoryRequest, DedupScanRequest,
-    DedupScanResponse,
-    CorrectMemoryResponse, DecayDiagnosticsResponse, DivergenceRequest, DivergenceSummary,
-    EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
-    EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
-    EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
-    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveBoardRequest,
-    HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
-    HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
-    HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
-    HiveCoordinationReceiptsResponse, HiveFollowRequest, HiveFollowResponse, HiveMessageAckRequest,
-    HiveMessageInboxRequest, HiveMessageSendRequest, HiveMessagesResponse, HiveQueenActionRequest,
-    HiveQueenActionResponse, HiveRosterRequest, HiveRosterResponse, HiveSessionAutoRetireRequest,
-    HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
-    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
-    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxDismissRequest,
-    InboxDismissResponse, InboxMemoryItem, IngestLanesRequest, IngestLanesResponse,
-    ListEpisodesRequest, ListEpisodesResponse, MaintainReport,
-    MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
-    MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse, MemoryDrainRequest,
-    MemoryDrainResponse, MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord,
-    MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
+    CompactContextResponse, CompactMemoryRecord, ConsolidateEpisodesRequest,
+    ConsolidateEpisodesResponse, ContextRequest, ContextResponse, CorrectMemoryRequest,
+    CorrectMemoryResponse, DecayDiagnosticsResponse, DedupScanRequest, DedupScanResponse,
+    DivergenceRequest, DivergenceSummary, EntityLinkRequest, EntityLinkResponse,
+    EntityLinksRequest, EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse,
+    EntitySearchHit, EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest,
+    ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse,
+    HiveBoardRequest, HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecoverRequest,
+    HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse,
+    HiveCoordinationInboxRequest, HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest,
+    HiveCoordinationReceiptsRequest, HiveCoordinationReceiptsResponse, HiveFollowRequest,
+    HiveFollowResponse, HiveMessageAckRequest, HiveMessageInboxRequest, HiveMessageSendRequest,
+    HiveMessagesResponse, HiveQueenActionRequest, HiveQueenActionResponse, HiveRosterRequest,
+    HiveRosterResponse, HiveSessionAutoRetireRequest, HiveSessionAutoRetireResponse,
+    HiveSessionRetireRequest, HiveSessionRetireResponse, HiveSessionUpsertRequest,
+    HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskUpsertRequest,
+    HiveTasksRequest, HiveTasksResponse, InboxDismissRequest, InboxDismissResponse,
+    InboxMemoryItem, IngestLanesRequest, IngestLanesResponse, ListEpisodesRequest,
+    ListEpisodesResponse, MaintainReport, MaintainReportRequest, MemoryConsolidationRequest,
+    MemoryConsolidationResponse, MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse,
+    MemoryDrainRequest, MemoryDrainResponse, MemoryEntityLinkRecord, MemoryEntityRecord,
+    MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
     MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
     MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, ProcedureDetectRequest,
     ProcedureDetectResponse, ProcedureListRequest, ProcedureListResponse, ProcedureMatchRequest,
@@ -554,9 +553,7 @@ impl AppState {
         })?;
 
         for mention in mentions.into_iter().take(8) {
-            let matches = self
-                .store
-                .find_entities_by_alias_exact(None, &mention)?;
+            let matches = self.store.find_entities_by_alias_exact(None, &mention)?;
             let target = matches.iter().find(|entity| entity.id != source_entity.id);
             let Some(target_entity) = target else {
                 continue;

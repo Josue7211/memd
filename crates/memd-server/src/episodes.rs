@@ -144,16 +144,16 @@ pub fn synthesize_narrative(items: &[MemoryItem], started_at: DateTime<Utc>) -> 
     ));
     lines.push(String::new());
     for it in items {
-        let first_line = it.content.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+        let first_line = it
+            .content
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("");
         let summary: String = first_line.trim().chars().take(160).collect();
         if summary.is_empty() {
             continue;
         }
-        lines.push(format!(
-            "- [{}] {}",
-            kind_tag(it.kind),
-            summary,
-        ));
+        lines.push(format!("- [{}] {}", kind_tag(it.kind), summary,));
     }
     let narrative = lines.join("\n");
     (title, narrative)
@@ -183,11 +183,7 @@ fn kind_tag(kind: memd_schema::MemoryKind) -> &'static str {
 }
 
 /// Build an Episode record from a session span + its items.
-pub fn build_episode(
-    span: &SessionSpan,
-    items: &[MemoryItem],
-    now: DateTime<Utc>,
-) -> Episode {
+pub fn build_episode(span: &SessionSpan, items: &[MemoryItem], now: DateTime<Utc>) -> Episode {
     let (title, narrative) = synthesize_narrative(items, span.started_at);
     Episode {
         id: Uuid::new_v4(),
@@ -212,8 +208,8 @@ mod tests {
     use memd_schema::{MemoryKind, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility};
 
     fn ev(mins: i64, id: &str) -> EventPoint {
-        let at = Utc.with_ymd_and_hms(2026, 4, 20, 10, 0, 0).unwrap()
-            + chrono::Duration::minutes(mins);
+        let at =
+            Utc.with_ymd_and_hms(2026, 4, 20, 10, 0, 0).unwrap() + chrono::Duration::minutes(mins);
         EventPoint {
             memory_id: Uuid::parse_str(id).unwrap(),
             at,
@@ -322,10 +318,7 @@ mod tests {
 
     #[test]
     fn narrative_is_deterministic() {
-        let a_items = vec![
-            mem("a", MemoryKind::Fact),
-            mem("b", MemoryKind::Decision),
-        ];
+        let a_items = vec![mem("a", MemoryKind::Fact), mem("b", MemoryKind::Decision)];
         let b_items = a_items.clone();
         let t = Utc.with_ymd_and_hms(2026, 4, 20, 10, 0, 0).unwrap();
         let (t1, n1) = synthesize_narrative(&a_items, t);

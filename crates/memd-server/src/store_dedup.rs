@@ -253,7 +253,11 @@ mod tests {
 
     fn unit(v: &[f32]) -> Vec<f32> {
         let n: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if n == 0.0 { v.to_vec() } else { v.iter().map(|x| x / n).collect() }
+        if n == 0.0 {
+            v.to_vec()
+        } else {
+            v.iter().map(|x| x / n).collect()
+        }
     }
 
     #[test]

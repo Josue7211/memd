@@ -116,8 +116,11 @@ mod tests {
     #[test]
     fn budget_passes_through_on_success() {
         let mut cmd = Command::new("true");
-        let outcome =
-            run_with_budget(std::mem::replace(&mut cmd, Command::new("true")), HookBudget::from_ms(Some(500))).unwrap();
+        let outcome = run_with_budget(
+            std::mem::replace(&mut cmd, Command::new("true")),
+            HookBudget::from_ms(Some(500)),
+        )
+        .unwrap();
         assert_eq!(outcome.exit_code, 0);
         assert_eq!(outcome.failure_class, FailureClass::None);
         assert!(!outcome.timed_out);
@@ -130,7 +133,11 @@ mod tests {
         assert_eq!(outcome.exit_code, 124);
         assert_eq!(outcome.failure_class, FailureClass::Timeout);
         // Elapsed should be close to the budget, not the sleep.
-        assert!(outcome.elapsed_ms < 400, "elapsed {} ms", outcome.elapsed_ms);
+        assert!(
+            outcome.elapsed_ms < 400,
+            "elapsed {} ms",
+            outcome.elapsed_ms
+        );
     }
 
     #[test]

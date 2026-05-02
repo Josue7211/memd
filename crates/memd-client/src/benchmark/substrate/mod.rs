@@ -25,26 +25,20 @@ pub(crate) mod session_driver;
 pub(crate) mod ten_star_writer;
 pub(crate) mod typed_retrieval;
 
-use crate::benchmark::substrate::adversarial_noise::{run_g5_in_process, G5RunConfig};
+use crate::benchmark::substrate::adversarial_noise::{G5RunConfig, run_g5_in_process};
 use crate::benchmark::substrate::aggregator::{
-    regenerate_substrate_benchmarks_md, run_aggregator, AggregatorOptions,
+    AggregatorOptions, regenerate_substrate_benchmarks_md, run_aggregator,
 };
-use crate::benchmark::substrate::correction_propagation::{
-    run_b5_in_process, B5RunConfig,
-};
-use crate::benchmark::substrate::cross_harness::{run_c5_in_process, C5RunConfig};
-use crate::benchmark::substrate::cross_session_recall::{
-    run_a5_in_process, A5RunConfig,
-};
-use crate::benchmark::substrate::progressive_depth::{run_d5_in_process, D5RunConfig};
-use crate::benchmark::substrate::provenance_integrity::{
-    run_e5_in_process, E5RunConfig,
-};
+use crate::benchmark::substrate::correction_propagation::{B5RunConfig, run_b5_in_process};
+use crate::benchmark::substrate::cross_harness::{C5RunConfig, run_c5_in_process};
+use crate::benchmark::substrate::cross_session_recall::{A5RunConfig, run_a5_in_process};
+use crate::benchmark::substrate::progressive_depth::{D5RunConfig, run_d5_in_process};
+use crate::benchmark::substrate::provenance_integrity::{E5RunConfig, run_e5_in_process};
+use crate::benchmark::substrate::report::upsert_markdown_section;
 use crate::benchmark::substrate::ten_star_writer::{
     axis_scores_from_summaries, regenerate_10star_md,
 };
-use crate::benchmark::substrate::typed_retrieval::{run_f5_in_process, F5RunConfig};
-use crate::benchmark::substrate::report::upsert_markdown_section;
+use crate::benchmark::substrate::typed_retrieval::{F5RunConfig, run_f5_in_process};
 
 /// Static registry of every substrate suite the dispatcher knows about.
 /// Each `(suite_id, summary)` pair shows up in `--help` and `--all`.
@@ -138,7 +132,13 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
             );
         } else {
             for s in &summaries {
-                let status = if s.skipped { "skip" } else if s.pass { "pass" } else { "fail" };
+                let status = if s.skipped {
+                    "skip"
+                } else if s.pass {
+                    "pass"
+                } else {
+                    "fail"
+                };
                 println!("substrate {}: {}", s.id, status);
             }
             println!("substrate aggregator: {pass_count}/{total} suites passing");
@@ -161,10 +161,8 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
                     cfg.seed = seed;
                 }
                 if let Some(only) = args.only_cuts.as_deref() {
-                    let parsed: Result<Vec<usize>, _> = only
-                        .split(',')
-                        .map(|s| s.trim().parse::<usize>())
-                        .collect();
+                    let parsed: Result<Vec<usize>, _> =
+                        only.split(',').map(|s| s.trim().parse::<usize>()).collect();
                     cfg.cuts = parsed.map_err(|e| {
                         anyhow::anyhow!("substrate: --only-cuts parse failure: {e}")
                     })?;
@@ -172,14 +170,8 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
                 let outcome = run_a5_in_process(&cfg).map_err(|e| {
                     anyhow::anyhow!("substrate cross-session-recall runner io error: {e}")
                 })?;
-                upsert_markdown_section(
-                    &args.report,
-                    "cross-session-recall",
-                    &outcome.records,
-                )
-                .map_err(|e| {
-                    anyhow::anyhow!("substrate: report write failed: {e}")
-                })?;
+                upsert_markdown_section(&args.report, "cross-session-recall", &outcome.records)
+                    .map_err(|e| anyhow::anyhow!("substrate: report write failed: {e}"))?;
                 if !outcome.overall_pass {
                     overall_pass = false;
                 }
@@ -202,17 +194,10 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
                 if let Some(seed) = args.seed {
                     cfg.seed = seed;
                 }
-                let outcome = run_c5_in_process(&cfg).map_err(|e| {
-                    anyhow::anyhow!("substrate cross-harness runner io error: {e}")
-                })?;
-                upsert_markdown_section(
-                    &args.report,
-                    "cross-harness",
-                    &outcome.records,
-                )
-                .map_err(|e| {
-                    anyhow::anyhow!("substrate: report write failed: {e}")
-                })?;
+                let outcome = run_c5_in_process(&cfg)
+                    .map_err(|e| anyhow::anyhow!("substrate cross-harness runner io error: {e}"))?;
+                upsert_markdown_section(&args.report, "cross-harness", &outcome.records)
+                    .map_err(|e| anyhow::anyhow!("substrate: report write failed: {e}"))?;
                 if !outcome.overall_pass {
                     overall_pass = false;
                 }
@@ -239,14 +224,8 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
                 let outcome = run_b5_in_process(&cfg).map_err(|e| {
                     anyhow::anyhow!("substrate correction-propagation runner io error: {e}")
                 })?;
-                upsert_markdown_section(
-                    &args.report,
-                    "correction-propagation",
-                    &outcome.records,
-                )
-                .map_err(|e| {
-                    anyhow::anyhow!("substrate: report write failed: {e}")
-                })?;
+                upsert_markdown_section(&args.report, "correction-propagation", &outcome.records)
+                    .map_err(|e| anyhow::anyhow!("substrate: report write failed: {e}"))?;
                 if !outcome.overall_pass {
                     overall_pass = false;
                 }
@@ -273,12 +252,12 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
                     overall_pass = false;
                 }
                 if args.json {
-                    println!("{{\"suite\": \"progressive-depth\", \"pass\": {}}}", outcome.overall_pass);
-                } else {
                     println!(
-                        "substrate {suite}: pass={}",
+                        "{{\"suite\": \"progressive-depth\", \"pass\": {}}}",
                         outcome.overall_pass
                     );
+                } else {
+                    println!("substrate {suite}: pass={}", outcome.overall_pass);
                 }
             }
             "provenance-integrity" => {
@@ -292,14 +271,8 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
                 let outcome = run_e5_in_process(&cfg).map_err(|e| {
                     anyhow::anyhow!("substrate provenance-integrity runner io error: {e}")
                 })?;
-                upsert_markdown_section(
-                    &args.report,
-                    "provenance-integrity",
-                    &outcome.records,
-                )
-                .map_err(|e| {
-                    anyhow::anyhow!("substrate: report write failed: {e}")
-                })?;
+                upsert_markdown_section(&args.report, "provenance-integrity", &outcome.records)
+                    .map_err(|e| anyhow::anyhow!("substrate: report write failed: {e}"))?;
                 if !outcome.overall_pass {
                     overall_pass = false;
                 }
@@ -312,9 +285,7 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
                 } else {
                     println!(
                         "substrate {suite}: completeness_rate={:.3}, unsourced={}, pass={}",
-                        outcome.completeness_rate,
-                        outcome.unsourced_count,
-                        outcome.overall_pass
+                        outcome.completeness_rate, outcome.unsourced_count, outcome.overall_pass
                     );
                 }
             }
@@ -393,7 +364,11 @@ mod tests {
 
     #[test]
     fn registry_lists_a5_suite() {
-        assert!(REGISTERED_SUITES.iter().any(|(id, _)| *id == "cross-session-recall"));
+        assert!(
+            REGISTERED_SUITES
+                .iter()
+                .any(|(id, _)| *id == "cross-session-recall")
+        );
     }
 
     #[tokio::test]

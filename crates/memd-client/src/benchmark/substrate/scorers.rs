@@ -85,7 +85,9 @@ impl std::error::Error for BudgetError {}
 /// Empty-after-normalisation is treated as no match.
 pub(crate) fn exact_match(predicted: &str, gold: &str) -> bool {
     fn norm(s: &str) -> String {
-        s.trim().trim_end_matches(['.', ',', ';', ':', '!', '?', ' ']).to_ascii_lowercase()
+        s.trim()
+            .trim_end_matches(['.', ',', ';', ':', '!', '?', ' '])
+            .to_ascii_lowercase()
     }
     let p = norm(predicted);
     let g = norm(gold);
@@ -210,10 +212,7 @@ fn judgement_says_correct(content: &str) -> bool {
 /// the chain is monotonically forward-only.
 ///
 /// Returns `true` iff every requirement holds.
-pub(crate) fn provenance_chain_cites_correction(
-    chain: &[String],
-    correction_turn: &str,
-) -> bool {
+pub(crate) fn provenance_chain_cites_correction(chain: &[String], correction_turn: &str) -> bool {
     if chain.is_empty() || correction_turn.is_empty() {
         return false;
     }
@@ -382,7 +381,10 @@ mod tests {
     #[test]
     fn scorer_provenance_chain_fails_when_chain_broken() {
         let no_correction = vec!["s1-ingest-007".to_string(), "s5-restore-007".to_string()];
-        assert!(!provenance_chain_cites_correction(&no_correction, "s2-correct-007"));
+        assert!(!provenance_chain_cites_correction(
+            &no_correction,
+            "s2-correct-007"
+        ));
 
         let empty: Vec<String> = vec![];
         assert!(!provenance_chain_cites_correction(&empty, "s2-correct-007"));
@@ -396,7 +398,10 @@ mod tests {
             "s3-something".to_string(),
             "s2-correct-007".to_string(),
         ];
-        assert!(!provenance_chain_cites_correction(&revisit, "s2-correct-007"));
+        assert!(!provenance_chain_cites_correction(
+            &revisit,
+            "s2-correct-007"
+        ));
     }
 
     #[test]

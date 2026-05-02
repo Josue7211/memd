@@ -43,7 +43,11 @@ const AXIS_TP: &str = "Trust + provenance";
 #[derive(Debug)]
 pub(crate) enum RegenError {
     /// V5 caller tried to score an axis above its V5 ceiling.
-    CeilingExceeded { axis: &'static str, score: u8, ceiling: u8 },
+    CeilingExceeded {
+        axis: &'static str,
+        score: u8,
+        ceiling: u8,
+    },
     /// Computed composite below the V5 gate and `allow_below_target` is off.
     CompositeBelowTarget { composite: f64, target: f64 },
     /// Existing 10-STAR file is missing or malformed.
@@ -55,8 +59,15 @@ pub(crate) enum RegenError {
 impl std::fmt::Display for RegenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::CeilingExceeded { axis, score, ceiling } => {
-                write!(f, "10-STAR ceiling exceeded: {axis} = {score}/10 > V5 ceiling {ceiling}/10")
+            Self::CeilingExceeded {
+                axis,
+                score,
+                ceiling,
+            } => {
+                write!(
+                    f,
+                    "10-STAR ceiling exceeded: {axis} = {score}/10 > V5 ceiling {ceiling}/10"
+                )
             }
             Self::CompositeBelowTarget { composite, target } => {
                 write!(
@@ -73,7 +84,9 @@ impl std::fmt::Display for RegenError {
 impl std::error::Error for RegenError {}
 
 impl From<std::io::Error> for RegenError {
-    fn from(e: std::io::Error) -> Self { Self::IoError(e) }
+    fn from(e: std::io::Error) -> Self {
+        Self::IoError(e)
+    }
 }
 
 /// Map V5 suite summaries to V5-owned axis scores (PR/CH/RR).
@@ -83,9 +96,7 @@ impl From<std::io::Error> for RegenError {
 /// - CH (cross-harness)    ← cross-harness pass: 2 → 4 on C5 lift, else 2.
 /// - RR (raw-retrieval)    ← floor 4; +2 if A5+D5+E5+F5+G5 all pass.
 pub(crate) fn axis_scores_from_summaries(summaries: &[SuiteSummary]) -> AxisScores {
-    let pass = |id: &str| {
-        summaries.iter().any(|s| s.id == id && s.pass)
-    };
+    let pass = |id: &str| summaries.iter().any(|s| s.id == id && s.pass);
 
     let pr = if pass("typed-retrieval") { 4 } else { 1 };
     let ch = if pass("cross-harness") { 4 } else { 2 };
@@ -135,7 +146,11 @@ pub(crate) fn regenerate_10star_md(
 
 fn enforce_ceiling(axis: &'static str, score: u8, ceiling: u8) -> Result<(), RegenError> {
     if score > ceiling {
-        Err(RegenError::CeilingExceeded { axis, score, ceiling })
+        Err(RegenError::CeilingExceeded {
+            axis,
+            score,
+            ceiling,
+        })
     } else {
         Ok(())
     }
@@ -164,28 +179,39 @@ fn parse_axis_table(body: &str) -> Result<Vec<AxisRow>, RegenError> {
     let mut rows = Vec::new();
     for (idx, line) in body.lines().enumerate() {
         let trim = line.trim_start();
-        if !trim.starts_with('|') { continue; }
+        if !trim.starts_with('|') {
+            continue;
+        }
         // skip header + separator rows
-        if trim.contains("Axis") && trim.contains("Weight") { continue; }
-        if trim.contains("---") { continue; }
+        if trim.contains("Axis") && trim.contains("Weight") {
+            continue;
+        }
+        if trim.contains("---") {
+            continue;
+        }
         let cols: Vec<&str> = trim
             .trim_start_matches('|')
             .trim_end_matches('|')
             .split('|')
             .map(|c| c.trim())
             .collect();
-        if cols.len() < 4 { continue; }
+        if cols.len() < 4 {
+            continue;
+        }
         let axis = cols[0].to_string();
-        if !REQUIRED_AXES.iter().any(|(name, _)| *name == axis) { continue; }
-        let weight_pct = cols[1]
-            .trim_end_matches('%')
-            .parse::<f64>()
-            .map_err(|_| RegenError::ParseError(format!("bad weight col on line {idx}: {line:?}")))?;
+        if !REQUIRED_AXES.iter().any(|(name, _)| *name == axis) {
+            continue;
+        }
+        let weight_pct = cols[1].trim_end_matches('%').parse::<f64>().map_err(|_| {
+            RegenError::ParseError(format!("bad weight col on line {idx}: {line:?}"))
+        })?;
         let score = cols[2]
             .split('/')
             .next()
             .and_then(|n| n.trim().parse::<u8>().ok())
-            .ok_or_else(|| RegenError::ParseError(format!("bad score col on line {idx}: {line:?}")))?;
+            .ok_or_else(|| {
+                RegenError::ParseError(format!("bad score col on line {idx}: {line:?}"))
+            })?;
         let status = cols[3..].join(" | ");
         rows.push(AxisRow {
             axis,
@@ -214,10 +240,9 @@ fn compute_composite(rows: &[AxisRow]) -> Result<f64, RegenError> {
     let mut total = 0.0;
     let mut weight_sum = 0.0;
     for (name, expected_pct) in REQUIRED_AXES {
-        let row = rows
-            .iter()
-            .find(|r| r.axis == *name)
-            .ok_or_else(|| RegenError::ParseError(format!("axis missing during compute: {name}")))?;
+        let row = rows.iter().find(|r| r.axis == *name).ok_or_else(|| {
+            RegenError::ParseError(format!("axis missing during compute: {name}"))
+        })?;
         if (row.weight_pct - expected_pct).abs() > 1e-6 {
             return Err(RegenError::ParseError(format!(
                 "weight mismatch for {name}: file={}, expected={}",
@@ -235,7 +260,9 @@ fn compute_composite(rows: &[AxisRow]) -> Result<f64, RegenError> {
     Ok(round2(total))
 }
 
-fn round2(x: f64) -> f64 { (x * 100.0).round() / 100.0 }
+fn round2(x: f64) -> f64 {
+    (x * 100.0).round() / 100.0
+}
 
 fn rewrite_doc(body: &str, rows: &[AxisRow], composite: f64) -> Result<String, RegenError> {
     let mut lines: Vec<String> = body.lines().map(|s| s.to_string()).collect();
@@ -330,7 +357,9 @@ mod tests {
 
     #[test]
     fn axis_scores_from_summaries_lifts_only_when_suite_passes() {
-        fn pass(id: &str) -> SuiteSummary { SuiteSummary::passed(id, BTreeMap::new()) }
+        fn pass(id: &str) -> SuiteSummary {
+            SuiteSummary::passed(id, BTreeMap::new())
+        }
         fn fail(id: &str) -> SuiteSummary {
             SuiteSummary::failed(id, "x", BTreeMap::new())
         }
@@ -345,7 +374,14 @@ mod tests {
             pass("adversarial-noise"),
         ];
         let s = axis_scores_from_summaries(&all_pass);
-        assert_eq!(s, AxisScores { pr: 4, ch: 4, rr: 6 });
+        assert_eq!(
+            s,
+            AxisScores {
+                pr: 4,
+                ch: 4,
+                rr: 6
+            }
+        );
 
         let mut mixed = all_pass.clone();
         mixed[2] = fail("cross-harness");
@@ -365,7 +401,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("MEMD-10-STAR.md");
         std::fs::write(&path, fixture_body(baseline_at_v4_post())).unwrap();
-        let bad = AxisScores { pr: 5, ch: 4, rr: 6 };
+        let bad = AxisScores {
+            pr: 5,
+            ch: 4,
+            rr: 6,
+        };
         let err = regenerate_10star_md(&path, &bad, true).unwrap_err();
         assert!(matches!(err, RegenError::CeilingExceeded { axis, .. } if axis == AXIS_PR));
     }
@@ -380,7 +420,11 @@ mod tests {
         let body_before = fixture_body(baseline);
         std::fs::write(&path, &body_before).unwrap();
 
-        let v5_max = AxisScores { pr: 4, ch: 4, rr: 6 };
+        let v5_max = AxisScores {
+            pr: 4,
+            ch: 4,
+            rr: 6,
+        };
         let err = regenerate_10star_md(&path, &v5_max, false).unwrap_err();
         assert!(matches!(err, RegenError::CompositeBelowTarget { .. }));
 
@@ -399,7 +443,11 @@ mod tests {
         let path = dir.path().join("MEMD-10-STAR.md");
         std::fs::write(&path, fixture_body(baseline_at_v4_post())).unwrap();
 
-        let scores = AxisScores { pr: 4, ch: 4, rr: 6 };
+        let scores = AxisScores {
+            pr: 4,
+            ch: 4,
+            rr: 6,
+        };
         let composite = regenerate_10star_md(&path, &scores, false).unwrap();
         assert!(
             (composite - 4.20).abs() < 1e-6,
@@ -428,7 +476,11 @@ mod tests {
             (AXIS_TP, 3),
         ];
         std::fs::write(&path, fixture_body(baseline)).unwrap();
-        let scores = AxisScores { pr: 4, ch: 4, rr: 6 };
+        let scores = AxisScores {
+            pr: 4,
+            ch: 4,
+            rr: 6,
+        };
         let _ = regenerate_10star_md(&path, &scores, true).unwrap();
         let body = std::fs::read_to_string(&path).unwrap();
         assert!(body.contains("| Session continuity | 20% | 4/10"));
@@ -446,7 +498,11 @@ mod tests {
             "# 10-Star\n\n| Axis | Weight | Score | Status |\n|--|--|--|--|\n| Session continuity | 20% | 4/10 | x |\n",
         )
         .unwrap();
-        let scores = AxisScores { pr: 4, ch: 4, rr: 6 };
+        let scores = AxisScores {
+            pr: 4,
+            ch: 4,
+            rr: 6,
+        };
         let err = regenerate_10star_md(&path, &scores, true).unwrap_err();
         assert!(matches!(err, RegenError::ParseError(_)));
     }

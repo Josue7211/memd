@@ -1347,7 +1347,12 @@ mod tests {
     #[test]
     fn active_skills_block_lists_skills_with_inlined_first_body() {
         let tmp = tempfile::TempDir::new().unwrap();
-        write_skill_md(tmp.path(), "tdd", "drive features test-first", "## Steps\n1. Red\n2. Green\n");
+        write_skill_md(
+            tmp.path(),
+            "tdd",
+            "drive features test-first",
+            "## Steps\n1. Red\n2. Green\n",
+        );
         write_skill_md(tmp.path(), "review", "second skill", "body two");
         let block = render_active_skills_block(tmp.path());
         assert!(block.starts_with("## Active Skills"));

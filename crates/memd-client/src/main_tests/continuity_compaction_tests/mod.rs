@@ -4,13 +4,13 @@
 //! full E2E scenarios (18 + 19).
 
 use super::*;
+use crate::MemdClient;
 use crate::cli::{
     HookArgs, HookDoctorArgs, HookDoctorCheck, HookMode, HookRestoreArgs, HookRestoreNoSealed,
     HookSealLedgerArgs, run_hook_doctor_ordering, run_hook_mode, run_hook_restore,
 };
-use crate::MemdClient;
 use memd_core::file_ledger::{
-    append_file_interaction, ledger_path, restore::RestoreSource, FileInteractionLedger,
+    FileInteractionLedger, append_file_interaction, ledger_path, restore::RestoreSource,
 };
 
 fn ordering_args(output: &Path, trace_inline: Option<&str>) -> HookDoctorArgs {
@@ -345,8 +345,8 @@ async fn a4_compaction_breach_detection() {
     // Two breaches: tool-before-restore on the Edit that follows PostCompact
     // with no LedgerRestore between, and missing-restore because no
     // LedgerRestore event ever arrives before the trace ends.
-    let text = fs::read_to_string(output.join("logs/continuity-breach.log"))
-        .expect("breach log exists");
+    let text =
+        fs::read_to_string(output.join("logs/continuity-breach.log")).expect("breach log exists");
     let lines: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
     assert_eq!(lines.len(), 2, "expected two breach lines: {lines:?}");
     assert!(

@@ -4,7 +4,7 @@
 //! §4 tests 5–8.
 
 use crate::benchmark::substrate::correction_propagation::{
-    run_b5_in_process, run_b5_with_backend, B5RunConfig, DegradedB5Backend,
+    B5RunConfig, DegradedB5Backend, run_b5_in_process, run_b5_with_backend,
 };
 use crate::benchmark::substrate::fixtures::KindMix;
 use std::path::PathBuf;
@@ -128,19 +128,22 @@ fn b5_baseline_current_memd_canonical_numbers() {
             .records
             .iter()
             .find(|r| r.cut_k == floor.query_session)
-            .unwrap_or_else(|| panic!(
-                "no record for query_session={}",
-                floor.query_session
-            ));
+            .unwrap_or_else(|| panic!("no record for query_session={}", floor.query_session));
         assert!(
             actual.recall_at_1 + baseline.tolerance >= floor.recall_at_1,
             "regression: query_session={} propagation_rate {:.3} < floor {:.3} (tol {:.3})",
-            floor.query_session, actual.recall_at_1, floor.recall_at_1, baseline.tolerance,
+            floor.query_session,
+            actual.recall_at_1,
+            floor.recall_at_1,
+            baseline.tolerance,
         );
         assert!(
             actual.recall_at_3 + baseline.tolerance >= floor.recall_at_3,
             "regression: query_session={} provenance_correctness {:.3} < floor {:.3} (tol {:.3})",
-            floor.query_session, actual.recall_at_3, floor.recall_at_3, baseline.tolerance,
+            floor.query_session,
+            actual.recall_at_3,
+            floor.recall_at_3,
+            baseline.tolerance,
         );
     }
 }

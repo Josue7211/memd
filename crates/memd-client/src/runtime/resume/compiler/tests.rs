@@ -37,7 +37,10 @@ fn position_of(ordered: &buckets::OrderedBuckets, kind: BucketKind) -> usize {
         .expect("bucket present")
 }
 
-fn dedup_position(deduped: &buckets::DedupedBuckets, kind: BucketKind) -> &Vec<CompactMemoryRecord> {
+fn dedup_position(
+    deduped: &buckets::DedupedBuckets,
+    kind: BucketKind,
+) -> &Vec<CompactMemoryRecord> {
     &deduped
         .buckets
         .iter()
@@ -84,7 +87,9 @@ fn priority_order_preferences_after_canonical_before_focus() {
 fn priority_order_corrections_before_semantic() {
     let input = CompilerInput {
         semantic: vec![rec("kind=fact | c=user prefers tabs")],
-        corrections: vec![rec("kind=correction | c=user prefers spaces (overrides earlier)")],
+        corrections: vec![rec(
+            "kind=correction | c=user prefers spaces (overrides earlier)",
+        )],
         ..Default::default()
     };
     let ordered = priority::apply(&input);
@@ -314,8 +319,14 @@ fn exclude_bucket_drops_records_entirely() {
 #[test]
 fn parse_bucket_label_is_case_insensitive_and_pluralizes() {
     assert_eq!(parse_bucket_label("Canonical"), Some(BucketKind::Canonical));
-    assert_eq!(parse_bucket_label("PREFERENCES"), Some(BucketKind::Preference));
-    assert_eq!(parse_bucket_label("corrections"), Some(BucketKind::Correction));
+    assert_eq!(
+        parse_bucket_label("PREFERENCES"),
+        Some(BucketKind::Preference)
+    );
+    assert_eq!(
+        parse_bucket_label("corrections"),
+        Some(BucketKind::Correction)
+    );
     assert_eq!(parse_bucket_label("nonsense"), None);
 }
 
@@ -337,8 +348,14 @@ fn ledger_writes_wake_budget_ndjson_line() {
 
     ledger::write_budget_line(bundle, Some("session-x"), 9999, &compiled)
         .expect("budget line written");
-    ledger::write_cost_line(bundle, Some("session-x"), compiled.tokens, 800, "claude-opus-4-7")
-        .expect("cost line written");
+    ledger::write_cost_line(
+        bundle,
+        Some("session-x"),
+        compiled.tokens,
+        800,
+        "claude-opus-4-7",
+    )
+    .expect("cost line written");
 
     let budget_path = bundle.join("logs/wake-budget.ndjson");
     let cost_path = bundle.join("logs/wake-cost.ndjson");
@@ -369,13 +386,25 @@ fn render_emits_section_headers_in_priority_order() {
     };
     let compiled = compile_wake(input, WakeBudget::default_2000());
 
-    let canon_idx = compiled.markdown.find("## Durable Truth").expect("canonical header");
-    let pref_idx = compiled.markdown.find("## Preferences").expect("pref header");
+    let canon_idx = compiled
+        .markdown
+        .find("## Durable Truth")
+        .expect("canonical header");
+    let pref_idx = compiled
+        .markdown
+        .find("## Preferences")
+        .expect("pref header");
     let focus_idx = compiled.markdown.find("## Focus").expect("focus header");
-    let corr_idx = compiled.markdown.find("## Corrections").expect("corr header");
+    let corr_idx = compiled
+        .markdown
+        .find("## Corrections")
+        .expect("corr header");
     let epi_idx = compiled.markdown.find("## Episodic").expect("epi header");
     let sem_idx = compiled.markdown.find("## Semantic").expect("sem header");
-    let cand_idx = compiled.markdown.find("## Candidates").expect("cand header");
+    let cand_idx = compiled
+        .markdown
+        .find("## Candidates")
+        .expect("cand header");
 
     assert!(canon_idx < pref_idx);
     assert!(pref_idx < focus_idx);
@@ -422,7 +451,10 @@ fn render_is_markdown_and_round_trips_token_count() {
     };
     let compiled = compile_wake(input, WakeBudget::default_2000());
 
-    assert!(compiled.markdown.starts_with("## "), "must start with markdown header");
+    assert!(
+        compiled.markdown.starts_with("## "),
+        "must start with markdown header"
+    );
     assert_eq!(
         compiled.tokens,
         compiled.markdown.len(),
@@ -464,9 +496,7 @@ fn budget_preferences_bucket_is_non_demotable() {
 fn render_surfaces_drift_line_inside_preferences_section() {
     let input = CompilerInput {
         preferences: vec![rec("id=P1 | c=user prefers terse")],
-        drift_notes: vec![
-            "⚠ drift: pref-voice-terse (3 violations in last 10 turns)".to_string(),
-        ],
+        drift_notes: vec!["⚠ drift: pref-voice-terse (3 violations in last 10 turns)".to_string()],
         ..Default::default()
     };
     let compiled = compile_wake(input, WakeBudget::default_2000());
@@ -475,7 +505,10 @@ fn render_surfaces_drift_line_inside_preferences_section() {
         .markdown
         .find("## Preferences")
         .expect("pref header present");
-    let drift_idx = compiled.markdown.find("⚠ drift").expect("drift line present");
+    let drift_idx = compiled
+        .markdown
+        .find("⚠ drift")
+        .expect("drift line present");
     assert!(
         drift_idx > pref_idx,
         "drift line must follow the `## Preferences` header"

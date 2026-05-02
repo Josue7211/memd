@@ -7,10 +7,10 @@ use crate::benchmark::typed_ingest::{EpisodicAdapter, EpisodicProvenance};
 
 use std::io::Write as _;
 
+use crate::benchmark::typed_ingest::bench_loaders::convomem::ConvomemAdapter;
 use crate::benchmark::typed_ingest::bench_loaders::lme::LmeAdapter;
 use crate::benchmark::typed_ingest::bench_loaders::locomo::LocomoAdapter;
 use crate::benchmark::typed_ingest::bench_loaders::membench::MembenchAdapter;
-use crate::benchmark::typed_ingest::bench_loaders::convomem::ConvomemAdapter;
 
 /// A6 Test 1 — `bench_loader_lme_yields_typed_episodic`.
 /// LME loader yields `EpisodicTurn` records with bench_id="longmemeval"
@@ -62,7 +62,10 @@ fn bench_loader_lme_yields_typed_episodic() {
     assert_eq!(t0.provenance.captured_at, "2024-01-01");
     assert_eq!(t0.provenance.source_hash.len(), 64, "sha256 hex");
     assert!(
-        t0.provenance.source_hash.chars().all(|c| c.is_ascii_hexdigit()),
+        t0.provenance
+            .source_hash
+            .chars()
+            .all(|c| c.is_ascii_hexdigit()),
         "source_hash must be hex"
     );
 
@@ -180,7 +183,10 @@ fn bench_loader_membench_yields_typed_episodic() {
     assert_eq!(turns[0].provenance.session_id, "book::tid_0::list_0");
     assert_eq!(turns[0].provenance.speaker, "user");
     assert_eq!(turns[0].provenance.turn_index, 0);
-    assert_eq!(turns[0].provenance.captured_at, "'2024-10-01 08:00' Tuesday");
+    assert_eq!(
+        turns[0].provenance.captured_at,
+        "'2024-10-01 08:00' Tuesday"
+    );
 
     assert_eq!(turns[1].content, "Cool!");
     assert_eq!(turns[1].provenance.speaker, "assistant");
@@ -188,7 +194,10 @@ fn bench_loader_membench_yields_typed_episodic() {
 
     assert_eq!(turns[2].provenance.turn_index, 2);
     assert_eq!(turns[3].provenance.turn_index, 3);
-    assert_ne!(turns[0].provenance.source_hash, turns[1].provenance.source_hash);
+    assert_ne!(
+        turns[0].provenance.source_hash,
+        turns[1].provenance.source_hash
+    );
 }
 
 /// A6 Test 4 — `bench_loader_convomem_yields_typed_episodic`.
@@ -264,7 +273,10 @@ fn provenance_fields_populated_across_all_loaders() {
         assert!(!t.provenance.session_id.is_empty(), "lme session_id empty");
         assert!(!t.provenance.speaker.is_empty(), "lme speaker empty");
         assert_eq!(t.provenance.source_hash.len(), 64, "lme hash len");
-        assert!(!t.provenance.captured_at.is_empty(), "lme captured_at empty");
+        assert!(
+            !t.provenance.captured_at.is_empty(),
+            "lme captured_at empty"
+        );
     }
     assert_eq!(count_lme, 10, "10-turn fixture");
 
@@ -298,7 +310,10 @@ fn provenance_fields_populated_across_all_loaders() {
     while let Some(t) = mb.next_turn() {
         assert_eq!(t.provenance.bench_id, "membench");
         assert!(!t.provenance.session_id.is_empty());
-        assert!(matches!(t.provenance.speaker.as_str(), "user" | "assistant"));
+        assert!(matches!(
+            t.provenance.speaker.as_str(),
+            "user" | "assistant"
+        ));
         assert_eq!(t.provenance.source_hash.len(), 64);
         assert_eq!(t.provenance.captured_at, "t0");
     }
@@ -335,22 +350,14 @@ fn cli_args_accept_typed_ingest_episodic() {
         a: PublicBenchmarkArgs,
     }
 
-    let on = Wrap::try_parse_from([
-        "memd",
-        "longmemeval",
-        "--typed-ingest=episodic",
-    ])
-    .expect("parse");
+    let on =
+        Wrap::try_parse_from(["memd", "longmemeval", "--typed-ingest=episodic"]).expect("parse");
     assert_eq!(on.a.typed_ingest.as_deref(), Some("episodic"));
 
     let off = Wrap::try_parse_from(["memd", "longmemeval"]).expect("parse default");
     assert!(off.a.typed_ingest.is_none());
 
-    let bad = Wrap::try_parse_from([
-        "memd",
-        "longmemeval",
-        "--typed-ingest=semantic",
-    ]);
+    let bad = Wrap::try_parse_from(["memd", "longmemeval", "--typed-ingest=semantic"]);
     assert!(bad.is_err(), "only `episodic` is accepted in A6");
 }
 
@@ -379,7 +386,7 @@ fn runtime_dispatches_to_episodic_when_flag_set() {
 #[test]
 fn baseline_lock_no_regression_lme_10turn() {
     use crate::benchmark::typed_ingest::dispatch_typed_ingest_episodic;
-    use crate::benchmark::typed_ingest::ingest_card::{assert_baseline, BASELINE_LME_10TURN};
+    use crate::benchmark::typed_ingest::ingest_card::{BASELINE_LME_10TURN, assert_baseline};
 
     let lme_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/typed_ingest/a6/lme-sample-10turn.json");

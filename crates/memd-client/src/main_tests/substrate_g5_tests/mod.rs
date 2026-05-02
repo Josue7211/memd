@@ -1,8 +1,8 @@
 //! G5 integration tests — adversarial-noise bench.
 
 use crate::benchmark::substrate::adversarial_noise::{
-    generate_corpus, run_g5_in_process, CanonicalWinsScorer, G5RunConfig,
-    NoiseRecord, PerfectCanonicalBackend, TieBreakProvenanceScorer,
+    CanonicalWinsScorer, G5RunConfig, NoiseRecord, PerfectCanonicalBackend,
+    TieBreakProvenanceScorer, generate_corpus, run_g5_in_process,
 };
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -25,14 +25,19 @@ fn noise_generator_seeds_contradictions_with_recency_offset() {
     assert_eq!(noise.len(), 30);
 
     for canon in &canonical {
-        let siblings: Vec<&NoiseRecord> =
-            noise.iter().filter(|n| n.canonical_id == canon.canonical_id).collect();
+        let siblings: Vec<&NoiseRecord> = noise
+            .iter()
+            .filter(|n| n.canonical_id == canon.canonical_id)
+            .collect();
         assert_eq!(siblings.len(), 3, "every canonical needs 3 noise siblings");
 
         for n in &siblings {
             assert_eq!(n.subject, canon.subject, "noise must share subject");
             assert_eq!(n.predicate, canon.predicate, "noise must share predicate");
-            assert_ne!(n.value, canon.value, "noise must contradict canonical value");
+            assert_ne!(
+                n.value, canon.value,
+                "noise must contradict canonical value"
+            );
             assert!(
                 n.captured_at_offset_s > canon.captured_at_offset_s,
                 "noise must be newer than canonical (recency-bias trap)"
@@ -77,7 +82,10 @@ fn scorer_canonical_wins_rate() {
     assert!(scorer.winner_is_canonical(0, &[canon.clone(), noise.clone()]));
     // Noise at top → loss + leak.
     assert!(!scorer.winner_is_canonical(0, &[noise.clone(), canon.clone()]));
-    assert_eq!(scorer.leaked_noise(0, &[noise.clone(), canon.clone()]), Some(1));
+    assert_eq!(
+        scorer.leaked_noise(0, &[noise.clone(), canon.clone()]),
+        Some(1)
+    );
 }
 
 /// G5 Test 3 — `scorer_tie_break_by_provenance_when_canonical_newest`.
@@ -110,7 +118,10 @@ fn scorer_tie_break_by_provenance_when_canonical_newest() {
     assert_eq!(tb.tie_break(&canon, &noise), Some(true));
 
     // Cross-canonical pairing returns None (not applicable).
-    let other = NoiseRecord { canonical_id: 7, ..noise.clone() };
+    let other = NoiseRecord {
+        canonical_id: 7,
+        ..noise.clone()
+    };
     assert_eq!(tb.tie_break(&canon, &other), None);
 }
 
@@ -134,7 +145,10 @@ fn runner_50_canonical_150_noise_complete() {
         outcome.noise_leak_rate >= 0.0 && outcome.noise_leak_rate <= 1.0,
         "leak rate is a fraction"
     );
-    assert!(outcome.overall_pass, "perfect-canonical backend must pass gate");
+    assert!(
+        outcome.overall_pass,
+        "perfect-canonical backend must pass gate"
+    );
 
     // Sanity: with the perfect backend, every record wins and zero leak.
     let backend = PerfectCanonicalBackend;
@@ -197,7 +211,7 @@ fn pass_gate_thresholds_match_plan() {
 /// SUITE_ORDER.
 #[test]
 fn aggregator_runs_all_7_suites_sequential_or_parallel() {
-    use crate::benchmark::substrate::aggregator::{run_aggregator, AggregatorOptions, SUITE_ORDER};
+    use crate::benchmark::substrate::aggregator::{AggregatorOptions, SUITE_ORDER, run_aggregator};
     let dir = tempdir().unwrap();
     let opts = AggregatorOptions::with_results_dir(dir.path().to_path_buf());
     let summaries = run_aggregator(&opts);
@@ -214,7 +228,7 @@ fn aggregator_runs_all_7_suites_sequential_or_parallel() {
 #[test]
 fn aggregator_fail_fast_stops_on_first_fail() {
     use crate::benchmark::substrate::aggregator::{
-        run_aggregator, AggregatorOptions, SuiteSummary, SUITE_ORDER,
+        AggregatorOptions, SUITE_ORDER, SuiteSummary, run_aggregator,
     };
 
     // We can't easily force a real-runner failure mid-pipeline without
@@ -247,11 +261,10 @@ fn aggregator_fail_fast_stops_on_first_fail() {
 /// 4.20 on the V4-post baseline + V5 lift.
 #[test]
 fn aggregator_writes_10star_composite_section() {
+    use crate::benchmark::substrate::aggregator::{AggregatorOptions, run_aggregator};
     use crate::benchmark::substrate::ten_star_writer::{
-        axis_scores_from_summaries, regenerate_10star_md, AxisScores, COMPOSITE_TARGET,
-        RegenError,
+        AxisScores, COMPOSITE_TARGET, RegenError, axis_scores_from_summaries, regenerate_10star_md,
     };
-    use crate::benchmark::substrate::aggregator::{run_aggregator, AggregatorOptions};
 
     let dir = tempdir().unwrap();
     let opts = AggregatorOptions::with_results_dir(dir.path().to_path_buf());
@@ -259,7 +272,11 @@ fn aggregator_writes_10star_composite_section() {
     let scores = axis_scores_from_summaries(&summaries);
     assert_eq!(
         scores,
-        AxisScores { pr: 4, ch: 4, rr: 6 },
+        AxisScores {
+            pr: 4,
+            ch: 4,
+            rr: 6
+        },
         "perfect-recall aggregator must yield the V5 ceiling lift"
     );
 
@@ -293,12 +310,20 @@ fn aggregator_writes_10star_composite_section() {
     assert!(body.contains("| Raw retrieval strength | 15% | 6/10"));
 
     // Refuses below target without flag.
-    let weak = AxisScores { pr: 1, ch: 2, rr: 4 };
+    let weak = AxisScores {
+        pr: 1,
+        ch: 2,
+        rr: 4,
+    };
     let err = regenerate_10star_md(&path, &weak, false).unwrap_err();
     assert!(matches!(err, RegenError::CompositeBelowTarget { .. }));
 
     // Refuses ceiling violations even with override flag.
-    let bad = AxisScores { pr: 4, ch: 4, rr: 7 };
+    let bad = AxisScores {
+        pr: 4,
+        ch: 4,
+        rr: 7,
+    };
     let err = regenerate_10star_md(&path, &bad, true).unwrap_err();
     assert!(matches!(err, RegenError::CeilingExceeded { .. }));
 }
@@ -313,7 +338,7 @@ fn aggregator_writes_10star_composite_section() {
 #[test]
 fn cli_bench_substrate_all_end_to_end_on_clean_tree() {
     use crate::benchmark::substrate::aggregator::{
-        regenerate_substrate_benchmarks_md, run_aggregator, AggregatorOptions, SUITE_ORDER,
+        AggregatorOptions, SUITE_ORDER, regenerate_substrate_benchmarks_md, run_aggregator,
     };
 
     let dir = tempdir().unwrap();
@@ -356,7 +381,7 @@ fn cli_bench_substrate_all_end_to_end_on_clean_tree() {
 /// reproduce script parses cleanly and accepts `--all`.
 #[test]
 fn reproducibility_script_matches_within_0_03_on_fresh_clone() {
-    use crate::benchmark::substrate::aggregator::{run_aggregator, AggregatorOptions};
+    use crate::benchmark::substrate::aggregator::{AggregatorOptions, run_aggregator};
     use std::process::Command;
 
     let dir_a = tempdir().unwrap();
@@ -385,7 +410,11 @@ fn reproducibility_script_matches_within_0_03_on_fresh_clone() {
     // Script must parse cleanly + accept --all mode.
     let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../scripts/substrate-bench-reproduce.sh");
-    assert!(script.exists(), "reproduce script missing at {}", script.display());
+    assert!(
+        script.exists(),
+        "reproduce script missing at {}",
+        script.display()
+    );
     let syntax = Command::new("bash")
         .arg("-n")
         .arg(&script)
@@ -406,7 +435,7 @@ fn reproducibility_script_matches_within_0_03_on_fresh_clone() {
 fn competitor_card_template_fills() {
     use crate::benchmark::substrate::aggregator::SUITE_ORDER;
     use crate::benchmark::substrate::competitor_card::{
-        load_competitor_fixture, render_competitor_card, CompetitorEntry, PLACEHOLDER,
+        CompetitorEntry, PLACEHOLDER, load_competitor_fixture, render_competitor_card,
     };
     use std::collections::BTreeMap;
 
@@ -457,7 +486,7 @@ fn competitor_card_template_fills() {
 #[test]
 fn aggregator_writes_substrate_benchmarks_md() {
     use crate::benchmark::substrate::aggregator::{
-        regenerate_substrate_benchmarks_md, run_aggregator, AggregatorOptions, SUITE_ORDER,
+        AggregatorOptions, SUITE_ORDER, regenerate_substrate_benchmarks_md, run_aggregator,
     };
     let dir = tempdir().unwrap();
     let opts = AggregatorOptions::with_results_dir(dir.path().to_path_buf());

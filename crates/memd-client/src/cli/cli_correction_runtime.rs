@@ -8,10 +8,10 @@ use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
-use memd_core::correction::detector::{self, PriorClaim};
 use memd_core::correction::CorrectionCandidate;
+use memd_core::correction::detector::{self, PriorClaim};
 use serde::{Deserialize, Serialize};
 
 use super::args::{CorrectionCaptureArgs, CorrectionDetectArgs, CorrectionListArgs};
@@ -49,7 +49,11 @@ pub(crate) fn run_correction_detect(args: &CorrectionDetectArgs) -> Result<()> {
             session_id: args.session_id.clone(),
             turn: None,
             detector_score: Some(candidate.score),
-            judge_verdict: if args.no_judge { Some("skipped".into()) } else { None },
+            judge_verdict: if args.no_judge {
+                Some("skipped".into())
+            } else {
+                None
+            },
             judge_confidence: None,
             corrects_id: candidate.corrects_id.clone(),
             captured_id: None,
@@ -64,10 +68,7 @@ pub(crate) fn run_correction_detect(args: &CorrectionDetectArgs) -> Result<()> {
     } else {
         println!(
             "score={:.3} references_prior={} reasons={:?} corrects_id={:?}",
-            candidate.score,
-            candidate.references_prior,
-            candidate.reasons,
-            candidate.corrects_id,
+            candidate.score, candidate.references_prior, candidate.reasons, candidate.corrects_id,
         );
     }
     Ok(())
@@ -132,11 +133,7 @@ pub(crate) fn run_correction_list(args: &CorrectionListArgs) -> Result<()> {
         for row in &filtered {
             println!(
                 "ts={} action={} score={:?} corrects={:?} preview={:?}",
-                row.ts_ms,
-                row.action,
-                row.detector_score,
-                row.corrects_id,
-                row.content_preview,
+                row.ts_ms, row.action, row.detector_score, row.corrects_id, row.content_preview,
             );
         }
     }
@@ -215,9 +212,7 @@ mod tests {
         let args = CorrectionDetectArgs {
             turn: "wait actually, the host is beta not alpha".into(),
             session_id: Some("s-1".into()),
-            prior: Some(
-                r#"[{"id":"rec-1","turn":"t-1","content":"the host is alpha"}]"#.into(),
-            ),
+            prior: Some(r#"[{"id":"rec-1","turn":"t-1","content":"the host is alpha"}]"#.into()),
             no_judge: true,
             output: tmp.path().to_path_buf(),
             json: true,

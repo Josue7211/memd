@@ -519,9 +519,7 @@ pub(crate) fn migrate_episodes_tables(conn: &Connection) -> anyhow::Result<()> {
 ///   - Backfill both from existing `payload_json` rows on first run.
 ///
 /// Idempotent: checks for existing column/table before creating.
-pub(crate) fn migrate_memory_entities_indexed_lookups(
-    conn: &mut Connection,
-) -> anyhow::Result<()> {
+pub(crate) fn migrate_memory_entities_indexed_lookups(conn: &mut Connection) -> anyhow::Result<()> {
     // `PRAGMA table_info` does NOT list generated columns; `table_xinfo` does.
     // See https://www.sqlite.org/pragma.html#pragma_table_xinfo.
     let existing_cols: Vec<String> = {
@@ -570,7 +568,11 @@ pub(crate) fn migrate_memory_entities_indexed_lookups(
     }
 
     let aliases_empty = conn
-        .query_row("SELECT 1 FROM memory_entity_aliases LIMIT 1", [], |_| Ok(()))
+        .query_row(
+            "SELECT 1 FROM memory_entity_aliases LIMIT 1",
+            [],
+            |_| Ok(()),
+        )
         .optional()?
         .is_none();
     let entities_present = conn
@@ -596,10 +598,7 @@ pub(crate) fn migrate_memory_entities_indexed_lookups(
                     Ok(r) => r,
                     Err(_) => continue,
                 };
-                let project = record
-                    .context
-                    .as_ref()
-                    .and_then(|ctx| ctx.project.clone());
+                let project = record.context.as_ref().and_then(|ctx| ctx.project.clone());
                 for alias in record.aliases.iter() {
                     if alias.trim().is_empty() {
                         continue;

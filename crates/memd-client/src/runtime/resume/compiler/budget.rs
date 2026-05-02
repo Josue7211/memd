@@ -82,8 +82,7 @@ pub fn admit(input: DedupedBuckets, budget: &WakeBudget) -> AdmittedBuckets {
         let floor = budget.per_bucket_floor.get(&kind).copied().unwrap_or(0);
         // F4.3: preferences are non-demotable. Treat as forced regardless of
         // class cap or total cap. Drift detection is the throttle on volume.
-        let forced =
-            budget.force_include.contains(&kind) || matches!(kind, BucketKind::Preference);
+        let forced = budget.force_include.contains(&kind) || matches!(kind, BucketKind::Preference);
 
         let mut admitted = Vec::with_capacity(records.len());
         let mut admitted_n: usize = 0;

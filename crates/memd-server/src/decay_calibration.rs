@@ -88,8 +88,9 @@ fn simulate_one(knobs: CalibrationKnobs, item: &FixtureItem, measure_turn: u64) 
         if idle >= knobs.inactive_days {
             let over = (idle - knobs.inactive_days) as f32;
             let rehearsal_scale = 1.0 / ((rehearsal_count as f32 + 1.0).ln_1p() + 1.0);
-            let step =
-                (over / knobs.half_life_days.max(1) as f32).min(1.0) * knobs.max_decay * rehearsal_scale;
+            let step = (over / knobs.half_life_days.max(1) as f32).min(1.0)
+                * knobs.max_decay
+                * rehearsal_scale;
             if step > 0.001 {
                 salience = (salience - step).max(0.0);
             }
@@ -205,14 +206,7 @@ mod tests {
 
     #[test]
     fn sweep_populates_every_grid_cell() {
-        let grid = sweep(
-            &[7, 14, 30],
-            &[0.0, 0.05, 0.1],
-            7,
-            0.12,
-            &FIXTURE,
-            35,
-        );
+        let grid = sweep(&[7, 14, 30], &[0.0, 0.05, 0.1], 7, 0.12, &FIXTURE, 35);
         assert_eq!(grid.len(), 9);
         for pt in &grid {
             assert!(pt.retention_at_measure.is_finite());

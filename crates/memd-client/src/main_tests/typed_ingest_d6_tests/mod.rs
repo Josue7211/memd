@@ -9,8 +9,8 @@
 use std::sync::{Mutex, OnceLock};
 
 use crate::benchmark::typed_ingest::compiler::{
-    compile_for_bench, load_budget_profile, BenchCompilerInput, BudgetProfile,
-    BENCH_COMPILER_VERSION,
+    BENCH_COMPILER_VERSION, BenchCompilerInput, BudgetProfile, compile_for_bench,
+    load_budget_profile,
 };
 use crate::benchmark::typed_ingest::{compiler_active, compiler_runtime_notice};
 
@@ -40,8 +40,8 @@ fn compiler_loads_budget_profile_per_bench() {
     assert!(path.exists(), "missing budgets file at {}", path.display());
 
     for bench in &["lme", "locomo", "membench", "convomem"] {
-        let prof = load_budget_profile(&path, bench)
-            .unwrap_or_else(|e| panic!("load {bench}: {e}"));
+        let prof =
+            load_budget_profile(&path, bench).unwrap_or_else(|e| panic!("load {bench}: {e}"));
         assert!(
             prof.budget_tokens >= 1000,
             "{bench} budget too low: {}",
@@ -179,19 +179,27 @@ fn compiler_emits_typed_window_to_prompt() {
 fn ab_harness_flag_toggles_cleanly() {
     let _g = env_lock();
 
-    unsafe { std::env::remove_var("MEMD_V6_COMPILER"); }
+    unsafe {
+        std::env::remove_var("MEMD_V6_COMPILER");
+    }
     assert!(!compiler_active("off"), "default off");
     assert!(compiler_active("on"), "explicit on");
 
-    unsafe { std::env::set_var("MEMD_V6_COMPILER", "1"); }
+    unsafe {
+        std::env::set_var("MEMD_V6_COMPILER", "1");
+    }
     assert!(compiler_active("off"), "env=1 forces on over CLI off");
     assert!(compiler_active("on"), "env=1 keeps on");
 
-    unsafe { std::env::set_var("MEMD_V6_COMPILER", "0"); }
+    unsafe {
+        std::env::set_var("MEMD_V6_COMPILER", "0");
+    }
     assert!(!compiler_active("off"), "env=0 falls back to CLI off");
     assert!(compiler_active("on"), "env=0 keeps CLI on");
 
-    unsafe { std::env::remove_var("MEMD_V6_COMPILER"); }
+    unsafe {
+        std::env::remove_var("MEMD_V6_COMPILER");
+    }
 }
 
 /// Test 6 — D6.3.
@@ -202,7 +210,9 @@ fn ab_harness_flag_toggles_cleanly() {
 #[test]
 fn flat_rag_path_unchanged_when_off() {
     let _g = env_lock();
-    unsafe { std::env::remove_var("MEMD_V6_COMPILER"); }
+    unsafe {
+        std::env::remove_var("MEMD_V6_COMPILER");
+    }
 
     let off_notice = compiler_runtime_notice("off", false);
     assert!(

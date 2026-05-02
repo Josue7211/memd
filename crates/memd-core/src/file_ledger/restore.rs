@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::{ledger_path, session_dir, FileInteractionLedger};
+use super::{FileInteractionLedger, ledger_path, session_dir};
 
 /// Relative path, under the bundle `output` root, where the continuity-breach
 /// log lives. A4 owns append-only writes; V7 handles rotation.
@@ -129,8 +129,7 @@ pub fn restore_ledger(
             // Hook ran but no sealed ledger exists: breach observable.
             // Manual/Test sources stay silent (caller invoked intentionally).
             // Failure to append does not block the caller — log and continue.
-            let _ =
-                append_breach_line(output, session_id, BreachKind::NoSealedLedger, &[]);
+            let _ = append_breach_line(output, session_id, BreachKind::NoSealedLedger, &[]);
         }
         return Ok(LedgerRestoreReport {
             session_id: session_id.to_string(),
@@ -161,14 +160,16 @@ pub fn restore_ledger(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::file_ledger::{seal_session_ledger, FileOp};
+    use crate::file_ledger::{FileOp, seal_session_ledger};
 
     fn seed_ledger(output: &Path, session_id: &str, paths: &[&str]) {
         let mut ledger = FileInteractionLedger::new(session_id);
         for (i, p) in paths.iter().enumerate() {
             ledger.record(*p, FileOp::Read, 1_000 + i as i64);
         }
-        ledger.save_to_path(&ledger_path(output, session_id)).unwrap();
+        ledger
+            .save_to_path(&ledger_path(output, session_id))
+            .unwrap();
     }
 
     fn write_sealed(output: &Path, session_id: &str, ts_ms: u64, paths: &[&str]) -> PathBuf {

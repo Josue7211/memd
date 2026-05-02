@@ -61,11 +61,16 @@ pub(crate) struct F47CounterSnapshot {
     pub routine_candidates_observed: usize,
 }
 
-pub(crate) fn assert_a4_postcompact_restore_ran(restored_before_first_tool: bool) -> Result<(), String> {
+pub(crate) fn assert_a4_postcompact_restore_ran(
+    restored_before_first_tool: bool,
+) -> Result<(), String> {
     if restored_before_first_tool {
         Ok(())
     } else {
-        Err("A4 regression: PostCompact restore did not run before first session-2 tool call".into())
+        Err(
+            "A4 regression: PostCompact restore did not run before first session-2 tool call"
+                .into(),
+        )
     }
 }
 
@@ -172,7 +177,11 @@ pub(crate) fn assert_cross_harness_flip(
     if !lookup.returned_value.contains(must_contain) {
         return Err(format!(
             "G4.2.3 regression: workspace `{}` lookup `{}` from `{}` returned `{}`, missing corrected value `{}`",
-            lookup.workspace_id, lookup.query, lookup.observing_agent, lookup.returned_value, must_contain
+            lookup.workspace_id,
+            lookup.query,
+            lookup.observing_agent,
+            lookup.returned_value,
+            must_contain
         ));
     }
     if lookup.returned_value.contains(must_not_contain) {
@@ -224,7 +233,9 @@ mod tests {
     }
 
     fn mutation(fault: &Value) -> &Value {
-        fault.get("mutation").expect("fault file has mutation block")
+        fault
+            .get("mutation")
+            .expect("fault file has mutation block")
     }
 
     /// Test 3 — A4 PostCompact restore silently no-ops.
@@ -234,8 +245,8 @@ mod tests {
 
         let fault = load_fault("a4-skip-postcompact-restore.json");
         let force_restored = mutation(&fault)["force_restored"].as_bool().unwrap();
-        let err = assert_a4_postcompact_restore_ran(force_restored)
-            .expect_err("fault must be detected");
+        let err =
+            assert_a4_postcompact_restore_ran(force_restored).expect_err("fault must be detected");
         assert!(err.contains("A4 regression"));
         assert!(err.contains("PostCompact restore did not run"));
     }
@@ -244,7 +255,11 @@ mod tests {
     #[test]
     fn t4_b4_silent_hook_swallow_fires() {
         let healthy = HookTraceView {
-            ordered_events: vec!["SessionStart".into(), "PostToolUse".into(), "PreCompact".into()],
+            ordered_events: vec![
+                "SessionStart".into(),
+                "PostToolUse".into(),
+                "PreCompact".into(),
+            ],
             post_tool_use_count: 3,
             ends_with_seal: true,
         };
@@ -258,12 +273,8 @@ mod tests {
         let mut faulted = healthy.clone();
         faulted.post_tool_use_count = faulted.post_tool_use_count.saturating_sub(drop) - 2; // force below floor
 
-        let err = assert_b4_hook_trace(
-            &faulted,
-            &["SessionStart", "PostToolUse", "PreCompact"],
-            3,
-        )
-        .expect_err("dropped PostToolUse must be detected");
+        let err = assert_b4_hook_trace(&faulted, &["SessionStart", "PostToolUse", "PreCompact"], 3)
+            .expect_err("dropped PostToolUse must be detected");
         assert!(err.contains("B4 regression"));
         assert!(err.contains("PostToolUse count"));
     }
@@ -326,7 +337,8 @@ mod tests {
             query: "primary ID".into(),
             returned_value: "ulid".into(),
         };
-        assert_e4_lookup_returns_corrected(&healthy, "ulid", "uuid").expect("healthy lookup passes");
+        assert_e4_lookup_returns_corrected(&healthy, "ulid", "uuid")
+            .expect("healthy lookup passes");
 
         let fault = load_fault("e4-lookup-stale.json");
         let stale = mutation(&fault)["override_returned_value"]
@@ -418,7 +430,9 @@ mod tests {
     /// Test 8 — F4 drift detector silently skips verbose-drift turn.
     #[test]
     fn t8_f4_drift_undetected_fires() {
-        let healthy = PreferenceDriftState { outstanding_count: 1 };
+        let healthy = PreferenceDriftState {
+            outstanding_count: 1,
+        };
         assert_f4_drift_detected(&healthy, 1).expect("healthy drift state passes");
 
         let fault = load_fault("f4-drift-undetected.json");
@@ -428,8 +442,7 @@ mod tests {
         let faulted = PreferenceDriftState {
             outstanding_count: zero,
         };
-        let err =
-            assert_f4_drift_detected(&faulted, 1).expect_err("missed drift must be detected");
+        let err = assert_f4_drift_detected(&faulted, 1).expect_err("missed drift must be detected");
         assert!(err.contains("F4 regression"));
         assert!(err.contains("outstanding drift count 0"));
     }

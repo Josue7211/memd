@@ -12,9 +12,9 @@ use super::CorrectionCandidate;
 pub const DEFAULT_PRIOR_WINDOW: usize = 12;
 
 const STOPWORDS: &[&str] = &[
-    "the", "and", "for", "but", "not", "are", "was", "were", "you", "your",
-    "this", "that", "with", "from", "have", "has", "had", "been", "they",
-    "them", "their", "our", "his", "her", "its", "his", "she", "him", "her",
+    "the", "and", "for", "but", "not", "are", "was", "were", "you", "your", "this", "that", "with",
+    "from", "have", "has", "had", "been", "they", "them", "their", "our", "his", "her", "its",
+    "his", "she", "him", "her",
 ];
 
 /// A single prior claim from the conversation, used for window check.
@@ -33,14 +33,22 @@ struct PhraseRule {
 
 static RULES: Lazy<Vec<PhraseRule>> = Lazy::new(|| {
     vec![
-        rule("no_x_is_y", r"(?i)\bno[,.\s]+(?:[a-z][a-z0-9_\-]*\s+){1,6}is\s+", 0.55),
+        rule(
+            "no_x_is_y",
+            r"(?i)\bno[,.\s]+(?:[a-z][a-z0-9_\-]*\s+){1,6}is\s+",
+            0.55,
+        ),
         rule("no_its", r"(?i)\bno[,.\s]+\s*it'?s\b", 0.5),
         rule("wait_actually", r"(?i)\bwait[,.\s]+actually\b", 0.6),
         rule("actually_x", r"(?i)\bactually[,.\s]+", 0.4),
         rule("i_meant", r"(?i)\bi\s+meant\b", 0.55),
         rule("correction_colon", r"(?i)\bcorrection\s*[:\-]\s*", 0.7),
         rule("scratch_that", r"(?i)\bscratch\s+that\b", 0.65),
-        rule("not_x_but_y", r"(?i)\bnot\s+[a-z0-9][a-z0-9_\-]*[,]?\s+but\s+", 0.45),
+        rule(
+            "not_x_but_y",
+            r"(?i)\bnot\s+[a-z0-9][a-z0-9_\-]*[,]?\s+but\s+",
+            0.45,
+        ),
         rule("rather", r"(?i)\b(?:or\s+)?rather[,.\s]", 0.3),
     ]
 });
@@ -106,10 +114,7 @@ pub fn score(turn: &str, prior_claims: &[PriorClaim]) -> CorrectionCandidate {
     }
 }
 
-fn match_prior(
-    turn: &str,
-    prior: &[PriorClaim],
-) -> (bool, Option<String>, Option<String>) {
+fn match_prior(turn: &str, prior: &[PriorClaim]) -> (bool, Option<String>, Option<String>) {
     if prior.is_empty() {
         return (false, None, None);
     }
@@ -128,9 +133,7 @@ fn match_prior(
             .iter()
             .filter(|tok| turn_tokens.contains(*tok))
             .count();
-        if overlap >= 2
-            && best.map_or(true, |(score, _)| overlap > score)
-        {
+        if overlap >= 2 && best.map_or(true, |(score, _)| overlap > score) {
             best = Some((overlap, claim));
         }
     }
@@ -163,7 +166,11 @@ mod tests {
 
     #[test]
     fn detector_flags_no_x_is_y() {
-        let prior = vec![prior("rec-1", "t-1", "the primary key is autoincrement integer")];
+        let prior = vec![prior(
+            "rec-1",
+            "t-1",
+            "the primary key is autoincrement integer",
+        )];
         let cand = score("no, the primary key is uuid", &prior);
         assert!(cand.score > 0.5, "score={}", cand.score);
         assert!(cand.references_prior);
@@ -211,6 +218,11 @@ mod tests {
             "no, scratch that — i meant production runs on beta. correction: it's beta.",
             &prior,
         );
-        assert!(many.score >= single.score, "many={} single={}", many.score, single.score);
+        assert!(
+            many.score >= single.score,
+            "many={} single={}",
+            many.score,
+            single.score
+        );
     }
 }

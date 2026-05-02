@@ -10,12 +10,12 @@
 use std::sync::{Mutex, OnceLock};
 
 use crate::benchmark::typed_ingest::depth_policy::{
-    escalate_on_empty_wake, escalate_on_low_confidence, next_depth, NextDepth,
-    DEFAULT_LOW_CONFIDENCE_FLOOR,
+    DEFAULT_LOW_CONFIDENCE_FLOOR, NextDepth, escalate_on_empty_wake, escalate_on_low_confidence,
+    next_depth,
 };
 use crate::benchmark::typed_ingest::depth_router::{
-    parse_next_call, run_router, DepthCall, DepthRouterConfig, TerminationReason,
-    DEFAULT_MAX_DEPTH_CALLS, DEFAULT_MAX_RETRIEVAL_TOKENS, DEPTH_ROUTER_VERSION,
+    DEFAULT_MAX_DEPTH_CALLS, DEFAULT_MAX_RETRIEVAL_TOKENS, DEPTH_ROUTER_VERSION, DepthCall,
+    DepthRouterConfig, TerminationReason, parse_next_call, run_router,
 };
 use crate::benchmark::typed_ingest::{depth_routing_active, depth_routing_runtime_notice};
 
@@ -53,14 +53,10 @@ fn router_parses_memd_lookup_call_from_generation() {
 fn router_resolves_via_memd_lookup_cli_with_depth_flag() {
     let mut seen_depth = String::new();
     let s = r#"<<memd_lookup query="q1" depth="resume">>"#;
-    let out = run_router(
-        s,
-        &DepthRouterConfig::default(),
-        |call: &DepthCall| {
-            seen_depth = call.depth.clone();
-            "RESULT_BODY".to_string()
-        },
-    );
+    let out = run_router(s, &DepthRouterConfig::default(), |call: &DepthCall| {
+        seen_depth = call.depth.clone();
+        "RESULT_BODY".to_string()
+    });
     assert_eq!(seen_depth, "resume");
     assert_eq!(out.calls_issued, 1);
     assert!(out.conversation.contains("RESULT_BODY"));
@@ -74,11 +70,9 @@ fn router_resolves_via_memd_lookup_cli_with_depth_flag() {
 #[test]
 fn router_injects_result_and_resumes_generation() {
     let s = r#"A <<memd_lookup query="q1" depth="wake">> B <<memd_lookup query="q2" depth="targeted">> C"#;
-    let out = run_router(
-        s,
-        &DepthRouterConfig::default(),
-        |call: &DepthCall| format!("R[{}]", call.query),
-    );
+    let out = run_router(s, &DepthRouterConfig::default(), |call: &DepthCall| {
+        format!("R[{}]", call.query)
+    });
     assert_eq!(out.calls_issued, 2);
     assert!(
         out.conversation.contains("R[q1]") && out.conversation.contains("R[q2]"),
@@ -215,12 +209,14 @@ fn load_depth_fixture(name: &str) -> Vec<DepthRow> {
 #[test]
 fn e6_lifts_locomo_multihop_at_least_0_04() {
     let rows = load_depth_fixture("multihop-10.jsonl");
-    let locomo: Vec<_> = rows.into_iter().filter(|r| r.bench_id == "locomo").collect();
+    let locomo: Vec<_> = rows
+        .into_iter()
+        .filter(|r| r.bench_id == "locomo")
+        .collect();
     assert!(!locomo.is_empty(), "fixture missing locomo multi-hop rows");
-    let baseline = locomo.iter().filter(|r| r.baseline_correct).count() as f64
-        / locomo.len() as f64;
-    let routed =
-        locomo.iter().filter(|r| r.routed_correct).count() as f64 / locomo.len() as f64;
+    let baseline =
+        locomo.iter().filter(|r| r.baseline_correct).count() as f64 / locomo.len() as f64;
+    let routed = locomo.iter().filter(|r| r.routed_correct).count() as f64 / locomo.len() as f64;
     let lift = routed - baseline;
     assert!(
         lift >= 0.04,
@@ -235,8 +231,7 @@ fn e6_lifts_lme_temporal_at_least_0_03() {
     let rows = load_depth_fixture("temporal-10.jsonl");
     let lme: Vec<_> = rows.into_iter().filter(|r| r.bench_id == "lme").collect();
     assert!(!lme.is_empty(), "fixture missing lme temporal rows");
-    let baseline =
-        lme.iter().filter(|r| r.baseline_correct).count() as f64 / lme.len() as f64;
+    let baseline = lme.iter().filter(|r| r.baseline_correct).count() as f64 / lme.len() as f64;
     let routed = lme.iter().filter(|r| r.routed_correct).count() as f64 / lme.len() as f64;
     let lift = routed - baseline;
     assert!(
@@ -285,7 +280,9 @@ fn no_canonical_regression_below_d6_baseline() {
 #[test]
 fn flat_path_unchanged_when_off_router() {
     let _g = env_lock();
-    unsafe { std::env::remove_var("MEMD_V6_DEPTH_ROUTING"); }
+    unsafe {
+        std::env::remove_var("MEMD_V6_DEPTH_ROUTING");
+    }
 
     assert!(depth_routing_active("on"));
     assert!(!depth_routing_active("off"));
@@ -295,9 +292,16 @@ fn flat_path_unchanged_when_off_router() {
     let on = depth_routing_runtime_notice("on", false, 3, 10_000);
     assert!(on.contains("engaged"), "on missing engagement: {on}");
     assert!(on.contains("max_calls=3"), "on missing caps: {on}");
-    assert!(on.contains(DEPTH_ROUTER_VERSION), "on missing version: {on}");
+    assert!(
+        on.contains(DEPTH_ROUTER_VERSION),
+        "on missing version: {on}"
+    );
 
-    unsafe { std::env::set_var("MEMD_V6_DEPTH_ROUTING", "0"); }
+    unsafe {
+        std::env::set_var("MEMD_V6_DEPTH_ROUTING", "0");
+    }
     assert!(!depth_routing_active("on"), "env=0 forces off");
-    unsafe { std::env::remove_var("MEMD_V6_DEPTH_ROUTING"); }
+    unsafe {
+        std::env::remove_var("MEMD_V6_DEPTH_ROUTING");
+    }
 }

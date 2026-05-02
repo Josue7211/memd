@@ -191,8 +191,8 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
 
     // E4.4: every wake invocation logs a depth-telemetry line so the
     // `recall-depth.ndjson` distribution captures wake calls too.
-    let _ = crate::runtime::recall::telemetry::record(
-        crate::runtime::recall::telemetry::RecordOpts {
+    let _ =
+        crate::runtime::recall::telemetry::record(crate::runtime::recall::telemetry::RecordOpts {
             bundle_root: &args.output,
             session_id: session_id.as_deref(),
             query: "wake",
@@ -201,8 +201,7 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
             tokens_returned: crate::runtime::recall::telemetry::approx_tokens(wakeup.len()),
             latency_ms: recall_started.elapsed().as_millis() as u64,
             escalation_hint: None,
-        },
-    );
+        });
 
     Ok(())
 }

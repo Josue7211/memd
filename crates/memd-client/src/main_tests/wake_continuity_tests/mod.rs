@@ -14,9 +14,7 @@ use std::path::PathBuf;
 use memd_schema::CompactMemoryRecord;
 use serde::Deserialize;
 
-use crate::runtime::resume::compiler::{
-    self, BucketKind, CompiledWake, CompilerInput, WakeBudget,
-};
+use crate::runtime::resume::compiler::{self, BucketKind, CompiledWake, CompilerInput, WakeBudget};
 
 #[derive(Debug, Deserialize)]
 struct Expects {

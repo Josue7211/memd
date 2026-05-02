@@ -43,8 +43,8 @@ pub(crate) struct MembenchAdapter {
 
 impl MembenchAdapter {
     pub(crate) fn from_path(path: &Path) -> Result<Self> {
-        let bytes = fs::read(path)
-            .with_context(|| format!("read MemBench dataset {}", path.display()))?;
+        let bytes =
+            fs::read(path).with_context(|| format!("read MemBench dataset {}", path.display()))?;
         let raw: BTreeMap<String, Vec<MembenchItem>> = serde_json::from_slice(&bytes)
             .with_context(|| format!("parse MemBench dataset {}", path.display()))?;
         Ok(Self::from_categories(raw))
@@ -55,13 +55,9 @@ impl MembenchAdapter {
         for (category, items) in raw {
             for item in items {
                 for (list_idx, msg_list) in item.message_list.into_iter().enumerate() {
-                    let session_id =
-                        format!("{}::{}::list_{}", category, item.tid, list_idx);
+                    let session_id = format!("{}::{}::list_{}", category, item.tid, list_idx);
                     for turn in msg_list {
-                        let mid = turn
-                            .get("mid")
-                            .and_then(Value::as_u64)
-                            .unwrap_or(0) as u32;
+                        let mid = turn.get("mid").and_then(Value::as_u64).unwrap_or(0) as u32;
                         let captured_at = turn
                             .get("time")
                             .and_then(Value::as_str)
@@ -103,7 +99,9 @@ impl MembenchAdapter {
                 }
             }
         }
-        Self { queue: flat.into_iter() }
+        Self {
+            queue: flat.into_iter(),
+        }
     }
 }
 

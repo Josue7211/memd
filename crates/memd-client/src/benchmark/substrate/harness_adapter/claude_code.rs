@@ -6,7 +6,7 @@
 //! directly, not the generic bridge schema.
 
 use crate::benchmark::substrate::harness_adapter::{
-    drive_script_via_gateway, HarnessAdapter, HarnessRunOutcome, MemdGateway, Script,
+    HarnessAdapter, HarnessRunOutcome, MemdGateway, Script, drive_script_via_gateway,
 };
 use std::path::{Path, PathBuf};
 
@@ -16,7 +16,9 @@ pub(crate) struct ClaudeCodeAdapter {
 
 impl ClaudeCodeAdapter {
     pub(crate) fn from_home() -> Self {
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default();
         Self {
             config_path: home.join(".claude").join("settings.json"),
         }
@@ -70,10 +72,16 @@ mod tests {
         let settings = dir.path().join("settings.json");
 
         let adapter = ClaudeCodeAdapter::with_config_path(settings.clone());
-        assert!(!adapter.is_available(), "missing settings.json must disqualify");
+        assert!(
+            !adapter.is_available(),
+            "missing settings.json must disqualify"
+        );
 
         fs::write(&settings, "not json").unwrap();
-        assert!(!adapter.is_available(), "malformed settings.json must disqualify");
+        assert!(
+            !adapter.is_available(),
+            "malformed settings.json must disqualify"
+        );
 
         fs::write(&settings, r#"{"hooks":{}}"#).unwrap();
         assert!(adapter.is_available(), "valid settings.json must qualify");

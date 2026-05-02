@@ -111,7 +111,10 @@ fn enforce_disabled_flag_bypasses() {
     assert_eq!(code, 0);
 
     let trace = dir.path().join("logs").join("hook-trace.ndjson");
-    assert!(!trace.exists(), "no trace file should be written when disabled");
+    assert!(
+        !trace.exists(),
+        "no trace file should be written when disabled"
+    );
     unsafe { std::env::remove_var("MEMD_HOOK_ENFORCE") };
 }
 
@@ -310,11 +313,7 @@ fn enforce_concurrent_same_event_races_are_serialized() {
     // Give the holder time to grab the lock before the racer fires.
     std::thread::sleep(std::time::Duration::from_millis(50));
 
-    let mut racer = base_args(
-        bundle.clone(),
-        "PreEdit",
-        vec!["true".to_string()],
-    );
+    let mut racer = base_args(bundle.clone(), "PreEdit", vec!["true".to_string()]);
     racer.session_id = "sess-race".to_string();
     let racer_code = run_hook_enforce(&racer).unwrap();
 
@@ -327,12 +326,10 @@ fn enforce_concurrent_same_event_races_are_serialized() {
 
     let records = load_trace(&bundle.join("logs").join("hook-trace.ndjson"));
     assert!(
-        records
-            .iter()
-            .any(|r| matches!(
-                r.failure_class,
-                memd_core::hook_runtime::FailureClass::OrderViolation
-            )),
+        records.iter().any(|r| matches!(
+            r.failure_class,
+            memd_core::hook_runtime::FailureClass::OrderViolation
+        )),
         "expected order-violation trace line for contended racer, got {records:?}"
     );
     unsafe { std::env::remove_var("MEMD_HOOK_ENFORCE") };
@@ -589,7 +586,10 @@ fn enforce_records_harness_and_trace_id_on_every_line() {
     for r in &records {
         assert_eq!(r.harness.as_deref(), Some("claude-code"));
         assert_eq!(r.trace_id.len(), 26);
-        assert!(seen_ids.insert(r.trace_id.clone()), "trace_id must be unique");
+        assert!(
+            seen_ids.insert(r.trace_id.clone()),
+            "trace_id must be unique"
+        );
     }
     unsafe { std::env::remove_var("MEMD_HOOK_ENFORCE") };
 }

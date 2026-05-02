@@ -54,7 +54,10 @@ pub(crate) async fn call_generator(
     let body = {
         let mut body_opt: Option<JsonValue> = None;
         for attempt in 0..3u32 {
-            eprintln!("[generator] POST {url} model={model} attempt={}", attempt + 1);
+            eprintln!(
+                "[generator] POST {url} model={model} attempt={}",
+                attempt + 1
+            );
             match client
                 .post(&url)
                 .bearer_auth(api_key)
@@ -72,7 +75,8 @@ pub(crate) async fn call_generator(
                                 break;
                             }
                             Err(e) => {
-                                last_err = Some(anyhow::anyhow!(e).context("parse generator response"));
+                                last_err =
+                                    Some(anyhow::anyhow!(e).context("parse generator response"));
                             }
                         }
                     } else {
@@ -80,7 +84,8 @@ pub(crate) async fn call_generator(
                         last_err = Some(anyhow::anyhow!(
                             "generator request failed with {status}: {body_text}"
                         ));
-                        if status.as_u16() < 500 && status.as_u16() != 408 && status.as_u16() != 429 {
+                        if status.as_u16() < 500 && status.as_u16() != 408 && status.as_u16() != 429
+                        {
                             break;
                         }
                     }
@@ -97,7 +102,10 @@ pub(crate) async fn call_generator(
         }
         match body_opt {
             Some(b) => b,
-            None => return Err(last_err.unwrap_or_else(|| anyhow::anyhow!("generator request failed after retries"))),
+            None => {
+                return Err(last_err
+                    .unwrap_or_else(|| anyhow::anyhow!("generator request failed after retries")));
+            }
         }
     };
     let content = body

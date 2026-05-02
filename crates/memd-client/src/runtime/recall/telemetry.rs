@@ -63,10 +63,7 @@ fn append_ndjson<T: Serialize>(bundle_root: &Path, payload: &T) -> std::io::Resu
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&target)?;
+    let mut file = OpenOptions::new().create(true).append(true).open(&target)?;
     let serialized = serde_json::to_string(payload)
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
     writeln!(file, "{serialized}")?;

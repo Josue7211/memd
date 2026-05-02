@@ -78,10 +78,7 @@ pub(crate) struct D5Outcome {
 ///
 /// Returns the proportion of required_facts found in the response.
 /// If required_facts is empty, returns 1.0 (vacuously complete).
-pub(crate) fn score_completeness(
-    required_facts: &[&str],
-    response_facts: &[&str],
-) -> f64 {
+pub(crate) fn score_completeness(required_facts: &[&str], response_facts: &[&str]) -> f64 {
     if required_facts.is_empty() {
         return 1.0;
     }
@@ -133,7 +130,9 @@ fn load_d5_queries(fixture_path: &PathBuf) -> std::io::Result<Vec<D5Query>> {
 }
 
 /// Group queries by depth class.
-fn group_queries_by_depth(queries: Vec<D5Query>) -> std::collections::BTreeMap<String, Vec<D5Query>> {
+fn group_queries_by_depth(
+    queries: Vec<D5Query>,
+) -> std::collections::BTreeMap<String, Vec<D5Query>> {
     let mut grouped = std::collections::BTreeMap::new();
     for query in queries {
         grouped

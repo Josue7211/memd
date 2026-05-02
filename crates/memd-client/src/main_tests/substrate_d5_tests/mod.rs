@@ -3,7 +3,7 @@
 //! Per `phase-d5-plan.md` §4 tests 1–9.
 
 use crate::benchmark::substrate::progressive_depth::{
-    score_completeness, score_irrelevant_record_ratio, run_d5_in_process, D5RunConfig,
+    D5RunConfig, run_d5_in_process, score_completeness, score_irrelevant_record_ratio,
 };
 
 /// Test 3 — `scorer_completeness_exact_match_on_required_facts`.
@@ -191,11 +191,11 @@ fn d5_baseline_lock() {
 
     assert!(baseline_path.exists(), "baseline file missing");
 
-    let baseline_text = std::fs::read_to_string(&baseline_path)
-        .expect("failed to read baseline file");
+    let baseline_text =
+        std::fs::read_to_string(&baseline_path).expect("failed to read baseline file");
 
-    let baseline: serde_json::Value = serde_json::from_str(&baseline_text)
-        .expect("baseline JSON parse failed");
+    let baseline: serde_json::Value =
+        serde_json::from_str(&baseline_text).expect("baseline JSON parse failed");
 
     // Verify key fields exist
     assert_eq!(
@@ -203,21 +203,25 @@ fn d5_baseline_lock() {
         Some("progressive-depth"),
         "suite name mismatch"
     );
-    assert_eq!(
-        baseline["phase"].as_str(),
-        Some("D5"),
-        "phase mismatch"
-    );
+    assert_eq!(baseline["phase"].as_str(), Some("D5"), "phase mismatch");
 
     // Verify depth classes with expected structure
-    let depths = baseline["depth_classes"].as_object()
+    let depths = baseline["depth_classes"]
+        .as_object()
         .expect("depth_classes missing");
-    assert!(depths.contains_key("overview"), "overview depth class missing");
-    assert!(depths.contains_key("targeted"), "targeted depth class missing");
+    assert!(
+        depths.contains_key("overview"),
+        "overview depth class missing"
+    );
+    assert!(
+        depths.contains_key("targeted"),
+        "targeted depth class missing"
+    );
     assert!(depths.contains_key("resume"), "resume depth class missing");
 
     // Verify composite pass gate
-    let composite = baseline["composite"].as_object()
+    let composite = baseline["composite"]
+        .as_object()
         .expect("composite section missing");
     assert_eq!(
         composite["overall_pass"].as_bool(),
@@ -227,7 +231,8 @@ fn d5_baseline_lock() {
 
     // Verify all depth classes pass
     for (depth_class, metrics) in depths.iter() {
-        let pass = metrics["pass"].as_bool()
+        let pass = metrics["pass"]
+            .as_bool()
             .unwrap_or_else(|| panic!("pass field missing for {}", depth_class));
         assert!(pass, "{} depth class must pass", depth_class);
     }

@@ -6,40 +6,34 @@
 use std::path::PathBuf;
 
 use crate::benchmark::substrate::provenance_auditor::audit_record;
-use crate::benchmark::typed_ingest::candidate_store::{
-    read_candidates, CandidateRecord,
-};
+use crate::benchmark::typed_ingest::candidate_store::{CandidateRecord, read_candidates};
 use crate::benchmark::typed_ingest::canonical_index::{
-    append_canonical, read_canonical, CanonicalRecord, CANONICAL_STAGE,
+    CANONICAL_STAGE, CanonicalRecord, append_canonical, read_canonical,
 };
 use crate::benchmark::typed_ingest::distiller::CandidateKind;
 use crate::benchmark::typed_ingest::promotion::{
-    content_hash, detects_contradiction, evaluate_candidates, identity_key,
-    normalise_content, PromotionOutcome, PromotionRule, RejectReason,
-    PROMOTION_RULE_VERSION,
+    PROMOTION_RULE_VERSION, PromotionOutcome, PromotionRule, RejectReason, content_hash,
+    detects_contradiction, evaluate_candidates, identity_key, normalise_content,
 };
 
 fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/typed_ingest/c6")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/typed_ingest/c6")
 }
 
 fn read_corroborated() -> Vec<CandidateRecord> {
     let path = fixtures_dir().join("corroborated-candidates.jsonl");
-    read_candidates(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+    read_candidates(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
 }
 
 fn read_contradicting() -> Vec<CandidateRecord> {
     let path = fixtures_dir().join("contradicting-correction.jsonl");
-    read_candidates(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+    read_candidates(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
 }
 
 fn read_expected_keywords() -> Vec<String> {
     let path = fixtures_dir().join("expected-keywords.json");
-    let body = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let body =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
     v["expected_keywords"]
         .as_array()
@@ -115,8 +109,7 @@ fn promotion_skips_under_confidence_threshold() {
         .find(|o| match o {
             PromotionOutcome::Reject(r) => {
                 r.kind == CandidateKind::Preference
-                    && r.content_hash
-                        == content_hash("User likes movies")
+                    && r.content_hash == content_hash("User likes movies")
             }
             _ => false,
         })
@@ -131,9 +124,7 @@ fn promotion_skips_under_confidence_threshold() {
     let coffee = outcomes
         .iter()
         .find(|o| match o {
-            PromotionOutcome::Reject(r) => {
-                r.content_hash == content_hash("User likes coffee")
-            }
+            PromotionOutcome::Reject(r) => r.content_hash == content_hash("User likes coffee"),
             _ => false,
         })
         .expect("coffee group must reject");
@@ -192,11 +183,8 @@ fn promotion_skips_on_contradiction_via_c4_rule() {
     assert!(same.is_none());
 
     // Different kind → no contradiction.
-    let kind_mismatch = detects_contradiction(
-        CandidateKind::Preference,
-        &cand.content,
-        &canonical_lane,
-    );
+    let kind_mismatch =
+        detects_contradiction(CandidateKind::Preference, &cand.content, &canonical_lane);
     assert!(kind_mismatch.is_none());
 }
 
@@ -212,7 +200,11 @@ fn promotion_deduces_canonical_identity_for_same_fact() {
     let rule = PromotionRule::v1();
     let owned: Vec<CandidateRecord> = shiba.iter().map(|c| (*c).clone()).collect();
     let outcomes = evaluate_candidates(&owned, &rule);
-    assert_eq!(outcomes.len(), 1, "two same-content candidates → one outcome");
+    assert_eq!(
+        outcomes.len(),
+        1,
+        "two same-content candidates → one outcome"
+    );
 
     // Whitespace + case variants must hash to the same identity.
     let h1 = content_hash("User has a shiba inu named Nori");
@@ -281,7 +273,11 @@ fn canonical_index_returns_only_stage_canonical() {
     body.push_str("{\"stage\":\"candidate\",\"kind\":\"Fact\",\"content\":\"x\",\"content_hash\":\"x\",\"provenance\":{\"source_turn\":\"a\",\"captured_by\":\"a\",\"captured_at\":\"a\",\"chain\":[]},\"rule\":{\"version\":\"x\",\"corroboration_count\":1,\"min_confidence\":0.5},\"candidates\":[]}\n");
     std::fs::write(&path, body).unwrap();
     let filtered = read_canonical(&path).unwrap();
-    assert_eq!(filtered.len(), canonical_records.len(), "non-canonical stage filtered");
+    assert_eq!(
+        filtered.len(),
+        canonical_records.len(),
+        "non-canonical stage filtered"
+    );
 }
 
 /// C6 Test 6 — `canonical_provenance_complete_via_e5_auditor_reuse`.
@@ -299,8 +295,7 @@ fn canonical_provenance_complete_via_e5_auditor_reuse() {
             let group: Vec<&CandidateRecord> = cands
                 .iter()
                 .filter(|c| {
-                    c.kind == accepted.kind
-                        && content_hash(&c.content) == accepted.content_hash
+                    c.kind == accepted.kind && content_hash(&c.content) == accepted.content_hash
                 })
                 .collect();
             let rec = CanonicalRecord::from_promotion(accepted, &group, "2026-04-27T00:00:00Z");
@@ -344,7 +339,10 @@ fn dry_run_emits_ndjson_without_writing() {
         tele.write_all(b"\n").unwrap();
     }
 
-    assert!(!canonical_path.exists(), "dry-run must not write canonical lane");
+    assert!(
+        !canonical_path.exists(),
+        "dry-run must not write canonical lane"
+    );
     let body = std::fs::read_to_string(&telemetry_path).unwrap();
     assert_eq!(body.lines().count(), outcomes.len());
     // Each line round-trips to a PromotionOutcome.
@@ -362,9 +360,7 @@ fn dry_run_emits_ndjson_without_writing() {
 /// canonical mode, and does not surface them for the B6-only mode.
 #[test]
 fn flag_routing_episodic_plus_semantic_plus_canonical() {
-    use crate::benchmark::typed_ingest::{
-        promotion_dry_run_active, typed_ingest_runtime_notice,
-    };
+    use crate::benchmark::typed_ingest::{promotion_dry_run_active, typed_ingest_runtime_notice};
     use crate::cli::args::PublicBenchmarkArgs;
     use clap::Parser;
 
@@ -389,16 +385,18 @@ fn flag_routing_episodic_plus_semantic_plus_canonical() {
     assert!(args.promotion_dry_run);
 
     // Bad value rejected.
-    let bad = Wrap::try_parse_from([
-        "memd",
-        "longmemeval",
-        "--typed-ingest=canonical-only",
-    ]);
+    let bad = Wrap::try_parse_from(["memd", "longmemeval", "--typed-ingest=canonical-only"]);
     assert!(bad.is_err());
 
     // Notice formatting:
-    let n_canonical =
-        typed_ingest_runtime_notice("episodic+semantic+canonical", false, "gpt-5.4", 50, true, true);
+    let n_canonical = typed_ingest_runtime_notice(
+        "episodic+semantic+canonical",
+        false,
+        "gpt-5.4",
+        50,
+        true,
+        true,
+    );
     assert!(n_canonical.contains("--typed-ingest=episodic+semantic+canonical"));
     assert!(n_canonical.contains("distill_model=gpt-5.4"));
     assert!(n_canonical.contains("promotion_rule=canonical-promotion/v1"));
@@ -408,8 +406,14 @@ fn flag_routing_episodic_plus_semantic_plus_canonical() {
     // dry_run=off when CLI flag false and env unset.
     let prev_env = std::env::var("MEMD_V6_PROMOTION_DRY_RUN").ok();
     unsafe { std::env::remove_var("MEMD_V6_PROMOTION_DRY_RUN") };
-    let n_off =
-        typed_ingest_runtime_notice("episodic+semantic+canonical", false, "gpt-5.4", 50, true, false);
+    let n_off = typed_ingest_runtime_notice(
+        "episodic+semantic+canonical",
+        false,
+        "gpt-5.4",
+        50,
+        true,
+        false,
+    );
     assert!(n_off.contains("dry_run=off"));
 
     // Env override forces dry-run even when CLI flag is false.
@@ -456,9 +460,7 @@ fn c6_baseline_lifts_lme_at_least_0_02_additional() {
     let canonical = precision_proxy(&promoted_contents, &expected);
     let lift = canonical - baseline;
 
-    eprintln!(
-        "[c6/lme] precision baseline={baseline:.3} canonical={canonical:.3} lift={lift:.3}"
-    );
+    eprintln!("[c6/lme] precision baseline={baseline:.3} canonical={canonical:.3} lift={lift:.3}");
     assert!(
         lift >= 0.02,
         "C6 LME lift {lift:.3} below +0.02 (baseline={baseline:.3} canonical={canonical:.3})"

@@ -49,7 +49,8 @@ pub(crate) fn audit_record(record: &serde_json::Value) -> AuditOutcome {
     let missing: Vec<String> = REQUIRED_FIELDS
         .iter()
         .filter(|field| {
-            record.get("provenance")
+            record
+                .get("provenance")
                 .and_then(|p| p.get(**field))
                 .is_none()
         })

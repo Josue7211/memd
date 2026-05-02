@@ -2,8 +2,8 @@
 //! `memd benchmark substrate --suite typed-retrieval` and
 //! `memd lookup --explain-route` end-to-end.
 
-use crate::benchmark::substrate::typed_retrieval::{run_f5_in_process, F5RunConfig};
 use crate::benchmark::substrate::fixtures::KindMix;
+use crate::benchmark::substrate::typed_retrieval::{F5RunConfig, run_f5_in_process};
 use std::path::PathBuf;
 use tempfile::tempdir;
 
@@ -101,7 +101,10 @@ fn runner_550_queries_complete() {
 
     // Each record should have expected_kind and actual_kind
     for record in &outcome.records {
-        assert!(!record.expected_kind.is_empty(), "expected_kind should be set");
+        assert!(
+            !record.expected_kind.is_empty(),
+            "expected_kind should be set"
+        );
         assert!(!record.actual_kind.is_empty(), "actual_kind should be set");
     }
 }
@@ -155,7 +158,10 @@ fn cli_f5_reproducibility() {
     // Same seed = identical query order and expected kinds
     assert_eq!(outcome_a.records.len(), outcome_b.records.len());
     for (ra, rb) in outcome_a.records.iter().zip(outcome_b.records.iter()) {
-        assert_eq!(ra.query, rb.query, "same seed should produce identical queries");
+        assert_eq!(
+            ra.query, rb.query,
+            "same seed should produce identical queries"
+        );
         assert_eq!(ra.expected_kind, rb.expected_kind);
         assert_eq!(ra.actual_kind, rb.actual_kind);
     }
@@ -166,9 +172,8 @@ fn cli_f5_reproducibility() {
 #[test]
 fn f5_baseline_lock() {
     // Baseline file should exist at docs/verification/substrate-baselines/f5-2026-04-25.json
-    let baseline_path = std::path::Path::new(
-        "docs/verification/substrate-baselines/f5-2026-04-25.json"
-    );
+    let baseline_path =
+        std::path::Path::new("docs/verification/substrate-baselines/f5-2026-04-25.json");
     // This will pass once the baseline is written in F5.6
     assert!(true, "baseline test deferred to F5.6");
 }

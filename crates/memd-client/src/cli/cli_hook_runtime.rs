@@ -1,8 +1,8 @@
 use super::*;
 use crate::append_raw_spine_record;
 use memd_core::file_ledger::{
-    append_file_interaction, ledger_path as file_ledger_path, restore as file_ledger_restore,
-    seal_session_ledger, FileInteractionLedger,
+    FileInteractionLedger, append_file_interaction, ledger_path as file_ledger_path,
+    restore as file_ledger_restore, seal_session_ledger,
 };
 
 /// Sentinel error: `memd hook restore` found no sealed ledger. `main.rs`
@@ -290,8 +290,7 @@ pub(crate) async fn run_hook_mode(
                     record.entries = Some(report.entries as u64);
                     record.ok = Some(report.ok);
                     if !report.ok {
-                        record.failure_class =
-                            memd_core::hook_runtime::FailureClass::InnerNonzero;
+                        record.failure_class = memd_core::hook_runtime::FailureClass::InnerNonzero;
                     }
                 },
             );
@@ -514,7 +513,7 @@ pub(crate) fn run_hook_restore(
     args: &HookRestoreArgs,
 ) -> anyhow::Result<file_ledger_restore::LedgerRestoreReport> {
     use file_ledger_restore::{
-        locate_latest_sealed, restore_ledger, LedgerRestoreReport, RestoreSource,
+        LedgerRestoreReport, RestoreSource, locate_latest_sealed, restore_ledger,
     };
 
     let source = RestoreSource::Postcompact;
@@ -683,7 +682,10 @@ pub(crate) fn run_hook_doctor_contract(args: &HookDoctorArgs) -> anyhow::Result<
         let record: HookRecord = match serde_json::from_str(line) {
             Ok(r) => r,
             Err(e) => {
-                parse_errors.push(format!("{e}: {}", line.chars().take(120).collect::<String>()));
+                parse_errors.push(format!(
+                    "{e}: {}",
+                    line.chars().take(120).collect::<String>()
+                ));
                 continue;
             }
         };
@@ -802,7 +804,7 @@ pub(crate) fn run_hook_doctor_contract(args: &HookDoctorArgs) -> anyhow::Result<
 }
 
 pub(crate) fn run_hook_doctor_ordering(args: &HookDoctorArgs) -> anyhow::Result<()> {
-    use memd_core::file_ledger::restore::{append_breach_line, BreachKind};
+    use memd_core::file_ledger::restore::{BreachKind, append_breach_line};
 
     let events = load_trace_events(args)?;
     let breaches = detect_ordering_breaches(&events);
@@ -970,8 +972,8 @@ fn parse_trace_payload(raw: &str) -> anyhow::Result<Vec<TraceEvent>> {
     }
     // Array form: `[{...}, {...}]`.
     if trimmed.starts_with('[') {
-        let values: Vec<serde_json::Value> = serde_json::from_str(trimmed)
-            .context("parse inline trace array as JSON")?;
+        let values: Vec<serde_json::Value> =
+            serde_json::from_str(trimmed).context("parse inline trace array as JSON")?;
         return Ok(values.into_iter().map(value_to_trace_event).collect());
     }
     // NDJSON form: one event per line.
@@ -989,12 +991,7 @@ fn parse_trace_payload(raw: &str) -> anyhow::Result<Vec<TraceEvent>> {
 }
 
 fn value_to_trace_event(value: serde_json::Value) -> TraceEvent {
-    let get_str = |k: &str| {
-        value
-            .get(k)
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-    };
+    let get_str = |k: &str| value.get(k).and_then(|v| v.as_str()).map(str::to_string);
     TraceEvent {
         event: get_str("event").unwrap_or_default(),
         ts_ms: value.get("ts_ms").and_then(|v| v.as_i64()),
@@ -1011,12 +1008,11 @@ pub(crate) fn correction_capture_args_from_hook(
     args: &HookCaptureArgs,
     content: String,
 ) -> CorrectionCaptureArgs {
-    let captured_by =
-        if std::env::var("MEMD_C4_CORRECTION_DETECT").ok().as_deref() == Some("1") {
-            "hook_auto"
-        } else {
-            "manual"
-        };
+    let captured_by = if std::env::var("MEMD_C4_CORRECTION_DETECT").ok().as_deref() == Some("1") {
+        "hook_auto"
+    } else {
+        "manual"
+    };
     CorrectionCaptureArgs {
         content,
         corrects_id: args.corrects_id.clone(),

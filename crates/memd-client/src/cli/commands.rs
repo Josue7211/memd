@@ -203,10 +203,7 @@ mod tests {
             parse_memory_kind_value("live-truth").unwrap(),
             MemoryKind::LiveTruth
         );
-        assert_eq!(
-            parse_memory_kind_value("skill").unwrap(),
-            MemoryKind::Skill
-        );
+        assert_eq!(parse_memory_kind_value("skill").unwrap(), MemoryKind::Skill);
     }
 
     #[test]

@@ -8,7 +8,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -289,7 +289,10 @@ impl JudgeTransport for ReqwestTransport {
             "messages": [{"role": "user", "content": prompt}],
         });
         let mut req = reqwest::blocking::Client::new()
-            .post(format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/')))
+            .post(format!(
+                "{}/v1/chat/completions",
+                self.base_url.trim_end_matches('/')
+            ))
             .json(&body);
         if let Some(key) = self.api_key.as_deref() {
             req = req.bearer_auth(key);
@@ -352,8 +355,8 @@ pub mod tests_support {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::tests_support::StubTransport;
+    use super::*;
     use tempfile::TempDir;
 
     fn cfg(dir: &Path) -> JudgeConfig {
@@ -422,7 +425,9 @@ mod tests {
             body: r#"{"decision":"confirmed","confidence":0.9,"rationale":"x"}"#.into(),
         }]);
         let client = JudgeClient::new(stub, cfg);
-        let err = client.verdict(&cand(), "wait actually it's beta").unwrap_err();
+        let err = client
+            .verdict(&cand(), "wait actually it's beta")
+            .unwrap_err();
         assert!(err.to_string().contains("BUDGET"), "msg={}", err);
         assert_eq!(client.transport.call_count(), 0);
     }

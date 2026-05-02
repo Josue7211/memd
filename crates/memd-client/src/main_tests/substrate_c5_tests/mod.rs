@@ -4,10 +4,10 @@
 //! Per `phase-c5-plan.md` §4 tests 7-10.
 
 use crate::benchmark::substrate::cross_harness::{
-    run_c5_with_adapters, run_c5_with_skip, C5RunConfig, C5Scenario,
+    C5RunConfig, C5Scenario, run_c5_with_adapters, run_c5_with_skip,
 };
 use crate::benchmark::substrate::harness_adapter::{
-    claude_code::ClaudeCodeAdapter, codex::CodexAdapter, HarnessAdapter, InMemoryGateway,
+    HarnessAdapter, InMemoryGateway, claude_code::ClaudeCodeAdapter, codex::CodexAdapter,
 };
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
@@ -51,7 +51,10 @@ fn cli_c5_gracefully_skips_unavailable_harness() {
 
     let outcome = run_c5_with_skip(&cfg, &adapters, &gateway, true).unwrap();
     assert!(outcome.overall_pass);
-    assert!(outcome.records.is_empty(), "all pairs touch codex, must skip all");
+    assert!(
+        outcome.records.is_empty(),
+        "all pairs touch codex, must skip all"
+    );
 
     let runs = std::fs::read_to_string(dir.path().join("runs.jsonl")).unwrap();
     assert!(runs.contains("\"skipped\":true"));
@@ -76,7 +79,10 @@ fn cli_c5_errors_when_skip_disabled_and_harness_missing() {
 
     let err = run_c5_with_skip(&cfg, &adapters, &gateway, false).unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains("required harnesses unavailable"), "unexpected error: {msg}");
+    assert!(
+        msg.contains("required harnesses unavailable"),
+        "unexpected error: {msg}"
+    );
     assert!(msg.contains("codex"));
 }
 

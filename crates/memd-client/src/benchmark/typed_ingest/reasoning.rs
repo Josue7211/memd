@@ -32,8 +32,13 @@ pub(crate) const DEFAULT_MAX_REASONING_TOKENS: usize = 20_000;
 /// answer (which terminates the loop).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ReasoningStep {
-    Lookup { call: DepthCall, result_ids: Vec<String> },
-    Answer { text: String },
+    Lookup {
+        call: DepthCall,
+        result_ids: Vec<String>,
+    },
+    Answer {
+        text: String,
+    },
 }
 
 /// Reason a reasoning loop terminated. Reported in telemetry NDJSON.
@@ -111,10 +116,7 @@ where
 /// inference can attach a higher-ranked lifetime bound at the call
 /// site — passing the closure through the trait blanket forced one
 /// concrete lifetime and broke `FnMut` inference for tests.
-pub(crate) fn run_reasoning<F>(
-    config: &ReasoningConfig,
-    mut driver: F,
-) -> ReasoningOutcome
+pub(crate) fn run_reasoning<F>(config: &ReasoningConfig, mut driver: F) -> ReasoningOutcome
 where
     F: FnMut(&[ReasoningStepRecord]) -> ReasoningStep,
 {
@@ -150,9 +152,7 @@ where
             ReasoningStep::Lookup { call, result_ids } => {
                 let call_tokens = call.query.chars().count()
                     + result_ids.iter().map(|s| s.chars().count()).sum::<usize>();
-                if retrieval_tokens.saturating_add(call_tokens)
-                    > config.max_retrieval_tokens
-                {
+                if retrieval_tokens.saturating_add(call_tokens) > config.max_retrieval_tokens {
                     return ReasoningOutcome {
                         steps,
                         terminated_by: ReasoningTermination::TokenCap,
@@ -198,7 +198,9 @@ mod tests {
         let out = run_reasoning(&ReasoningConfig::default(), |_| {
             assert!(!emitted, "driver called twice");
             emitted = true;
-            ReasoningStep::Answer { text: "yes".to_string() }
+            ReasoningStep::Answer {
+                text: "yes".to_string(),
+            }
         });
         assert_eq!(out.terminated_by, ReasoningTermination::Answer);
         assert_eq!(out.steps.len(), 1);
@@ -207,9 +209,15 @@ mod tests {
     #[test]
     fn step_cap_fires_at_max() {
         let out = run_reasoning(
-            &ReasoningConfig { max_steps: 2, max_retrieval_tokens: 10_000 },
+            &ReasoningConfig {
+                max_steps: 2,
+                max_retrieval_tokens: 10_000,
+            },
             |_| ReasoningStep::Lookup {
-                call: DepthCall { query: "q".into(), depth: "wake".into() },
+                call: DepthCall {
+                    query: "q".into(),
+                    depth: "wake".into(),
+                },
                 result_ids: vec!["a".into()],
             },
         );

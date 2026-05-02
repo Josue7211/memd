@@ -123,9 +123,10 @@ impl HookTrace {
 
     /// Append a record as a single NDJSON line.
     pub fn append(&self, record: &HookRecord) -> io::Result<()> {
-        let _g = self.gate.lock().map_err(|_| {
-            io::Error::new(io::ErrorKind::Other, "hook trace mutex poisoned")
-        })?;
+        let _g = self
+            .gate
+            .lock()
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "hook trace mutex poisoned"))?;
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -196,11 +197,8 @@ mod tests {
             let trace = Arc::clone(&trace);
             handles.push(thread::spawn(move || {
                 for i in 0..25 {
-                    let rec = HookRecord::new(
-                        HookEvent::PreRead,
-                        format!("sess-{thread_id}-{i}"),
-                    )
-                    .with_tool("Read");
+                    let rec = HookRecord::new(HookEvent::PreRead, format!("sess-{thread_id}-{i}"))
+                        .with_tool("Read");
                     trace.append(&rec).unwrap();
                 }
             }));
@@ -214,8 +212,7 @@ mod tests {
         for line in BufReader::new(file).lines() {
             let line = line.unwrap();
             assert!(!line.is_empty());
-            let parsed: HookRecord =
-                serde_json::from_str(&line).expect("every line parseable");
+            let parsed: HookRecord = serde_json::from_str(&line).expect("every line parseable");
             assert_eq!(parsed.event, HookEvent::PreRead);
             count += 1;
         }
@@ -233,10 +230,7 @@ mod tests {
         let parsed: HookRecord = serde_json::from_str(contents.trim()).unwrap();
         // ULID canonical length = 26 chars.
         assert_eq!(parsed.trace_id.len(), 26);
-        assert!(parsed
-            .trace_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric()));
+        assert!(parsed.trace_id.chars().all(|c| c.is_ascii_alphanumeric()));
     }
 
     #[test]

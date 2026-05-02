@@ -12,13 +12,11 @@ mod ci;
 mod scorecard;
 
 use super::*;
+use crate::MemdClient;
 use crate::cli::{
     HookArgs, HookMode, HookRestoreArgs, HookSealLedgerArgs, run_hook_mode, run_hook_restore,
 };
-use crate::MemdClient;
-use memd_core::file_ledger::{
-    append_file_interaction, ledger_path, restore::RestoreSource,
-};
+use memd_core::file_ledger::{append_file_interaction, ledger_path, restore::RestoreSource};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -69,8 +67,8 @@ fn fixture_dir() -> PathBuf {
 
 fn load_scenario() -> Scenario {
     let root = fixture_dir();
-    let seed_text = std::fs::read_to_string(root.join("seed-state.json"))
-        .expect("read g4 seed-state.json");
+    let seed_text =
+        std::fs::read_to_string(root.join("seed-state.json")).expect("read g4 seed-state.json");
     let seed: SeedState =
         serde_json::from_str(&seed_text).expect("seed-state.json matches SeedState");
 
@@ -83,9 +81,8 @@ fn load_scenario() -> Scenario {
                 .lines()
                 .filter(|l| !l.trim().is_empty())
                 .map(|l| {
-                    serde_json::from_str(l).unwrap_or_else(|err| {
-                        panic!("parse {name} record `{l}`: {err}")
-                    })
+                    serde_json::from_str(l)
+                        .unwrap_or_else(|err| panic!("parse {name} record `{l}`: {err}"))
                 })
                 .collect();
             Session {
@@ -164,12 +161,20 @@ fn harness_parses_fixture_script() {
     // Env block must include both default-off flags so a fresh per-run bundle
     // exercises A4 restore + C4 correction-detect.
     assert_eq!(
-        scenario.seed.memd_env.get("MEMD_A4_LEDGER_SURVIVAL").map(String::as_str),
+        scenario
+            .seed
+            .memd_env
+            .get("MEMD_A4_LEDGER_SURVIVAL")
+            .map(String::as_str),
         Some("1"),
         "seed-state must enable A4 ledger survival"
     );
     assert_eq!(
-        scenario.seed.memd_env.get("MEMD_C4_CORRECTION_DETECT").map(String::as_str),
+        scenario
+            .seed
+            .memd_env
+            .get("MEMD_C4_CORRECTION_DETECT")
+            .map(String::as_str),
         Some("1"),
         "seed-state must enable C4 correction detection"
     );
@@ -201,7 +206,11 @@ fn harness_parses_fixture_script() {
     // PostCompact restore + wake compilation have a deterministic anchor.
     for sess in &scenario.sessions[1..] {
         let first = &sess.records[0];
-        assert_eq!(first.role, "system", "{} must open with system event", sess.id);
+        assert_eq!(
+            first.role, "system",
+            "{} must open with system event",
+            sess.id
+        );
         assert_eq!(
             first.event.as_deref(),
             Some("SessionStart"),

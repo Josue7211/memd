@@ -34,9 +34,8 @@ pub(crate) fn append_ndjson(path: &Path, records: &[ScenarioRecord]) -> std::io:
     }
     let mut buf = String::new();
     for r in records {
-        let line = serde_json::to_string(r).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-        })?;
+        let line = serde_json::to_string(r)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
         buf.push_str(&line);
         buf.push('\n');
     }
@@ -118,7 +117,10 @@ pub(crate) fn upsert_markdown_section(
     let close = section_close(suite);
     let block = render_section(suite, records);
 
-    if let (Some(start), Some(end_rel)) = (new.find(&open), new[new.find(&open).unwrap_or(0)..].find(&close)) {
+    if let (Some(start), Some(end_rel)) = (
+        new.find(&open),
+        new[new.find(&open).unwrap_or(0)..].find(&close),
+    ) {
         let end = new.find(&open).unwrap() + end_rel + close.len();
         // Drop trailing newline immediately after close marker too, so
         // re-runs don't grow the file by one blank line each time.
@@ -218,7 +220,8 @@ mod tests {
         upsert_markdown_section(&doc, "cross-session-recall", &recs_v2).unwrap();
         let body = std::fs::read_to_string(&doc).unwrap();
         assert_eq!(
-            body.matches("<!-- substrate:cross-session-recall:open -->").count(),
+            body.matches("<!-- substrate:cross-session-recall:open -->")
+                .count(),
             1,
             "duplicate suite block after re-run"
         );

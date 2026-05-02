@@ -41,15 +41,20 @@ pub(crate) struct LmeAdapter {
 
 impl LmeAdapter {
     pub(crate) fn from_path(path: &Path) -> Result<Self> {
-        let bytes = fs::read(path)
-            .with_context(|| format!("read LME dataset {}", path.display()))?;
+        let bytes =
+            fs::read(path).with_context(|| format!("read LME dataset {}", path.display()))?;
         let items: Vec<LmeItem> = serde_json::from_slice(&bytes)
             .with_context(|| format!("parse LME dataset {}", path.display()))?;
         Ok(Self::from_items(items))
     }
 
     pub(crate) fn from_items(items: Vec<LmeItem>) -> Self {
-        Self { items, item_idx: 0, session_idx: 0, turn_idx: 0 }
+        Self {
+            items,
+            item_idx: 0,
+            session_idx: 0,
+            turn_idx: 0,
+        }
     }
 }
 
@@ -94,7 +99,10 @@ impl EpisodicAdapter for LmeAdapter {
             };
             let content = turn.content.clone();
             self.turn_idx += 1;
-            return Some(EpisodicTurn { content, provenance });
+            return Some(EpisodicTurn {
+                content,
+                provenance,
+            });
         }
     }
 }

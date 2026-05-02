@@ -114,19 +114,38 @@ impl SplitMix64 {
 }
 
 const SUBJECTS: &[&str] = &[
-    "alice", "bob", "carol", "dave", "erin", "frank", "grace", "heidi",
-    "ivan", "judy", "ken", "leo", "mallory", "nina", "olivia", "peggy",
+    "alice", "bob", "carol", "dave", "erin", "frank", "grace", "heidi", "ivan", "judy", "ken",
+    "leo", "mallory", "nina", "olivia", "peggy",
 ];
 const PREDICATES: &[&str] = &[
-    "lives_in", "works_at", "drives", "owns_pet", "born_in", "graduated_from",
+    "lives_in",
+    "works_at",
+    "drives",
+    "owns_pet",
+    "born_in",
+    "graduated_from",
 ];
 const CANONICAL_VALUES: &[&str] = &[
-    "Lisbon", "Tokyo", "Toronto", "Berlin", "Madrid", "Oslo", "Dublin",
-    "Vienna", "Helsinki", "Reykjavik",
+    "Lisbon",
+    "Tokyo",
+    "Toronto",
+    "Berlin",
+    "Madrid",
+    "Oslo",
+    "Dublin",
+    "Vienna",
+    "Helsinki",
+    "Reykjavik",
 ];
 const NOISE_VALUES: &[&str] = &[
-    "Antarctica", "Atlantis", "Mars", "the moon", "Narnia", "Westeros",
-    "Elsewhere", "Nowhere",
+    "Antarctica",
+    "Atlantis",
+    "Mars",
+    "the moon",
+    "Narnia",
+    "Westeros",
+    "Elsewhere",
+    "Nowhere",
 ];
 
 /// Deterministic generator: seed → (canonical[N], noise[N * noise_per_canonical]).
@@ -162,7 +181,8 @@ pub(crate) fn generate_corpus(
 
         for j in 0..noise_per_canonical {
             let noise_val = NOISE_VALUES[rng.next_in_range(NOISE_VALUES.len())].to_string();
-            let noise_id = (canonical_count as u32) + (i as u32) * (noise_per_canonical as u32) + j as u32;
+            let noise_id =
+                (canonical_count as u32) + (i as u32) * (noise_per_canonical as u32) + j as u32;
             noise.push(NoiseRecord {
                 id: noise_id,
                 canonical_id: canon_id,
@@ -189,11 +209,7 @@ impl CanonicalWinsScorer {
 
     /// Given a ranked list (top first), check whether `canonical_id` is the
     /// top match against its noise siblings.
-    pub(crate) fn winner_is_canonical(
-        &self,
-        canonical_id: u32,
-        ranked: &[NoiseRecord],
-    ) -> bool {
+    pub(crate) fn winner_is_canonical(&self, canonical_id: u32, ranked: &[NoiseRecord]) -> bool {
         ranked
             .iter()
             .find(|r| r.canonical_id == canonical_id)
@@ -202,11 +218,7 @@ impl CanonicalWinsScorer {
     }
 
     /// Returns the leaked noise id when canonical lost.
-    pub(crate) fn leaked_noise(
-        &self,
-        canonical_id: u32,
-        ranked: &[NoiseRecord],
-    ) -> Option<u32> {
+    pub(crate) fn leaked_noise(&self, canonical_id: u32, ranked: &[NoiseRecord]) -> Option<u32> {
         for r in ranked {
             if r.canonical_id == canonical_id {
                 if r.is_canonical {
@@ -231,11 +243,7 @@ impl TieBreakProvenanceScorer {
 
     /// Returns `Some(true)` if canonical's chain is strictly longer (correct
     /// tie-break), `Some(false)` if noise's is, `None` if no tie applicable.
-    pub(crate) fn tie_break(
-        &self,
-        canonical: &NoiseRecord,
-        noise: &NoiseRecord,
-    ) -> Option<bool> {
+    pub(crate) fn tie_break(&self, canonical: &NoiseRecord, noise: &NoiseRecord) -> Option<bool> {
         if !canonical.is_canonical || noise.is_canonical {
             return None;
         }
@@ -315,7 +323,9 @@ pub(crate) fn run_g5_with_backend<B: NoiseBackend>(
         let won = scorer.winner_is_canonical(canon.canonical_id, &ranked);
         let leaked = scorer.leaked_noise(canon.canonical_id, &ranked);
 
-        let tie = siblings.first().and_then(|n| tie_scorer.tie_break(canon, n));
+        let tie = siblings
+            .first()
+            .and_then(|n| tie_scorer.tie_break(canon, n));
         if let Some(correct) = tie {
             tie_attempts += 1;
             if correct {

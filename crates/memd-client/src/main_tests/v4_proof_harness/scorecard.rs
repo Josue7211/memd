@@ -31,7 +31,10 @@ pub(crate) fn parse_scorecard_table(markdown: &str) -> Result<Vec<AxisRow>, Stri
     for line in markdown.lines() {
         let trimmed = line.trim();
         if !in_table {
-            if trimmed.starts_with("| Axis") && trimmed.contains("Weight") && trimmed.contains("Score") {
+            if trimmed.starts_with("| Axis")
+                && trimmed.contains("Weight")
+                && trimmed.contains("Score")
+            {
                 in_table = true;
             }
             continue;
@@ -52,7 +55,10 @@ pub(crate) fn parse_scorecard_table(markdown: &str) -> Result<Vec<AxisRow>, Stri
             .map(str::trim)
             .collect();
         if cells.len() < 4 {
-            return Err(format!("scorecard row has {} cells, expected ≥4: {trimmed}", cells.len()));
+            return Err(format!(
+                "scorecard row has {} cells, expected ≥4: {trimmed}",
+                cells.len()
+            ));
         }
         let axis = cells[0].to_string();
         let weight_pct = cells[1]
@@ -119,7 +125,10 @@ pub(crate) fn regenerate_scorecard(
     for line in markdown.lines() {
         let trimmed = line.trim();
         if !in_table {
-            if trimmed.starts_with("| Axis") && trimmed.contains("Weight") && trimmed.contains("Score") {
+            if trimmed.starts_with("| Axis")
+                && trimmed.contains("Weight")
+                && trimmed.contains("Score")
+            {
                 in_table = true;
             }
             out.push_str(line);
@@ -230,8 +239,10 @@ mod tests {
         .expect("regenerator must succeed when observed ≤ targets");
 
         let parsed = parse_scorecard_table(&out).expect("output table re-parses");
-        let by_axis: BTreeMap<&str, u32> =
-            parsed.iter().map(|r| (r.axis.as_str(), r.score_out_of_10)).collect();
+        let by_axis: BTreeMap<&str, u32> = parsed
+            .iter()
+            .map(|r| (r.axis.as_str(), r.score_out_of_10))
+            .collect();
         assert_eq!(by_axis["Session continuity"], 4);
         assert_eq!(by_axis["Correction retention"], 4);
         assert_eq!(by_axis["Cross-harness continuity"], 3);
@@ -246,7 +257,10 @@ mod tests {
             .iter()
             .filter(|r| observed.contains_key(&r.axis))
             .all(|r| r.status.contains("v4-proof-runs/2026-05-01T00-00Z.ndjson"));
-        assert!(updated_with_evidence, "every updated row carries evidence pointer");
+        assert!(
+            updated_with_evidence,
+            "every updated row carries evidence pointer"
+        );
 
         // Sections outside the table preserved verbatim.
         assert!(out.contains("**Composite: 2.30/10**"));
@@ -260,13 +274,8 @@ mod tests {
             ("Session continuity".into(), 4u32), // ok: target 4
             ("Token efficiency".into(), 7u32),   // over: target 4
         ]);
-        let err = regenerate_scorecard(
-            SAMPLE,
-            &observed,
-            &targets(),
-            "v4-proof-runs/over.ndjson",
-        )
-        .expect_err("over-claim must refuse");
+        let err = regenerate_scorecard(SAMPLE, &observed, &targets(), "v4-proof-runs/over.ndjson")
+            .expect_err("over-claim must refuse");
         assert!(err.contains("scorecard regenerator refused"));
         assert!(err.contains("Token efficiency"));
         assert!(err.contains("observed 7 > target 4"));

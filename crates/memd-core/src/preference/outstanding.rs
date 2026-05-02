@@ -83,11 +83,7 @@ pub fn write_outstanding(path: &Path, state: &OutstandingDriftState) -> Result<(
 
 /// Record a drift verdict. `Drift` upserts; `Aligned`/`Unknown` clear
 /// any existing entry for the same id (agent recovered).
-pub fn record_drift(
-    path: &Path,
-    check: &DriftCheck,
-    now_ms: i64,
-) -> Result<OutstandingDriftState> {
+pub fn record_drift(path: &Path, check: &DriftCheck, now_ms: i64) -> Result<OutstandingDriftState> {
     let mut state = read_outstanding(path)?;
     match check.verdict {
         DriftVerdict::Drift => {

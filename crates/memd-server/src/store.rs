@@ -3456,10 +3456,7 @@ impl SqliteStore {
     fn upsert_entity(&self, entity_key: &str, record: &MemoryEntityRecord) -> anyhow::Result<()> {
         let payload_json = serde_json::to_string(record).context("serialize memory entity")?;
         let entity_id = record.id.to_string();
-        let project = record
-            .context
-            .as_ref()
-            .and_then(|ctx| ctx.project.clone());
+        let project = record.context.as_ref().and_then(|ctx| ctx.project.clone());
         let mut conn = self.connect()?;
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -3529,7 +3526,9 @@ impl SqliteStore {
                  ORDER BY updated_at DESC LIMIT ?2",
             )
             .context("prepare list_entities_by_project")?;
-        let rows = stmt.query_map(params![project, limit as i64], |row| row.get::<_, String>(0))?;
+        let rows = stmt.query_map(params![project, limit as i64], |row| {
+            row.get::<_, String>(0)
+        })?;
         let mut out = Vec::new();
         for row in rows {
             let payload = row.context("read entity row")?;

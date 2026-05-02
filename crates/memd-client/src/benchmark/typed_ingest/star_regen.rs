@@ -78,13 +78,41 @@ mod tests {
 
     fn at_or_above() -> Vec<AxisScore> {
         vec![
-            AxisScore { axis: "session_continuity", weight: 0.20, score: 7.0 },
-            AxisScore { axis: "correction_retention", weight: 0.15, score: 7.0 },
-            AxisScore { axis: "procedural_reuse", weight: 0.15, score: 7.0 },
-            AxisScore { axis: "cross_harness", weight: 0.15, score: 7.0 },
-            AxisScore { axis: "raw_retrieval", weight: 0.15, score: 7.0 },
-            AxisScore { axis: "token_efficiency", weight: 0.10, score: 7.0 },
-            AxisScore { axis: "trust_provenance", weight: 0.10, score: 7.0 },
+            AxisScore {
+                axis: "session_continuity",
+                weight: 0.20,
+                score: 7.0,
+            },
+            AxisScore {
+                axis: "correction_retention",
+                weight: 0.15,
+                score: 7.0,
+            },
+            AxisScore {
+                axis: "procedural_reuse",
+                weight: 0.15,
+                score: 7.0,
+            },
+            AxisScore {
+                axis: "cross_harness",
+                weight: 0.15,
+                score: 7.0,
+            },
+            AxisScore {
+                axis: "raw_retrieval",
+                weight: 0.15,
+                score: 7.0,
+            },
+            AxisScore {
+                axis: "token_efficiency",
+                weight: 0.10,
+                score: 7.0,
+            },
+            AxisScore {
+                axis: "trust_provenance",
+                weight: 0.10,
+                score: 7.0,
+            },
         ]
     }
 

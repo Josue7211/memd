@@ -33,7 +33,9 @@ impl SqliteStore {
         req: &ConsolidateEpisodesRequest,
         now: DateTime<Utc>,
     ) -> anyhow::Result<ConsolidateEpisodesResponse> {
-        let gap = req.session_gap_seconds.unwrap_or(DEFAULT_SESSION_GAP_SECONDS);
+        let gap = req
+            .session_gap_seconds
+            .unwrap_or(DEFAULT_SESSION_GAP_SECONDS);
         let since = req
             .since
             .unwrap_or_else(|| now - chrono::Duration::hours(24));
@@ -98,17 +100,25 @@ impl SqliteStore {
         })
     }
 
-    pub fn list_episodes(
-        &self,
-        req: &ListEpisodesRequest,
-    ) -> anyhow::Result<ListEpisodesResponse> {
+    pub fn list_episodes(&self, req: &ListEpisodesRequest) -> anyhow::Result<ListEpisodesResponse> {
         let conn = self.connect()?;
         let limit = req.limit.unwrap_or(50).min(500);
 
         let episodes = if let Some(query) = req.query.as_ref().filter(|q| !q.trim().is_empty()) {
-            list_episodes_fts(&conn, query, req.project.as_deref(), req.namespace.as_deref(), limit)?
+            list_episodes_fts(
+                &conn,
+                query,
+                req.project.as_deref(),
+                req.namespace.as_deref(),
+                limit,
+            )?
         } else {
-            list_episodes_recent(&conn, req.project.as_deref(), req.namespace.as_deref(), limit)?
+            list_episodes_recent(
+                &conn,
+                req.project.as_deref(),
+                req.namespace.as_deref(),
+                limit,
+            )?
         };
         Ok(ListEpisodesResponse { episodes })
     }
@@ -141,9 +151,7 @@ fn load_items_in_window(
     namespace: Option<&str>,
     since: DateTime<Utc>,
 ) -> anyhow::Result<Vec<MemoryItem>> {
-    let mut sql = String::from(
-        "SELECT payload_json FROM memory_items WHERE updated_at >= ?1",
-    );
+    let mut sql = String::from("SELECT payload_json FROM memory_items WHERE updated_at >= ?1");
     let mut args: Vec<String> = vec![since.to_rfc3339()];
     if project.is_some() {
         sql.push_str(" AND project = ?");
@@ -235,8 +243,7 @@ fn relation_str(r: EpisodeFactRelation) -> &'static str {
     }
 }
 
-const EPISODE_COLS: &str =
-    "id, session_id, mind, title, narrative, project, namespace, \
+const EPISODE_COLS: &str = "id, session_id, mind, title, narrative, project, namespace, \
      started_at, ended_at, fact_count, created_at, updated_at";
 
 fn list_episodes_recent(
@@ -260,8 +267,7 @@ fn list_episodes_recent(
     sql.push_str(&format!(" ORDER BY ended_at DESC LIMIT {limit}"));
 
     let mut stmt = conn.prepare(&sql).context("prepare list_episodes_recent")?;
-    let refs: Vec<&dyn rusqlite::ToSql> =
-        args.iter().map(|a| a as &dyn rusqlite::ToSql).collect();
+    let refs: Vec<&dyn rusqlite::ToSql> = args.iter().map(|a| a as &dyn rusqlite::ToSql).collect();
     let rows = stmt
         .query_map(refs.as_slice(), episode_from_row)
         .context("query episodes")?;
@@ -307,13 +313,10 @@ fn list_episodes_fts(
         sql.push_str(&(args.len() + 1).to_string());
         args.push(n.to_string());
     }
-    sql.push_str(&format!(
-        " ORDER BY bm25(episodes_fts) ASC LIMIT {limit}"
-    ));
+    sql.push_str(&format!(" ORDER BY bm25(episodes_fts) ASC LIMIT {limit}"));
 
     let mut stmt = conn.prepare(&sql).context("prepare list_episodes_fts")?;
-    let refs: Vec<&dyn rusqlite::ToSql> =
-        args.iter().map(|a| a as &dyn rusqlite::ToSql).collect();
+    let refs: Vec<&dyn rusqlite::ToSql> = args.iter().map(|a| a as &dyn rusqlite::ToSql).collect();
     let rows = stmt
         .query_map(refs.as_slice(), episode_from_row)
         .context("query episodes fts")?;
@@ -329,7 +332,13 @@ fn sanitize_fts_query(q: &str) -> String {
     // Strip FTS5 syntax characters, then quote each token for safe MATCH.
     let cleaned: String = q
         .chars()
-        .map(|c| if c.is_alphanumeric() || c.is_whitespace() { c } else { ' ' })
+        .map(|c| {
+            if c.is_alphanumeric() || c.is_whitespace() {
+                c
+            } else {
+                ' '
+            }
+        })
         .collect();
     let tokens: Vec<String> = cleaned
         .split_whitespace()
@@ -354,19 +363,15 @@ fn episode_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Episode> {
     let updated_s: String = row.get(11)?;
 
     Ok(Episode {
-        id: Uuid::parse_str(&id_s).map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-            0,
-            rusqlite::types::Type::Text,
-            Box::new(e),
-        ))?,
+        id: Uuid::parse_str(&id_s).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+        })?,
         mind,
         title,
         narrative,
-        session_id: Uuid::parse_str(&sid_s).map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-            1,
-            rusqlite::types::Type::Text,
-            Box::new(e),
-        ))?,
+        session_id: Uuid::parse_str(&sid_s).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
+        })?,
         project,
         namespace,
         started_at: parse_ts(&started_s, 7)?,
@@ -381,11 +386,7 @@ fn parse_ts(s: &str, col: usize) -> rusqlite::Result<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(s)
         .map(|dt| dt.with_timezone(&Utc))
         .map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(
-                col,
-                rusqlite::types::Type::Text,
-                Box::new(e),
-            )
+            rusqlite::Error::FromSqlConversionFailure(col, rusqlite::types::Type::Text, Box::new(e))
         })
 }
 
@@ -394,7 +395,7 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
     use memd_schema::{
-        MemoryKind, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, MemoryItem,
+        MemoryItem, MemoryKind, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility,
     };
 
     fn test_store() -> SqliteStore {

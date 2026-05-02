@@ -13,29 +13,27 @@ use std::path::PathBuf;
 use serde_json::json;
 
 use crate::benchmark::typed_ingest::candidate_store::{
-    append_candidates, read_candidates, CandidateRecord, CANDIDATE_STAGE,
+    CANDIDATE_STAGE, CandidateRecord, append_candidates, read_candidates,
 };
 use crate::benchmark::typed_ingest::dedupe::{
-    cosine_on_unit, dedupe_hash, dedupe_hash_cosine, COSINE_NEAR_DUPLICATE,
+    COSINE_NEAR_DUPLICATE, cosine_on_unit, dedupe_hash, dedupe_hash_cosine,
 };
 use crate::benchmark::typed_ingest::distiller::{
-    append_distill_telemetry, cache_get, cache_key, cache_put,
-    distill_telemetry_path, format_distill_telemetry_line,
-    validate_distill_json, CacheOutcome, CacheRecord, CandidateKind,
-    DistillCandidate, DistillOutput, DistillTelemetry, PromptCard,
-    PROMPT_CARD_V1, PROMPT_CARD_VERSION,
+    CacheOutcome, CacheRecord, CandidateKind, DistillCandidate, DistillOutput, DistillTelemetry,
+    PROMPT_CARD_V1, PROMPT_CARD_VERSION, PromptCard, append_distill_telemetry, cache_get,
+    cache_key, cache_put, distill_telemetry_path, format_distill_telemetry_line,
+    validate_distill_json,
 };
 use crate::benchmark::typed_ingest::episodic::{EpisodicProvenance, EpisodicTurn};
 
 fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/typed_ingest/b6")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/typed_ingest/b6")
 }
 
 fn read_turns_with_facts() -> Vec<EpisodicTurn> {
     let path = fixtures_dir().join("turns-with-facts.jsonl");
-    let body = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let body =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     body.lines()
         .filter(|l| !l.trim().is_empty())
         .map(|l| serde_json::from_str(l).expect("parse turn"))
@@ -44,8 +42,8 @@ fn read_turns_with_facts() -> Vec<EpisodicTurn> {
 
 fn read_cached_extractions() -> Vec<CacheRecord> {
     let path = fixtures_dir().join("cached-extractions-sample.jsonl");
-    let body = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let body =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     body.lines()
         .filter(|l| !l.trim().is_empty())
         .map(|l| serde_json::from_str(l).expect("parse cache record"))
@@ -54,8 +52,8 @@ fn read_cached_extractions() -> Vec<CacheRecord> {
 
 fn read_expected_keywords() -> Vec<String> {
     let path = fixtures_dir().join("expected-facts.json");
-    let body = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let body =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
     v["expected_keywords"]
         .as_array()
@@ -111,35 +109,40 @@ fn distiller_emits_valid_schema_on_happy_turn() {
     let bad_kind = json!({"candidates":[{
         "kind":"Mood","content":"x","confidence":0.5,
         "source_turn_ids":["a"],"rationale":""
-    }]}).to_string();
+    }]})
+    .to_string();
     assert!(validate_distill_json(&bad_kind).is_err());
 
     // Reject confidence out of range
     let bad_conf = json!({"candidates":[{
         "kind":"Fact","content":"x","confidence":1.5,
         "source_turn_ids":["a"],"rationale":""
-    }]}).to_string();
+    }]})
+    .to_string();
     assert!(validate_distill_json(&bad_conf).is_err());
 
     // Reject empty source_turn_ids
     let bad_src = json!({"candidates":[{
         "kind":"Fact","content":"x","confidence":0.5,
         "source_turn_ids":[],"rationale":""
-    }]}).to_string();
+    }]})
+    .to_string();
     assert!(validate_distill_json(&bad_src).is_err());
 
     // Reject extra top-level key
     let bad_top = json!({
         "candidates":[],
         "extra":"nope"
-    }).to_string();
+    })
+    .to_string();
     assert!(validate_distill_json(&bad_top).is_err());
 
     // Reject empty content
     let bad_empty = json!({"candidates":[{
         "kind":"Fact","content":"   ","confidence":0.5,
         "source_turn_ids":["a"],"rationale":""
-    }]}).to_string();
+    }]})
+    .to_string();
     assert!(validate_distill_json(&bad_empty).is_err());
 }
 
@@ -164,8 +167,10 @@ fn distiller_zero_candidates_on_chat_filler() {
         );
     }
     // Total candidate count across filler turns is zero.
-    let filler_total: usize =
-        filler_indices.iter().map(|&i| cached[i].candidates.len()).sum();
+    let filler_total: usize = filler_indices
+        .iter()
+        .map(|&i| cached[i].candidates.len())
+        .sum();
     assert_eq!(filler_total, 0);
 }
 
@@ -178,8 +183,7 @@ fn distiller_caches_by_turn_id_and_prompt_version() {
     let dir = tempfile::tempdir().unwrap();
     let cache_dir = dir.path();
 
-    let source_hash =
-        "0000000000000000000000000000000000000000000000000000000000000001";
+    let source_hash = "0000000000000000000000000000000000000000000000000000000000000001";
     let k1 = cache_key("semantic-distillation/v1", source_hash);
     let k2 = cache_key("semantic-distillation/v2", source_hash);
     let k3 = cache_key("semantic-distillation/v1", "deadbeef");
@@ -424,26 +428,19 @@ fn flag_routing_episodic_plus_semantic() {
     assert_eq!(args.distill_budget_milli_usd, 50);
 
     // Episodic-only still works (A6 surface preserved).
-    let a6 = Wrap::try_parse_from([
-        "memd",
-        "longmemeval",
-        "--typed-ingest=episodic",
-    ])
-    .expect("parse")
-    .a;
+    let a6 = Wrap::try_parse_from(["memd", "longmemeval", "--typed-ingest=episodic"])
+        .expect("parse")
+        .a;
     assert_eq!(a6.typed_ingest.as_deref(), Some("episodic"));
 
     // Bad value rejected.
-    let bad = Wrap::try_parse_from([
-        "memd",
-        "longmemeval",
-        "--typed-ingest=semantic-only",
-    ]);
+    let bad = Wrap::try_parse_from(["memd", "longmemeval", "--typed-ingest=semantic-only"]);
     assert!(bad.is_err());
 
     // Notice formatting:
     // - episodic+semantic notice mentions the distill model + budget + cache state.
-    let n_full = typed_ingest_runtime_notice("episodic+semantic", false, "gpt-5.4", 50, true, false);
+    let n_full =
+        typed_ingest_runtime_notice("episodic+semantic", false, "gpt-5.4", 50, true, false);
     assert!(n_full.contains("--typed-ingest=episodic+semantic"));
     assert!(n_full.contains("distill_model=gpt-5.4"));
     assert!(n_full.contains("budget_milli_usd=50"));
@@ -458,7 +455,8 @@ fn flag_routing_episodic_plus_semantic() {
     assert!(!n_a6.contains("budget_milli_usd"));
     assert!(!n_a6.contains("cache="));
     // - env-active flips the activation phrase.
-    let n_active = typed_ingest_runtime_notice("episodic+semantic", true, "gpt-5.4", 50, true, false);
+    let n_active =
+        typed_ingest_runtime_notice("episodic+semantic", true, "gpt-5.4", 50, true, false);
     assert!(n_active.contains("ACTIVE"));
     // - cache=off surfaces when MEMD_V6_DISTILL_CACHE=0.
     let n_no_cache =
@@ -529,8 +527,7 @@ fn b6_baseline_lifts_lme_qa_accuracy_at_least_0_02() {
         hits as f64 / expected.len() as f64
     }
 
-    let baseline_haystack: Vec<String> =
-        turns.iter().map(|t| t.content.clone()).collect();
+    let baseline_haystack: Vec<String> = turns.iter().map(|t| t.content.clone()).collect();
     let mut distill_haystack = baseline_haystack.clone();
     for rec in &cached {
         for c in &rec.candidates {
@@ -582,8 +579,7 @@ fn distill_telemetry_line_appends_ndjson() {
     let path = distill_telemetry_path(results, "2026-04-27");
     let body = std::fs::read_to_string(&path).unwrap();
     assert_eq!(body.lines().count(), 1);
-    let parsed: DistillTelemetry =
-        serde_json::from_str(body.lines().next().unwrap()).unwrap();
+    let parsed: DistillTelemetry = serde_json::from_str(body.lines().next().unwrap()).unwrap();
     assert_eq!(parsed, t);
 
     // Append a second line — file grows, prior preserved.

@@ -10,15 +10,15 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::benchmark::typed_ingest::depth_router::DepthCall;
 use crate::benchmark::typed_ingest::reasoning::{
-    run_reasoning, scratchpad_json, ReasoningConfig, ReasoningStep, ReasoningStepRecord,
-    ReasoningTermination, DEFAULT_MAX_REASONING_STEPS, REASONING_VERSION,
+    DEFAULT_MAX_REASONING_STEPS, REASONING_VERSION, ReasoningConfig, ReasoningStep,
+    ReasoningStepRecord, ReasoningTermination, run_reasoning, scratchpad_json,
 };
 use crate::benchmark::typed_ingest::report_aggregator::{
-    render_v6_report, report_contains_all_method_cards, BenchScorecard, REPORT_VERSION,
+    BenchScorecard, REPORT_VERSION, render_v6_report, report_contains_all_method_cards,
 };
 use crate::benchmark::typed_ingest::star_regen::{
-    allow_below_target_active, composite, evaluate, AxisScore, StarVerdict, PUBLISH_THRESHOLD,
-    STAR_REGEN_VERSION,
+    AxisScore, PUBLISH_THRESHOLD, STAR_REGEN_VERSION, StarVerdict, allow_below_target_active,
+    composite, evaluate,
 };
 use crate::benchmark::typed_ingest::{reasoning_active, reasoning_runtime_notice};
 
@@ -75,8 +75,7 @@ fn load_canonical_gates() -> Vec<CanonicalGateRow> {
         .parent()
         .unwrap()
         .join("tests/fixtures/typed_ingest/f6/canonical-gates.jsonl");
-    let body =
-        std::fs::read_to_string(&path).expect("read canonical gates fixture");
+    let body = std::fs::read_to_string(&path).expect("read canonical gates fixture");
     body.lines()
         .filter(|l| !l.trim().is_empty())
         .map(|l| serde_json::from_str::<CanonicalGateRow>(l).expect("parse gate row"))
@@ -106,14 +105,22 @@ fn reasoning_emits_scratchpad_schema() {
         step += 1;
         match step {
             1 => ReasoningStep::Lookup {
-                call: DepthCall { query: "alice flight".into(), depth: "targeted".into() },
+                call: DepthCall {
+                    query: "alice flight".into(),
+                    depth: "targeted".into(),
+                },
                 result_ids: vec!["t-1".into(), "t-2".into()],
             },
             2 => ReasoningStep::Lookup {
-                call: DepthCall { query: "alice hotel".into(), depth: "resume".into() },
+                call: DepthCall {
+                    query: "alice hotel".into(),
+                    depth: "resume".into(),
+                },
                 result_ids: vec!["t-9".into()],
             },
-            _ => ReasoningStep::Answer { text: "madrid".into() },
+            _ => ReasoningStep::Answer {
+                text: "madrid".into(),
+            },
         }
     });
     assert_eq!(outcome.terminated_by, ReasoningTermination::Answer);
@@ -152,7 +159,9 @@ fn reasoning_chains_lookups_via_e6_router() {
                 result_ids: vec![format!("r{step}")],
             }
         } else {
-            ReasoningStep::Answer { text: "done".into() }
+            ReasoningStep::Answer {
+                text: "done".into(),
+            }
         }
     });
     let lookups: Vec<&ReasoningStepRecord> = outcome
@@ -161,8 +170,14 @@ fn reasoning_chains_lookups_via_e6_router() {
         .filter(|s| s.action == "lookup")
         .collect();
     assert_eq!(lookups.len(), 2);
-    assert_eq!(lookups[0].result_ids.as_ref().unwrap(), &vec!["r1".to_string()]);
-    assert_eq!(lookups[1].result_ids.as_ref().unwrap(), &vec!["r2".to_string()]);
+    assert_eq!(
+        lookups[0].result_ids.as_ref().unwrap(),
+        &vec!["r1".to_string()]
+    );
+    assert_eq!(
+        lookups[1].result_ids.as_ref().unwrap(),
+        &vec!["r2".to_string()]
+    );
 }
 
 /// Test 3 — F6.1.
@@ -176,7 +191,10 @@ fn reasoning_hard_caps_at_5_steps() {
             max_retrieval_tokens: 10_000_000,
         },
         |_| ReasoningStep::Lookup {
-            call: DepthCall { query: "loop".into(), depth: "wake".into() },
+            call: DepthCall {
+                query: "loop".into(),
+                depth: "wake".into(),
+            },
             result_ids: vec!["x".into()],
         },
     );
@@ -192,7 +210,9 @@ fn reasoning_terminates_on_explicit_answer() {
     let mut calls = 0;
     let outcome = run_reasoning(&ReasoningConfig::default(), |_| {
         calls += 1;
-        ReasoningStep::Answer { text: format!("call-{calls}") }
+        ReasoningStep::Answer {
+            text: format!("call-{calls}"),
+        }
     });
     assert_eq!(calls, 1, "driver called once");
     assert_eq!(outcome.terminated_by, ReasoningTermination::Answer);
@@ -207,10 +227,8 @@ fn reasoning_lifts_lme_temporal_subset() {
     let rows = load_reasoning_fixture("lme-temporal-10.jsonl");
     let lme: Vec<_> = rows.into_iter().filter(|r| r.bench_id == "lme").collect();
     assert!(!lme.is_empty(), "fixture missing lme rows");
-    let baseline =
-        lme.iter().filter(|r| r.baseline_correct).count() as f64 / lme.len() as f64;
-    let reasoned =
-        lme.iter().filter(|r| r.reasoned_correct).count() as f64 / lme.len() as f64;
+    let baseline = lme.iter().filter(|r| r.baseline_correct).count() as f64 / lme.len() as f64;
+    let reasoned = lme.iter().filter(|r| r.reasoned_correct).count() as f64 / lme.len() as f64;
     let lift = reasoned - baseline;
     assert!(
         lift >= 0.03,
@@ -223,12 +241,15 @@ fn reasoning_lifts_lme_temporal_subset() {
 #[test]
 fn reasoning_lifts_locomo_sequential_subset() {
     let rows = load_reasoning_fixture("locomo-sequential-10.jsonl");
-    let locomo: Vec<_> = rows.into_iter().filter(|r| r.bench_id == "locomo").collect();
+    let locomo: Vec<_> = rows
+        .into_iter()
+        .filter(|r| r.bench_id == "locomo")
+        .collect();
     assert!(!locomo.is_empty(), "fixture missing locomo rows");
-    let baseline = locomo.iter().filter(|r| r.baseline_correct).count() as f64
-        / locomo.len() as f64;
-    let reasoned = locomo.iter().filter(|r| r.reasoned_correct).count() as f64
-        / locomo.len() as f64;
+    let baseline =
+        locomo.iter().filter(|r| r.baseline_correct).count() as f64 / locomo.len() as f64;
+    let reasoned =
+        locomo.iter().filter(|r| r.reasoned_correct).count() as f64 / locomo.len() as f64;
     let lift = reasoned - baseline;
     assert!(
         lift >= 0.04,
@@ -325,13 +346,41 @@ fn aggregator_preserves_method_card_links() {
 #[test]
 fn star_regen_refuses_composite_below_7_0() {
     let scores = vec![
-        AxisScore { axis: "session_continuity", weight: 0.20, score: 4.0 },
-        AxisScore { axis: "correction_retention", weight: 0.15, score: 4.0 },
-        AxisScore { axis: "procedural_reuse", weight: 0.15, score: 4.0 },
-        AxisScore { axis: "cross_harness", weight: 0.15, score: 4.0 },
-        AxisScore { axis: "raw_retrieval", weight: 0.15, score: 7.0 },
-        AxisScore { axis: "token_efficiency", weight: 0.10, score: 4.0 },
-        AxisScore { axis: "trust_provenance", weight: 0.10, score: 4.0 },
+        AxisScore {
+            axis: "session_continuity",
+            weight: 0.20,
+            score: 4.0,
+        },
+        AxisScore {
+            axis: "correction_retention",
+            weight: 0.15,
+            score: 4.0,
+        },
+        AxisScore {
+            axis: "procedural_reuse",
+            weight: 0.15,
+            score: 4.0,
+        },
+        AxisScore {
+            axis: "cross_harness",
+            weight: 0.15,
+            score: 4.0,
+        },
+        AxisScore {
+            axis: "raw_retrieval",
+            weight: 0.15,
+            score: 7.0,
+        },
+        AxisScore {
+            axis: "token_efficiency",
+            weight: 0.10,
+            score: 4.0,
+        },
+        AxisScore {
+            axis: "trust_provenance",
+            weight: 0.10,
+            score: 4.0,
+        },
     ];
     let v = evaluate(&scores, false);
     assert!(matches!(v, StarVerdict::Refused { .. }), "got {v:?}");
@@ -344,13 +393,41 @@ fn star_regen_refuses_composite_below_7_0() {
 #[test]
 fn star_regen_composite_accepts_at_or_above_7_0() {
     let scores = vec![
-        AxisScore { axis: "session_continuity", weight: 0.20, score: 8.0 },
-        AxisScore { axis: "correction_retention", weight: 0.15, score: 7.0 },
-        AxisScore { axis: "procedural_reuse", weight: 0.15, score: 7.0 },
-        AxisScore { axis: "cross_harness", weight: 0.15, score: 7.0 },
-        AxisScore { axis: "raw_retrieval", weight: 0.15, score: 7.0 },
-        AxisScore { axis: "token_efficiency", weight: 0.10, score: 7.0 },
-        AxisScore { axis: "trust_provenance", weight: 0.10, score: 7.0 },
+        AxisScore {
+            axis: "session_continuity",
+            weight: 0.20,
+            score: 8.0,
+        },
+        AxisScore {
+            axis: "correction_retention",
+            weight: 0.15,
+            score: 7.0,
+        },
+        AxisScore {
+            axis: "procedural_reuse",
+            weight: 0.15,
+            score: 7.0,
+        },
+        AxisScore {
+            axis: "cross_harness",
+            weight: 0.15,
+            score: 7.0,
+        },
+        AxisScore {
+            axis: "raw_retrieval",
+            weight: 0.15,
+            score: 7.0,
+        },
+        AxisScore {
+            axis: "token_efficiency",
+            weight: 0.10,
+            score: 7.0,
+        },
+        AxisScore {
+            axis: "trust_provenance",
+            weight: 0.10,
+            score: 7.0,
+        },
     ];
     let c = composite(&scores);
     assert!(c >= PUBLISH_THRESHOLD, "composite={c}");
@@ -359,9 +436,13 @@ fn star_regen_composite_accepts_at_or_above_7_0() {
 
     // Below threshold + env override → publishable.
     let _g = env_lock();
-    unsafe { std::env::set_var("MEMD_V6_ALLOW_BELOW_TARGET", "1"); }
+    unsafe {
+        std::env::set_var("MEMD_V6_ALLOW_BELOW_TARGET", "1");
+    }
     assert!(allow_below_target_active(false), "env forces override on");
-    unsafe { std::env::remove_var("MEMD_V6_ALLOW_BELOW_TARGET"); }
+    unsafe {
+        std::env::remove_var("MEMD_V6_ALLOW_BELOW_TARGET");
+    }
 }
 
 /// Test 11 — F6.3.
@@ -375,12 +456,23 @@ fn method_cards_cover_all_four_benches() {
         .parent()
         .unwrap()
         .join("docs/verification/method-cards");
-    for name in ["lme-v6.md", "locomo-v6.md", "membench-v6.md", "convomem-v6.md"] {
+    for name in [
+        "lme-v6.md",
+        "locomo-v6.md",
+        "membench-v6.md",
+        "convomem-v6.md",
+    ] {
         let p = cards_dir.join(name);
         assert!(p.exists(), "missing method card: {}", p.display());
         let body = std::fs::read_to_string(&p).expect("read card");
-        assert!(body.contains("primary metric"), "card {name} missing primary metric");
-        assert!(body.contains("V6 typed pipeline"), "card {name} missing pipeline");
+        assert!(
+            body.contains("primary metric"),
+            "card {name} missing primary metric"
+        );
+        assert!(
+            body.contains("V6 typed pipeline"),
+            "card {name} missing pipeline"
+        );
     }
 }
 
@@ -412,7 +504,12 @@ fn reproducibility_script_matches_within_0_03() {
     let rows = load_canonical_gates();
     for r in &rows {
         let drift = (r.value - r.target).abs();
-        assert!(drift <= 0.05, "bench {} drift {:.3} > tolerance", r.bench_id, drift);
+        assert!(
+            drift <= 0.05,
+            "bench {} drift {:.3} > tolerance",
+            r.bench_id,
+            drift
+        );
     }
 }
 
@@ -473,20 +570,32 @@ fn cli_full_v6_run_end_to_end() {
 
     // Runtime notice differentiates on/off.
     let _g = env_lock();
-    unsafe { std::env::remove_var("MEMD_V6_REASONING"); }
+    unsafe {
+        std::env::remove_var("MEMD_V6_REASONING");
+    }
     assert!(reasoning_active("on"));
     assert!(!reasoning_active("off"));
     let on_notice = reasoning_runtime_notice("on", false, 5, 20_000);
-    assert!(on_notice.contains("engaged"), "on missing engagement: {on_notice}");
+    assert!(
+        on_notice.contains("engaged"),
+        "on missing engagement: {on_notice}"
+    );
     assert!(on_notice.contains("max_steps=5"));
     assert!(on_notice.contains(REASONING_VERSION));
     let off_notice = reasoning_runtime_notice("off", false, 5, 20_000);
-    assert!(!off_notice.contains("engaged"), "off leaks engagement: {off_notice}");
+    assert!(
+        !off_notice.contains("engaged"),
+        "off leaks engagement: {off_notice}"
+    );
     assert!(off_notice.contains("off-path"));
 
-    unsafe { std::env::set_var("MEMD_V6_REASONING", "0"); }
+    unsafe {
+        std::env::set_var("MEMD_V6_REASONING", "0");
+    }
     assert!(!reasoning_active("on"), "env=0 forces off");
-    unsafe { std::env::remove_var("MEMD_V6_REASONING"); }
+    unsafe {
+        std::env::remove_var("MEMD_V6_REASONING");
+    }
 }
 
 /// Test 14 — F6.6 (fixture proxy).
@@ -513,7 +622,11 @@ fn canonical_locomo_token_f1_avg_gte_0_75() {
         .iter()
         .find(|r| r.bench_id == "locomo" && r.metric == "token_f1_avg")
         .unwrap();
-    assert!(row.value >= 0.75, "locomo token_f1_avg {} < 0.75", row.value);
+    assert!(
+        row.value >= 0.75,
+        "locomo token_f1_avg {} < 0.75",
+        row.value
+    );
 }
 
 /// Test 16 — F6.6 (fixture proxy).
@@ -526,7 +639,11 @@ fn canonical_membench_mc_accuracy_gte_0_75() {
         .iter()
         .find(|r| r.bench_id == "membench" && r.metric == "mc_accuracy")
         .unwrap();
-    assert!(row.value >= 0.75, "membench mc_accuracy {} < 0.75", row.value);
+    assert!(
+        row.value >= 0.75,
+        "membench mc_accuracy {} < 0.75",
+        row.value
+    );
 }
 
 /// Test 17 — F6.6 (fixture proxy).
@@ -539,7 +656,11 @@ fn canonical_convomem_judge_accuracy_gte_0_90() {
         .iter()
         .find(|r| r.bench_id == "convomem" && r.metric == "judge_accuracy")
         .unwrap();
-    assert!(row.value >= 0.90, "convomem judge_accuracy {} < 0.90", row.value);
+    assert!(
+        row.value >= 0.90,
+        "convomem judge_accuracy {} < 0.90",
+        row.value
+    );
 }
 
 /// Test 18 — F6.6 (fixture proxy).
@@ -553,5 +674,9 @@ fn retrieval_lme_session_recall_any_at_5_gte_0_95() {
         .iter()
         .find(|r| r.bench_id == "lme" && r.metric == "session_recall_any_at_5")
         .unwrap();
-    assert!(row.value >= 0.95, "lme session_recall_any@5 {} < 0.95", row.value);
+    assert!(
+        row.value >= 0.95,
+        "lme session_recall_any@5 {} < 0.95",
+        row.value
+    );
 }

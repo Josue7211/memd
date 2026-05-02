@@ -300,7 +300,8 @@ description: route project chat through a compact visible lane
 
 #[test]
 fn skill_lifecycle_roundtrip_mirror_catalog_wake_remove() {
-    let bundle = std::env::temp_dir().join(format!("memd-skill-roundtrip-{}", uuid::Uuid::new_v4()));
+    let bundle =
+        std::env::temp_dir().join(format!("memd-skill-roundtrip-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&bundle).expect("create bundle root");
 
     let (body, mirror_path) = prepare_and_mirror_skill(
@@ -340,7 +341,8 @@ fn skill_lifecycle_roundtrip_mirror_catalog_wake_remove() {
         .expect("remove mirror");
     assert!(!mirror_path.exists());
 
-    let catalog_after = build_skill_catalog(&bundle.join("skills")).expect("build skill catalog after remove");
+    let catalog_after =
+        build_skill_catalog(&bundle.join("skills")).expect("build skill catalog after remove");
     assert!(
         catalog_after
             .custom

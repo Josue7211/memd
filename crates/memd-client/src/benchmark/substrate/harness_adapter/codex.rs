@@ -6,7 +6,7 @@
 //! cross-harness runner sees a single contract.
 
 use crate::benchmark::substrate::harness_adapter::{
-    drive_script_via_gateway, HarnessAdapter, HarnessRunOutcome, MemdGateway, Script,
+    HarnessAdapter, HarnessRunOutcome, MemdGateway, Script, drive_script_via_gateway,
 };
 use std::path::{Path, PathBuf};
 
@@ -16,7 +16,9 @@ pub(crate) struct CodexAdapter {
 
 impl CodexAdapter {
     pub(crate) fn from_home() -> Self {
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default();
         Self {
             config_path: home.join(".codex").join("hooks.json"),
         }
@@ -66,10 +68,16 @@ mod tests {
         let hooks = dir.path().join("hooks.json");
 
         let adapter = CodexAdapter::with_config_path(hooks.clone());
-        assert!(!adapter.is_available(), "missing hooks.json must disqualify");
+        assert!(
+            !adapter.is_available(),
+            "missing hooks.json must disqualify"
+        );
 
         fs::write(&hooks, "garbage").unwrap();
-        assert!(!adapter.is_available(), "malformed hooks.json must disqualify");
+        assert!(
+            !adapter.is_available(),
+            "malformed hooks.json must disqualify"
+        );
 
         fs::write(&hooks, r#"{"hooks":{}}"#).unwrap();
         assert!(adapter.is_available(), "valid hooks.json must qualify");

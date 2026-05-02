@@ -13,21 +13,17 @@ use std::path::Path;
 use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
 use memd_core::preference::drift::{DriftCheck, DriftVerdict};
-use memd_core::preference::outstanding::{
-    self, OutstandingDriftState, outstanding_state_path,
-};
+use memd_core::preference::outstanding::{self, OutstandingDriftState, outstanding_state_path};
 use memd_core::preference::tick::{
     self, drift_tick_enabled, drift_tick_state_path, n_turns_from_env,
 };
 use serde::{Deserialize, Serialize};
 
 use super::args::{
-    PreferenceConfirmArgs, PreferenceDriftArgs, PreferenceListArgs,
-    PreferencePromoteArgs, PreferenceTickArgs,
+    PreferenceConfirmArgs, PreferenceDriftArgs, PreferenceListArgs, PreferencePromoteArgs,
+    PreferenceTickArgs,
 };
-use super::{
-    CorrectionCaptureArgs, run_correction_capture,
-};
+use super::{CorrectionCaptureArgs, run_correction_capture};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct PreferenceDriftLogRow {
@@ -96,8 +92,7 @@ pub(crate) fn run_preference_drift(args: &PreferenceDriftArgs) -> Result<()> {
         checked_turns,
     };
     let now_ms = Utc::now().timestamp_millis();
-    let state =
-        outstanding::record_drift(&outstanding_state_path(&args.output), &check, now_ms)?;
+    let state = outstanding::record_drift(&outstanding_state_path(&args.output), &check, now_ms)?;
 
     let surfaced = matches!(verdict, DriftVerdict::Drift);
     append_drift_log(
@@ -291,8 +286,7 @@ mod tests {
         assert_eq!(entry.violation_count, 3);
         assert_eq!(entry.checked_turns, 10);
 
-        let log_body =
-            fs::read_to_string(preference_drift_log_path(tmp.path())).unwrap();
+        let log_body = fs::read_to_string(preference_drift_log_path(tmp.path())).unwrap();
         assert!(log_body.contains("\"judge_verdict\":\"drift\""));
         assert!(log_body.contains("\"surfaced\":true"));
         assert!(log_body.contains("pref-voice-terse"));
@@ -327,7 +321,12 @@ mod tests {
         })
         .unwrap();
 
-        assert!(read_outstanding_state(tmp.path()).unwrap().entries.is_empty());
+        assert!(
+            read_outstanding_state(tmp.path())
+                .unwrap()
+                .entries
+                .is_empty()
+        );
     }
 
     #[test]
@@ -449,6 +448,11 @@ mod tests {
             json: false,
         })
         .unwrap();
-        assert!(read_outstanding_state(tmp.path()).unwrap().entries.is_empty());
+        assert!(
+            read_outstanding_state(tmp.path())
+                .unwrap()
+                .entries
+                .is_empty()
+        );
     }
 }

@@ -3,7 +3,7 @@
 //! semantics. Per `phase-a5-plan.md` §4 tests 10–14.
 
 use crate::benchmark::substrate::cross_session_recall::{
-    run_a5_in_process, run_a5_with_backend, A5RunConfig, DegradedBackend, PassGate,
+    A5RunConfig, DegradedBackend, PassGate, run_a5_in_process, run_a5_with_backend,
 };
 use crate::benchmark::substrate::fixtures::KindMix;
 use std::path::PathBuf;
@@ -161,10 +161,12 @@ fn a5_baseline_current_memd_canonical_numbers() {
             .records
             .iter()
             .find(|r| r.fact_count == floor.fact_count && r.cut_k == floor.cut_k)
-            .unwrap_or_else(|| panic!(
-                "no record for fact_count={} cut_k={}",
-                floor.fact_count, floor.cut_k
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "no record for fact_count={} cut_k={}",
+                    floor.fact_count, floor.cut_k
+                )
+            });
         assert!(
             actual.recall_at_3 + baseline.tolerance >= floor.recall_at_3,
             "regression: scenario (n={}, k={}) recall_at_3 {:.3} < floor {:.3} (tol {:.3})",
@@ -176,4 +178,3 @@ fn a5_baseline_current_memd_canonical_numbers() {
         );
     }
 }
-

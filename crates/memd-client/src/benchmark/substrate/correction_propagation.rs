@@ -10,8 +10,8 @@
 //! perfect-recall recorder that proves driver+scorer correctness; the
 //! HTTP backend is a follow-up.
 
-use crate::benchmark::substrate::fixtures::{generate_corpus, Fact, KindMix};
-use crate::benchmark::substrate::report::{append_ndjson, ScenarioRecord};
+use crate::benchmark::substrate::fixtures::{Fact, KindMix, generate_corpus};
+use crate::benchmark::substrate::report::{ScenarioRecord, append_ndjson};
 use crate::benchmark::substrate::scorers::provenance_chain_cites_correction;
 use chrono::Utc;
 use std::collections::HashMap;
@@ -111,11 +111,24 @@ pub(crate) struct QueryHit {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum B5Event {
     SessionOpened(String),
-    FactIngested { session: String, fact_id: u32 },
-    CorrectionApplied { session: String, fact_id: u32, value: String },
+    FactIngested {
+        session: String,
+        fact_id: u32,
+    },
+    CorrectionApplied {
+        session: String,
+        fact_id: u32,
+        value: String,
+    },
     SessionSealed(String),
-    SessionRestored { id: String, from: String },
-    Query { session: String, fact_id: u32 },
+    SessionRestored {
+        id: String,
+        from: String,
+    },
+    Query {
+        session: String,
+        fact_id: u32,
+    },
 }
 
 /// Per-fact backing store: current value + ordered provenance chain of
@@ -143,7 +156,10 @@ impl InProcessB5Backend {
 
 impl B5Backend for InProcessB5Backend {
     fn open_session(&self, id: &str) {
-        self.events.lock().unwrap().push(B5Event::SessionOpened(id.to_string()));
+        self.events
+            .lock()
+            .unwrap()
+            .push(B5Event::SessionOpened(id.to_string()));
     }
 
     fn ingest_fact(&self, session: &str, fact: &Fact) {
@@ -171,15 +187,21 @@ impl B5Backend for InProcessB5Backend {
         entry.value = corrected_value.to_string();
         entry.chain.push(turn);
         drop(st);
-        self.events.lock().unwrap().push(B5Event::CorrectionApplied {
-            session: session.to_string(),
-            fact_id,
-            value: corrected_value.to_string(),
-        });
+        self.events
+            .lock()
+            .unwrap()
+            .push(B5Event::CorrectionApplied {
+                session: session.to_string(),
+                fact_id,
+                value: corrected_value.to_string(),
+            });
     }
 
     fn seal_session(&self, id: &str) {
-        self.events.lock().unwrap().push(B5Event::SessionSealed(id.to_string()));
+        self.events
+            .lock()
+            .unwrap()
+            .push(B5Event::SessionSealed(id.to_string()));
     }
 
     fn restore_session(&self, id: &str, restored_from: &str) {
@@ -466,9 +488,9 @@ mod tests {
         let corrections_in_s2: Vec<_> = events
             .iter()
             .filter_map(|e| match e {
-                B5Event::CorrectionApplied { session, fact_id, .. } if session == &s2 => {
-                    Some(*fact_id)
-                }
+                B5Event::CorrectionApplied {
+                    session, fact_id, ..
+                } if session == &s2 => Some(*fact_id),
                 _ => None,
             })
             .collect();
@@ -479,11 +501,16 @@ mod tests {
         );
 
         // No corrections outside s2.
-        let other_corrections = events.iter().any(|e| matches!(
-            e,
-            B5Event::CorrectionApplied { session, .. } if session != &s2
-        ));
-        assert!(!other_corrections, "corrections must only fire in correct_in_session");
+        let other_corrections = events.iter().any(|e| {
+            matches!(
+                e,
+                B5Event::CorrectionApplied { session, .. } if session != &s2
+            )
+        });
+        assert!(
+            !other_corrections,
+            "corrections must only fire in correct_in_session"
+        );
 
         // Restore must precede correction.
         let restore_pos = events
@@ -518,7 +545,10 @@ mod tests {
                 .iter()
                 .filter(|e| matches!(e, B5Event::Query { session, .. } if session == &qsid))
                 .count();
-            assert_eq!(n_queries, cfg.fact_count, "wrong query count for session {qs}");
+            assert_eq!(
+                n_queries, cfg.fact_count,
+                "wrong query count for session {qs}"
+            );
         }
         assert_eq!(outcome.records.len(), cfg.query_sessions.len());
         // Perfect backend should pass every gate.
@@ -571,7 +601,10 @@ mod tests {
         let hit = backend
             .query_with_provenance(&s5, fact.id, &correction_turn)
             .expect("fact must be retrievable");
-        assert_eq!(hit.value, "berlin", "current value must reflect re-assertion");
+        assert_eq!(
+            hit.value, "berlin",
+            "current value must reflect re-assertion"
+        );
         assert!(
             hit.cites_correction_turn,
             "chain must still cite the s2 correction turn"

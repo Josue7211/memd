@@ -88,9 +88,9 @@ impl HookEvent {
             HookEvent::PreCompact => Some(5_000),
             HookEvent::PostCompact => Some(2_000),
             HookEvent::Stop => Some(3_000),
-            HookEvent::LedgerSeal
-            | HookEvent::LedgerRestore
-            | HookEvent::TruncationRequired => None,
+            HookEvent::LedgerSeal | HookEvent::LedgerRestore | HookEvent::TruncationRequired => {
+                None
+            }
         }
     }
 }

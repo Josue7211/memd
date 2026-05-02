@@ -19,10 +19,7 @@ pub enum ViolationKind {
     },
     /// PostCompact fired before PreCompact within the same session —
     /// the canonical halt-class swap described in contract §1.
-    OrderSwap {
-        event: HookEvent,
-        before: HookEvent,
-    },
+    OrderSwap { event: HookEvent, before: HookEvent },
 }
 
 #[derive(Debug, Default, Clone)]
@@ -132,10 +129,7 @@ mod tests {
         let mut v = FireOrderValidator::new();
         v.observe(HookEvent::SessionStart).unwrap();
         let err = v.observe(HookEvent::PostToolUse).expect_err("no pre probe");
-        assert!(matches!(
-            err,
-            ViolationKind::MissingPredecessor { .. }
-        ));
+        assert!(matches!(err, ViolationKind::MissingPredecessor { .. }));
     }
 
     #[test]
@@ -143,7 +137,9 @@ mod tests {
         let mut v = FireOrderValidator::new();
         v.observe(HookEvent::SessionStart).unwrap();
         v.observe(HookEvent::PreCompact).unwrap();
-        let err = v.observe(HookEvent::LedgerRestore).expect_err("no postcompact");
+        let err = v
+            .observe(HookEvent::LedgerRestore)
+            .expect_err("no postcompact");
         assert!(matches!(err, ViolationKind::MissingPredecessor { .. }));
     }
 }

@@ -1,7 +1,7 @@
 use super::*;
 use crate::runtime::recall::{
-    clamp_lookup_limit, depth, dispatch_lookup_with_depth, escalation, run_lookup_arm_inner,
-    synth_resume_args, synth_wake_args, telemetry, RecallDepth, LOOKUP_DEPTH_RECORD_CAP,
+    LOOKUP_DEPTH_RECORD_CAP, RecallDepth, clamp_lookup_limit, depth, dispatch_lookup_with_depth,
+    escalation, run_lookup_arm_inner, synth_resume_args, synth_wake_args, telemetry,
 };
 
 fn baseline_lookup_args(output: PathBuf, query: &str, depth: RecallDepth) -> LookupArgs {
@@ -23,7 +23,7 @@ fn baseline_lookup_args(output: PathBuf, query: &str, depth: RecallDepth) -> Loo
         json: true,
         depth,
         explain_depth: false,
-                explain_route: false,
+        explain_route: false,
     }
 }
 
@@ -94,9 +94,15 @@ fn lookup_depth_wake_returns_compiled_wake() {
     assert_eq!(wake.project.as_deref(), Some("demo"));
     assert_eq!(wake.namespace.as_deref(), Some("main"));
     assert!(!wake.raw, "wake arm should always go through the compiler");
-    assert_eq!(wake.budget_tokens, 0, "default budget defers to env/2000-default");
+    assert_eq!(
+        wake.budget_tokens, 0,
+        "default budget defers to env/2000-default"
+    );
     assert!(!wake.write, "lookup --depth wake is read-only");
-    assert!(!wake.summary, "wake arm should emit the full compiled wake doc");
+    assert!(
+        !wake.summary,
+        "wake arm should emit the full compiled wake doc"
+    );
 }
 
 // E4.2 — Test 9: At depth=Lookup the dispatcher sends a SearchMemoryRequest
@@ -109,8 +115,7 @@ async fn lookup_depth_lookup_returns_1_to_3_records() {
     assert_eq!(clamp_lookup_limit(Some(3)), 3);
     assert_eq!(clamp_lookup_limit(Some(99)), LOOKUP_DEPTH_RECORD_CAP);
 
-    let bundle =
-        std::env::temp_dir().join(format!("memd-recall-lookup-{}", uuid::Uuid::new_v4()));
+    let bundle = std::env::temp_dir().join(format!("memd-recall-lookup-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&bundle).expect("create bundle root");
 
     let state = MockRuntimeState::default();
@@ -150,8 +155,14 @@ fn lookup_depth_resume_returns_full_task_state() {
     assert_eq!(resume.output, bundle);
     assert_eq!(resume.project.as_deref(), Some("demo"));
     assert_eq!(resume.namespace.as_deref(), Some("main"));
-    assert!(!resume.prompt, "resume arm returns the full snapshot, not the prompt form");
-    assert!(!resume.summary, "resume arm returns the full snapshot, not the summary form");
+    assert!(
+        !resume.prompt,
+        "resume arm returns the full snapshot, not the prompt form"
+    );
+    assert!(
+        !resume.summary,
+        "resume arm returns the full snapshot, not the summary form"
+    );
 }
 
 // E4.3 — Test 3: "the X task/plan/issue/decision/bug/feature" specifier.
@@ -202,11 +213,8 @@ async fn lookup_depth_lookup_zero_hit_emits_escalation_hint_when_specifier() {
     // mock_search returns no items for arbitrary tagless queries by default
     // unless the query matches one of its hardcoded branches; "the migration
     // plan" does not match any → zero-hit.
-    let mut args = baseline_lookup_args(
-        bundle,
-        "the migration plan we shelved",
-        RecallDepth::Lookup,
-    );
+    let mut args =
+        baseline_lookup_args(bundle, "the migration plan we shelved", RecallDepth::Lookup);
     args.tag = vec!["resume_state".to_string()];
 
     let outcome = run_lookup_arm_inner(&client, args)
@@ -332,14 +340,8 @@ fn cli_explain_depth_prints_rationale() {
     assert!(resume.starts_with("depth: resume"));
     assert!(resume.contains("full task-state"));
 
-    let cli = Cli::try_parse_from([
-        "memd",
-        "lookup",
-        "--query",
-        "anything",
-        "--explain-depth",
-    ])
-    .expect("parse --explain-depth");
+    let cli = Cli::try_parse_from(["memd", "lookup", "--query", "anything", "--explain-depth"])
+        .expect("parse --explain-depth");
     match cli.command {
         Commands::Lookup(args) => assert!(args.explain_depth),
         other => panic!("expected lookup command, got {other:?}"),
@@ -385,7 +387,11 @@ async fn wake_cli_writes_depth_telemetry_line() {
         .expect("run wake");
 
     let lines = read_depth_log(&bundle);
-    assert_eq!(lines.len(), 1, "wake CLI must emit one depth-telemetry line");
+    assert_eq!(
+        lines.len(),
+        1,
+        "wake CLI must emit one depth-telemetry line"
+    );
     assert_eq!(lines[0]["depth"], "wake");
     assert_eq!(lines[0]["query"], "wake");
 }
@@ -443,8 +449,7 @@ async fn dispatch_fixture_set(bundle: &Path, base_url: &str, fixtures: &[Expecte
 // `cargo test` parallelism.
 #[tokio::test]
 async fn latency_budgets_hold_on_fixture_set() {
-    let bundle =
-        std::env::temp_dir().join(format!("memd-recall-latency-{}", uuid::Uuid::new_v4()));
+    let bundle = std::env::temp_dir().join(format!("memd-recall-latency-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&bundle).expect("create bundle root");
 
     let state = MockRuntimeState::default();
@@ -471,15 +476,24 @@ async fn latency_budgets_hold_on_fixture_set() {
     // `cargo test -j` does not flake.
     if let Some(lats) = by_depth.get_mut("wake") {
         let p50 = percentile(lats, 50.0);
-        assert!(p50 < 2_000, "wake p50 {p50}ms must stay <2000ms (real budget 100ms)");
+        assert!(
+            p50 < 2_000,
+            "wake p50 {p50}ms must stay <2000ms (real budget 100ms)"
+        );
     }
     if let Some(lats) = by_depth.get_mut("lookup") {
         let p50 = percentile(lats, 50.0);
-        assert!(p50 < 1_000, "lookup p50 {p50}ms must stay <1000ms (real budget 50ms)");
+        assert!(
+            p50 < 1_000,
+            "lookup p50 {p50}ms must stay <1000ms (real budget 50ms)"
+        );
     }
     if let Some(lats) = by_depth.get_mut("resume") {
         let p95 = percentile(lats, 95.0);
-        assert!(p95 < 5_000, "resume p95 {p95}ms must stay <5000ms (real budget 500ms)");
+        assert!(
+            p95 < 5_000,
+            "resume p95 {p95}ms must stay <5000ms (real budget 500ms)"
+        );
     }
 }
 
@@ -488,8 +502,7 @@ async fn latency_budgets_hold_on_fixture_set() {
 // dispatched at its expected depth; we count NDJSON lines per depth.
 #[tokio::test]
 async fn depth_distribution_test() {
-    let bundle =
-        std::env::temp_dir().join(format!("memd-recall-dist-{}", uuid::Uuid::new_v4()));
+    let bundle = std::env::temp_dir().join(format!("memd-recall-dist-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&bundle).expect("create bundle root");
 
     let state = MockRuntimeState::default();
@@ -520,9 +533,21 @@ async fn depth_distribution_test() {
         "lookup share {:.2}% must hit contract pass gate of ≥30% (counts={counts:?})",
         lookup_share * 100.0
     );
-    assert_eq!(counts.get("wake").copied().unwrap_or(0), 10, "fixture has 10 wake queries");
-    assert_eq!(counts.get("lookup").copied().unwrap_or(0), 10, "fixture has 10 lookup queries");
-    assert_eq!(counts.get("resume").copied().unwrap_or(0), 10, "fixture has 10 resume queries");
+    assert_eq!(
+        counts.get("wake").copied().unwrap_or(0),
+        10,
+        "fixture has 10 wake queries"
+    );
+    assert_eq!(
+        counts.get("lookup").copied().unwrap_or(0),
+        10,
+        "fixture has 10 lookup queries"
+    );
+    assert_eq!(
+        counts.get("resume").copied().unwrap_or(0),
+        10,
+        "fixture has 10 resume queries"
+    );
 }
 
 // E4.6 — Test 17 (bonus): specifier fixtures positively / negatively match

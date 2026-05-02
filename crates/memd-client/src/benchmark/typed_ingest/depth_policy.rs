@@ -37,10 +37,7 @@ pub(crate) fn escalate_on_empty_wake(prior_depth: &str, prior_hits: usize) -> Ne
 /// Escalation 2: model answer carries confidence < floor. Bench
 /// re-issues at `resume` tier so the answer can re-ground against
 /// the long-form record set.
-pub(crate) fn escalate_on_low_confidence(
-    answer_confidence: f64,
-    floor: f64,
-) -> NextDepth {
+pub(crate) fn escalate_on_low_confidence(answer_confidence: f64, floor: f64) -> NextDepth {
     if answer_confidence < floor {
         NextDepth::Resume
     } else {

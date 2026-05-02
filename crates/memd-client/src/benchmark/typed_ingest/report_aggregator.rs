@@ -31,7 +31,10 @@ pub(crate) fn render_v6_report(cards: &[BenchScorecard]) -> String {
     let _ = writeln!(&mut out, "<!-- {REPORT_VERSION} -->");
     let _ = writeln!(&mut out, "## V6 canonical scorecard");
     let _ = writeln!(&mut out);
-    let _ = writeln!(&mut out, "| Bench | Metric | Value | Target | Method card |");
+    let _ = writeln!(
+        &mut out,
+        "| Bench | Metric | Value | Target | Method card |"
+    );
     let _ = writeln!(&mut out, "| --- | --- | --- | --- | --- |");
     for c in cards {
         let _ = writeln!(
@@ -55,9 +58,7 @@ fn method_card_label(bench_id: &str) -> String {
 /// Verify every bench in a fixed expected list is present in the
 /// rendered report. Used by the canonical-link test.
 pub(crate) fn report_contains_all_method_cards(report: &str, cards: &[BenchScorecard]) -> bool {
-    cards
-        .iter()
-        .all(|c| report.contains(c.method_card))
+    cards.iter().all(|c| report.contains(c.method_card))
 }
 
 #[cfg(test)]

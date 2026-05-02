@@ -2439,17 +2439,17 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
             distill_model: "gpt-5.4".to_string(),
             distill_budget_milli_usd: 100,
             distill_cache_dir: None,
-        promotion_dry_run: false,
-        compiler: "off".to_string(),
-        depth_routing: "on".to_string(),
-        max_depth_calls: 3,
-        max_retrieval_tokens: 10_000,
-        reasoning: "on".to_string(),
-        max_reasoning_steps: 5,
-        max_reasoning_tokens: 20_000,
-        regenerate_report: false,
-        regenerate_10star: false,
-        allow_below_target: false,
+            promotion_dry_run: false,
+            compiler: "off".to_string(),
+            depth_routing: "on".to_string(),
+            max_depth_calls: 3,
+            max_retrieval_tokens: 10_000,
+            reasoning: "on".to_string(),
+            max_reasoning_steps: 5,
+            max_reasoning_tokens: 20_000,
+            regenerate_report: false,
+            regenerate_10star: false,
+            allow_below_target: false,
         })
         .await
         .expect("run public benchmark");
@@ -2587,17 +2587,17 @@ async fn benchmark_public_all_write_refreshes_each_latest_artifact() {
                 distill_model: "gpt-5.4".to_string(),
                 distill_budget_milli_usd: 100,
                 distill_cache_dir: None,
-        promotion_dry_run: false,
-        compiler: "off".to_string(),
-        depth_routing: "on".to_string(),
-        max_depth_calls: 3,
-        max_retrieval_tokens: 10_000,
-        reasoning: "on".to_string(),
-        max_reasoning_steps: 5,
-        max_reasoning_tokens: 20_000,
-        regenerate_report: false,
-        regenerate_10star: false,
-        allow_below_target: false,
+                promotion_dry_run: false,
+                compiler: "off".to_string(),
+                depth_routing: "on".to_string(),
+                max_depth_calls: 3,
+                max_retrieval_tokens: 10_000,
+                reasoning: "on".to_string(),
+                max_reasoning_steps: 5,
+                max_reasoning_tokens: 20_000,
+                regenerate_report: false,
+                regenerate_10star: false,
+                allow_below_target: false,
             })),
         },
         "http://127.0.0.1:8787",
@@ -2733,11 +2733,7 @@ fn parity_cfg(backend: PublicBenchmarkBackend) -> PublicBenchmarkRetrievalConfig
     }
 }
 
-fn parity_ranked_ids(
-    bench_id: &str,
-    backend: PublicBenchmarkBackend,
-    query: &str,
-) -> Vec<String> {
+fn parity_ranked_ids(bench_id: &str, backend: PublicBenchmarkBackend, query: &str) -> Vec<String> {
     let docs = parity_fixture_docs();
     let cfg = parity_cfg(backend);
     dispatch_context_retrieval_ranked(bench_id, "item-1", query, &docs, "raw", &cfg)
@@ -2974,11 +2970,20 @@ fn judge_cache_key_is_deterministic_and_sensitive() {
 #[test]
 fn estimate_judge_cost_usd_matches_openai_pricing() {
     let cost = estimate_judge_cost_usd("gpt-4o-2024-08-06", 1_000_000, 0);
-    assert!((cost - 2.50).abs() < 1e-6, "1M input tokens = $2.50, got {cost}");
+    assert!(
+        (cost - 2.50).abs() < 1e-6,
+        "1M input tokens = $2.50, got {cost}"
+    );
     let cost = estimate_judge_cost_usd("gpt-4o-2024-08-06", 0, 1_000_000);
-    assert!((cost - 10.00).abs() < 1e-6, "1M output tokens = $10.00, got {cost}");
+    assert!(
+        (cost - 10.00).abs() < 1e-6,
+        "1M output tokens = $10.00, got {cost}"
+    );
     let cost = estimate_judge_cost_usd("gpt-4o-mini", 1_000_000, 0);
-    assert!((cost - 0.15).abs() < 1e-6, "mini 1M input = $0.15, got {cost}");
+    assert!(
+        (cost - 0.15).abs() < 1e-6,
+        "mini 1M input = $0.15, got {cost}"
+    );
     let cost = estimate_judge_cost_usd("gpt-4o-2024-08-06", 0, 0);
     assert_eq!(cost, 0.0);
 }
@@ -3006,8 +3011,7 @@ async fn judge_cache_hit_serves_without_network_call() {
         "completion_tokens": 3,
         "grader_model": "gpt-4o-2024-08-06",
     });
-    fs::write(&cache_path, serde_json::to_vec_pretty(&payload).unwrap())
-        .expect("write cache file");
+    fs::write(&cache_path, serde_json::to_vec_pretty(&payload).unwrap()).expect("write cache file");
     let result = call_openai_yes_no_grader_cached_in(
         "http://127.0.0.1:1",
         "fake-key",

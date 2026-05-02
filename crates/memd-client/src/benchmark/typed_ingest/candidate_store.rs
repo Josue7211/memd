@@ -74,9 +74,8 @@ impl CandidateRecord {
 pub(crate) fn append_candidates(path: &Path, records: &[CandidateRecord]) -> Result<()> {
     use std::io::Write as _;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).with_context(|| {
-            format!("create candidate store parent dir {}", parent.display())
-        })?;
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create candidate store parent dir {}", parent.display()))?;
     }
     let mut file = std::fs::OpenOptions::new()
         .create(true)

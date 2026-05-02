@@ -74,8 +74,8 @@ pub(crate) struct DistillOutput {
 /// Validate raw judge JSON against the B6 schema. Returns the parsed
 /// candidates or a human-readable rejection reason.
 pub(crate) fn validate_distill_json(raw: &str) -> Result<DistillOutput, String> {
-    let value: serde_json::Value = serde_json::from_str(raw)
-        .map_err(|e| format!("not valid JSON: {e}"))?;
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|e| format!("not valid JSON: {e}"))?;
     let obj = value
         .as_object()
         .ok_or_else(|| "top-level must be object".to_string())?;
@@ -136,9 +136,9 @@ pub(crate) fn validate_distill_json(raw: &str) -> Result<DistillOutput, String> 
         let source_turn_ids = source_turn_ids
             .iter()
             .map(|v| {
-                v.as_str().map(|s| s.to_string()).ok_or_else(|| {
-                    format!("candidate[{i}] source_turn_ids contains non-string")
-                })
+                v.as_str()
+                    .map(|s| s.to_string())
+                    .ok_or_else(|| format!("candidate[{i}] source_turn_ids contains non-string"))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -207,9 +207,8 @@ pub(crate) fn cache_get(
     let path = cache_dir.join(format!("{key}.json"));
     match std::fs::read_to_string(&path) {
         Ok(s) => {
-            let rec: CacheRecord = serde_json::from_str(&s).map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-            })?;
+            let rec: CacheRecord = serde_json::from_str(&s)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
             Ok(Some(rec))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -218,15 +217,11 @@ pub(crate) fn cache_get(
 }
 
 /// Write a cache record, creating the directory if missing.
-pub(crate) fn cache_put(
-    cache_dir: &std::path::Path,
-    rec: &CacheRecord,
-) -> std::io::Result<()> {
+pub(crate) fn cache_put(cache_dir: &std::path::Path, rec: &CacheRecord) -> std::io::Result<()> {
     std::fs::create_dir_all(cache_dir)?;
     let path = cache_dir.join(format!("{}.json", rec.key));
-    let body = serde_json::to_string_pretty(rec).map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-    })?;
+    let body = serde_json::to_string_pretty(rec)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
     std::fs::write(path, body)
 }
 

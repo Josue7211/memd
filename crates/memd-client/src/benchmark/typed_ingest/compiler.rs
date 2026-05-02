@@ -12,13 +12,13 @@
 
 use std::path::Path;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use memd_schema::CompactMemoryRecord;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::runtime::resume::compiler::{
-    compile_wake, BucketKind, CompiledWake, CompilerInput, WakeBudget,
+    BucketKind, CompiledWake, CompilerInput, WakeBudget, compile_wake,
 };
 
 /// Schema version pin. Bumping the major invalidates prior budget files.
@@ -131,7 +131,11 @@ pub(crate) fn compile_for_bench(
     let mut sections_dropped: Vec<String> = Vec::new();
     for kind in BucketKind::ALL {
         let label = bench_label_for(kind);
-        let report = compiled.bucket_report.get(&kind).cloned().unwrap_or_default();
+        let report = compiled
+            .bucket_report
+            .get(&kind)
+            .cloned()
+            .unwrap_or_default();
         if report.admitted > 0 {
             sections_included.push(label.to_string());
         } else if report.demoted > 0 {

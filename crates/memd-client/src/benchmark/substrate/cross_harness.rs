@@ -18,7 +18,7 @@ use crate::benchmark::substrate::harness_adapter::{
     HarnessAdapter, HarnessRunOutcome, InMemoryGateway, MemdGateway, ReadResult, Scope, Script,
     ScriptStep,
 };
-use crate::benchmark::substrate::report::{append_ndjson, ScenarioRecord};
+use crate::benchmark::substrate::report::{ScenarioRecord, append_ndjson};
 use chrono::Utc;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -137,14 +137,27 @@ pub(crate) fn run_c5_with_adapters(
     let mut pair_idx = 0usize;
 
     for (writer_name, reader_name) in &config.pairs {
-        let writer = lookup_adapter(writer_name)
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("missing adapter: {writer_name}")))?;
-        let reader = lookup_adapter(reader_name)
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("missing adapter: {reader_name}")))?;
+        let writer = lookup_adapter(writer_name).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("missing adapter: {writer_name}"),
+            )
+        })?;
+        let reader = lookup_adapter(reader_name).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("missing adapter: {reader_name}"),
+            )
+        })?;
 
         for scenario in &config.scenarios {
-            let (write_script, read_script) =
-                build_scripts(*scenario, &config.project, config.seed, config.per_scenario_facts, pair_idx);
+            let (write_script, read_script) = build_scripts(
+                *scenario,
+                &config.project,
+                config.seed,
+                config.per_scenario_facts,
+                pair_idx,
+            );
 
             let t0 = Instant::now();
             let write_outcome = writer.run_script(&write_script, gateway)?;
@@ -152,8 +165,7 @@ pub(crate) fn run_c5_with_adapters(
             let elapsed_ms = t0.elapsed().as_millis() as u64;
 
             let truth = score_truth_conservation(&read_outcome);
-            let pair_leaks =
-                score_visibility_leaks(reader_name, &config.project, &read_outcome);
+            let pair_leaks = score_visibility_leaks(reader_name, &config.project, &read_outcome);
             for l in &pair_leaks {
                 leaks.push(l.clone());
             }
@@ -167,7 +179,12 @@ pub(crate) fn run_c5_with_adapters(
             }
 
             records.push(ScenarioRecord {
-                suite: format!("cross-harness::{}::{}->{}", scenario.id(), writer_name, reader_name),
+                suite: format!(
+                    "cross-harness::{}::{}->{}",
+                    scenario.id(),
+                    writer_name,
+                    reader_name
+                ),
                 run_id: run_id.clone(),
                 ts_ms,
                 seed: config.seed,
@@ -209,10 +226,8 @@ pub(crate) fn run_c5_in_process(config: &C5RunConfig) -> std::io::Result<C5Outco
     let gateway = InMemoryGateway::new();
     let claude = ClaudeCodeAdapter::from_home();
     let codex = CodexAdapter::from_home();
-    let adapters: Vec<(&str, &dyn HarnessAdapter)> = vec![
-        ("claude_code", &claude),
-        ("codex", &codex),
-    ];
+    let adapters: Vec<(&str, &dyn HarnessAdapter)> =
+        vec![("claude_code", &claude), ("codex", &codex)];
     let allow_skip = allow_skip_from_env();
     run_c5_with_skip(config, &adapters, &gateway, allow_skip)
 }
@@ -279,7 +294,13 @@ pub(crate) fn run_c5_with_skip(
         // logs surface the reason instead of pretending all is well.
         let ts_ms = Utc::now().timestamp_millis();
         let run_id = Uuid::new_v4().to_string();
-        write_skip_metadata(&filtered.results_dir, &run_id, ts_ms, &availability, skipped)?;
+        write_skip_metadata(
+            &filtered.results_dir,
+            &run_id,
+            ts_ms,
+            &availability,
+            skipped,
+        )?;
         return Ok(C5Outcome {
             records: Vec::new(),
             ndjson_path: ndjson_path_for(&filtered.results_dir, ts_ms),
@@ -460,7 +481,7 @@ fn score_visibility_leaks(
 mod tests {
     use super::*;
     use crate::benchmark::substrate::harness_adapter::{
-        claude_code::ClaudeCodeAdapter, codex::CodexAdapter, InMemoryGateway,
+        InMemoryGateway, claude_code::ClaudeCodeAdapter, codex::CodexAdapter,
     };
     use std::fs;
     use tempfile::tempdir;
@@ -525,7 +546,11 @@ mod tests {
         let outcome = run_c5_with_adapters(&cfg, &adapters, &gateway).unwrap();
 
         assert_eq!(outcome.records.len(), cfg.pairs.len() * cfg.scenarios.len());
-        assert_eq!(outcome.leaks.len(), 0, "perfect gateway must produce zero leaks");
+        assert_eq!(
+            outcome.leaks.len(),
+            0,
+            "perfect gateway must produce zero leaks"
+        );
         for r in &outcome.records {
             assert!(r.pass, "scenario {} failed", r.suite);
             assert!(
@@ -534,7 +559,11 @@ mod tests {
                 r.suite,
                 r.recall_at_1
             );
-            assert!((r.recall_at_3 - 0.0).abs() < f64::EPSILON, "{} leaks > 0", r.suite);
+            assert!(
+                (r.recall_at_3 - 0.0).abs() < f64::EPSILON,
+                "{} leaks > 0",
+                r.suite
+            );
         }
         assert!(outcome.overall_pass);
     }
@@ -560,7 +589,10 @@ mod tests {
             vec![("claude_code", &claude), ("codex", &codex)];
         let outcome = run_c5_with_adapters(&cfg, &adapters, &leaky).unwrap();
 
-        assert!(!outcome.overall_pass, "leaky gateway must fail the hard floor");
+        assert!(
+            !outcome.overall_pass,
+            "leaky gateway must fail the hard floor"
+        );
         assert!(
             !outcome.leaks.is_empty(),
             "auditor must flag every cross-harness local-scope read"

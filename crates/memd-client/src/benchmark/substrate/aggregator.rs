@@ -9,13 +9,13 @@
 //! Strict-mode regeneration rules (V5-INTEGRATION §9b) live in
 //! `ten_star_writer.rs`; this module only concerns the suites doc.
 
-use crate::benchmark::substrate::adversarial_noise::{run_g5_in_process, G5RunConfig};
-use crate::benchmark::substrate::correction_propagation::{run_b5_in_process, B5RunConfig};
-use crate::benchmark::substrate::cross_harness::{run_c5_in_process, C5RunConfig};
-use crate::benchmark::substrate::cross_session_recall::{run_a5_in_process, A5RunConfig};
-use crate::benchmark::substrate::progressive_depth::{run_d5_in_process, D5RunConfig};
-use crate::benchmark::substrate::provenance_integrity::{run_e5_in_process, E5RunConfig};
-use crate::benchmark::substrate::typed_retrieval::{run_f5_in_process, F5RunConfig};
+use crate::benchmark::substrate::adversarial_noise::{G5RunConfig, run_g5_in_process};
+use crate::benchmark::substrate::correction_propagation::{B5RunConfig, run_b5_in_process};
+use crate::benchmark::substrate::cross_harness::{C5RunConfig, run_c5_in_process};
+use crate::benchmark::substrate::cross_session_recall::{A5RunConfig, run_a5_in_process};
+use crate::benchmark::substrate::progressive_depth::{D5RunConfig, run_d5_in_process};
+use crate::benchmark::substrate::provenance_integrity::{E5RunConfig, run_e5_in_process};
+use crate::benchmark::substrate::typed_retrieval::{F5RunConfig, run_f5_in_process};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -45,7 +45,13 @@ pub(crate) struct SuiteSummary {
 
 impl SuiteSummary {
     pub(crate) fn passed(id: &str, metrics: BTreeMap<String, f64>) -> Self {
-        Self { id: id.into(), pass: true, metrics, skipped: false, fail_reason: None }
+        Self {
+            id: id.into(),
+            pass: true,
+            metrics,
+            skipped: false,
+            fail_reason: None,
+        }
     }
     pub(crate) fn failed(id: &str, reason: &str, metrics: BTreeMap<String, f64>) -> Self {
         Self {
@@ -73,8 +79,12 @@ const DOC_HEADER: &str = "# memd Substrate Benchmarks\n\n\
 > and `<!-- substrate-agg:<suite>:close -->` markers is rewritten on every\n\
 > run.\n\n";
 
-fn agg_open(suite: &str) -> String { format!("<!-- substrate-agg:{suite}:open -->") }
-fn agg_close(suite: &str) -> String { format!("<!-- substrate-agg:{suite}:close -->") }
+fn agg_open(suite: &str) -> String {
+    format!("<!-- substrate-agg:{suite}:open -->")
+}
+fn agg_close(suite: &str) -> String {
+    format!("<!-- substrate-agg:{suite}:close -->")
+}
 
 /// Render the per-suite summary section.
 fn render_suite_block(s: &SuiteSummary) -> String {
@@ -82,7 +92,13 @@ fn render_suite_block(s: &SuiteSummary) -> String {
     out.push_str(&agg_open(&s.id));
     out.push('\n');
     out.push_str(&format!("\n### {}\n\n", s.id));
-    let status = if s.skipped { "skipped" } else if s.pass { "pass" } else { "fail" };
+    let status = if s.skipped {
+        "skipped"
+    } else if s.pass {
+        "pass"
+    } else {
+        "fail"
+    };
     out.push_str(&format!("**status:** {status}\n\n"));
     if let Some(reason) = &s.fail_reason {
         out.push_str(&format!("**reason:** {reason}\n\n"));
@@ -105,7 +121,13 @@ fn render_composite(summaries: &[SuiteSummary]) -> String {
     out.push_str("## Composite\n\n");
     out.push_str("| suite | status |\n| --- | :---:|\n");
     for s in summaries {
-        let status = if s.skipped { "—" } else if s.pass { "✓" } else { "✗" };
+        let status = if s.skipped {
+            "—"
+        } else if s.pass {
+            "✓"
+        } else {
+            "✗"
+        };
         out.push_str(&format!("| {} | {} |\n", s.id, status));
     }
     let pass_count = summaries.iter().filter(|s| s.pass).count();
@@ -175,7 +197,11 @@ pub(crate) struct AggregatorOptions {
 
 impl AggregatorOptions {
     pub(crate) fn with_results_dir(results_dir: PathBuf) -> Self {
-        Self { results_dir, seed: None, fail_fast: false }
+        Self {
+            results_dir,
+            seed: None,
+            fail_fast: false,
+        }
     }
 }
 
@@ -217,7 +243,9 @@ pub(crate) fn run_aggregator(opts: &AggregatorOptions) -> Vec<SuiteSummary> {
 
 fn run_a5(opts: &AggregatorOptions) -> SuiteSummary {
     let mut cfg = A5RunConfig::default_with_results_dir(opts.results_dir.clone());
-    if let Some(s) = opts.seed { cfg.seed = s; }
+    if let Some(s) = opts.seed {
+        cfg.seed = s;
+    }
     match run_a5_in_process(&cfg) {
         Ok(o) => {
             let mut m = BTreeMap::new();
@@ -234,7 +262,9 @@ fn run_a5(opts: &AggregatorOptions) -> SuiteSummary {
 
 fn run_b5(opts: &AggregatorOptions) -> SuiteSummary {
     let mut cfg = B5RunConfig::default_with_results_dir(opts.results_dir.clone());
-    if let Some(s) = opts.seed { cfg.seed = s; }
+    if let Some(s) = opts.seed {
+        cfg.seed = s;
+    }
     match run_b5_in_process(&cfg) {
         Ok(o) => {
             let mut m = BTreeMap::new();
@@ -251,7 +281,9 @@ fn run_b5(opts: &AggregatorOptions) -> SuiteSummary {
 
 fn run_c5(opts: &AggregatorOptions) -> SuiteSummary {
     let mut cfg = C5RunConfig::default_with_results_dir(opts.results_dir.clone());
-    if let Some(s) = opts.seed { cfg.seed = s; }
+    if let Some(s) = opts.seed {
+        cfg.seed = s;
+    }
     match run_c5_in_process(&cfg) {
         Ok(o) => {
             let mut m = BTreeMap::new();
@@ -285,7 +317,9 @@ fn run_d5(opts: &AggregatorOptions) -> SuiteSummary {
 
 fn run_e5(opts: &AggregatorOptions) -> SuiteSummary {
     let mut cfg = E5RunConfig::default_with_results_dir(opts.results_dir.clone());
-    if let Some(s) = opts.seed { cfg.seed = s; }
+    if let Some(s) = opts.seed {
+        cfg.seed = s;
+    }
     match run_e5_in_process(&cfg) {
         Ok(o) => {
             let mut m = BTreeMap::new();
@@ -309,7 +343,11 @@ fn run_f5(opts: &AggregatorOptions) -> SuiteSummary {
             let mut m = BTreeMap::new();
             m.insert("queries".into(), o.records.len() as f64);
             let correct = o.records.iter().filter(|r| r.correct_at_1).count();
-            let rate = if o.records.is_empty() { 0.0 } else { correct as f64 / o.records.len() as f64 };
+            let rate = if o.records.is_empty() {
+                0.0
+            } else {
+                correct as f64 / o.records.len() as f64
+            };
             m.insert("correct_type_rate_at_1".into(), rate);
             if o.overall_pass {
                 SuiteSummary::passed("typed-retrieval", m)
@@ -323,13 +361,18 @@ fn run_f5(opts: &AggregatorOptions) -> SuiteSummary {
 
 fn run_g5(opts: &AggregatorOptions) -> SuiteSummary {
     let mut cfg = G5RunConfig::default_with_results_dir(opts.results_dir.clone());
-    if let Some(s) = opts.seed { cfg.seed = s; }
+    if let Some(s) = opts.seed {
+        cfg.seed = s;
+    }
     match run_g5_in_process(&cfg) {
         Ok(o) => {
             let mut m = BTreeMap::new();
             m.insert("canonical_wins_rate".into(), o.canonical_wins_rate);
             m.insert("noise_leak_rate".into(), o.noise_leak_rate);
-            m.insert("tie_break_by_provenance_rate".into(), o.tie_break_by_provenance_rate);
+            m.insert(
+                "tie_break_by_provenance_rate".into(),
+                o.tie_break_by_provenance_rate,
+            );
             if o.overall_pass {
                 SuiteSummary::passed("adversarial-noise", m)
             } else {

@@ -4,7 +4,7 @@ pub(crate) mod depth;
 pub(crate) mod escalation;
 pub(crate) mod telemetry;
 
-pub(crate) use depth::{depth_flag_enabled, escalation_hint_enabled, RecallDepth};
+pub(crate) use depth::{RecallDepth, depth_flag_enabled, escalation_hint_enabled};
 
 use std::time::Instant;
 
@@ -111,10 +111,9 @@ pub(crate) async fn run_lookup_arm_inner(
     args.limit = Some(clamp_lookup_limit(args.limit));
     let req = build_lookup_request(&args, runtime.as_ref())?;
     let response = lookup_with_fallbacks(client, &req, &args.query).await?;
-    let escalation_hint = (response.items.is_empty()
-        && escalation_hint_enabled()
-        && escalation::detect(&args.query))
-    .then(|| escalation::hint_line(&args.query));
+    let escalation_hint =
+        (response.items.is_empty() && escalation_hint_enabled() && escalation::detect(&args.query))
+            .then(|| escalation::hint_line(&args.query));
     let markdown = render_lookup_markdown(&args.query, &req, &response, args.verbose);
     Ok(LookupArmOutcome {
         response,

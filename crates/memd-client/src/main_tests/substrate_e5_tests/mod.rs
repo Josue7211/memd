@@ -2,10 +2,8 @@
 //! provenance-integrity` end-to-end and assert completeness rate,
 //! inject-hole detection, reproducibility. Per `phase-e5-plan.md` §4 tests 6–9.
 
-use crate::benchmark::substrate::provenance_integrity::{
-    run_e5_in_process, E5RunConfig,
-};
 use crate::benchmark::substrate::fixtures::KindMix;
+use crate::benchmark::substrate::provenance_integrity::{E5RunConfig, run_e5_in_process};
 use std::path::PathBuf;
 use tempfile::tempdir;
 
@@ -47,8 +45,14 @@ fn cli_e5_inject_hole_catches_planted() {
     let cfg = small_config(dir.path().to_path_buf(), true);
     let outcome = run_e5_in_process(&cfg).unwrap();
     // Inject-hole should reduce completeness rate below 1.0 and increase unsourced count.
-    assert!(outcome.unsourced_count > 0, "injected hole must be detected");
-    assert!(outcome.completeness_rate < 1.0, "completeness must drop below floor");
+    assert!(
+        outcome.unsourced_count > 0,
+        "injected hole must be detected"
+    );
+    assert!(
+        outcome.completeness_rate < 1.0,
+        "completeness must drop below floor"
+    );
     assert!(!outcome.overall_pass, "injected hole must fail gate");
 }
 
@@ -103,11 +107,17 @@ fn e5_baseline_lock_completeness_rate_equals_one() {
     let completeness = baseline["completeness_rate"]
         .as_f64()
         .expect("baseline must have completeness_rate");
-    assert_eq!(completeness, 1.000, "E5 hard floor: completeness_rate must be 1.000 exactly");
+    assert_eq!(
+        completeness, 1.000,
+        "E5 hard floor: completeness_rate must be 1.000 exactly"
+    );
 
     // Chain length mean >= 2.
     let chain_len = baseline["chain_length_mean"]
         .as_f64()
         .expect("baseline must have chain_length_mean");
-    assert!(chain_len >= 2.0, "E5 pass gate: chain_length_mean must be >= 2.0");
+    assert!(
+        chain_len >= 2.0,
+        "E5 pass gate: chain_length_mean must be >= 2.0"
+    );
 }

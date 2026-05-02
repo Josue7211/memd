@@ -65,7 +65,11 @@ pub(crate) fn dedupe_hash_cosine(
     candidates: Vec<DistillCandidate>,
     embeddings: Vec<Vec<f32>>,
 ) -> DedupeReport {
-    assert_eq!(candidates.len(), embeddings.len(), "embedding count mismatch");
+    assert_eq!(
+        candidates.len(),
+        embeddings.len(),
+        "embedding count mismatch"
+    );
     let mut seen_hash = std::collections::HashSet::<String>::new();
     let mut kept_embeddings: Vec<Vec<f32>> = Vec::new();
     let mut kept = Vec::with_capacity(candidates.len());

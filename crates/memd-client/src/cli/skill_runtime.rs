@@ -34,8 +34,8 @@ pub(crate) fn prepare_and_mirror_skill(
         body: body_text,
     };
 
-    let mirror_path = memd_core::skill_mirror::write_mirror(output, &skill_body)
-        .context("write skill mirror")?;
+    let mirror_path =
+        memd_core::skill_mirror::write_mirror(output, &skill_body).context("write skill mirror")?;
 
     Ok((skill_body, mirror_path))
 }
@@ -59,12 +59,8 @@ async fn run_skill_add(
         anyhow::bail!("provide --body, --body-file, or --stdin");
     };
 
-    let (skill_body, mirror_path) = prepare_and_mirror_skill(
-        &args.output,
-        &args.name,
-        &args.description,
-        body_text,
-    )?;
+    let (skill_body, mirror_path) =
+        prepare_and_mirror_skill(&args.output, &args.name, &args.description, body_text)?;
 
     let mut remember_args = RememberArgs {
         output: args.output.clone(),
@@ -153,8 +149,8 @@ fn run_skill_show(args: SkillShowArgs) -> anyhow::Result<()> {
     memd_core::skill_mirror::validate_skill_name(&args.name)?;
 
     let skill_md = args.output.join("skills").join(&args.name).join("SKILL.md");
-    let content = fs::read_to_string(&skill_md)
-        .with_context(|| format!("read skill {}", args.name))?;
+    let content =
+        fs::read_to_string(&skill_md).with_context(|| format!("read skill {}", args.name))?;
 
     println!("{}", content);
     Ok(())
@@ -296,12 +292,7 @@ mod tests {
     #[test]
     fn prepare_and_mirror_skill_rejects_invalid_name_without_writing() {
         let tmp = tempdir().unwrap();
-        let result = prepare_and_mirror_skill(
-            tmp.path(),
-            "../escape",
-            "x",
-            String::new(),
-        );
+        let result = prepare_and_mirror_skill(tmp.path(), "../escape", "x", String::new());
         assert!(result.is_err());
         let skills = tmp.path().join("skills");
         if skills.exists() {

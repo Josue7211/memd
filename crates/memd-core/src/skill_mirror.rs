@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use memd_schema::skill::SkillBody;
 
 /// Sanitize a skill name to a single safe path segment.
@@ -44,8 +44,7 @@ pub fn write_mirror(bundle_root: &Path, body: &SkillBody) -> Result<PathBuf> {
     let tmp_path = dir.join(".SKILL.md.tmp");
     std::fs::write(&tmp_path, body.render_skill_md())
         .with_context(|| format!("write tmp {tmp_path:?}"))?;
-    std::fs::rename(&tmp_path, &final_path)
-        .with_context(|| format!("rename to {final_path:?}"))?;
+    std::fs::rename(&tmp_path, &final_path).with_context(|| format!("rename to {final_path:?}"))?;
     Ok(final_path)
 }
 

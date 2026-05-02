@@ -8,9 +8,9 @@
 //!   - provenance_chain_length_mean: avg chain length across all results
 //!   - unsourced_record_count: hard floor = 0
 
-use crate::benchmark::substrate::fixtures::{generate_corpus, KindMix};
+use crate::benchmark::substrate::fixtures::{KindMix, generate_corpus};
 use crate::benchmark::substrate::provenance_auditor::audit_record;
-use crate::benchmark::substrate::report::{append_ndjson, ScenarioRecord};
+use crate::benchmark::substrate::report::{ScenarioRecord, append_ndjson};
 use chrono::Utc;
 use serde_json::json;
 use std::path::{Path, PathBuf};

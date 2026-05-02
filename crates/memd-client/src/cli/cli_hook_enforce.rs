@@ -68,11 +68,14 @@ pub(crate) fn run_hook_enforce(args: &HookEnforceArgs) -> Result<i32> {
         }
     };
 
-    let budget_ms = args.budget_ms.or_else(|| event.default_budget_ms()).or_else(|| {
-        std::env::var("MEMD_HOOK_BUDGET_OVERRIDE")
-            .ok()
-            .and_then(|raw| parse_budget_override(&raw, &event))
-    });
+    let budget_ms = args
+        .budget_ms
+        .or_else(|| event.default_budget_ms())
+        .or_else(|| {
+            std::env::var("MEMD_HOOK_BUDGET_OVERRIDE")
+                .ok()
+                .and_then(|raw| parse_budget_override(&raw, &event))
+        });
     let budget = HookBudget::from_ms(budget_ms);
 
     let posture = args
@@ -89,8 +92,7 @@ pub(crate) fn run_hook_enforce(args: &HookEnforceArgs) -> Result<i32> {
     // then check the current event against the validator. Halt-class
     // violation → exit 1 with OrderViolation trace line.
     if let Some(violation) = validate_fire_order(trace.path(), &args.session_id, event) {
-        let record =
-            build_record(event, args, budget_ms, 0, 0, FailureClass::OrderViolation);
+        let record = build_record(event, args, budget_ms, 0, 0, FailureClass::OrderViolation);
         trace.append(&record)?;
         eprintln!(
             "memd hooks enforce: fire-order violation for session={} event={}: {}",
@@ -109,8 +111,7 @@ pub(crate) fn run_hook_enforce(args: &HookEnforceArgs) -> Result<i32> {
     let _lock = match HookSessionLock::acquire(&args.output, &args.session_id, event, lock_wait) {
         Ok(g) => g,
         Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-            let record =
-                build_record(event, args, budget_ms, 0, 0, FailureClass::OrderViolation);
+            let record = build_record(event, args, budget_ms, 0, 0, FailureClass::OrderViolation);
             trace.append(&record)?;
             eprintln!(
                 "memd hooks enforce: lock contended for session={} event={} (waited {:?})",
@@ -133,8 +134,8 @@ pub(crate) fn run_hook_enforce(args: &HookEnforceArgs) -> Result<i32> {
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
 
-    let outcome = run_with_budget(cmd, budget)
-        .with_context(|| format!("spawn inner: {:?}", args.inner))?;
+    let outcome =
+        run_with_budget(cmd, budget).with_context(|| format!("spawn inner: {:?}", args.inner))?;
 
     let class = outcome.failure_class;
     let record = build_record(

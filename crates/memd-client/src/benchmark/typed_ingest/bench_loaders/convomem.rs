@@ -66,8 +66,8 @@ pub(crate) struct ConvomemAdapter {
 
 impl ConvomemAdapter {
     pub(crate) fn from_path(path: &Path) -> Result<Self> {
-        let bytes = fs::read(path)
-            .with_context(|| format!("read ConvoMem dataset {}", path.display()))?;
+        let bytes =
+            fs::read(path).with_context(|| format!("read ConvoMem dataset {}", path.display()))?;
         let file: ConvomemFile = serde_json::from_slice(&bytes)
             .with_context(|| format!("parse ConvoMem dataset {}", path.display()))?;
         Ok(Self::from_file(file))
@@ -87,7 +87,9 @@ impl ConvomemAdapter {
                 }
             }
         }
-        Self { queue: flat.into_iter() }
+        Self {
+            queue: flat.into_iter(),
+        }
     }
 }
 

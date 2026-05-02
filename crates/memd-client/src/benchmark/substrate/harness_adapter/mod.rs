@@ -144,18 +144,21 @@ pub(crate) fn drive_script_via_gateway(
     let mut outcome = HarnessRunOutcome::default();
     for step in &script.steps {
         match step {
-            ScriptStep::Write { kind, content, scope, tag } => {
-                let r = gateway.remember(
-                    harness_name,
-                    &script.project,
-                    kind,
-                    content,
-                    tag,
-                    *scope,
-                )?;
+            ScriptStep::Write {
+                kind,
+                content,
+                scope,
+                tag,
+            } => {
+                let r =
+                    gateway.remember(harness_name, &script.project, kind, content, tag, *scope)?;
                 outcome.writes.push(r);
             }
-            ScriptStep::Read { query, scope, expect_tag } => {
+            ScriptStep::Read {
+                query,
+                scope,
+                expect_tag,
+            } => {
                 let hits = gateway.lookup(harness_name, &script.project, query, *scope)?;
                 outcome.reads.push(ReadResult {
                     query: query.clone(),
@@ -234,7 +237,11 @@ impl MemdGateway for InMemoryGateway {
             tag: tag.to_string(),
             scope,
         });
-        Ok(WriteResult { id, tag: tag.to_string(), scope })
+        Ok(WriteResult {
+            id,
+            tag: tag.to_string(),
+            scope,
+        })
     }
 
     fn lookup(
@@ -340,17 +347,24 @@ mod tests {
     #[test]
     fn in_memory_gateway_isolates_local_scope_per_harness() {
         let g = InMemoryGateway::new();
-        g.remember("claude_code", "p", "fact", "secret", "secret", Scope::Local).unwrap();
+        g.remember("claude_code", "p", "fact", "secret", "secret", Scope::Local)
+            .unwrap();
         let codex_view = g.lookup("codex", "p", "secret", Scope::Local).unwrap();
-        assert!(codex_view.is_empty(), "local scope must isolate per harness");
-        let claude_view = g.lookup("claude_code", "p", "secret", Scope::Local).unwrap();
+        assert!(
+            codex_view.is_empty(),
+            "local scope must isolate per harness"
+        );
+        let claude_view = g
+            .lookup("claude_code", "p", "secret", Scope::Local)
+            .unwrap();
         assert_eq!(claude_view.len(), 1);
     }
 
     #[test]
     fn in_memory_gateway_leak_mode_breaches_local_scope() {
         let g = InMemoryGateway::with_leak_local();
-        g.remember("claude_code", "p", "fact", "secret", "secret", Scope::Local).unwrap();
+        g.remember("claude_code", "p", "fact", "secret", "secret", Scope::Local)
+            .unwrap();
         let codex_view = g.lookup("codex", "p", "secret", Scope::Local).unwrap();
         assert_eq!(codex_view.len(), 1, "leak mode should breach local scope");
         assert_eq!(codex_view[0].source_harness, "claude_code");
@@ -359,10 +373,23 @@ mod tests {
     #[test]
     fn in_memory_gateway_project_scope_crosses_harnesses() {
         let g = InMemoryGateway::new();
-        g.remember("claude_code", "p", "fact", "shared", "shared", Scope::Project).unwrap();
+        g.remember(
+            "claude_code",
+            "p",
+            "fact",
+            "shared",
+            "shared",
+            Scope::Project,
+        )
+        .unwrap();
         let codex_view = g.lookup("codex", "p", "shared", Scope::Project).unwrap();
         assert_eq!(codex_view.len(), 1);
-        let other_project = g.lookup("codex", "other", "shared", Scope::Project).unwrap();
-        assert!(other_project.is_empty(), "project scope must not leak across projects");
+        let other_project = g
+            .lookup("codex", "other", "shared", Scope::Project)
+            .unwrap();
+        assert!(
+            other_project.is_empty(),
+            "project scope must not leak across projects"
+        );
     }
 }

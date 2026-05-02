@@ -1301,8 +1301,13 @@ pub(crate) fn estimate_judge_cost_usd(
         // codex-lb models route through the user's OAuth Codex subscription
         // (flat-rate, no per-token marginal cost). Report 0.0 so the ledger
         // reflects actual marginal spend; raw token counts still recorded.
-        "gpt-5.4" | "gpt-5.3-codex" | "gpt-5.3-codex-spark"
-        | "gpt-5.2" | "gpt-oss-120b" | "gpt-oss-20b" | "codex-auto-review" => (0.0, 0.0),
+        "gpt-5.4"
+        | "gpt-5.3-codex"
+        | "gpt-5.3-codex-spark"
+        | "gpt-5.2"
+        | "gpt-oss-120b"
+        | "gpt-oss-20b"
+        | "codex-auto-review" => (0.0, 0.0),
         _ => (2.50, 10.00),
     };
     let p = prompt_tokens as f64 * input_per_mtok / 1_000_000.0;
@@ -1622,16 +1627,20 @@ pub(crate) fn dispatch_context_retrieval_ranked(
         PublicBenchmarkBackend::Memd => {
             let Some(base_url) = config.memd_base_url.as_deref() else {
                 if std::env::var_os("MEMD_BENCH_PROBES").is_some() {
-                    eprintln!(
-                        "[bench-probe] memd-fallback-no-url bench={bench_id} item={item_id}"
-                    );
+                    eprintln!("[bench-probe] memd-fallback-no-url bench={bench_id} item={item_id}");
                 }
                 return rank_public_benchmark_lexical_docs(query, docs);
             };
             let (corpus_ids, corpus): (Vec<String>, Vec<String>) = docs.iter().cloned().unzip();
             let namespace = bench_item_namespace(bench_id, item_id, &corpus_ids, &corpus);
             match rank_corpus_via_memd(
-                bench_id, base_url, query, &corpus, &corpus_ids, mode, &namespace,
+                bench_id,
+                base_url,
+                query,
+                &corpus,
+                &corpus_ids,
+                mode,
+                &namespace,
             ) {
                 Ok(ranked) => ranked_indices_to_docs(ranked, docs, query),
                 Err(err) => {
@@ -3322,9 +3331,14 @@ pub(crate) async fn build_longmemeval_community_standard_run_report(
                 grader_model,
                 &prompt,
             );
-            let grader =
-                call_openai_yes_no_grader_cached(&base_url, &api_key, grader_model, &prompt, &cache_key)
-                    .await?;
+            let grader = call_openai_yes_no_grader_cached(
+                &base_url,
+                &api_key,
+                grader_model,
+                &prompt,
+                &cache_key,
+            )
+            .await?;
             (
                 grader.content.to_ascii_lowercase().contains("yes"),
                 Some(grader.content),
@@ -3674,7 +3688,10 @@ pub(crate) async fn build_longmemeval_full_eval_report(
     } else {
         judge_cache_hits as f64 / judge_total_calls as f64
     };
-    metrics.insert("judge_prompt_tokens".to_string(), judge_prompt_tokens as f64);
+    metrics.insert(
+        "judge_prompt_tokens".to_string(),
+        judge_prompt_tokens as f64,
+    );
     metrics.insert(
         "judge_completion_tokens".to_string(),
         judge_completion_tokens as f64,
@@ -4111,10 +4128,7 @@ pub(crate) fn convomem_exact_match(predicted: &str, gold: &str) -> bool {
             .trim_matches(|c: char| matches!(c, '"' | '\'' | '`' | '.' | '!' | '?' | ',' | ';'))
             .trim();
         let lower = trimmed.to_lowercase();
-        lower
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
+        lower.split_whitespace().collect::<Vec<_>>().join(" ")
     }
     let n_pred = normalize(predicted);
     let n_gold = normalize(gold);
@@ -4143,7 +4157,11 @@ pub(crate) fn convomem_retrieval_docs(
 /// returning RIGHT/WRONG, not substring/exact match. We use the same prompt wording
 /// verbatim so judge-swap (ours = gpt-5.4, upstream = Gemini 2.5 flash) is the
 /// only deviation. Disclose the judge-swap in the PUBLIC_LEADERBOARD method card.
-pub(crate) fn build_convomem_judge_prompt(question: &str, gold: &str, model_answer: &str) -> String {
+pub(crate) fn build_convomem_judge_prompt(
+    question: &str,
+    gold: &str,
+    model_answer: &str,
+) -> String {
     let guidelines = "**Crucial Guidelines for your judgment:**\n\n1.  **Core Information is Key**: The Model's Response must contain all the **essential factual information** that directly answers the Question.\n2.  **Equivalence Counts**: Phrasing doesn't need to be identical. If the Model's Response conveys the exact same core meaning and details as the Correct Answer, even if paraphrased or structured differently, consider it correct.\n3.  **Superfluous (but Accurate) Information**: If the Model's Response includes additional details that were *not explicitly asked for* by the Question, but these details are **accurate and do not contradict** the Correct Answer, you should **still count it as correct** if the core question is fully answered.\n4.  **Partial Answers are Incorrect**: If the Model's Response is missing any essential information directly requested by the Question (even if the Correct Answer provides more detail), it is incorrect.\n5.  **Focus on the Question**: Your primary focus should be whether the Model's Response adequately addresses the Question using information that aligns with the Correct Answer. Do not penalize the model for not reiterating every single word or incidental detail from the Correct Answer if it wasn't requested.";
     format!(
         "I will provide you with a **Question**, a **Correct Answer**, and a **Model's Response**. Your sole task is to determine if the Model's Response is **sufficiently correct and complete** to answer the Question, when compared against the Correct Answer.\n\n{guidelines}\n\n**Answer only \"RIGHT\" or \"WRONG\". Do not provide any additional text, explanations, or reasoning.**\n\nQuestion: {question}\nCorrect Answer: {gold}\nModel Response: {model_answer}\n\nAnswer (RIGHT/WRONG):"
@@ -4199,10 +4217,7 @@ pub(crate) async fn build_convomem_full_eval_report(
             .map(|((_, text), _)| text.as_str())
             .collect::<Vec<_>>()
             .join("\n---\n");
-        eprintln!(
-            "[convomem]   retrieval done, context_len={}",
-            context.len()
-        );
+        eprintln!("[convomem]   retrieval done, context_len={}", context.len());
 
         let prompt = build_generation_prompt(&item.query, &context);
         eprintln!("[convomem]   calling generator…");
@@ -4216,11 +4231,8 @@ pub(crate) async fn build_convomem_full_eval_report(
         total_prompt_tokens += gen_response.prompt_tokens;
         total_completion_tokens += gen_response.completion_tokens;
 
-        let judge_prompt = build_convomem_judge_prompt(
-            &item.query,
-            &item.gold_answer,
-            &gen_response.content,
-        );
+        let judge_prompt =
+            build_convomem_judge_prompt(&item.query, &item.gold_answer, &gen_response.content);
         let cache_key = judge_cache_key(
             "convomem-full-eval",
             &item.question_id,
@@ -4241,9 +4253,7 @@ pub(crate) async fn build_convomem_full_eval_report(
         total_completion_tokens += judge.completion_tokens;
         let judge_verdict = judge.content.trim().to_ascii_uppercase();
         let is_correct = judge_verdict.contains("RIGHT") && !judge_verdict.contains("WRONG");
-        eprintln!(
-            "[convomem]   judge={judge_verdict} → correct={is_correct}"
-        );
+        eprintln!("[convomem]   judge={judge_verdict} → correct={is_correct}");
         if is_correct {
             correct += 1;
             *per_category_correct.entry(category.clone()).or_insert(0) += 1;

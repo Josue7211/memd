@@ -4,7 +4,7 @@
 //! 50 queries × 11 kinds = 550 invocations. Reports confusion matrix +
 //! correct-type-rate@1.
 
-use crate::benchmark::substrate::session_driver::{F5Scenario, BenchBackend, RecordingBackend};
+use crate::benchmark::substrate::session_driver::{BenchBackend, F5Scenario, RecordingBackend};
 use chrono::Utc;
 use memd_schema::MemoryKind;
 use serde::{Deserialize, Serialize};
@@ -75,9 +75,18 @@ pub(crate) struct ConfusionMatrix {
 impl ConfusionMatrix {
     pub(crate) fn new() -> Self {
         let kinds = vec![
-            "Fact", "Decision", "Preference", "Runbook", "Procedural",
-            "SelfModel", "Topology", "Status", "LiveTruth", "Pattern",
-            "Constraint", "Correction",
+            "Fact",
+            "Decision",
+            "Preference",
+            "Runbook",
+            "Procedural",
+            "SelfModel",
+            "Topology",
+            "Status",
+            "LiveTruth",
+            "Pattern",
+            "Constraint",
+            "Correction",
         ]
         .into_iter()
         .map(|s| s.to_string())
@@ -142,11 +151,7 @@ impl CorrectTypeScorer {
     }
 
     pub(crate) fn score_result(&self, expected: &str, actual: &str) -> f64 {
-        if expected == actual {
-            1.0
-        } else {
-            0.0
-        }
+        if expected == actual { 1.0 } else { 0.0 }
     }
 }
 
@@ -238,9 +243,8 @@ pub(crate) fn run_f5_with_backend<B: BenchBackend>(
         .append(true)
         .open(&ndjson_path)?;
     for r in &records {
-        let line = serde_json::to_string(r).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-        })?;
+        let line = serde_json::to_string(r)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
         writeln!(f, "{}", line)?;
     }
 

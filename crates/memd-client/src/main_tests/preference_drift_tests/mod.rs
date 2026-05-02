@@ -11,16 +11,14 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use memd_core::correction::judge::{JudgeTransport, RawJudgeResponse};
-use memd_core::preference::drift::{DriftConfig, DriftDetector, DriftVerdict};
-use memd_core::preference::outstanding::{
-    outstanding_state_path, read_outstanding, record_drift,
-};
 use memd_core::preference::PreferenceRecord;
+use memd_core::preference::drift::{DriftConfig, DriftDetector, DriftVerdict};
+use memd_core::preference::outstanding::{outstanding_state_path, read_outstanding, record_drift};
 use serde::Deserialize;
 use tempfile::TempDir;
 
 use crate::runtime::resume::compiler::{
-    compile_wake, drift_notes_from_outstanding, BucketKind, CompilerInput, WakeBudget,
+    BucketKind, CompilerInput, WakeBudget, compile_wake, drift_notes_from_outstanding,
 };
 use memd_schema::CompactMemoryRecord;
 
@@ -54,8 +52,7 @@ struct RestateRow {
 
 fn load_jsonl<T: for<'de> Deserialize<'de>>(name: &str) -> Vec<T> {
     let path = fixtures_root().join(name);
-    let body = fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let body = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     body.lines()
         .filter(|l| !l.trim().is_empty())
         .map(|l| serde_json::from_str(l).expect("parse fixture row"))
@@ -115,10 +112,8 @@ fn e2e_7day_dogfood_simulation() {
         .map(|t| t.content)
         .collect();
     let ok_body = fs::read_to_string(fixtures_root().join("judge-verdict-ok.json")).unwrap();
-    let aligned_detector = DriftDetector::new(
-        FixtureTransport { body: ok_body },
-        drift_config(&memd_dir),
-    );
+    let aligned_detector =
+        DriftDetector::new(FixtureTransport { body: ok_body }, drift_config(&memd_dir));
     let aligned_check = aligned_detector
         .detect(&pref_record, &aligned_turns)
         .expect("aligned detect");
@@ -130,8 +125,7 @@ fn e2e_7day_dogfood_simulation() {
     )
     .unwrap();
 
-    let outstanding_after_aligned =
-        read_outstanding(&outstanding_state_path(&memd_dir)).unwrap();
+    let outstanding_after_aligned = read_outstanding(&outstanding_state_path(&memd_dir)).unwrap();
     assert!(
         outstanding_after_aligned.entries.is_empty(),
         "aligned verdict must not seed outstanding state"
@@ -160,8 +154,7 @@ fn e2e_7day_dogfood_simulation() {
     )
     .unwrap();
 
-    let outstanding_after_drift =
-        read_outstanding(&outstanding_state_path(&memd_dir)).unwrap();
+    let outstanding_after_drift = read_outstanding(&outstanding_state_path(&memd_dir)).unwrap();
     assert_eq!(
         outstanding_after_drift.entries.len(),
         1,

@@ -17,7 +17,7 @@ use serde_json::json;
 
 use super::candidate_store::CandidateRecord;
 use super::distiller::CandidateKind;
-use super::promotion::{PromotionAccepted, PROMOTION_RULE_VERSION};
+use super::promotion::{PROMOTION_RULE_VERSION, PromotionAccepted};
 
 /// Stage discriminant — always `"canonical"`.
 pub(crate) const CANONICAL_STAGE: &str = "canonical";
@@ -127,9 +127,8 @@ impl CanonicalRecord {
 pub(crate) fn append_canonical(path: &Path, records: &[CanonicalRecord]) -> Result<()> {
     use std::io::Write as _;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).with_context(|| {
-            format!("create canonical index parent dir {}", parent.display())
-        })?;
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create canonical index parent dir {}", parent.display()))?;
     }
     let mut file = std::fs::OpenOptions::new()
         .create(true)

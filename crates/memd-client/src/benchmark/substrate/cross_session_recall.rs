@@ -7,8 +7,8 @@
 //! follow-up that talks to a spawned `memd-server` process; the
 //! call-site here is identical, only the trait impl changes.
 
-use crate::benchmark::substrate::fixtures::{generate_corpus, KindMix};
-use crate::benchmark::substrate::report::{append_ndjson, ScenarioRecord};
+use crate::benchmark::substrate::fixtures::{KindMix, generate_corpus};
+use crate::benchmark::substrate::report::{ScenarioRecord, append_ndjson};
 use crate::benchmark::substrate::session_driver::{A5Scenario, BenchBackend, RecordingBackend};
 use chrono::Utc;
 use std::path::{Path, PathBuf};

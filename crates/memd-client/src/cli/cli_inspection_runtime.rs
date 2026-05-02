@@ -924,10 +924,7 @@ pub(crate) async fn run_consolidate_command(
     Ok(())
 }
 
-pub(crate) async fn run_dedup_command(
-    client: &MemdClient,
-    args: DedupArgs,
-) -> anyhow::Result<()> {
+pub(crate) async fn run_dedup_command(client: &MemdClient, args: DedupArgs) -> anyhow::Result<()> {
     let response = client
         .dedup_scan(&memd_schema::DedupScanRequest {
             project: args.project.clone(),

@@ -1319,13 +1319,11 @@ pub(crate) async fn run_public_benchmark_command(
     // distillation; same gate applies to `episodic+semantic`.
     if let Some(mode) = args.typed_ingest.as_deref() {
         let active = std::env::var("MEMD_V6_TYPED_INGEST").ok().as_deref() == Some("1");
-        let model = crate::benchmark::typed_ingest::distiller::effective_distill_model(
-            &args.distill_model,
-        );
+        let model =
+            crate::benchmark::typed_ingest::distiller::effective_distill_model(&args.distill_model);
         let cache_on = crate::benchmark::typed_ingest::distiller::cache_enabled();
-        let dry_run = crate::benchmark::typed_ingest::promotion_dry_run_active(
-            args.promotion_dry_run,
-        );
+        let dry_run =
+            crate::benchmark::typed_ingest::promotion_dry_run_active(args.promotion_dry_run);
         eprintln!(
             "{}",
             crate::benchmark::typed_ingest::typed_ingest_runtime_notice(

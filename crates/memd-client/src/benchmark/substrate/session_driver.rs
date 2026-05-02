@@ -63,10 +63,13 @@ impl BenchBackend for RecordingBackend {
     }
 
     fn ingest_fact(&self, session: &str, fact: &Fact) {
-        self.events.lock().unwrap().push(SessionEvent::FactIngested {
-            session: session.to_string(),
-            fact_id: fact.id,
-        });
+        self.events
+            .lock()
+            .unwrap()
+            .push(SessionEvent::FactIngested {
+                session: session.to_string(),
+                fact_id: fact.id,
+            });
         self.facts.lock().unwrap().push(fact.clone());
     }
 
@@ -78,10 +81,13 @@ impl BenchBackend for RecordingBackend {
     }
 
     fn restore_session(&self, id: &str, restored_from: &str) {
-        self.events.lock().unwrap().push(SessionEvent::SessionRestored {
-            id: id.to_string(),
-            restored_from: restored_from.to_string(),
-        });
+        self.events
+            .lock()
+            .unwrap()
+            .push(SessionEvent::SessionRestored {
+                id: id.to_string(),
+                restored_from: restored_from.to_string(),
+            });
     }
 
     fn query_for_fact(&self, session: &str, fact_id: u32) -> Option<String> {
@@ -112,7 +118,10 @@ pub(crate) struct A5Scenario {
 
 impl A5Scenario {
     fn session_id(&self, idx: usize) -> String {
-        format!("a5-{}-seed{}-cut{}-s{}", self.suite, self.seed, self.cut_k, idx)
+        format!(
+            "a5-{}-seed{}-cut{}-s{}",
+            self.suite, self.seed, self.cut_k, idx
+        )
     }
 
     /// Drives `backend` through the scenario:
@@ -194,7 +203,7 @@ pub(crate) struct F5ScenarioOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::benchmark::substrate::fixtures::{generate_corpus, KindMix};
+    use crate::benchmark::substrate::fixtures::{KindMix, generate_corpus};
 
     fn small_scenario(cut_k: usize) -> A5Scenario {
         A5Scenario {
@@ -235,7 +244,10 @@ mod tests {
         assert!(s0_seal > s0_open, "seal must follow open");
 
         let between = &events[s0_open + 1..s0_seal];
-        assert!(!between.is_empty(), "session-0 must ingest at least one fact");
+        assert!(
+            !between.is_empty(),
+            "session-0 must ingest at least one fact"
+        );
         for e in between {
             match e {
                 SessionEvent::FactIngested { session, .. } => assert_eq!(session, &s0_id),
@@ -267,14 +279,19 @@ mod tests {
                 .unwrap_or_else(|| panic!("open({next_id}) missing"));
             let restore = events
                 .iter()
-                .position(|e| matches!(
-                    e,
-                    SessionEvent::SessionRestored { id, restored_from }
-                        if id == &next_id && restored_from == &prev_id
-                ))
+                .position(|e| {
+                    matches!(
+                        e,
+                        SessionEvent::SessionRestored { id, restored_from }
+                            if id == &next_id && restored_from == &prev_id
+                    )
+                })
                 .unwrap_or_else(|| panic!("restore({next_id}<-{prev_id}) missing"));
 
-            assert!(seal < open, "seal of {prev_id} must precede open of {next_id}");
+            assert!(
+                seal < open,
+                "seal of {prev_id} must precede open of {next_id}"
+            );
             assert!(open < restore, "restore must run after open");
         }
     }

@@ -43,11 +43,17 @@ pub(crate) fn render_competitor_card(entries: &[CompetitorEntry]) -> String {
     }
     out.push('\n');
     out.push_str("| --- | --- |");
-    for _ in SUITE_ORDER { out.push_str(" ---:|"); }
+    for _ in SUITE_ORDER {
+        out.push_str(" ---:|");
+    }
     out.push('\n');
 
     for e in entries {
-        out.push_str(&format!("| {} | {} |", e.name, render_source(&e.primary_source)));
+        out.push_str(&format!(
+            "| {} | {} |",
+            e.name,
+            render_source(&e.primary_source)
+        ));
         for s in SUITE_ORDER {
             let cell = match e.metrics.get(*s) {
                 Some(Some(v)) => format!(" {v:.3} |"),
@@ -62,7 +68,11 @@ pub(crate) fn render_competitor_card(entries: &[CompetitorEntry]) -> String {
 }
 
 fn render_source(s: &str) -> String {
-    if s.is_empty() { PLACEHOLDER.into() } else { s.into() }
+    if s.is_empty() {
+        PLACEHOLDER.into()
+    } else {
+        s.into()
+    }
 }
 
 /// Read a fixture JSON describing one competitor entry. Returns
@@ -71,7 +81,11 @@ pub(crate) fn load_competitor_fixture(path: &Path) -> std::io::Result<Competitor
     let body = std::fs::read_to_string(path)?;
     let v: serde_json::Value = serde_json::from_str(&body)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    let name = v.get("name").and_then(|x| x.as_str()).unwrap_or("unknown").to_string();
+    let name = v
+        .get("name")
+        .and_then(|x| x.as_str())
+        .unwrap_or("unknown")
+        .to_string();
     let primary_source = v
         .get("primary_source")
         .and_then(|x| x.as_str())
@@ -84,7 +98,11 @@ pub(crate) fn load_competitor_fixture(path: &Path) -> std::io::Result<Competitor
             metrics.insert(k.clone(), cell);
         }
     }
-    Ok(CompetitorEntry { name, primary_source, metrics })
+    Ok(CompetitorEntry {
+        name,
+        primary_source,
+        metrics,
+    })
 }
 
 const DOC_HEADER: &str = "# Substrate Competitor Card\n\n\
@@ -121,7 +139,10 @@ mod tests {
         assert!(body.contains("| MemPalace |"));
         // Source column + 7 suite cells all placeholder, plus the header.
         let placeholder_count = body.matches(PLACEHOLDER).count();
-        assert_eq!(placeholder_count, HEADER_OCCURRENCES + 1 + SUITE_ORDER.len());
+        assert_eq!(
+            placeholder_count,
+            HEADER_OCCURRENCES + 1 + SUITE_ORDER.len()
+        );
     }
 
     #[test]

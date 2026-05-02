@@ -39,11 +39,11 @@ mod tests {
     /// the next, the assertion sequence inside the driver test fires.
     #[tokio::test]
     async fn t11_ci_harness_passes_10_of_10_on_clean_tree() {
+        use crate::MemdClient;
         use crate::cli::{
             HookArgs, HookMode, HookRestoreArgs, HookSealLedgerArgs, run_hook_mode,
             run_hook_restore,
         };
-        use crate::MemdClient;
         use memd_core::file_ledger::{append_file_interaction, ledger_path};
 
         let client = MemdClient::new("http://127.0.0.1:1").expect("client");

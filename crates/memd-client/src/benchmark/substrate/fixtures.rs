@@ -90,8 +90,8 @@ impl SplitMix64 {
 }
 
 const SUBJECTS: &[&str] = &[
-    "alice", "bob", "carol", "dave", "erin", "frank", "grace", "heidi",
-    "ivan", "judy", "ken", "leo", "mallory", "nina", "olivia", "peggy",
+    "alice", "bob", "carol", "dave", "erin", "frank", "grace", "heidi", "ivan", "judy", "ken",
+    "leo", "mallory", "nina", "olivia", "peggy",
 ];
 
 const PREDICATES_CANONICAL: &[&str] = &[
@@ -103,21 +103,9 @@ const PREDICATES_CANONICAL: &[&str] = &[
     "graduated_from",
 ];
 
-const PREDICATES_SEMANTIC: &[&str] = &[
-    "describes",
-    "summarises",
-    "narrates",
-    "explains",
-    "frames",
-];
+const PREDICATES_SEMANTIC: &[&str] = &["describes", "summarises", "narrates", "explains", "frames"];
 
-const PREDICATES_PREFERENCE: &[&str] = &[
-    "prefers",
-    "likes",
-    "dislikes",
-    "avoids",
-    "tolerates",
-];
+const PREDICATES_PREFERENCE: &[&str] = &["prefers", "likes", "dislikes", "avoids", "tolerates"];
 
 const VALUES_PLACE: &[&str] = &[
     "berlin", "tokyo", "lima", "lisbon", "oslo", "kyoto", "porto", "ankara",
@@ -217,7 +205,10 @@ mod tests {
         let mix = KindMix::default();
         let a = generate_corpus(42, 50, &mix);
         let b = generate_corpus(42, 50, &mix);
-        assert_eq!(a, b, "same (seed, count, mix) must produce identical Vec<Fact>");
+        assert_eq!(
+            a, b,
+            "same (seed, count, mix) must produce identical Vec<Fact>"
+        );
 
         let a_bytes = serde_json::to_vec(&a).unwrap();
         let b_bytes = serde_json::to_vec(&b).unwrap();

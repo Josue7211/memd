@@ -5,17 +5,17 @@
 //! to canonical. See `docs/phases/v6/phase-a6-plan.md` and
 //! `docs/phases/v6/V6-INTEGRATION.md`.
 
-pub(crate) mod episodic;
 pub(crate) mod bench_loaders;
-pub(crate) mod ingest_card;
-pub(crate) mod distiller;
-pub(crate) mod dedupe;
 pub(crate) mod candidate_store;
-pub(crate) mod promotion;
 pub(crate) mod canonical_index;
 pub(crate) mod compiler;
-pub(crate) mod depth_router;
+pub(crate) mod dedupe;
 pub(crate) mod depth_policy;
+pub(crate) mod depth_router;
+pub(crate) mod distiller;
+pub(crate) mod episodic;
+pub(crate) mod ingest_card;
+pub(crate) mod promotion;
 pub(crate) mod reasoning;
 pub(crate) mod report_aggregator;
 pub(crate) mod star_regen;
@@ -24,11 +24,10 @@ pub(crate) use episodic::{EpisodicAdapter, EpisodicProvenance};
 
 use std::path::Path;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 use bench_loaders::{
-    convomem::ConvomemAdapter, lme::LmeAdapter, locomo::LocomoAdapter,
-    membench::MembenchAdapter,
+    convomem::ConvomemAdapter, lme::LmeAdapter, locomo::LocomoAdapter, membench::MembenchAdapter,
 };
 
 /// Format the user-visible notice emitted by the runtime when
@@ -81,11 +80,7 @@ pub(crate) fn typed_ingest_runtime_notice(
 /// C6 dry-run resolution: env `MEMD_V6_PROMOTION_DRY_RUN=1` always
 /// forces dry-run; otherwise falls back to the CLI flag. Pure read.
 pub(crate) fn promotion_dry_run_active(cli_flag: bool) -> bool {
-    if std::env::var("MEMD_V6_PROMOTION_DRY_RUN")
-        .ok()
-        .as_deref()
-        == Some("1")
-    {
+    if std::env::var("MEMD_V6_PROMOTION_DRY_RUN").ok().as_deref() == Some("1") {
         return true;
     }
     cli_flag
@@ -138,7 +133,10 @@ pub(crate) fn reasoning_runtime_notice(
     if active {
         format!(
             "[bench] --reasoning=on engaged; max_steps={} max_tokens={} harness={}{}",
-            max_steps, max_tokens, reasoning::REASONING_VERSION, resolution
+            max_steps,
+            max_tokens,
+            reasoning::REASONING_VERSION,
+            resolution
         )
     } else {
         format!(
