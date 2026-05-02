@@ -159,6 +159,14 @@
       "sha256": "acaa9a52a9f5b5b4e6e2208535a01f6014ca48df7f314345780a54e811528e29"
     },
     {
+      "name": "memd-turn-tick.sh",
+      "path": ".memd/hooks/memd-turn-tick.sh",
+      "event": "UserPromptSubmit",
+      "harness": "claude-code",
+      "purpose": "F4.7 per-turn drift driver: calls `memd preference tick` each turn so cadence rollovers append `tick_fire` rows to .memd/logs/preference-drift.ndjson. Gated on MEMD_F4_PREF_DRIFT.",
+      "sha256": "260472ffef783f607dd7a6e2612d6083ad7f2eed1177275a7a3549048b9aeb7b"
+    },
+    {
       "name": "memd-stop-save.ps1",
       "path": ".memd/hooks/memd-stop-save.ps1",
       "event": "Stop",

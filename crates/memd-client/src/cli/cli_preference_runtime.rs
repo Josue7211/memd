@@ -169,6 +169,34 @@ pub(crate) fn run_preference_tick(args: &PreferenceTickArgs) -> Result<()> {
     let n = args.n_turns.unwrap_or_else(n_turns_from_env);
     let path = drift_tick_state_path(&args.output);
     let outcome = tick::record_turn(&path, n)?;
+
+    // F4.7 driver — emit a tick-fire row to preference-drift.ndjson on
+    // every Nth turn so the dogfood log accumulates real per-turn
+    // telemetry. Verdict is `tick_fire` (a non-judge marker) since this
+    // is the lightweight cadence signal; full LLM-judge invocation is a
+    // separate verb (`memd preference drift`) and is not auto-fired here
+    // to keep tokens at zero in the dogfood path.
+    if outcome.should_fire {
+        append_drift_log(
+            &args.output,
+            &PreferenceDriftLogRow {
+                ts_ms: Utc::now().timestamp_millis(),
+                session_id: args.session_id.clone(),
+                preference_id: "tick-fire".into(),
+                checked_turns: n,
+                violation_count: 0,
+                judge_verdict: "tick_fire".into(),
+                judge_confidence: 0.0,
+                rationale: Some(format!(
+                    "per-turn driver fired at counter={}",
+                    outcome.counter
+                )),
+                surfaced: false,
+                source: "preference-tick".into(),
+            },
+        )?;
+    }
+
     if args.json {
         println!(
             "{}",
@@ -376,6 +404,7 @@ mod tests {
             run_preference_tick(&PreferenceTickArgs {
                 n_turns: Some(2),
                 force_enabled: true,
+                session_id: None,
                 output: tmp.path().to_path_buf(),
                 json: false,
             })
@@ -405,12 +434,66 @@ mod tests {
         run_preference_tick(&PreferenceTickArgs {
             n_turns: Some(1),
             force_enabled: false,
+            session_id: None,
             output: tmp.path().to_path_buf(),
             json: false,
         })
         .unwrap();
         // No state file written.
         assert!(!drift_tick_state_path(tmp.path()).exists());
+    }
+
+    /// F4.7 driver: tick that fires emits a `tick_fire` row to
+    /// `preference-drift.ndjson` so dogfood NDJSON harvest is feasible.
+    #[test]
+    fn cli_preference_tick_emits_ndjson_row_when_fires() {
+        let tmp = TempDir::new().unwrap();
+        for _ in 0..3 {
+            run_preference_tick(&PreferenceTickArgs {
+                n_turns: Some(3),
+                force_enabled: true,
+                session_id: Some("sess-f47".into()),
+                output: tmp.path().to_path_buf(),
+                json: false,
+            })
+            .unwrap();
+        }
+        // Three ticks at n=3 → fires once at counter=3 → exactly one
+        // row in preference-drift.ndjson.
+        let log = preference_drift_log_path(tmp.path());
+        let body = fs::read_to_string(&log).expect("ndjson exists after fire");
+        let lines: Vec<&str> = body.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 1, "exactly one tick_fire row");
+        let parsed: PreferenceDriftLogRow = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(parsed.judge_verdict, "tick_fire");
+        assert_eq!(parsed.preference_id, "tick-fire");
+        assert_eq!(parsed.checked_turns, 3);
+        assert_eq!(parsed.session_id.as_deref(), Some("sess-f47"));
+        assert_eq!(parsed.source, "preference-tick");
+        assert!(!parsed.surfaced);
+    }
+
+    /// F4.7 driver: ticks that do NOT fire must not append to the
+    /// drift log — log size stays zero across pre-fire turns.
+    #[test]
+    fn cli_preference_tick_no_ndjson_row_when_pre_fire() {
+        let tmp = TempDir::new().unwrap();
+        // Two ticks at n=5 → no fire yet (counter=2 < 5).
+        for _ in 0..2 {
+            run_preference_tick(&PreferenceTickArgs {
+                n_turns: Some(5),
+                force_enabled: true,
+                session_id: None,
+                output: tmp.path().to_path_buf(),
+                json: false,
+            })
+            .unwrap();
+        }
+        let log = preference_drift_log_path(tmp.path());
+        assert!(
+            !log.exists(),
+            "no NDJSON row when tick has not fired yet (counter < n)"
+        );
     }
 
     #[test]

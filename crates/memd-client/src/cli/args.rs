@@ -271,6 +271,11 @@ pub(crate) struct PreferenceTickArgs {
     /// tests; production callers honor the env gate by default.
     #[arg(long, default_value_t = false)]
     pub(crate) force_enabled: bool,
+    /// Session ID stamped into the `preference-drift.ndjson` row when
+    /// the tick fires. Hooks pass this in from the harness so dogfood
+    /// rows are joinable to the originating session.
+    #[arg(long)]
+    pub(crate) session_id: Option<String>,
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     pub(crate) output: PathBuf,
     #[arg(long, default_value_t = false)]
