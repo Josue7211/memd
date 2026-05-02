@@ -67,6 +67,10 @@ Three concrete tasks the deviation record forwards:
    `docs/superpowers/plans/2026-05-02-living-skills-phase2-records-as-truth.md`.
    7 build steps P2.1 → P2.7, 17 named tests, all anticipated by Phase 1
    contract §10/§11. Independent of V5 axis lifts — can land in parallel.
+4. **Fix V5 substrate-bench workflow red on `research/mining`** —
+   8 failures (6× D5 fixture NotFound, 2× G5 aggregator/e2e). These
+   are V5-in-progress and NOT a V4 regression; the V4 close stands.
+   Belongs in the V5 substrate-bench lane.
 
 ---
 
@@ -115,9 +119,15 @@ before doing anything else.
 - All 4 V4 phases (A4–G4) marked complete in roadmap table.
 - `MILESTONE-v4.md` frontmatter: `status: complete`, `closed: 2026-05-02`.
 - `MEMD-10-STAR.md` composite cell: **3.60/10**.
-- ci.yml run `25254864225` triggered post-fmt; verification scheduled
-  cron `c698471e` (2026-05-03 11:23 local) will confirm green or write
-  `docs/handoff/2026-05-03-v4-close-ci-followup.md` if it failed.
+- ci.yml + v4-proof-harness workflows green on `3e7fbc6`
+  (verified 2026-05-02 ~15:10Z by background watcher).
+- **substrate-bench workflow red on `3e7fbc6`** — 8 V5-in-progress
+  failures: 6× D5 fixture-missing (`Os { code: 2, NotFound }`), 2× G5
+  (`aggregator_writes_10star_composite_section` expects rr=6 vs
+  observed rr=4; `cli_bench_substrate_all_end_to_end_on_clean_tree`).
+  These are V5 substrate-bench tests that were already red pre-V4-close;
+  fixing belongs in V5 lane, not the V4 close. Do not block on this
+  for Phase 2 execution.
 - 3 memd memories captured this session: cron-from-default-branch,
   V4 close decision, F4.7 driver gap.
 
