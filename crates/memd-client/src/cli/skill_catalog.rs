@@ -448,4 +448,13 @@ mod tests {
         let (_, _, record_id) = parse_skill_metadata(Path::new("skills/demo/SKILL.md"), raw);
         assert!(record_id.is_none());
     }
+
+    #[test]
+    fn cache_deserializes_pre_phase1_entries_without_record_id() {
+        let pre_phase1 = r#"{"entries":[{"path":"skills/x/SKILL.md","len":42,"modified":null,"name":"x","summary":"s","source":"src","status":"active","usage":"u","decision":"d"}]}"#;
+        let cache: SkillCatalogCacheFile =
+            serde_json::from_str(pre_phase1).expect("pre-Phase-1 cache must deserialize");
+        assert_eq!(cache.entries.len(), 1);
+        assert!(cache.entries[0].record_id.is_none());
+    }
 }

@@ -4,20 +4,29 @@ use anyhow::{anyhow, Context, Result};
 use memd_schema::skill::SkillBody;
 
 /// Sanitize a skill name to a single safe path segment.
-/// Rejects empty, traversal, separators, and leading dots.
+/// Contract (`docs/contracts/skill-record.md` §3): `^[a-z0-9][a-z0-9_-]*$`.
+/// Lowercase only — SkillCatalog matching is case-sensitive and case-folding
+/// filesystems would otherwise create silent collisions.
 pub fn validate_skill_name(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(anyhow!("skill name is empty"));
     }
-    if name.starts_with('.') {
-        return Err(anyhow!("skill name may not start with '.'"));
-    }
     if name.contains('/') || name.contains('\\') || name.contains("..") {
         return Err(anyhow!("skill name contains illegal path chars: {name}"));
     }
-    if name.chars().any(|c| !(c.is_ascii_alphanumeric() || c == '-' || c == '_')) {
+    let mut chars = name.chars();
+    let first = chars.next().unwrap();
+    if !(first.is_ascii_lowercase() || first.is_ascii_digit()) {
         return Err(anyhow!(
-            "skill name must be ascii alphanumeric, '-' or '_': {name}"
+            "skill name must start with a lowercase letter or digit: {name}"
+        ));
+    }
+    if name
+        .chars()
+        .any(|c| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_'))
+    {
+        return Err(anyhow!(
+            "skill name must be lowercase ascii, digits, '-', or '_': {name}"
         ));
     }
     Ok(())
@@ -103,6 +112,27 @@ mod tests {
         assert!(contents.contains("v2"));
         // tmp file should not linger
         assert!(!tmp.path().join("skills/ship/.SKILL.md.tmp").exists());
+    }
+
+    #[test]
+    fn validate_skill_name_rejects_uppercase() {
+        assert!(validate_skill_name("Bad-Name").is_err());
+        assert!(validate_skill_name("aBc").is_err());
+    }
+
+    #[test]
+    fn validate_skill_name_rejects_leading_separator() {
+        assert!(validate_skill_name("-bad").is_err());
+        assert!(validate_skill_name("_bad").is_err());
+        assert!(validate_skill_name(".bad").is_err());
+    }
+
+    #[test]
+    fn validate_skill_name_accepts_contract_pattern() {
+        assert!(validate_skill_name("a").is_ok());
+        assert!(validate_skill_name("0skill").is_ok());
+        assert!(validate_skill_name("living-skills-bootstrap").is_ok());
+        assert!(validate_skill_name("skill_v2").is_ok());
     }
 
     #[test]
