@@ -1,1 +1,1 @@
-2026-04-25-g4-harness-built-watch-active-next-v5-or-may2-close.md
+2026-05-02-living-skills-phase1-closed-next-phase2.md
