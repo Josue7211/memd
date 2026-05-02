@@ -203,6 +203,7 @@ mod hive_coordination_tests;
 mod hook_contract_tests;
 mod preference_drift_tests;
 mod public_benchmark_tests;
+mod real_server_support;
 mod recall_depth_tests;
 mod runtime_memory_tests;
 mod runtime_verification_tests;
