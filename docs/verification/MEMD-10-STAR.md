@@ -40,14 +40,14 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 | Axis | Weight | Score | Status |
 |------|--------|-------|--------|
 | Session continuity | 20% | 4/10 | A4 ledger survives compaction (seal → restore 10/10 loop) + B4 contract-gated enforce wrapper with trace + budget + per-(session,event) lock + A5 substrate-native cross-session-recall benchmark with locked floor + nightly regression gate |
-| Correction retention | 15% | 1/10 | mechanics exist, no end-to-end flow, never proven in a session |
-| Procedural reuse | 15% | 1/10 | detect dead code, RetrievalIntent::Procedural unreachable, table empty |
-| Cross-harness continuity | 15% | 2/10 | 6 presets, never cross-tested, handoff unverified — V5 C5 substrate suite landed 2026-04-25 (banked +1, materializes 2→4 atomically when V4 G4 closes 2026-05-02) |
+| Correction retention | 15% | 4/10 | C4 correction lane + F4 preference drift detector landed; G4 asserter `assert_c4_correction_provenance` green on 3-session harness (synthetic; real-session NDJSON deferred to V5+ per V4 deviation 2026-05-02) | evidence: v4-proof-runs/2026-05-02-stability-pass-2-and-close.md |
+| Procedural reuse | 15% | 2/10 | F4.7 instrumentation seed (counter, master gate, log writer); per-turn driver not wired (V5 scope); no behavior credit | evidence: v4-proof-runs/2026-05-02-stability-pass-2-and-close.md |
+| Cross-harness continuity | 15% | 4/10 | V4 G4 cross-harness flip asserter green (2→3) + V5 C5 substrate suite materializes banked +1 (3→4) on V4 G4 close 2026-05-02 | evidence: v4-proof-runs/2026-05-02-stability-pass-2-and-close.md |
 | Raw retrieval strength | 15% | 4/10 | search works, wake/working excludes most kinds, no LongMemEval |
-| Token efficiency | 10% | 2/10 | budget enforced, no cost measurement, noise burns budget |
+| Token efficiency | 10% | 4/10 | D4 wake compiler + E4 depth-contract metrics; G4 asserter `assert_d4_wake_within_budget` green on 3-session harness | evidence: v4-proof-runs/2026-05-02-stability-pass-2-and-close.md |
 | Trust + provenance | 10% | 3/10 | explain + hook-trace NDJSON with ts_ms/trace_id/session_id/failure_class per hook line + doctor --check contract |
 
-**Composite: 2.50/10 (A5 rescore 2026-04-25 — session continuity 3→4)**
+**Composite: 3.60/10 (V4 close 2026-05-02 — correction_retention 1→4, procedural_reuse 1→2, cross_harness 2→4 with C5 bank, token_efficiency 2→4)**
 *Prior composite 2.9 counted "code exists" as partial credit; regrade counts only "user gets value."*
 *Prior axis table (scores 2,2,1,3,4,6,5) summed to 3.0 but reported 1.8 — reconciled 2026-04-22 to the pessimistic axis row that actually yields 1.80.*
 *2026-04-24: session continuity axis moved 1 → 2 on A4 ledger-survival gate (10/10 loop, zero breach lines). Composite moved 1.80 → 2.00. Evidence:*
@@ -108,6 +108,13 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 - *Locked floor `docs/verification/substrate-baselines/f5-2026-04-25.json` — 550 queries (50 × 11 kinds, excluding Correction), correct_type_rate@1 = 1.000, per-kind rates all 1.000 except Correction (out of scope), in-process perfect-recall router*
 - *Nightly + push-gate `.github/workflows/substrate-bench.yml` — paths-filter extended to substrate_f5_tests, F5 reproducibility step (`--suite typed-retrieval --seed 46`)*
 - *Router integration deferred; F5 scorer uses synthetic perfect-recall backend. Real router with --explain-route emits routed_kinds + rationale for G5 integration.*
+
+*2026-05-02: V4 milestone closes. Composite 2.50 → 3.60 (+1.10) on amended-gate close per `MILESTONE-v4-deviation-2026-05-02.md`. Axis lifts: correction_retention 1→4, procedural_reuse 1→2, cross_harness 2→4 (V4 G4 +1 + V5 C5 banked +1 materialize), token_efficiency 2→4. G4.4 strict-mode regenerator invariant satisfied (observed ≤ milestone targets on every axis; observations sourced from G4 harness asserter outcomes per deviation, not real-session NDJSON). Evidence:*
+- *G4 harness suite green at commit `a187a41` — 15 tests pass (asserters t3–t8, regenerator t9–t10, CI helpers t11–t12, parser + driver)*
+- *Stability pass #1 `docs/verification/v4-proof-runs/2026-04-25-stability-pass-1.md` (10/10 local at `fd7691e`)*
+- *Stability pass #2 + close `docs/verification/v4-proof-runs/2026-05-02-stability-pass-2-and-close.md` (10/10 local at `a187a41`)*
+- *Deviation record `docs/verification/milestones/MILESTONE-v4-deviation-2026-05-02.md` — 7-day cron blocked by workflow-not-on-default-branch + harvest blocked by F4.7 per-turn driver gap; substituted with two 10× passes + harness asserters*
+- *Composite arithmetic: 4·.20 + 4·.15 + 2·.15 + 4·.15 + 4·.15 + 4·.10 + 3·.10 = 0.80 + 0.60 + 0.30 + 0.60 + 0.60 + 0.40 + 0.30 = 3.60*
 
 *MILESTONE-v4's historical `composite_pre: 2.15` is superseded — see 0.1.0-CONTRACT.md baseline.*
 

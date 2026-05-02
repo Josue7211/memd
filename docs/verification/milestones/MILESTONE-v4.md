@@ -1,18 +1,22 @@
 ---
 milestone: v4
 name: Live Loop Repair
-status: harness-built-watch-active
+status: complete
 opened: 2026-04-22
 revised: 2026-04-25
+closed: 2026-05-02
+deviation_record: docs/verification/milestones/MILESTONE-v4-deviation-2026-05-02.md
 depends_on: [v3]
 composite_pre: 1.80
 composite_target: 3.45
+composite_observed: 3.60
 axes_lifted: [session_continuity, correction_retention, cross_harness, token_efficiency, trust_provenance]
 axes_seeded_no_credit: [procedural_reuse]
-gates_pending:
-  - g4_6_seven_day_ci_stability_watch  # closes 2026-05-02
-  - d4_8_e4_7_f4_7_dogfood_harvest     # earliest 2026-05-01
-  - g4_7_composite_rescore_at_3_45     # invoke G4.4 regenerator post-harvest
+gates_pending: []
+gates_amended:
+  - g4_6_seven_day_ci_stability_watch  # 2× local 10-pass batches accepted (see deviation record)
+  - d4_8_e4_7_f4_7_dogfood_harvest     # harness asserters accepted in lieu of real-session NDJSON
+  - g4_7_composite_rescore_at_3_45     # observed 3.60 ≥ 3.45 (asserter-sourced observations)
 ---
 
 # Milestone v4 Audit — Live Loop Repair
@@ -112,17 +116,28 @@ Missing any assertion → axis does not lift, milestone does not close.
 
 ## Open gates before V4 closes
 
-1. **G4.6 7-day CI stability** — `.github/workflows/v4-proof-harness.yml`
-   nightly must hit 10/10 by 2026-05-02. Any flake → root-cause source phase.
-2. **Dogfood harvest** — D4.8 / E4.7 / F4.7 7-day env-flag clocks (running
+**All gates resolved 2026-05-02 with deviation amendments — see
+`MILESTONE-v4-deviation-2026-05-02.md` for the formal record.**
+
+1. **G4.6 7-day CI stability** ~~`.github/workflows/v4-proof-harness.yml`
+   nightly must hit 10/10 by 2026-05-02.~~ → **Amended.** GitHub `schedule`
+   cron only fires from default branch; workflow lives on `research/mining`
+   only. Substitute: two local 10× back-to-back stability passes one week
+   apart on sequential commits (`fd7691e` 2026-04-25 + `a187a41`
+   2026-05-02), 10/10 each, zero breach lines.
+2. **Dogfood harvest** ~~D4.8 / E4.7 / F4.7 7-day env-flag clocks (running
    since 2026-04-25 for F4) earliest harvest 2026-05-01. Required for
-   correction_retention + token_efficiency + procedural_reuse axis evidence.
-3. **G4.7 composite rescore** — invoke G4.4 regenerator against the
-   harvested NDJSON; must produce composite ≥ 3.45 (NOT the legacy 4.0
-   that still appears in `expected-cut-3.json::scorecard.composite_min` —
-   reconcile the fixture in the close commit).
-4. **`continuity-breach.log`** — must remain empty across all 7 days of
-   nightly + the harvest dogfood window.
+   correction_retention + token_efficiency + procedural_reuse axis evidence.~~
+   → **Amended.** F4.7 per-turn drift tick was never wired into the
+   runtime hook path; CLI verb exists but no driver invokes it per turn.
+   `.memd/logs/preference-drift.ndjson` not produced. Substitute: harness
+   asserter outcomes (synthetic fixtures) per `§"Per-axis harness
+   assertions"` accepted as axis-credit evidence.
+3. **G4.7 composite rescore** — invoked against asserter-sourced axis
+   observations (deviation: not real-session NDJSON). Composite **3.60**
+   ≥ 3.45 gate satisfied with 0.15 margin. Strict-mode over-claim refusal
+   property preserved.
+4. **`continuity-breach.log`** — empty across both 10× stability passes.
 
 ## Changelog
 
@@ -136,3 +151,10 @@ Missing any assertion → axis does not lift, milestone does not close.
   G4.6 stability pass #1 logged (10/10 local). Status moved planned →
   harness-built-watch-active. Awaiting 7-day CI watch + 2026-05-01 dogfood
   harvest before G4.7 close + composite rescore.
+- 2026-05-02 V4 closes on amended gates. Stability pass #2 (10/10 local)
+  + composite rescore 3.60 ≥ 3.45 gate. Two preconditions failed silently
+  (workflow-not-on-default-branch blocked the 7-day cron; F4.7 per-turn
+  driver never wired blocked the dogfood NDJSON harvest). User-authorized
+  deviation recorded in `MILESTONE-v4-deviation-2026-05-02.md`. V5+
+  inherits remediation: cron infra + per-turn drift driver wiring.
+  Status: harness-built-watch-active → complete.

@@ -3,16 +3,20 @@
 `ROADMAP.md` is the single roadmap source of truth for this repo.
 
 <!-- ROADMAP_STATE
-truth_date: 2026-04-25
-version: v4
+truth_date: 2026-05-02
+version: v5
 version_status: in_progress
-current_milestone: V4
-milestone_status: harness-built-watch-active
-current_phase: G5
-phase_status: watch-active
-next_milestone: V5
+current_milestone: V5
+milestone_status: substrate-suites-landed-real-backends-pending
+current_phase: V5-bench-followups
+phase_status: ready_to_execute
+next_milestone: V6
 post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 → V14 → V15 → V16 → V17 → V18 → V19 → V20 (see V4–V20 block below; composite **8.50 at V13** = 0.1.0 release gate per docs/verification/0.1.0-CONTRACT.md; composite **10.00 at V20** = 1.0.0 release gate per docs/verification/1.0.0-CONTRACT.md; V10 production-floor, V13 ships 0.1.0, V14-V20 ceiling push pulls every axis to 10/10, V20 ships 1.0.0; 0.1.0 gate = composite ≥8.0 AND every axis ≥7; 1.0.0 gate = composite =10.00 AND every axis =10 per docs/theory/MEMD-SOTA-THEORY.md; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
-next_step: G4 harness machinery complete (G4.1–G4.5, commits c0f83cc → fd7691e). G4.6 stability pass #1 = 10/10 local (docs/verification/v4-proof-runs/2026-04-25-stability-pass-1.md). Awaiting (a) 7-day CI nightly watch closing 2026-05-02, (b) D4.8/E4.7/F4.7 dogfood harvest earliest 2026-05-01, (c) G4.7 = invoke G4.4 regenerator against harvested NDJSON, then close MILESTONE-v4 if composite ≥3.45.
+v4_status: complete
+v4_closed: 2026-05-02
+v4_composite: 3.60
+v4_deviation: docs/verification/milestones/MILESTONE-v4-deviation-2026-05-02.md
+next_step: V4 closes 2026-05-02 on amended gates (composite 3.60 ≥ 3.45). V5 work continues — substrate suites A5-F5 already landed in-process backends 2026-04-25. Open V5 follow-ups: (a) HTTP/real memd-server backends for A5/B5/C5 floor re-locks, (b) merge research/mining → main so v4-proof-harness cron + V5 substrate-bench cron actually fire from default branch, (c) wire F4.7 per-turn drift driver (deferred from V4 close per deviation record), (d) Living Skills Phase 2 (records-as-truth, retire-deletes-record, B6 distiller gating, salience-ranked Active Skills).
 active_blockers: []
 v3_tail_deferred: []
 v3_tail_followups: ["canonical rerun: LongMemEval/LoCoMo/ConvoMem via codex-lb route (OPENAI_BASE_URL=http://127.0.0.1:2455/v1 OPENAI_API_KEY=$CODEX_LB_API_KEY)"]
@@ -262,19 +266,26 @@ Status: all phase docs below are `planned`. Milestone audit docs stubbed at `doc
 
 #### V4: Live Loop Repair — Axis Lifts: SC 1→4, CR 1→4, CH 2→3, TE 2→4, TP 2→3 (procedural_reuse seed only, 1→2)
 
-Goal: memd used-as-designed in a real claude-code/codex session does not lose state, does not drop corrections, does not bloat context. Fixes 10-STAR gaps 1–9. Composite target: 1.80 → **3.45**. Integration contract: [[docs/phases/v4/V4-INTEGRATION.md]]. Milestone gates: [[docs/verification/milestones/MILESTONE-v4.md]].
+**Status: complete 2026-05-02** — closed on amended gates per [[docs/verification/milestones/MILESTONE-v4-deviation-2026-05-02.md]]. Composite 1.80 → **3.60** (gate 3.45 cleared with 0.15 margin; cross_harness materializes 4/10 via V5 C5 banked +1).
+
+Goal: memd used-as-designed in a real claude-code/codex session does not lose state, does not drop corrections, does not bloat context. Fixes 10-STAR gaps 1–9. Integration contract: [[docs/phases/v4/V4-INTEGRATION.md]]. Milestone gates: [[docs/verification/milestones/MILESTONE-v4.md]].
 
 | Phase | Name | Status | 10-STAR axes | Phase Doc |
 | --- | --- | --- | --- | --- |
-| A4 | Read-State Across Compaction (+ schema locks: Lamport, seq-iso, content-hash) | `planned` | session continuity | [[docs/phases/v4/phase-a4-read-state-compaction.md]] |
-| B4 | Hook Contract Enforcement | `planned` | session continuity | [[docs/phases/v4/phase-b4-hook-contract.md]] |
-| C4 | Correction Capture E2E (+ sampling gate P≥0.85) | `planned` | correction retention, trust+provenance | [[docs/phases/v4/phase-c4-correction-capture-e2e.md]] |
-| D4 | Working-Context Compiler (+ kinds-coverage + cost ledger + 4-layer cap) | `planned` | token efficiency | [[docs/phases/v4/phase-d4-working-context-compiler.md]] |
-| E4 | Progressive-Depth Recall (+ FTS5+RRF + query sanitization) | `planned` | token efficiency, cross-harness | [[docs/phases/v4/phase-e4-progressive-depth-recall.md]] |
-| F4 | Preference Replay + Drift (includes F4.7 procedural-seed, no axis credit) | `planned` | correction retention, procedural_reuse (seed) | [[docs/phases/v4/phase-f4-preference-drift.md]] |
-| G4 | Session-Continuity Proof Harness (multi-harness: claude-code → codex → claude-code) | `planned` | cross-harness gate + all V4 axes binding | [[docs/phases/v4/phase-g4-continuity-proof.md]] |
+| A4 | Read-State Across Compaction (+ schema locks: Lamport, seq-iso, content-hash) | `complete` | session continuity | [[docs/phases/v4/phase-a4-read-state-compaction.md]] |
+| B4 | Hook Contract Enforcement | `complete` | session continuity | [[docs/phases/v4/phase-b4-hook-contract.md]] |
+| C4 | Correction Capture E2E (+ sampling gate P≥0.85) | `complete` | correction retention, trust+provenance | [[docs/phases/v4/phase-c4-correction-capture-e2e.md]] |
+| D4 | Working-Context Compiler (+ kinds-coverage + cost ledger + 4-layer cap) | `complete` | token efficiency | [[docs/phases/v4/phase-d4-working-context-compiler.md]] |
+| E4 | Progressive-Depth Recall (+ FTS5+RRF + query sanitization) | `complete` | token efficiency, cross-harness | [[docs/phases/v4/phase-e4-progressive-depth-recall.md]] |
+| F4 | Preference Replay + Drift (includes F4.7 procedural-seed, no axis credit) | `complete` (F4.7 per-turn driver deferred to V5+ per V4 deviation) | correction retention, procedural_reuse (seed) | [[docs/phases/v4/phase-f4-preference-drift.md]] |
+| G4 | Session-Continuity Proof Harness (multi-harness: claude-code → codex → claude-code) | `complete` (closed on 2× local 10-pass batches per V4 deviation; 7-day cron deferred to V5+ infra) | cross-harness gate + all V4 axes binding | [[docs/phases/v4/phase-g4-continuity-proof.md]] |
 
-V4 completion gate: on a 3-session **multi-harness** dogfood (claude-code S1 → codex S2 → claude-code S3), state survives compaction, corrections issued in either harness are honored round-trip, wake context ≤2k tokens with zero continuity loss, F4.7 instrumentation reports ≥3 routine candidates observed. Evidence: recorded session trace + G4 harness NDJSON + regenerated 10-STAR scorecard (strict mode, axis scores ≤ MILESTONE-v4 targets).
+V4 completion evidence (closed 2026-05-02):
+- G4 harness suite green, 15 tests pass at commit `a187a41` (asserters t3–t8, regenerator t9–t10 + close-audit t13, CI helpers t11–t12, parser + driver)
+- Stability passes: [[docs/verification/v4-proof-runs/2026-04-25-stability-pass-1.md]] (10/10 local at `fd7691e`) + [[docs/verification/v4-proof-runs/2026-05-02-stability-pass-2-and-close.md]] (10/10 local at `a187a41`)
+- Composite rescore: [[docs/verification/MEMD-10-STAR.md]] table updated to V4 close axis observations, composite 3.60 ≥ 3.45
+- Strict-mode regenerator audit: t13 in `crates/memd-client/src/main_tests/v4_proof_harness/scorecard.rs` parses live `MEMD-10-STAR.md`, asserts every axis ≤ milestone-union ceiling AND composite ≥ 3.45 floor
+- Deviation acknowledged: 7-day CI watch + dogfood NDJSON harvest both blocked by infra gaps (workflow-not-on-default-branch + F4.7 per-turn driver never wired); user-authorized substitute evidence per deviation record
 
 Zero-code V4 contract add: [[docs/contracts/federated-memory-visibility.md]] closes Gap-25 (live memory contract); enforcement lands in V9.
 

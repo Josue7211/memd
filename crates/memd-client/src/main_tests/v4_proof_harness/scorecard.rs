@@ -282,4 +282,64 @@ mod tests {
         // Session-continuity axis was within budget — must NOT appear in the diff.
         assert!(!err.contains("Session continuity"));
     }
+
+    /// G4.7 close gate — composite ≥ 3.45 floor on the live `MEMD-10-STAR.md`,
+    /// with each axis bounded by milestone-union ceilings (V4 targets +
+    /// already-banked V5 owner deltas — see C5's +1 bank documented in the
+    /// 2026-04-25 note). Strict-mode over-claim refusal property is preserved
+    /// for V4-attributed work; cross-axis bank flips that V5 already landed
+    /// are recognized as not-an-over-claim.
+    #[test]
+    fn t13_v4_close_axes_match_milestone_targets() {
+        let live = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../docs/verification/MEMD-10-STAR.md"),
+        )
+        .expect("read live MEMD-10-STAR.md");
+        let rows = parse_scorecard_table(&live).expect("live scorecard parses");
+        // V4 milestone targets per MILESTONE-v4.md axis table, plus
+        // already-landed V5 axis deltas per 0.1.0-AXIS-OWNERSHIP:
+        //   - Cross-harness +1 from V5 C5 (banked 2026-04-25, materializes
+        //     atomically on V4 G4 close per MEMD-10-STAR.md line 93).
+        let mut ceilings = targets();
+        ceilings.insert("Cross-harness continuity".into(), 4);
+        for row in &rows {
+            let ceiling = ceilings
+                .get(&row.axis)
+                .copied()
+                .expect("every live axis has a milestone-union ceiling");
+            assert!(
+                row.score_out_of_10 <= ceiling,
+                "V4 close over-claim: axis `{}` observed {} > ceiling {}",
+                row.axis,
+                row.score_out_of_10,
+                ceiling,
+            );
+        }
+        // Composite floor: weighted sum ≥ 3.45 (V4 close gate).
+        let weights = std::collections::BTreeMap::from([
+            ("Session continuity", 20u32),
+            ("Correction retention", 15u32),
+            ("Procedural reuse", 15u32),
+            ("Cross-harness continuity", 15u32),
+            ("Raw retrieval strength", 15u32),
+            ("Token efficiency", 10u32),
+            ("Trust + provenance", 10u32),
+        ]);
+        let mut weighted_sum_x100: u32 = 0;
+        for row in &rows {
+            let w = weights
+                .get(row.axis.as_str())
+                .copied()
+                .expect("every axis has a weight");
+            weighted_sum_x100 += row.score_out_of_10 * w;
+        }
+        // composite = sum(score · weight%) / 100 — gate ≥ 3.45 → 345.
+        assert!(
+            weighted_sum_x100 >= 345,
+            "V4 close composite under gate: observed {}.{:02} < 3.45 floor",
+            weighted_sum_x100 / 100,
+            weighted_sum_x100 % 100,
+        );
+    }
 }
