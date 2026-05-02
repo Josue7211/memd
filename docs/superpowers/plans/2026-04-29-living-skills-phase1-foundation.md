@@ -940,37 +940,41 @@ Phase 1 wedge documented. Phases 2-4 stubbed for follow-up plans."
 
 ## Final Verification
 
-- [ ] **Step F.1: Full test suite**
+- [x] **Step F.1: Full test suite** — verified 2026-05-02
 
 ```bash
 cargo test --workspace 2>&1 | tail -20
 ```
 
-Expected: zero regressions; +new test counts from Tasks 1, 2, 3, 4, 5, 6, 7.
+Result: workspace green except 1 pre-existing perf flake `working_memory_retrieval_p95_under_100ms` (p95=512ms vs 500ms debug gate, mean=252ms). Reproduces at `e59b4d8` (pre-Phase-1 HEAD) — not caused by skill schema work, deferred to a G-phase fix. Living Skills test counts (Tasks 1–7) all green.
 
-- [ ] **Step F.2: Live dogfood in this repo**
+- [x] **Step F.2: Live dogfood in this repo** — verified 2026-05-02
 
 ```bash
-cargo run -p memd-client --bin memd -- --output .memd skill add \
+# --output is a skill subcommand flag, must come AFTER `skill add` (plan above used pre-Phase-1 ordering)
+./target/release/memd-server &  # local server with skill schema (homelab :8787 server is pre-Phase-1)
+./target/debug/memd --base-url http://127.0.0.1:18800 skill add \
   --name living-skills-bootstrap \
   --description "phase 1 of living-skills initiative" \
-  --body-file docs/superpowers/plans/2026-04-29-living-skills-phase1-foundation.md
-cargo run -p memd-client --bin memd -- --output .memd wake
-grep -A6 "Active Skills" .memd/wake.md
+  --body-file docs/superpowers/plans/2026-04-29-living-skills-phase1-foundation.md \
+  --output .memd
+./target/debug/memd --base-url http://127.0.0.1:18800 wake --output .memd | grep -A8 "Active Skills"
 ```
 
-Expected: this very plan is now a memd-backed skill discoverable by both `SkillCatalog` and any future `claude` session that wakes against this bundle. (Eat the dogfood.)
+Result: `{"mirror":".memd/skills/living-skills-bootstrap/SKILL.md","record_id":"53fe9d5c-...","skill":"living-skills-bootstrap"}`; wake stdout surfaced `## Active Skills` with the bootstrap skill and inlined body excerpt. Note: `memd wake` streams to stdout — the on-disk `.memd/wake.md` is updated by the harness UserPromptSubmit hook, not by this command. Cache poisoning observed: `kind=skill` written to `.memd/state/resume-snapshot-cache.json` breaks pre-Phase-1 binaries; wipe cache between dogfood runs OR install the new client into `~/.local/bin/memd` first.
 
-- [ ] **Step F.3: Run the verifier checklist (`superpowers:verification-before-completion`)**
+- [x] **Step F.3: Run the verifier checklist (`superpowers:verification-before-completion`)** — verified 2026-05-02
 
-Confirm: tests green, smoke test recorded with output, no leftover `.SKILL.md.tmp` files, mirror dir removed on retire, wake.md does not surface retired skills.
+Result: no `.SKILL.md.tmp` siblings; `skill retire --name living-skills-bootstrap` removed `.memd/skills/living-skills-bootstrap/` cleanly (returns `{"note":"record retirement pending (Phase 2)","retired":"..."}`, matching contract §6 + §10); subsequent `wake` had no `## Active Skills` block.
 
-- [ ] **Step F.4: Final commit + push**
+- [x] **Step F.4: Final commit + push** — branch ahead, push pending operator OK
 
 ```bash
 git log --oneline main..HEAD | head
-git push -u origin <branch>
+git push -u origin research/mining
 ```
+
+Phase 1 closing commit range on `research/mining`: `87be13c` (plan landed) → `fb115d0` (substrate scaffold, last on-branch). Living Skills feature commits: `babea58 → 50eaed7` for the build, `e59b4d8` for contract+roadmap, `bd98b71` for validator tighten.
 
 ---
 
