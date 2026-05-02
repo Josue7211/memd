@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 use memd_schema::skill::SkillBody;
 
+pub mod sync;
+
 /// Sanitize a skill name to a single safe path segment.
 /// Contract (`docs/contracts/skill-record.md` §3): `^[a-z0-9][a-z0-9_-]*$`.
 /// Lowercase only — SkillCatalog matching is case-sensitive and case-folding
