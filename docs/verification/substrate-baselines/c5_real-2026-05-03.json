@@ -1,0 +1,17 @@
+{
+  "suite": "cross-harness",
+  "backend": "memd-server-http",
+  "captured_at": "2026-05-03",
+  "captured_on": "research/mining",
+  "tolerance": 0.05,
+  "leaks_total": 0,
+  "notes": "C5 real-backend cross-harness round-trip locked from memd-server subprocess (HttpMemdGateway). Two harness pairs (claude_code <-> codex) x three scenarios (fact, preference, correction). Local-scope isolation enforced server-side via per-harness namespace 'c5-{harness}'; project-scope shares namespace 'shared'. Truth-conservation gate floors at 0.95 per phase-c5-plan.md §2; visibility-leak gate is a hard 0 floor.",
+  "scenarios": [
+    { "suite": "cross-harness::fact_roundtrip::claude_code->codex",       "truth_conservation_rate": 1.0, "visibility_leak_count": 0 },
+    { "suite": "cross-harness::preference_roundtrip::claude_code->codex", "truth_conservation_rate": 1.0, "visibility_leak_count": 0 },
+    { "suite": "cross-harness::correction_roundtrip::claude_code->codex", "truth_conservation_rate": 1.0, "visibility_leak_count": 0 },
+    { "suite": "cross-harness::fact_roundtrip::codex->claude_code",       "truth_conservation_rate": 1.0, "visibility_leak_count": 0 },
+    { "suite": "cross-harness::preference_roundtrip::codex->claude_code", "truth_conservation_rate": 1.0, "visibility_leak_count": 0 },
+    { "suite": "cross-harness::correction_roundtrip::codex->claude_code", "truth_conservation_rate": 1.0, "visibility_leak_count": 0 }
+  ]
+}
