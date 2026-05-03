@@ -1,15 +1,15 @@
 ---
 opened: 2026-05-03
 phase: v5-substrate
-status: composite-4.20-pr-axis-live-fire-landed
+status: composite-4.20-pr-axis-real-backend-locked
 prev_handoff: 2026-05-02-a5-real-relock-closed-merge-gated.md
 branch: research/mining
 upstream: origin/research/mining (synced)
-ahead_of_main: 184 commits
-next_step_a: real-backend live-fire variant — mirror A5.1–A5.4 / B5 / C5 pattern: HttpRoutineSubstrate over spawned memd-server, re-lock floor downward
-next_step_b: user merge call — V5 composite 4.20 lands on in-process upper-bound; A5/B5/C5 already on real backend
+ahead_of_main: 185 commits
+next_step_a: user merge call — V5 composite 4.20 with A5/B5/C5/F5 all real-backend locked; D5/E5/G5 still in-process bench infra (no axis bump owed)
+next_step_b: D5 / E5 / G5 real-backend variants if user wants the full sweep before merge
 deferred:
-  - Real-backend live-fire (PR axis) — current claim is harness-contract-met on in-process upper bound
+  - Merge research/mining → main — real-backend gate met for canary axes (recall, correction, cross-harness, live-fire)
   - working_memory_retrieval_p95_under_100ms perf flake — G-phase territory, untouched
   - homelab :8787 server still pre-Phase-2 schema — live dogfood requires locally-built memd-server
   - Salience population path — schema/sort shipped in P2.5, no current code stamps non-None values; future Living Skills phase
@@ -42,6 +42,13 @@ deferred:
 - `cargo test -p memd-client` → 836 passed, 0 failed, 10 ignored.
 - `memd benchmark substrate --all --regenerate-report --regenerate-10star` → 7/7 suites pass; F5 block shows `live_fire_pass=1.000`, `live_fire_total_savings=900.000`.
 - V4-close gate (`t13_v4_close_axes_match_milestone_targets`) green under V5-banked deltas; strict-mode over-claim refusal preserved (`t10_scorecard_regenerator_refuses_overclaim` still fires on unauthorized lifts).
+
+## V5 PR-axis real-backend live-fire — landed alongside
+
+- `crates/memd-client/src/main_tests/substrate_f5_real_tests/mod.rs` (new) — `HttpRoutineSubstrate` wraps `MemdClient` + tokio multi-thread runtime. `observe_or_invoke` searches `MemoryKind::Procedural` filtered by per-routine tag; cache hit → `ROUTINE_INVOCATION_COST` (10), miss → `plant_routine` then `BASELINE_RETRIEVAL_COST` (100). `is_cached` is a tag-filtered search count > 0.
+- Content shape `procedure r{idx} alpha bravo charlie delta echo r{idx}end` — server-side `redundancy_key` tokenizes on non-alphanumeric and dedups, so two routines whose content reduces to the same multiset (e.g. `routine routine-1 step-1 step-2 step-3` vs `routine routine-2 step-1 step-2 step-3` → both `{1,2,3,routine,step}`) silently collapse into one row. Putting per-routine entropy in distinct alphanumeric token slots fixed this.
+- Locked baseline `docs/verification/substrate-baselines/f5_real-2026-05-03.json` — 3 scenarios (3×2 / 5×2 / 5×4 routine_count×invocations_per_routine), `total_savings = r·i·90` on perfect cache.
+- 3 ignored real-backend tests: `f5_real_backend_live_fire_non_trivial`, `f5_real_capture_baseline_numbers`, `f5_real_baseline_canonical_numbers`. All pass. PR-axis claim now stands on real-backend evidence; in-process upper bound retained as the cheap CI gate for the substrate aggregator.
 
 
 

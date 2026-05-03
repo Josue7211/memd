@@ -1,0 +1,12 @@
+{
+  "suite": "typed-retrieval-live-fire",
+  "backend": "memd-server-http",
+  "captured_at": "2026-05-03",
+  "captured_on": "research/mining",
+  "notes": "F5 PR-axis live-fire harness on real memd-server (HttpRoutineSubstrate). Routines plant via /memory/store with kind=Procedural + per-routine tag (f5-routine-{routine_id}); invocations search by tag + kind=Procedural + scope=Project + status=Active; cache hits pay ROUTINE_INVOCATION_COST (10), misses pay BASELINE_RETRIEVAL_COST (100). Content uses a unique alphanumeric token slot (`r{idx}` + `r{idx}end`) so server-side redundancy_key dedup never collapses two routines that differ only in numeric suffix. Sessions are no-ops because real memd-server persists via SQLite; live-fire S1→S2+ semantics hold by construction. total_savings = routine_count × invocations_per_routine × (BASELINE - INVOCATION) = r·i·90 on a perfect-cache substrate.",
+  "scenarios": [
+    { "routine_count": 3, "invocations_per_routine": 2, "total_savings": 540 },
+    { "routine_count": 5, "invocations_per_routine": 2, "total_savings": 900 },
+    { "routine_count": 5, "invocations_per_routine": 4, "total_savings": 1800 }
+  ]
+}
