@@ -11,7 +11,8 @@
 #   scripts/public-bench-reproduce.sh [bench]
 #   scripts/public-bench-reproduce.sh --all [--regenerate-10star] [--allow-below-target]
 #
-# bench ∈ { lme | locomo | membench | convomem }
+# bench ∈ { longmemeval | locomo | membench | convomem }
+# (alias `lme` accepted for longmemeval)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -39,7 +40,8 @@ while [[ $# -gt 0 ]]; do
       sed -n '2,17p' "$0"
       exit 0
       ;;
-    lme|locomo|membench|convomem) BENCH="$1"; shift ;;
+    lme) BENCH="longmemeval"; shift ;;
+    longmemeval|locomo|membench|convomem) BENCH="$1"; shift ;;
     *) echo "unknown arg: $1" >&2; exit 64 ;;
   esac
 done
@@ -59,7 +61,7 @@ fi
 run_one_bench() {
   local b="$1"
   echo ">>> running $b (typed-ingest=$TYPED_INGEST compiler=$COMPILER depth-routing=$DEPTH_ROUTING reasoning=$REASONING)" >&2
-  "$BIN" bench public "$b" \
+  "$BIN" benchmark public "$b" \
     --typed-ingest "$TYPED_INGEST" \
     --compiler "$COMPILER" \
     --depth-routing "$DEPTH_ROUTING" \
@@ -68,12 +70,12 @@ run_one_bench() {
 }
 
 if [[ "$ALL" -eq 1 ]]; then
-  for b in lme locomo membench convomem; do
+  for b in longmemeval locomo membench convomem; do
     run_one_bench "$b"
   done
   if [[ "$REGEN_REPORT" -eq 1 ]]; then
     echo ">>> regenerating PUBLIC_BENCHMARKS.md" >&2
-    "$BIN" bench public --regenerate-report --out "$REPORT"
+    "$BIN" benchmark public --regenerate-report --out "$REPORT"
   fi
   if [[ "$REGEN_10STAR" -eq 1 ]]; then
     echo ">>> regenerating MEMD-10-STAR.md" >&2

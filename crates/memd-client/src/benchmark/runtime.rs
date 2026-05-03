@@ -1307,6 +1307,118 @@ pub(crate) fn write_public_benchmark_docs(
     Ok(())
 }
 
+/// V6 / F6.6 — canonical bench gates. Targets locked by
+/// `tests/fixtures/typed_ingest/f6/canonical-gates.jsonl`.
+fn v6_bench_target(bench_id: &str) -> Option<(&'static str, &'static str, &'static str, f64)> {
+    // (display_name, metric_label, method_card, target)
+    match bench_id {
+        "longmemeval" => Some((
+            "LongMemEval",
+            "qa_accuracy",
+            "docs/verification/method-cards/lme-v6.md",
+            0.85,
+        )),
+        "locomo" => Some((
+            "LoCoMo",
+            "token_f1_avg",
+            "docs/verification/method-cards/locomo-v6.md",
+            0.75,
+        )),
+        "membench" => Some((
+            "MemBench",
+            "mc_accuracy",
+            "docs/verification/method-cards/membench-v6.md",
+            0.75,
+        )),
+        "convomem" => Some((
+            "ConvoMem",
+            "judge_accuracy",
+            "docs/verification/method-cards/convomem-v6.md",
+            0.90,
+        )),
+        _ => None,
+    }
+}
+
+/// Map the canonical bench id used by `--all` (e.g. `longmemeval`) to
+/// the V6 axis-mapper bench id (`lme`).
+fn v6_bench_alias(bench_id: &str) -> &'static str {
+    match bench_id {
+        "longmemeval" => "lme",
+        "locomo" => "locomo",
+        "membench" => "membench",
+        "convomem" => "convomem",
+        _ => "unknown",
+    }
+}
+
+/// Build the V6 scorecards from a sweep's reports. Only canonical
+/// V6 benches contribute; unknown benches are skipped.
+fn v6_bench_scorecards_from_reports(
+    reports: &[PublicBenchmarkRunReport],
+) -> Vec<crate::benchmark::typed_ingest::report_aggregator::BenchScorecard> {
+    use crate::benchmark::typed_ingest::report_aggregator::BenchScorecard;
+    let mut out = Vec::new();
+    for r in reports {
+        let bench_id = r.manifest.benchmark_id.as_str();
+        let Some((display_name, metric_label, method_card, target)) = v6_bench_target(bench_id)
+        else {
+            continue;
+        };
+        let (_, value) = public_benchmark_primary_metric(r);
+        out.push(BenchScorecard {
+            bench_id: v6_bench_alias(bench_id),
+            display_name,
+            metric: metric_label,
+            value,
+            target,
+            method_card,
+        });
+    }
+    out
+}
+
+/// Method-card presence gate for the V6 TP axis lift.
+fn v6_method_cards_present(repo_root: &std::path::Path) -> bool {
+    let dir = repo_root.join("docs/verification/method-cards");
+    ["lme-v6.md", "locomo-v6.md", "membench-v6.md", "convomem-v6.md"]
+        .iter()
+        .all(|name| dir.join(name).exists())
+}
+
+/// Splice the V6 scorecard chunk into PUBLIC_BENCHMARKS.md between
+/// `<!-- public-bench-report/v6 -->` markers, creating the block if
+/// it doesn't yet exist.
+fn regenerate_public_benchmarks_v6_section(
+    path: &std::path::Path,
+    cards: &[crate::benchmark::typed_ingest::report_aggregator::BenchScorecard],
+) -> anyhow::Result<()> {
+    use crate::benchmark::typed_ingest::report_aggregator::{REPORT_VERSION, render_v6_report};
+    let chunk = render_v6_report(cards);
+    let begin = format!("<!-- {REPORT_VERSION} -->");
+    let end = format!("<!-- /{REPORT_VERSION} -->");
+    let body = std::fs::read_to_string(path).unwrap_or_default();
+    let new_body = if body.contains(&begin) && body.contains(&end) {
+        let (head, rest) = body.split_once(&begin).unwrap();
+        let (_, tail) = rest.split_once(&end).unwrap();
+        format!("{head}{chunk}{end}{tail}")
+    } else {
+        let mut nb = body;
+        if !nb.is_empty() && !nb.ends_with('\n') {
+            nb.push('\n');
+        }
+        nb.push_str(&chunk);
+        nb.push_str(&end);
+        nb.push('\n');
+        nb
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    std::fs::write(path, new_body)?;
+    Ok(())
+}
+
 pub(crate) async fn run_public_benchmark_command(
     args: &PublicBenchmarkArgs,
 ) -> anyhow::Result<PublicBenchmarkRunReport> {
@@ -1340,6 +1452,7 @@ pub(crate) async fn run_public_benchmark_command(
     // --all: run all implemented benchmarks sequentially, return the last report
     if args.all {
         let mut last_report = None;
+        let mut completed: Vec<PublicBenchmarkRunReport> = Vec::new();
         for dataset_id in implemented_public_benchmark_ids() {
             let mut sub_args = args.clone();
             sub_args.dataset = dataset_id.to_string();
@@ -1355,6 +1468,7 @@ pub(crate) async fn run_public_benchmark_command(
                     if args.record {
                         crate::cli::record_benchmark_run(&args.out, &report)?;
                     }
+                    completed.push(report.clone());
                     last_report = Some(report);
                 }
                 Err(err) => {
@@ -1362,6 +1476,56 @@ pub(crate) async fn run_public_benchmark_command(
                 }
             }
         }
+
+        // F6.5/F6.7 — `--regenerate-report` writes the V6 PUBLIC_BENCHMARKS
+        // section, `--regenerate-10star [--allow-below-target]` patches the
+        // V6-owned axes (RR/TP) into MEMD-10-STAR.md.
+        if args.regenerate_report || args.regenerate_10star {
+            let cards = v6_bench_scorecards_from_reports(&completed);
+            let repo_root = infer_bundle_project_root(&args.out)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+            if args.regenerate_report {
+                let report_path = repo_root.join("docs/verification/PUBLIC_BENCHMARKS.md");
+                match regenerate_public_benchmarks_v6_section(&report_path, &cards) {
+                    Ok(()) => eprintln!(
+                        "[bench] regenerated V6 section in {}",
+                        report_path.display()
+                    ),
+                    Err(e) => eprintln!(
+                        "warning: failed to regenerate {}: {e}",
+                        report_path.display()
+                    ),
+                }
+            }
+
+            if args.regenerate_10star {
+                use crate::benchmark::typed_ingest::star_writer_v6::{
+                    V6AxisScores, axis_scores_from_v6_scorecards, regenerate_10star_md_v6,
+                };
+                let star_path = repo_root.join("docs/verification/MEMD-10-STAR.md");
+                let method_cards_present = v6_method_cards_present(&repo_root);
+                let repro_present = repo_root.join("scripts/public-bench-reproduce.sh").exists();
+                let scores: V6AxisScores =
+                    axis_scores_from_v6_scorecards(&cards, method_cards_present, repro_present);
+                let allow_below = crate::benchmark::typed_ingest::star_regen::allow_below_target_active(
+                    args.allow_below_target,
+                );
+                match regenerate_10star_md_v6(&star_path, &scores, allow_below) {
+                    Ok(composite) => eprintln!(
+                        "[bench] V6 10-STAR composite={composite:.2} (rr={} tp={}) → {}",
+                        scores.rr,
+                        scores.tp,
+                        star_path.display()
+                    ),
+                    Err(e) => eprintln!(
+                        "warning: V6 10-STAR regen failed for {}: {e}",
+                        star_path.display()
+                    ),
+                }
+            }
+        }
+
         return last_report.ok_or_else(|| anyhow!("no benchmarks completed"));
     }
 

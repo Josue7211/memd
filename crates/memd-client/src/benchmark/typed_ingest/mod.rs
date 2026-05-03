@@ -19,6 +19,7 @@ pub(crate) mod promotion;
 pub(crate) mod reasoning;
 pub(crate) mod report_aggregator;
 pub(crate) mod star_regen;
+pub(crate) mod star_writer_v6;
 
 pub(crate) use episodic::{EpisodicAdapter, EpisodicProvenance};
 
