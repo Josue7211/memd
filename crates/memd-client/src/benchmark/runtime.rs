@@ -1354,7 +1354,7 @@ fn v6_bench_alias(bench_id: &str) -> &'static str {
 
 /// Build the V6 scorecards from a sweep's reports. Only canonical
 /// V6 benches contribute; unknown benches are skipped.
-fn v6_bench_scorecards_from_reports(
+pub(crate) fn v6_bench_scorecards_from_reports(
     reports: &[PublicBenchmarkRunReport],
 ) -> Vec<crate::benchmark::typed_ingest::report_aggregator::BenchScorecard> {
     use crate::benchmark::typed_ingest::report_aggregator::BenchScorecard;
@@ -1393,7 +1393,7 @@ fn v6_method_cards_present(repo_root: &std::path::Path) -> bool {
 /// Splice the V6 scorecard chunk into PUBLIC_BENCHMARKS.md between
 /// `<!-- public-bench-report/v6 -->` markers, creating the block if
 /// it doesn't yet exist.
-fn regenerate_public_benchmarks_v6_section(
+pub(crate) fn regenerate_public_benchmarks_v6_section(
     path: &std::path::Path,
     cards: &[crate::benchmark::typed_ingest::report_aggregator::BenchScorecard],
 ) -> anyhow::Result<()> {
@@ -1856,4 +1856,143 @@ pub(crate) async fn run_public_benchmark_command(
         failures: evaluation.failures,
         items: evaluation.items,
     })
+}
+
+#[cfg(test)]
+mod v6_helper_tests {
+    use super::*;
+    use crate::bundle::PublicBenchmarkManifest;
+    use chrono::Utc;
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    fn synthetic_report(
+        benchmark_id: &str,
+        metrics: &[(&str, f64)],
+    ) -> PublicBenchmarkRunReport {
+        let mut m = BTreeMap::new();
+        for (k, v) in metrics {
+            m.insert((*k).to_string(), *v);
+        }
+        PublicBenchmarkRunReport {
+            manifest: PublicBenchmarkManifest {
+                benchmark_id: benchmark_id.to_string(),
+                benchmark_version: "test".into(),
+                dataset_name: "test".into(),
+                dataset_source_url: "test".into(),
+                dataset_local_path: "test".into(),
+                dataset_checksum: "test".into(),
+                dataset_split: "test".into(),
+                git_sha: None,
+                dirty_worktree: false,
+                run_timestamp: Utc::now(),
+                mode: "test".into(),
+                top_k: 0,
+                reranker_id: None,
+                reranker_provider: None,
+                limit: None,
+                runtime_settings: json!({}),
+                hardware_summary: "test".into(),
+                duration_ms: 0,
+                token_usage: None,
+                cost_estimate_usd: None,
+            },
+            metrics: m,
+            item_count: 0,
+            failures: vec![],
+            items: vec![],
+        }
+    }
+
+    /// Pin: `value` must be sourced from the contract metric key
+    /// (qa_accuracy / token_f1_avg / mc_accuracy / judge_accuracy)
+    /// — never from `accuracy`/`f1` fallbacks.
+    #[test]
+    fn v6_scorecard_pins_value_to_contract_metric_key() {
+        let reports = vec![
+            synthetic_report(
+                "longmemeval",
+                &[("accuracy", 0.10), ("qa_accuracy", 0.86)],
+            ),
+            synthetic_report(
+                "locomo",
+                &[("accuracy", 0.10), ("f1", 0.10), ("token_f1_avg", 0.76)],
+            ),
+            synthetic_report(
+                "membench",
+                &[("accuracy", 0.10), ("mc_accuracy", 0.76)],
+            ),
+            synthetic_report(
+                "convomem",
+                &[("accuracy", 0.10), ("judge_accuracy", 0.91)],
+            ),
+        ];
+        let cards = v6_bench_scorecards_from_reports(&reports);
+        assert_eq!(cards.len(), 4);
+        let lme = cards.iter().find(|c| c.bench_id == "lme").unwrap();
+        assert_eq!(lme.metric, "qa_accuracy");
+        assert!((lme.value - 0.86).abs() < 1e-9);
+        let lc = cards.iter().find(|c| c.bench_id == "locomo").unwrap();
+        assert_eq!(lc.metric, "token_f1_avg");
+        assert!((lc.value - 0.76).abs() < 1e-9);
+        let mb = cards.iter().find(|c| c.bench_id == "membench").unwrap();
+        assert_eq!(mb.metric, "mc_accuracy");
+        assert!((mb.value - 0.76).abs() < 1e-9);
+        let cv = cards.iter().find(|c| c.bench_id == "convomem").unwrap();
+        assert_eq!(cv.metric, "judge_accuracy");
+        assert!((cv.value - 0.91).abs() < 1e-9);
+    }
+
+    /// Missing contract key → 0.0 fallback (gate fails observably).
+    #[test]
+    fn v6_scorecard_falls_back_to_zero_when_contract_key_absent() {
+        let reports = vec![synthetic_report("longmemeval", &[("accuracy", 0.86)])];
+        let cards = v6_bench_scorecards_from_reports(&reports);
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].value, 0.0);
+    }
+
+    fn sample_card() -> crate::benchmark::typed_ingest::report_aggregator::BenchScorecard {
+        crate::benchmark::typed_ingest::report_aggregator::BenchScorecard {
+            bench_id: "lme",
+            display_name: "LongMemEval",
+            metric: "qa_accuracy",
+            value: 0.86,
+            target: 0.85,
+            method_card: "docs/verification/method-cards/lme-v6.md",
+        }
+    }
+
+    #[test]
+    fn splice_appends_block_when_markers_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("PUBLIC_BENCHMARKS.md");
+        std::fs::write(&path, "# Existing report\n\nbody\n").unwrap();
+        regenerate_public_benchmarks_v6_section(&path, &[sample_card()]).unwrap();
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(body.starts_with("# Existing report"));
+        assert!(body.contains("<!-- public-bench-report/v6 -->"));
+        assert!(body.contains("<!-- /public-bench-report/v6 -->"));
+        assert!(body.contains("LongMemEval"));
+    }
+
+    #[test]
+    fn splice_replaces_existing_block_idempotently() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("PUBLIC_BENCHMARKS.md");
+        let seeded = "# Header\n\n<!-- public-bench-report/v6 -->\nSTALE\n<!-- /public-bench-report/v6 -->\n\nfooter\n";
+        std::fs::write(&path, seeded).unwrap();
+        regenerate_public_benchmarks_v6_section(&path, &[sample_card()]).unwrap();
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(!body.contains("STALE"));
+        assert!(body.contains("LongMemEval"));
+        assert!(body.contains("footer"));
+        // Idempotent — second call must not duplicate the block.
+        regenerate_public_benchmarks_v6_section(&path, &[sample_card()]).unwrap();
+        let body2 = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            body2.matches("<!-- public-bench-report/v6 -->").count(),
+            1
+        );
+    }
 }
