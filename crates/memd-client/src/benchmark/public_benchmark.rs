@@ -3874,6 +3874,7 @@ pub(crate) async fn build_locomo_full_eval_report(
     let mut metrics = BTreeMap::new();
     metrics.insert("accuracy".to_string(), mean_f1);
     metrics.insert("f1".to_string(), mean_f1);
+    metrics.insert("token_f1_avg".to_string(), mean_f1);
     metrics.insert("item_count".to_string(), item_count as f64);
     for (cat, scores) in &per_category_f1 {
         let avg = scores.iter().sum::<f64>() / scores.len() as f64;
@@ -4306,6 +4307,7 @@ pub(crate) async fn build_convomem_full_eval_report(
     };
     let mut metrics = BTreeMap::new();
     metrics.insert("accuracy".to_string(), accuracy);
+    metrics.insert("judge_accuracy".to_string(), accuracy);
     metrics.insert("item_count".to_string(), item_count as f64);
     for (cat, total) in &per_category_total {
         let c = per_category_correct.get(cat).copied().unwrap_or(0);

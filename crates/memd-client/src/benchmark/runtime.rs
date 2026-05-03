@@ -1365,7 +1365,11 @@ fn v6_bench_scorecards_from_reports(
         else {
             continue;
         };
-        let (_, value) = public_benchmark_primary_metric(r);
+        // Pin value to the contract metric key (qa_accuracy / token_f1_avg /
+        // mc_accuracy / judge_accuracy). public_benchmark_primary_metric
+        // returns a different key for full_eval (accuracy / f1) which would
+        // silently misalign threshold checks once real corpus crosses gates.
+        let value = r.metrics.get(metric_label).copied().unwrap_or(0.0);
         out.push(BenchScorecard {
             bench_id: v6_bench_alias(bench_id),
             display_name,
