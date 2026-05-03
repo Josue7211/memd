@@ -1,0 +1,13 @@
+{
+  "suite": "correction-propagation",
+  "backend": "memd-server-http",
+  "captured_at": "2026-05-03",
+  "captured_on": "research/mining",
+  "tolerance": 0.05,
+  "notes": "B5 real-backend correction-propagation + provenance citation locked from memd-server subprocess (HttpB5Backend). Sessions are no-ops because real memd-server persists via SQLite; correction is applied via /memory/correct in s2 and queried in {3,5,8}. Provenance is detected via a per-correction tag (b5-seed{seed}-s{idx}-correct-{fact_id}) attached at correct time — server's correct_item does not populate correction_meta.source_turn so tags are the canonical wire-level signal. propagation_rate_s3 / propagation_rate_s8 floors must hold; provenance_rate_avg averages across query_sessions.",
+  "scenarios": [
+    { "fact_count": 10, "propagation_rate_s3": 1.0, "propagation_rate_s8": 1.0, "provenance_rate_avg": 1.0 },
+    { "fact_count": 20, "propagation_rate_s3": 1.0, "propagation_rate_s8": 1.0, "provenance_rate_avg": 1.0 },
+    { "fact_count": 50, "propagation_rate_s3": 1.0, "propagation_rate_s8": 1.0, "provenance_rate_avg": 1.0 }
+  ]
+}

@@ -210,6 +210,7 @@ mod runtime_verification_tests;
 mod skill_workflow_tests;
 mod substrate_a5_real_tests;
 mod substrate_a5_tests;
+mod substrate_b5_real_tests;
 mod substrate_b5_tests;
 mod substrate_c5_tests;
 mod substrate_d5_tests;
