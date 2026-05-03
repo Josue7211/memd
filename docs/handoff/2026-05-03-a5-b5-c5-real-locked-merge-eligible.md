@@ -1,19 +1,49 @@
 ---
 opened: 2026-05-03
 phase: v5-substrate
-status: a5+b5+c5-real-locked-merge-eligible-pending-user-call
+status: composite-4.20-pr-axis-live-fire-landed
 prev_handoff: 2026-05-02-a5-real-relock-closed-merge-gated.md
 branch: research/mining
 upstream: origin/research/mining (synced)
-ahead_of_main: 183 commits
-next_step_a: user merge call — A5 + B5 + C5 all real-backend locked, merge gate satisfied for the cross-session / correction / cross-harness axes
-next_step_b: D5 / E5 / F5 / G5 real-backend variants if user wants the full sweep before merge (mirror A5.1–A5.4 / B5 / C5 pattern)
+ahead_of_main: 184 commits
+next_step_a: real-backend live-fire variant — mirror A5.1–A5.4 / B5 / C5 pattern: HttpRoutineSubstrate over spawned memd-server, re-lock floor downward
+next_step_b: user merge call — V5 composite 4.20 lands on in-process upper-bound; A5/B5/C5 already on real backend
 deferred:
-  - Merge research/mining → main — gate met for A5/B5/C5; user judgment call on D5–G5 inclusion
+  - Real-backend live-fire (PR axis) — current claim is harness-contract-met on in-process upper bound
   - working_memory_retrieval_p95_under_100ms perf flake — G-phase territory, untouched
   - homelab :8787 server still pre-Phase-2 schema — live dogfood requires locally-built memd-server
   - Salience population path — schema/sort shipped in P2.5, no current code stamps non-None values; future Living Skills phase
 ---
+
+# V5 Composite 4.20 — PR-axis Live-fire Harness Landed
+
+> One sentence: V5 substrate aggregator now writes composite 4.20/10 on
+> the live `MEMD-10-STAR.md`; PR axis 1→4 gated by F5 live-fire
+> (routine plant S1 → invocation S2+ with token_savings ≥
+> 1×baseline_retrieval_cost), RR axis 4→6 gated by the existing
+> A5/D5/E5/F5/G5 RR aggregate clause in `ten_star_writer`, V4-close
+> milestone-union ceiling test extended to recognize the V5-banked
+> PR+2 / RR+2 / CH+1 deltas. Honest framing: in-process upper bound;
+> real-backend live-fire follows the A5/B5/C5 pattern (HTTP backend
+> re-lock after V5 substrate gate).
+
+## What landed (this session)
+
+- `crates/memd-client/src/benchmark/substrate/f5_live_fire.rs` (new) — `RoutineSubstrate` trait, `PerfectRoutineSubstrate` (caches), `NoCacheRoutineSubstrate` (negative control), per-routine cost ledger (`BASELINE_RETRIEVAL_COST=100`, `ROUTINE_INVOCATION_COST=10`), pass gate `routine_savings >= baseline AND is_cached`, NDJSON emit, 4 unit tests.
+- `typed_retrieval.rs` — F5 `run_f5_with_backend` ANDs `live_fire_pass` into `overall_pass`, exposes `live_fire_total_savings` on `F5Outcome`.
+- `aggregator.rs` — surfaces `live_fire_pass` (1.0/0.0) and `live_fire_total_savings` as F5 SuiteSummary metrics.
+- `ten_star_writer.rs` — PR=4 requires both `pass("typed-retrieval")` AND `metric("typed-retrieval", "live_fire_pass") == 1.0`; else PR=1.
+- `substrate_g5_tests` test 10 — asserts F5 emits `live_fire_pass=1.0` and that synthesized degraded summaries collapse PR to 1.
+- `v4_proof_harness/scorecard.rs::t13_v4_close_axes_match_milestone_targets` — milestone-union ceilings extended to include V5-banked Procedural reuse +2 (1→4) and Raw retrieval +2 (4→6) on top of the existing Cross-harness +1 (3→4).
+- `MEMD-10-STAR.md` — composite 4.20/10, PR row prose softened to call out in-process-upper-bound and real-backend follow-on.
+
+## Verification
+
+- `cargo test -p memd-client` → 836 passed, 0 failed, 10 ignored.
+- `memd benchmark substrate --all --regenerate-report --regenerate-10star` → 7/7 suites pass; F5 block shows `live_fire_pass=1.000`, `live_fire_total_savings=900.000`.
+- V4-close gate (`t13_v4_close_axes_match_milestone_targets`) green under V5-banked deltas; strict-mode over-claim refusal preserved (`t10_scorecard_regenerator_refuses_overclaim` still fires on unauthorized lifts).
+
+
 
 # A5 + B5 + C5 Real-Backend Locked — Merge Gate Met for the Three Canary Axes
 

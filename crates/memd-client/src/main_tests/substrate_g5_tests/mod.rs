@@ -285,6 +285,47 @@ fn aggregator_writes_10star_composite_section() {
         "perfect-recall aggregator must yield the V5 ceiling lift"
     );
 
+    // PR-axis live-fire contract (MILESTONE-v5.md §PR assertion):
+    // F5 must surface `live_fire_pass=1.0` in its metrics, otherwise PR
+    // collapses to 1 even if typed-retrieval correctness passes.
+    let f5 = summaries
+        .iter()
+        .find(|s| s.id == "typed-retrieval")
+        .expect("typed-retrieval summary must exist");
+    let live_fire = f5
+        .metrics
+        .get("live_fire_pass")
+        .copied()
+        .expect("F5 must emit live_fire_pass metric");
+    assert!(
+        (live_fire - 1.0).abs() < 1e-9,
+        "F5 in-process backend must pass live-fire (routine plant in S1 + invocation in S2+ with token savings ≥ baseline)"
+    );
+
+    // Negative-control: synthesize summaries identical to the aggregator
+    // output but with `live_fire_pass=0.0`. PR must collapse to 1 — proves
+    // the writer refuses raw typed-retrieval pass as PR credit.
+    let degraded: Vec<_> = summaries
+        .iter()
+        .map(|s| {
+            if s.id == "typed-retrieval" {
+                let mut m = s.metrics.clone();
+                m.insert("live_fire_pass".into(), 0.0);
+                crate::benchmark::substrate::aggregator::SuiteSummary::passed(
+                    "typed-retrieval",
+                    m,
+                )
+            } else {
+                s.clone()
+            }
+        })
+        .collect();
+    let degraded_scores = axis_scores_from_summaries(&degraded);
+    assert_eq!(
+        degraded_scores.pr, 1,
+        "PR must drop to floor without live_fire_pass — typed-retrieval correctness alone is RR credit, not PR"
+    );
+
     // Seed a baseline 10-STAR file at V4-post (CR=4).
     let path = dir.path().join("MEMD-10-STAR.md");
     std::fs::write(

@@ -41,13 +41,13 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 |------|--------|-------|--------|
 | Session continuity | 20% | 4/10 | A4 ledger survives compaction (seal → restore 10/10 loop) + B4 contract-gated enforce wrapper with trace + budget + per-(session,event) lock + A5 substrate-native cross-session-recall benchmark with locked floor + nightly regression gate |
 | Correction retention | 15% | 4/10 | C4 correction lane + F4 preference drift detector landed; G4 asserter `assert_c4_correction_provenance` green on 3-session harness (synthetic; real-session NDJSON deferred to V5+ per V4 deviation 2026-05-02) | evidence: v4-proof-runs/2026-05-02-stability-pass-2-and-close.md |
-| Procedural reuse | 15% | 2/10 | F4.7 instrumentation seed (counter, master gate, log writer); per-turn driver not wired (V5 scope); no behavior credit | evidence: v4-proof-runs/2026-05-02-stability-pass-2-and-close.md |
+| Procedural reuse | 15% | 4/10 | V5 F5 live-fire harness contract met (in-process upper bound): routine plant in S1 → invocation in S2+ with token_savings ≥ 1×baseline_retrieval_cost via per-routine cost ledger (PerfectRoutineSubstrate caches and passes; NoCacheRoutineSubstrate is the negative control that fails the gate). ten_star_writer requires `live_fire_pass=1.0` metric for PR=4 — typed-retrieval correctness alone is RR credit, not PR credit. Real-backend live-fire follows the A5/B5/C5 pattern (HTTP backend re-lock after V5 substrate gate); claim is that the harness contract holds, not that memd-server has production routine-caching | evidence: SUBSTRATE_BENCHMARKS.md typed-retrieval block (live_fire_total_savings=900) |
 | Cross-harness continuity | 15% | 4/10 | V4 G4 cross-harness flip asserter green (2→3) + V5 C5 substrate suite materializes banked +1 (3→4) on V4 G4 close 2026-05-02 | evidence: v4-proof-runs/2026-05-02-stability-pass-2-and-close.md |
-| Raw retrieval strength | 15% | 4/10 | search works, wake/working excludes most kinds, no LongMemEval |
+| Raw retrieval strength | 15% | 6/10 | V5 RR aggregate gate: A5 cross-session-recall + D5 progressive-depth + E5 provenance-integrity + F5 typed-retrieval + G5 adversarial-noise all pass on perfect-recall in-process backends (ten_star_writer rr_aggregate clause) | evidence: SUBSTRATE_BENCHMARKS.md 7/7 suites passing |
 | Token efficiency | 10% | 4/10 | D4 wake compiler + E4 depth-contract metrics; G4 asserter `assert_d4_wake_within_budget` green on 3-session harness | evidence: v4-proof-runs/2026-05-02-stability-pass-2-and-close.md |
 | Trust + provenance | 10% | 3/10 | explain + hook-trace NDJSON with ts_ms/trace_id/session_id/failure_class per hook line + doctor --check contract |
 
-**Composite: 3.60/10 (V4 close 2026-05-02 — correction_retention 1→4, procedural_reuse 1→2, cross_harness 2→4 with C5 bank, token_efficiency 2→4)**
+**Composite: 4.20/10 (G5 regenerated 2026-05-03 — V5 substrate aggregator)**
 *Prior composite 2.9 counted "code exists" as partial credit; regrade counts only "user gets value."*
 *Prior axis table (scores 2,2,1,3,4,6,5) summed to 3.0 but reported 1.8 — reconciled 2026-04-22 to the pessimistic axis row that actually yields 1.80.*
 *2026-04-24: session continuity axis moved 1 → 2 on A4 ledger-survival gate (10/10 loop, zero breach lines). Composite moved 1.80 → 2.00. Evidence:*

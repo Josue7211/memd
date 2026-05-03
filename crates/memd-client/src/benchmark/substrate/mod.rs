@@ -14,6 +14,7 @@ pub(crate) mod competitor_card;
 pub(crate) mod correction_propagation;
 pub(crate) mod cross_harness;
 pub(crate) mod cross_session_recall;
+pub(crate) mod f5_live_fire;
 pub(crate) mod fixtures;
 pub(crate) mod harness_adapter;
 pub(crate) mod progressive_depth;

@@ -4,6 +4,7 @@
 //! 50 queries × 11 kinds = 550 invocations. Reports confusion matrix +
 //! correct-type-rate@1.
 
+use crate::benchmark::substrate::f5_live_fire::{LiveFireConfig, run_live_fire_in_process};
 use crate::benchmark::substrate::session_driver::{BenchBackend, F5Scenario, RecordingBackend};
 use chrono::Utc;
 use memd_schema::MemoryKind;
@@ -162,6 +163,10 @@ pub(crate) struct F5Outcome {
     pub(crate) ndjson_path: PathBuf,
     pub(crate) overall_pass: bool,
     pub(crate) confusion_matrix_csv: String,
+    /// PR-axis live-fire gate (MILESTONE-v5 §PR assertion). Required to
+    /// claim PR=4 in the 10-STAR regenerator.
+    pub(crate) live_fire_pass: bool,
+    pub(crate) live_fire_total_savings: u32,
 }
 
 /// Run F5 suite using perfect-recall in-process backend.
@@ -259,10 +264,22 @@ pub(crate) fn run_f5_with_backend<B: BenchBackend>(
         }
     }
 
+    // PR-axis live-fire gate. F5 owns routine-detection per MILESTONE-v5.md
+    // — typed-retrieval correctness alone is RR credit, not PR credit.
+    let lf_cfg = LiveFireConfig::default_with_results_dir(config.results_dir.clone());
+    let live_fire = run_live_fire_in_process(&lf_cfg)?;
+    let live_fire_pass = live_fire.overall_pass;
+    let live_fire_total_savings = live_fire.total_savings;
+    if !live_fire_pass {
+        overall_pass = false;
+    }
+
     Ok(F5Outcome {
         records,
         ndjson_path,
         overall_pass,
         confusion_matrix_csv: matrix.to_csv(),
+        live_fire_pass,
+        live_fire_total_savings,
     })
 }

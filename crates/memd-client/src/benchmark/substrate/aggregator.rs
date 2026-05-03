@@ -362,6 +362,15 @@ fn run_f5(opts: &AggregatorOptions) -> SuiteSummary {
                 correct as f64 / o.records.len() as f64
             };
             m.insert("correct_type_rate_at_1".into(), rate);
+            // PR-axis live-fire metric — required for PR=4 credit in writer.
+            m.insert(
+                "live_fire_pass".into(),
+                if o.live_fire_pass { 1.0 } else { 0.0 },
+            );
+            m.insert(
+                "live_fire_total_savings".into(),
+                o.live_fire_total_savings as f64,
+            );
             if o.overall_pass {
                 SuiteSummary::passed("typed-retrieval", m)
             } else {

@@ -91,14 +91,27 @@ impl From<std::io::Error> for RegenError {
 
 /// Map V5 suite summaries to V5-owned axis scores (PR/CH/RR).
 ///
-/// Mapping (per V5-INTEGRATION §9b axis-lift contract):
-/// - PR (procedural-reuse) ← typed-retrieval pass: 1 → 4 on F5 lift, else 1.
+/// Mapping (per V5-INTEGRATION §9b axis-lift contract + MILESTONE-v5
+/// PR-axis assertion):
+/// - PR (procedural-reuse) ← typed-retrieval pass AND `live_fire_pass`
+///   metric == 1.0 (routine plant in S1 → invocation in S2+ with
+///   token_savings ≥ baseline_retrieval_cost). Else 1.
 /// - CH (cross-harness)    ← cross-harness pass: 2 → 4 on C5 lift, else 2.
 /// - RR (raw-retrieval)    ← floor 4; +2 if A5+D5+E5+F5+G5 all pass.
 pub(crate) fn axis_scores_from_summaries(summaries: &[SuiteSummary]) -> AxisScores {
     let pass = |id: &str| summaries.iter().any(|s| s.id == id && s.pass);
+    let metric = |id: &str, key: &str| -> Option<f64> {
+        summaries
+            .iter()
+            .find(|s| s.id == id)
+            .and_then(|s| s.metrics.get(key).copied())
+    };
 
-    let pr = if pass("typed-retrieval") { 4 } else { 1 };
+    let typed_pass = pass("typed-retrieval");
+    let live_fire_credit = metric("typed-retrieval", "live_fire_pass")
+        .map(|v| (v - 1.0).abs() < 1e-9)
+        .unwrap_or(false);
+    let pr = if typed_pass && live_fire_credit { 4 } else { 1 };
     let ch = if pass("cross-harness") { 4 } else { 2 };
 
     let rr_aggregate = pass("cross-session-recall")
@@ -360,6 +373,11 @@ mod tests {
         fn pass(id: &str) -> SuiteSummary {
             SuiteSummary::passed(id, BTreeMap::new())
         }
+        fn pass_typed_with_live_fire() -> SuiteSummary {
+            let mut m = BTreeMap::new();
+            m.insert("live_fire_pass".to_string(), 1.0);
+            SuiteSummary::passed("typed-retrieval", m)
+        }
         fn fail(id: &str) -> SuiteSummary {
             SuiteSummary::failed(id, "x", BTreeMap::new())
         }
@@ -370,7 +388,7 @@ mod tests {
             pass("cross-harness"),
             pass("progressive-depth"),
             pass("provenance-integrity"),
-            pass("typed-retrieval"),
+            pass_typed_with_live_fire(),
             pass("adversarial-noise"),
         ];
         let s = axis_scores_from_summaries(&all_pass);
@@ -394,6 +412,16 @@ mod tests {
         no_g5[6] = fail("adversarial-noise");
         let s = axis_scores_from_summaries(&no_g5);
         assert_eq!(s.rr, 4, "RR drops if G5 fails");
+
+        // PR=4 requires live_fire_pass metric. Typed-retrieval pass alone
+        // (raw-retrieval credit only) leaves PR at floor.
+        let mut no_live_fire = all_pass.clone();
+        no_live_fire[5] = pass("typed-retrieval");
+        let s = axis_scores_from_summaries(&no_live_fire);
+        assert_eq!(
+            s.pr, 1,
+            "PR stays at 1 without live_fire_pass metric — typed-retrieval alone is RR credit"
+        );
     }
 
     #[test]

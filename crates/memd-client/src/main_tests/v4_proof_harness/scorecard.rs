@@ -301,8 +301,14 @@ mod tests {
         // already-landed V5 axis deltas per 0.1.0-AXIS-OWNERSHIP:
         //   - Cross-harness +1 from V5 C5 (banked 2026-04-25, materializes
         //     atomically on V4 G4 close per MEMD-10-STAR.md line 93).
+        //   - Procedural reuse +2 from V5 F5 live-fire (PR 2→4, gated by
+        //     ten_star_writer live_fire_pass=1.0 metric).
+        //   - Raw retrieval +2 from V5 RR aggregate (RR 4→6, gated by
+        //     ten_star_writer rr_aggregate clause across A5/D5/E5/F5/G5).
         let mut ceilings = targets();
         ceilings.insert("Cross-harness continuity".into(), 4);
+        ceilings.insert("Procedural reuse".into(), 4);
+        ceilings.insert("Raw retrieval strength".into(), 6);
         for row in &rows {
             let ceiling = ceilings
                 .get(&row.axis)
