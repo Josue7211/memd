@@ -4,8 +4,8 @@ phase: v5-substrate
 status: composite-4.20-pr-axis-real-backend-locked
 prev_handoff: 2026-05-02-a5-real-relock-closed-merge-gated.md
 branch: research/mining
-upstream: origin/research/mining (synced)
-ahead_of_main: 185 commits
+upstream: origin/research/mining (2 ahead, push pending)
+ahead_of_main: 2 commits (this session)
 next_step_a: user merge call — V5 composite 4.20 with A5/B5/C5/F5 all real-backend locked; D5/E5/G5 still in-process bench infra (no axis bump owed)
 next_step_b: D5 / E5 / G5 real-backend variants if user wants the full sweep before merge
 deferred:
