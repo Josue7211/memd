@@ -4,8 +4,8 @@ phase: v5-substrate
 status: composite-4.20-pr-axis-real-backend-locked
 prev_handoff: 2026-05-02-a5-real-relock-closed-merge-gated.md
 branch: research/mining
-upstream: origin/research/mining (2 ahead, push pending)
-ahead_of_main: 2 commits (this session)
+upstream: origin/research/mining (synced, last push fe8b547)
+ahead_of_main: 3 commits (this session)
 next_step_a: user merge call — V5 composite 4.20 with A5/B5/C5/F5 all real-backend locked; D5/E5/G5 still in-process bench infra (no axis bump owed)
 next_step_b: D5 / E5 / G5 real-backend variants if user wants the full sweep before merge
 deferred:
@@ -17,15 +17,14 @@ deferred:
 
 # V5 Composite 4.20 — PR-axis Live-fire Harness Landed
 
-> One sentence: V5 substrate aggregator now writes composite 4.20/10 on
+> One sentence: V5 substrate aggregator writes composite 4.20/10 on
 > the live `MEMD-10-STAR.md`; PR axis 1→4 gated by F5 live-fire
 > (routine plant S1 → invocation S2+ with token_savings ≥
-> 1×baseline_retrieval_cost), RR axis 4→6 gated by the existing
-> A5/D5/E5/F5/G5 RR aggregate clause in `ten_star_writer`, V4-close
-> milestone-union ceiling test extended to recognize the V5-banked
-> PR+2 / RR+2 / CH+1 deltas. Honest framing: in-process upper bound;
-> real-backend live-fire follows the A5/B5/C5 pattern (HTTP backend
-> re-lock after V5 substrate gate).
+> 1×baseline_retrieval_cost) on **real memd-server** via
+> `HttpRoutineSubstrate` plus the in-process aggregator gate, RR
+> axis 4→6 gated by the A5/D5/E5/F5/G5 RR aggregate clause in
+> `ten_star_writer`, V4-close milestone-union ceiling test extended
+> to recognize V5-banked PR+2 / RR+2 / CH+1 deltas.
 
 ## What landed (this session)
 
