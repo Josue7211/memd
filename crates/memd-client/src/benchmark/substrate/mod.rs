@@ -11,6 +11,7 @@ use crate::cli::SubstrateArgs;
 pub(crate) mod adversarial_noise;
 pub(crate) mod aggregator;
 pub(crate) mod competitor_card;
+pub(crate) mod correction_behavior;
 pub(crate) mod correction_propagation;
 pub(crate) mod cross_harness;
 pub(crate) mod cross_session_recall;
@@ -29,6 +30,9 @@ pub(crate) mod typed_retrieval;
 use crate::benchmark::substrate::adversarial_noise::{G5RunConfig, run_g5_in_process};
 use crate::benchmark::substrate::aggregator::{
     AggregatorOptions, regenerate_substrate_benchmarks_md, run_aggregator,
+};
+use crate::benchmark::substrate::correction_behavior::{
+    V7RunConfig, run_v7_correction_behavior_in_process,
 };
 use crate::benchmark::substrate::correction_propagation::{B5RunConfig, run_b5_in_process};
 use crate::benchmark::substrate::cross_harness::{C5RunConfig, run_c5_in_process};
@@ -71,6 +75,10 @@ pub(crate) const REGISTERED_SUITES: &[(&str, &str)] = &[
     (
         "adversarial-noise",
         "G5 — canonical beats noise siblings under recency-bias trap; canonical_wins ≥ 0.90, noise_leak ≤ 0.05",
+    ),
+    (
+        "correction-behavior-change",
+        "V7 C7/E7 — S1 corrections change S2 retrieval without prompt-repeat; provenance chain complete",
     ),
 ];
 
@@ -240,6 +248,40 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
                     println!(
                         "substrate {suite}: {} scenarios, pass={}",
                         outcome.records.len(),
+                        outcome.overall_pass
+                    );
+                }
+            }
+            "correction-behavior-change" => {
+                let mut cfg = V7RunConfig::default_with_results_dir(args.output.clone());
+                if let Some(seed) = args.seed {
+                    cfg.seed = seed;
+                }
+                let outcome = run_v7_correction_behavior_in_process(&cfg).map_err(|e| {
+                    anyhow::anyhow!(
+                        "substrate correction-behavior-change runner io error: {e}"
+                    )
+                })?;
+                upsert_markdown_section(
+                    &args.report,
+                    "correction-behavior-change",
+                    &outcome.records,
+                )
+                .map_err(|e| anyhow::anyhow!("substrate: report write failed: {e}"))?;
+                if !outcome.overall_pass {
+                    overall_pass = false;
+                }
+                if args.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&outcome.records)
+                            .unwrap_or_else(|_| "[]".into())
+                    );
+                } else {
+                    println!(
+                        "substrate {suite}: next_session_behavior_rate={:.3}, chain_completeness={:.3}, pass={}",
+                        outcome.next_session_behavior_rate,
+                        outcome.chain_completeness_rate,
                         outcome.overall_pass
                     );
                 }

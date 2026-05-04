@@ -5,18 +5,18 @@ Use this after session clear or when an agent feels lost.
 ## Read In This Order
 
 1. [[ROADMAP]]
-2. [[docs/handoff/2026-04-18-b3-part2-runtime-green-score-red-next-retrieval.md|B3 runtime-green / score-red handoff packet (2026-04-18)]] — supersedes [[docs/handoff/2026-04-18-b3-part2-prereq-green-next-part2.md]]
+2. [[docs/handoff/2026-05-04-v6-closed-v7-next.md|V6 closed / V7 next handoff packet (2026-05-04)]]
 3. backlog items linked from `ROADMAP`
-4. active phase summary note: [[phase-b3-activate-retrieval]]
+4. active milestone note: [[docs/verification/milestones/MILESTONE-v7.md]]
 
 ## Current Truth
 
-- active version: `v3` (FINAL memory OS — 70% intrinsic floor on all four benches) — v2/M4 deferred mid-flight
-- active milestone: `V3: Make It Compete`
-- active phase: `E3: Consolidation + Sessions` (in progress) — A3/B3/C3/D3/F3 are complete enough to move forward. The repo is now in post-atlas / post-bench-honesty state; next gain is consolidation/session quality, not replay-baseline cleanup.
-- next step: `E3 consolidation pass` — push long-tail LongMemEval and cross-session LoCoMo from the current verified release board while preserving the already-cleared floor and the restored public leaderboard truth.
-- V3 execution order: A3 → B3 → C3 → D3 → E3 → F3 (Continuity Foundation → Intrinsic Retrieval → Reranker → Atlas → Consolidation → Bench Honesty). IDs match execution order after the 2026-04-17 reshuffles.
-- main blocker: `E3 not started deeply yet` — generator clobber guard is patched and D3/F3 docs are restored; next blocker is real consolidation/session behavior for the final stretch targets
+- active version: `v7` (Correction + Behavior-Change E2E)
+- active milestone: `V7: Correction + Behavior-Change E2E`
+- active phase: `V7-entry` — V6 typed-ingest closed at composite `4.45/10`; start V7 from clean `main`.
+- next step: create a V7 branch from `main`, then prove correction behavior-change across a session boundary.
+- V7 execution order: A7 → B7 → C7 → D7 → E7 → F7 → G7 → H7 (capture validation → canonical promotion → next-session behavior → contradiction detection → provenance trail → learned surface → rollback → atomic commit guard).
+- main blocker: V7 not started yet; first hard proof is C7 `next_session_behavior_rate >= 0.05` with E7 provenance chain completeness `1.000`.
 - v2/M4 status: K2 + L2 done; I2 + M2-evo + N2 paused. Resume after V3 or cherry-pick when needed.
 
 ## If You Need More Detail
