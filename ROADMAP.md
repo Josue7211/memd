@@ -3,51 +3,52 @@
 `ROADMAP.md` is the single roadmap source of truth for this repo.
 
 <!-- ROADMAP_STATE
-truth_date: 2026-05-02
-version: v5
+truth_date: 2026-05-04
+version: v6
 version_status: in_progress
-current_milestone: V5
-milestone_status: substrate-suites-landed-real-backends-pending
-current_phase: V5-bench-followups
-phase_status: ready_to_execute
-next_milestone: V6
+current_milestone: V6
+milestone_status: f6-scorecard-regenerator-landed
+current_phase: F6
+phase_status: scorecard-regenerator-landed-next-canonical-gates
+next_milestone: V7
 post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 → V14 → V15 → V16 → V17 → V18 → V19 → V20 (see V4–V20 block below; composite **8.50 at V13** = 0.1.0 release gate per docs/verification/0.1.0-CONTRACT.md; composite **10.00 at V20** = 1.0.0 release gate per docs/verification/1.0.0-CONTRACT.md; V10 production-floor, V13 ships 0.1.0, V14-V20 ceiling push pulls every axis to 10/10, V20 ships 1.0.0; 0.1.0 gate = composite ≥8.0 AND every axis ≥7; 1.0.0 gate = composite =10.00 AND every axis =10 per docs/theory/MEMD-SOTA-THEORY.md; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
 v4_status: complete
 v4_closed: 2026-05-02
 v4_composite: 3.60
 v4_deviation: docs/verification/milestones/MILESTONE-v4-deviation-2026-05-02.md
-next_step: V4 closes 2026-05-02 on amended gates (composite 3.60 ≥ 3.45). V5 work continues — substrate suites A5-F5 already landed in-process backends 2026-04-25. Open V5 follow-ups: (a) HTTP/real memd-server backends for A5/B5/C5 floor re-locks, (b) merge research/mining → main so v4-proof-harness cron + V5 substrate-bench cron actually fire from default branch, (c) wire F4.7 per-turn drift driver (deferred from V4 close per deviation record), (d) Living Skills Phase 2 (records-as-truth, retire-deletes-record, B6 distiller gating, salience-ranked Active Skills).
+next_step: Merge research/mining -> main by fast-forward after F6 handoff refresh, then continue V6 canonical gates / close from main or a fresh V6 branch.
 active_blockers: []
 v3_tail_deferred: []
 v3_tail_followups: ["canonical rerun: LongMemEval/LoCoMo/ConvoMem via codex-lb route (OPENAI_BASE_URL=http://127.0.0.1:2455/v1 OPENAI_API_KEY=$CODEX_LB_API_KEY)"]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
 note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. A3 Continuity Foundation closed 2026-04-17: Part 1 (file-interaction ledger + prime-reads + PreCompact non-blocking + PreEdit prime), Part 2 (hooks consolidation under .memd/hooks, contract v0.2, write-path hook gate, preference replay), Part 3 (file_layout v0.3 guarantee, backlog/phases regroup under v1/v2/v3, LATEST.md symlink fix, MANIFEST.json + `memd hooks doctor` green/red, lifecycle-probe NDJSON log, cross-harness pre-send validator pure function + 4 tests). B3 Part 2 plumbing landed 2026-04-18 (optional RAG fan-out, dense candidate injection, healthz rag state, dual-mode bench rows, turn diagnostics opt-in). 2026-04-20: 500-Q intrinsic product-path rerun on the real dense blend lands `session_recall_any@5 = 0.936` — gate 0.92 passed. The prior 0.828/0.882 numbers were lexical-only fallback because the bench search path left `source_agent=None` and `MemoryVisibility::Private` denied every item; one-line fix at public_benchmark.rs:1770 unblocked dense. V3 phase order: A3 ✓ → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty.
-last_handoff: v5_d5_e5_f5_substrate_landed_2026-04-25
+last_handoff: docs/handoff/2026-05-04-f6-scorecard-merge-ready.md
 bench_cadence: every_two_phases  # test every TWO phases per user directive 2026-04-21
-v5_a5_status: closed_in_process_backend
-v5_b5_status: closed_in_process_backend
-v5_c5_status: closed_in_process_backend
+v5_a5_status: real_backend_locked
+v5_b5_status: real_backend_locked
+v5_c5_status: real_backend_locked
 v5_d5_status: closed_in_process_backend
 v5_e5_status: closed_in_process_backend
-v5_f5_status: closed_in_process_backend
+v5_f5_status: real_backend_locked
+v6_f6_status: scorecard_regenerator_landed
 -->
 
 ## Status Snapshot
 
-- truth date: `2026-04-23`
-- current version: `v4` (Live Loop Repair — memd used-as-designed does not lose state, does not drop corrections, does not bloat context); v3 exited with K3 resolved 2026-04-23 (wrong-URL diagnosis, codex-lb live at `http://127.0.0.1:2455/v1`); canonical rerun is a separable follow-up, does not block V4
+- truth date: `2026-05-04`
+- current version: `v6` (F6 scorecard/regenerator landed; continue V6 canonical gates / close after fast-forward merge)
 - version status: `in_progress`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
-- current milestone: `V4: Live Loop Repair` (starting 2026-04-23) — lifts session_continuity 1→4, correction_retention 1→4, cross_harness 2→3, token_efficiency 2→4, trust_provenance 2→3; procedural_reuse seed-only 1→2; composite target 1.80 → 3.45
-- current phase: `A4: Read-State Across Compaction` (ready_to_execute). V3 closed 2026-04-23 with B3 landed + scale-validated, K3 code+docs flipped to gpt-5.4 (commit 376946c), K3 proxy provisioning tail-deferred (infra task, non-blocking for V4). Prior V3 phase history: J3 closed 2026-04-21 with verdict `proxy-gap-deferred`. G3 closed 2026-04-21 (bench adapter parity — all 4 benches dispatch via `PublicBenchmarkBackend`). H3 closed 2026-04-21 (canonical metrics — GPT-4o judge cache + token-F1 scorer landed; full rerun deferred). I3 closed 2026-04-21 (leaderboard transparency — 8-field method cards, retraction log, gaming-audit rule, `scripts/regen-leaderboard.sh` gate in CI). J3 closed 2026-04-21: one canonical primary landed (MemBench `mc_accuracy=0.417`, recorded-unpinned, 0.70 floor missed) after bug-fix to `parse_membench_choices` unblocked MemBench full-eval; three others stayed `replay-pending` because the openclaw LiteLLM proxy does not route `gpt-4o-*` (blocks both LongMemEval judge and free-form generator). Diagnostic retrieval numbers captured: LongMemEval 0.900, LoCoMo 0.360, ConvoMem 0.950. K3 (new) owns the proxy unblock — see `docs/backlog/v3/2026-04-21-gpt4o-proxy-route-for-judge.md`.
+- current milestone: `V6` - F6 scorecard/regenerator path landed on `research/mining` at `b90a4e7`; composite path is 4.20 -> 4.45 per current milestone/status truth.
+- current phase: `F6` - commit handoff refresh, fast-forward `research/mining` into `main`, then continue canonical gates / V6 close.
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
-- next step: `A4 Task A4.1` — land PostCompact restore contract + hook per `docs/phases/v4/phase-a4-plan.md`. A4 owner deliverables: `docs/contracts/hook-handoff.md`, `.memd/hooks/memd-postcompact-restore.{sh,ps1}`, `crates/memd-core/src/file_ledger/restore.rs`, `crates/memd-client/src/cli/cli_hook_doctor.rs`, CI scenario under `continuity_compaction_tests/`.
+- next step: fast-forward merge `research/mining` -> `main`, push `main`, then continue V6 from the merged tip.
 - V3 tail-deferred: `K3 Proxy Unblock + Canonical Rerun` — provision `gpt-5.4` on the openclaw LiteLLM proxy (or OpenAI-direct fallback capped at `MEMD_BENCH_JUDGE_BUDGET_USD=50`), then rerun LongMemEval / LoCoMo / ConvoMem canonical primaries. Success gate: flip those three rows from `replay-pending` to `verified` (if ≥0.70) or `recorded-unpinned` (if <0.70). MemBench separately needs a focused look at event-reasoning + role-tracking topics (0.000 / 0.100 per-topic in J3). Does NOT block V4 — V4 is runtime/dogfood work, not bench gates.
 - M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with D3).
 - V3 targets (floor, intrinsic/sidecar-OFF): LME ≥0.70, LoCoMo ≥0.70, MemBench ≥0.70, ConvoMem ≥0.70 — 70% is where competition sits, that is bare minimum. Stretch (intrinsic): LME ≥0.92, LoCoMo ≥0.75, MemBench ≥0.75, ConvoMem ≥0.75. Accelerated (sidecar ON) is bonus, not gate. See `## V3` block below.

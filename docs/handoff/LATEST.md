@@ -1,1 +1,1 @@
-2026-05-03-a5-b5-c5-real-locked-merge-eligible.md
+2026-05-04-f6-scorecard-merge-ready.md
