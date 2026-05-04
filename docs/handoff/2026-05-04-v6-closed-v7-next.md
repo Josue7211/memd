@@ -3,16 +3,20 @@ opened: 2026-05-04
 phase: v6-close
 status: v6-closed-v7-next
 prev_handoff: 2026-05-04-f6-scorecard-merge-ready.md
-branch: codex/v6-close
-base: main@2202c80
-next_step_a: merge V6 close docs/code to main
-next_step_b: start V7 correction + behavior-change E2E from clean main
+branch: main
+upstream: origin/main
+head: 68d37cf
+repo_state: clean
+desktop_state: clean
+merge_status: V6 close fast-forwarded to main and pushed
+next_step_a: start V7 correction + behavior-change E2E from clean main
+next_step_b: keep V6 fixture-gate caveat visible; live paid public-bench sweep is not part of this close
 ---
 
 # V6 Closed - V7 Next
 
-One sentence: V6 now closes at composite `4.45/10` with RR `6->7`
-and TP `3->4`; ROADMAP advances to V7.
+One sentence: V6 closes on `main@68d37cf` at composite `4.45/10`
+with RR `6->7` and TP `3->4`; ROADMAP advances to V7.
 
 ## Closed Gates
 
@@ -21,6 +25,7 @@ and TP `3->4`; ROADMAP advances to V7.
 - V6 scorecard helper tests green: `cargo test -p memd-client v6_scorecard -- --nocapture` -> 2 passed.
 - Public-bench V6 scorecard block written in `docs/verification/PUBLIC_BENCHMARKS.md`.
 - `docs/verification/MEMD-10-STAR.md` now reads composite `4.45/10`.
+- T7 and desktop both verified clean at `main == origin/main == 68d37cf`.
 
 ## Canonical V6 Numbers
 
@@ -33,6 +38,12 @@ and TP `3->4`; ROADMAP advances to V7.
 | LongMemEval diagnostic | `session_recall_any@5` | 0.960 | 0.950 |
 
 Source fixture: `tests/fixtures/typed_ingest/f6/canonical-gates.jsonl`.
+
+## Caveat
+
+V6 close is based on locked F6 canonical-gate fixtures/tests, not a fresh
+paid live LLM public-benchmark sweep. Do not describe it as a new live
+public-benchmark run unless that sweep is actually executed.
 
 ## Next
 
