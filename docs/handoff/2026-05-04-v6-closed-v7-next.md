@@ -5,18 +5,18 @@ status: v6-closed-v7-next
 prev_handoff: 2026-05-04-f6-scorecard-merge-ready.md
 branch: main
 upstream: origin/main
-head: 68d37cf
+v6_close_commit: 68d37cf
 repo_state: clean
 desktop_state: clean
-merge_status: V6 close fast-forwarded to main and pushed
+merge_status: V6 close fast-forwarded to main and pushed; this handoff packet is the latest main commit
 next_step_a: start V7 correction + behavior-change E2E from clean main
 next_step_b: keep V6 fixture-gate caveat visible; live paid public-bench sweep is not part of this close
 ---
 
 # V6 Closed - V7 Next
 
-One sentence: V6 closes on `main@68d37cf` at composite `4.45/10`
-with RR `6->7` and TP `3->4`; ROADMAP advances to V7.
+One sentence: V6 closes at `68d37cf` with composite `4.45/10`,
+RR `6->7`, and TP `3->4`; this handoff packet is ready on latest `main`.
 
 ## Closed Gates
 
@@ -25,7 +25,7 @@ with RR `6->7` and TP `3->4`; ROADMAP advances to V7.
 - V6 scorecard helper tests green: `cargo test -p memd-client v6_scorecard -- --nocapture` -> 2 passed.
 - Public-bench V6 scorecard block written in `docs/verification/PUBLIC_BENCHMARKS.md`.
 - `docs/verification/MEMD-10-STAR.md` now reads composite `4.45/10`.
-- T7 and desktop both verified clean at `main == origin/main == 68d37cf`.
+- T7 and desktop both verified clean at `main == origin/main`.
 
 ## Canonical V6 Numbers
 
