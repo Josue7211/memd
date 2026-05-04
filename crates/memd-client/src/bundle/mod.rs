@@ -51,6 +51,12 @@ pub(crate) use status_runtime::*;
 pub(crate) use turn_runtime::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub(crate) struct BundleAutoCommitConfig {
+    #[serde(default = "default_true")]
+    pub(crate) enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct BundleConfigFile {
     #[serde(default)]
     pub(crate) project: Option<String>,
@@ -97,6 +103,8 @@ pub(crate) struct BundleConfigFile {
     #[serde(default = "default_auto_short_term_capture")]
     pub(crate) auto_short_term_capture: bool,
     #[serde(default)]
+    pub(crate) auto_commit: BundleAutoCommitConfig,
+    #[serde(default)]
     pub(crate) rag_url: Option<String>,
     #[serde(default)]
     pub(crate) backend: Option<BundleBackendConfigFile>,
@@ -131,6 +139,7 @@ pub(crate) struct BundleConfig {
     pub(crate) heartbeat_model: String,
     pub(crate) voice_mode: String,
     pub(crate) auto_short_term_capture: bool,
+    pub(crate) auto_commit: BundleAutoCommitConfig,
     pub(crate) authority_policy: BundleAuthorityPolicy,
     pub(crate) authority_state: BundleAuthorityState,
     pub(crate) backend: BundleBackendConfig,
@@ -296,6 +305,8 @@ pub(crate) struct BundleRuntimeConfig {
     pub(crate) voice_mode: Option<String>,
     #[serde(default = "default_auto_short_term_capture")]
     pub(crate) auto_short_term_capture: bool,
+    #[serde(default)]
+    pub(crate) auto_commit: BundleAutoCommitConfig,
     #[serde(default)]
     pub(crate) authority_policy: BundleAuthorityPolicy,
     #[serde(default)]

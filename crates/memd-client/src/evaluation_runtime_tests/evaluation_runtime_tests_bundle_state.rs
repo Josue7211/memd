@@ -616,6 +616,7 @@
             visibility: Some("workspace".to_string()),
             heartbeat_model: None,
             auto_short_term_capture: true,
+            auto_commit: BundleAutoCommitConfig::default(),
             authority_policy: BundleAuthorityPolicy::default(),
             authority_state: BundleAuthorityState::default(),
         };

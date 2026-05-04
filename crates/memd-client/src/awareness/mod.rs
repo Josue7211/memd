@@ -574,6 +574,7 @@ pub(crate) fn read_project_awareness_local(
             heartbeat_model: Some(default_heartbeat_model()),
             voice_mode: Some(default_voice_mode()),
             auto_short_term_capture: true,
+            auto_commit: BundleAutoCommitConfig::default(),
             authority_policy: BundleAuthorityPolicy::default(),
             authority_state: BundleAuthorityState::default(),
         });

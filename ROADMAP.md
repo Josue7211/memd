@@ -4,26 +4,26 @@
 
 <!-- ROADMAP_STATE
 truth_date: 2026-05-04
-version: v7
-version_status: in_progress
-current_milestone: V7
+version: v8
+version_status: ready_to_execute
+current_milestone: V8
 milestone_status: ready_to_execute
-current_phase: V7-entry
+current_phase: V8-entry
 phase_status: ready_to_plan_or_execute
-next_milestone: V8
+next_milestone: V9
 post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 → V14 → V15 → V16 → V17 → V18 → V19 → V20 (see V4–V20 block below; composite **8.50 at V13** = 0.1.0 release gate per docs/verification/0.1.0-CONTRACT.md; composite **10.00 at V20** = 1.0.0 release gate per docs/verification/1.0.0-CONTRACT.md; V10 production-floor, V13 ships 0.1.0, V14-V20 ceiling push pulls every axis to 10/10, V20 ships 1.0.0; 0.1.0 gate = composite ≥8.0 AND every axis ≥7; 1.0.0 gate = composite =10.00 AND every axis =10 per docs/theory/MEMD-SOTA-THEORY.md; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
 v4_status: complete
 v4_closed: 2026-05-02
 v4_composite: 3.60
 v4_deviation: docs/verification/milestones/MILESTONE-v4-deviation-2026-05-02.md
-next_step: Start V7 correction + behavior-change E2E from main; V6 closed at composite 4.45 with RR=7 and TP=4.
+next_step: Start V8 operator surfaces from clean V7 close; V7 closed at composite 4.90 with SC=5, CR=5, TP=5.
 active_blockers: []
 v3_tail_deferred: []
 v3_tail_followups: ["canonical rerun: LongMemEval/LoCoMo/ConvoMem via codex-lb route (OPENAI_BASE_URL=http://127.0.0.1:2455/v1 OPENAI_API_KEY=$CODEX_LB_API_KEY)"]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
 note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. A3 Continuity Foundation closed 2026-04-17: Part 1 (file-interaction ledger + prime-reads + PreCompact non-blocking + PreEdit prime), Part 2 (hooks consolidation under .memd/hooks, contract v0.2, write-path hook gate, preference replay), Part 3 (file_layout v0.3 guarantee, backlog/phases regroup under v1/v2/v3, LATEST.md symlink fix, MANIFEST.json + `memd hooks doctor` green/red, lifecycle-probe NDJSON log, cross-harness pre-send validator pure function + 4 tests). B3 Part 2 plumbing landed 2026-04-18 (optional RAG fan-out, dense candidate injection, healthz rag state, dual-mode bench rows, turn diagnostics opt-in). 2026-04-20: 500-Q intrinsic product-path rerun on the real dense blend lands `session_recall_any@5 = 0.936` — gate 0.92 passed. The prior 0.828/0.882 numbers were lexical-only fallback because the bench search path left `source_agent=None` and `MemoryVisibility::Private` denied every item; one-line fix at public_benchmark.rs:1770 unblocked dense. V3 phase order: A3 ✓ → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty.
-last_handoff: docs/handoff/2026-05-04-v6-closed-v7-next.md
+last_handoff: docs/handoff/2026-05-04-v7-closed-v8-next.md
 bench_cadence: every_two_phases  # test every TWO phases per user directive 2026-04-21
 v5_a5_status: real_backend_locked
 v5_b5_status: real_backend_locked
@@ -35,23 +35,26 @@ v6_f6_status: closed
 v6_status: closed
 v6_closed: 2026-05-04
 v6_composite: 4.45
+v7_status: closed
+v7_closed: 2026-05-04
+v7_composite: 4.90
 -->
 
 ## Status Snapshot
 
 - truth date: `2026-05-04`
-- current version: `v7` (V6 closed at composite 4.45; V7 correction + behavior-change E2E is next)
-- version status: `in_progress`
+- current version: `v8` (V7 closed at composite 4.90; V8 operator surfaces are next)
+- version status: `ready_to_execute`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
-- current milestone: `V7: Correction + Behavior-Change E2E` - V6 typed ingest closed; start V7 from `main`.
-- current phase: `V7-entry` - plan or execute V7 correction lane proof.
+- current milestone: `V8: Operator Surfaces` - V7 correction behavior-change E2E closed; start V8 from clean V7 head.
+- current phase: `V8-entry` - plan or execute V8 operator surfaces.
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
-- next step: create V7 branch from `main`; execute correction + behavior-change E2E gates.
+- next step: start V8 operator surfaces from clean V7 close.
 - V3 tail-deferred: `K3 Proxy Unblock + Canonical Rerun` — provision `gpt-5.4` on the openclaw LiteLLM proxy (or OpenAI-direct fallback capped at `MEMD_BENCH_JUDGE_BUDGET_USD=50`), then rerun LongMemEval / LoCoMo / ConvoMem canonical primaries. Success gate: flip those three rows from `replay-pending` to `verified` (if ≥0.70) or `recorded-unpinned` (if <0.70). MemBench separately needs a focused look at event-reasoning + role-tracking topics (0.000 / 0.100 per-topic in J3). Does NOT block V4 — V4 is runtime/dogfood work, not bench gates.
 - M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with D3).
 - V3 targets (floor, intrinsic/sidecar-OFF): LME ≥0.70, LoCoMo ≥0.70, MemBench ≥0.70, ConvoMem ≥0.70 — 70% is where competition sits, that is bare minimum. Stretch (intrinsic): LME ≥0.92, LoCoMo ≥0.75, MemBench ≥0.75, ConvoMem ≥0.75. Accelerated (sidecar ON) is bonus, not gate. See `## V3` block below.
@@ -59,7 +62,7 @@ v6_composite: 4.45
 - latest B3 intrinsic product-path rerun (2026-04-20, dense blend): LongMemEval 500Q `session_recall_any@5 = 0.936`, `@10 = 0.976`, `@30 = 1.000`, `@50 = 1.000`, duration `7916435 ms` (~132 min), `turn_diagnostics=false`. Gate 0.92 cleared. Weak type: single-session-preference 0.600 (30Qs).
 - prior M1 benchmark: LongMemEval 90% full-eval (50 items, LLM-graded, `session_recall_any@10`=96%). Retrieval-only baseline (500 items) was 82.8%. These are different metrics — do not compare directly.
 - M3 benchmark: LME 82.8% (gate 80%), LoCoMo 41.5% (gate 41.4%), MemBench 34.6% (gate 30%), ConvoMem 0.0% — zero regression
-- 10-STAR composite: 4.45/10 (V6 close 2026-05-04)
+- 10-STAR composite: 4.90/10 (V7 close 2026-05-04)
 
 ## Blockers
 
@@ -330,16 +333,18 @@ Goal: correction lane lives end-to-end. User says "no, X is Y" — next session 
 
 | Phase | Name | Status |
 | --- | --- | --- |
-| A7 | Correction Lane Ingestion Verify | `planned` |
-| B7 | Correction → Canonical Promotion | `planned` |
-| C7 | Next-Session Behavior Change Test | `planned` |
-| D7 | Contradiction Detection | `planned` |
-| E7 | Provenance Trail on Corrected Records | `planned` |
-| F7 | User-Visible "I learned X from Y" Surface | `planned` |
-| G7 | Rollback on Bad Correction | `planned` |
-| H7 | Atomic-Commit-by-Default (durability primitive, toggleable via `memd configure`) | `planned` |
+| A7 | Correction Lane Ingestion Verify | `complete` |
+| B7 | Correction → Canonical Promotion | `complete` |
+| C7 | Next-Session Behavior Change Test | `complete` |
+| D7 | Contradiction Detection | `complete` |
+| E7 | Provenance Trail on Corrected Records | `complete` |
+| F7 | User-Visible "I learned X from Y" Surface | `complete` |
+| G7 | Rollback on Bad Correction | `complete` |
+| H7 | Atomic-Commit-by-Default (durability primitive, toggleable via `memd configure`) | `complete` |
 
 V7 gate: correction bench in V5 suite shows 100% propagation, rollback test passes. H7: every memd write path atomically commits dirty tracked files in host repo; default ON; `memd configure auto_commit.enabled=false` toggles OFF for rebase/bisect/experiment workflows.
+
+V7 close evidence (2026-05-04): `correction-behavior-change` substrate suite passes S2 behavior + S3 rollback rows at 1.0; real memd-server backend test passes with correction metadata + explain chain; `memd configure auto_commit.enabled=false` smoke passes on a temp bundle.
 
 #### V8: Operator Surfaces — Axis Lift: TE 4→5, TP 5→6, stranger-test dogfood
 

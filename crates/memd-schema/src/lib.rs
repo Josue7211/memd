@@ -2470,6 +2470,8 @@ pub struct CorrectionChainEntry {
     pub status: MemoryStatus,
     pub updated_at: DateTime<Utc>,
     pub supersedes: Vec<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correction_source_turn: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3864,6 +3866,7 @@ mod tests {
                 status: MemoryStatus::Superseded,
                 updated_at: now,
                 supersedes: vec![],
+                correction_source_turn: Some("t-12".to_string()),
             }],
             confidence_timeline: vec![ConfidenceSample {
                 at: now,

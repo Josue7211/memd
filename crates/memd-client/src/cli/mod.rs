@@ -56,6 +56,51 @@ pub(crate) use skill_runtime::*;
 
 pub(crate) mod skill_catalog;
 
+fn bundle_auto_commit_enabled_for(output: &Path) -> bool {
+    if let Ok(value) = std::env::var("MEMD_AUTO_COMMIT_ENABLED") {
+        return matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on" | "enabled"
+        );
+    }
+
+    read_bundle_runtime_config(output)
+        .ok()
+        .flatten()
+        .map(|config| config.auto_commit.enabled)
+        .unwrap_or(true)
+}
+
+fn maybe_auto_commit_before_write(
+    output: Option<&Path>,
+    label: &str,
+    detail: Option<&str>,
+) -> anyhow::Result<()> {
+    let enabled = output
+        .map(bundle_auto_commit_enabled_for)
+        .unwrap_or_else(|| {
+            resolve_default_bundle_root()
+                .ok()
+                .flatten()
+                .as_deref()
+                .map(bundle_auto_commit_enabled_for)
+                .unwrap_or(true)
+        });
+    if !enabled {
+        return Ok(());
+    }
+
+    let suffix = detail
+        .map(|value| value.chars().take(72).collect::<String>())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| label.to_string());
+    let commit_msg = format!("memd auto-commit: {suffix}");
+    if let Some(hash) = crate::runtime::git_auto_commit_if_dirty(&commit_msg)? {
+        eprintln!("memd: auto-committed dirty tree before {label} ({hash})");
+    }
+    Ok(())
+}
+
 pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
     let client = MemdClient::new(&cli.base_url)?;
     let base_url = cli.base_url.clone();
@@ -643,6 +688,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             run_workspace_watch(&client, &base_url, &args).await?;
         }
         Commands::Handoff(args) => {
+            maybe_auto_commit_before_write(Some(&args.output), "handoff", Some("handoff"))?;
             let snapshot = crate::runtime::read_bundle_handoff(&args, &base_url).await?;
             write_bundle_memory_files(&args.output, &snapshot.resume, Some(&snapshot), false)
                 .await?;
@@ -691,24 +737,8 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                     }
                 }
             }
-            // Auto-commit tracked dirty files before checkpointing
-            if args.auto_commit {
-                let commit_msg = match args.content.as_deref() {
-                    Some(content) => {
-                        let summary: String = content.chars().take(72).collect();
-                        format!("memd auto-commit: {}", summary)
-                    }
-                    None => "memd auto-commit: checkpoint".to_string(),
-                };
-                match crate::runtime::git_auto_commit_if_dirty(&commit_msg) {
-                    Ok(Some(hash)) => {
-                        eprintln!("memd: auto-committed dirty tree ({})", hash);
-                    }
-                    Ok(None) => {} // clean tree, nothing to do
-                    Err(err) => {
-                        eprintln!("memd: auto-commit failed (non-fatal): {}", err);
-                    }
-                }
+            if args.auto_commit || bundle_auto_commit_enabled_for(&args.output) {
+                maybe_auto_commit_before_write(Some(&args.output), "checkpoint", args.content.as_deref())?;
             }
             let (default_project, default_namespace) = infer_bundle_identity_defaults(&args.output);
             let response = match checkpoint_with_bundle_defaults(&args, &base_url).await {
@@ -759,6 +789,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             print_json(&response)?;
         }
         Commands::Remember(args) => {
+            maybe_auto_commit_before_write(Some(&args.output), "remember", args.content.as_deref())?;
             let (default_project, default_namespace) = infer_bundle_identity_defaults(&args.output);
             let response = remember_with_bundle_defaults(&args, &base_url).await?;
             let snapshot = crate::runtime::read_bundle_resume(
@@ -824,24 +855,31 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             run_ingest_sources_command(&client, &args).await?;
         }
         Commands::Store(input) => {
+            maybe_auto_commit_before_write(None, "memory store", None)?;
             run_store_command(&client, &input).await?;
         }
         Commands::Candidate(input) => {
+            maybe_auto_commit_before_write(None, "memory candidate", None)?;
             run_candidate_command(&client, &input).await?;
         }
         Commands::Promote(input) => {
+            maybe_auto_commit_before_write(None, "memory promote", None)?;
             run_promote_command(&client, &input).await?;
         }
         Commands::Expire(input) => {
+            maybe_auto_commit_before_write(None, "memory expire", None)?;
             run_expire_command(&client, &input).await?;
         }
         Commands::MemoryVerify(input) => {
+            maybe_auto_commit_before_write(None, "memory verify", None)?;
             run_memory_verify_command(&client, &input).await?;
         }
         Commands::Repair(args) => {
+            maybe_auto_commit_before_write(None, "memory repair", args.content.as_deref())?;
             run_repair_command(&client, args).await?;
         }
         Commands::Correct(args) => {
+            maybe_auto_commit_before_write(None, "memory correct", Some(&args.content))?;
             run_correct_command(&client, args).await?;
         }
         Commands::Search(args) => {

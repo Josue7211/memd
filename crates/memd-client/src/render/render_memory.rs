@@ -396,6 +396,16 @@ pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: b
             output.push_str(&format!(" rehydration={}", trail.join(" | ")));
         }
     }
+    if let Some(meta) = response.item.correction_meta.as_ref() {
+        output.push_str(&format!(
+            " learned_from={} corrects={} captured_by={}",
+            meta.source_turn.as_deref().unwrap_or("none"),
+            meta.corrects_id.map(short_uuid).unwrap_or_else(|| "none".into()),
+            meta.captured_by
+                .map(|source| format!("{:?}", source).to_ascii_lowercase())
+                .unwrap_or_else(|| "unknown".into())
+        ));
+    }
 
     output
 }
@@ -538,23 +548,95 @@ pub(crate) fn is_default_runtime(runtime: &memd_schema::MemoryPolicyRuntime) -> 
 mod tests {
     use super::{
         render_bundle_status_summary, render_harness_preset_markdown, render_policy_summary,
-        render_skill_policy_summary, render_visible_memory_artifact_detail,
+        render_explain_summary, render_skill_policy_summary, render_visible_memory_artifact_detail,
         render_visible_memory_home, render_visible_memory_knowledge_map,
     };
     use crate::harness::preset::HarnessPresetRegistry;
     use memd_schema::{
-        HiveClaimsResponse, HiveSessionsResponse, HiveTasksResponse, MemoryKind,
-        MemoryPolicyConsolidation, MemoryPolicyDecay, MemoryPolicyFeedback, MemoryPolicyLiveTruth,
-        MemoryPolicyMemoryCompilation, MemoryPolicyPromotion, MemoryPolicyResponse,
-        MemoryPolicyRouteDefault, MemoryPolicyRuntime, MemoryPolicySemanticFallback,
-        MemoryPolicySkillGating, MemoryPolicyWorkingMemory, MemoryScope, MemoryVisibility,
-        RetrievalIntent, RetrievalRoute, SourceMemoryResponse, VisibleMemoryArtifact,
-        VisibleMemoryArtifactDetailResponse, VisibleMemoryGraphEdge, VisibleMemoryGraphNode,
-        VisibleMemoryHome, VisibleMemoryKnowledgeMap, VisibleMemoryProvenance,
-        VisibleMemorySnapshotResponse, VisibleMemoryStatus, VisibleMemoryUiActionKind,
-        WorkspaceMemoryResponse,
+        CaptureSource, CorrectionMetadata, ExplainMemoryResponse, HiveClaimsResponse,
+        HiveSessionsResponse, HiveTasksResponse, MemoryItem, MemoryKind, MemoryPolicyConsolidation,
+        MemoryPolicyDecay, MemoryPolicyFeedback, MemoryPolicyLiveTruth, MemoryPolicyMemoryCompilation,
+        MemoryPolicyPromotion, MemoryPolicyResponse, MemoryPolicyRouteDefault, MemoryPolicyRuntime,
+        MemoryPolicySemanticFallback, MemoryPolicySkillGating, MemoryPolicyWorkingMemory, MemoryScope,
+        MemoryStage, MemoryStatus, MemoryVisibility, RetrievalFeedbackSummary, RetrievalIntent,
+        RetrievalRoute, SourceMemoryResponse, VisibleMemoryArtifact, VisibleMemoryArtifactDetailResponse,
+        VisibleMemoryGraphEdge, VisibleMemoryGraphNode, VisibleMemoryHome, VisibleMemoryKnowledgeMap,
+        VisibleMemoryProvenance, VisibleMemorySnapshotResponse, VisibleMemoryStatus,
+        VisibleMemoryUiActionKind, WorkspaceMemoryResponse,
     };
     use serde_json::json;
+
+    #[test]
+    fn explain_summary_surfaces_correction_learning_trail() {
+        let now = chrono::Utc::now();
+        let original_id = uuid::Uuid::new_v4();
+        let mut item = MemoryItem {
+            id: uuid::Uuid::new_v4(),
+            content: "deploy target is GCP".to_string(),
+            redundancy_key: None,
+            belief_branch: None,
+            preferred: true,
+            kind: MemoryKind::Fact,
+            scope: MemoryScope::Project,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: MemoryVisibility::Workspace,
+            source_agent: Some("codex".to_string()),
+            source_system: Some("cli".to_string()),
+            source_path: None,
+            source_quality: None,
+            confidence: 0.9,
+            ttl_seconds: None,
+            created_at: now,
+            updated_at: now,
+            last_verified_at: None,
+            supersedes: vec![original_id],
+            tags: vec!["correction".to_string()],
+            status: MemoryStatus::Active,
+            stage: MemoryStage::Canonical,
+            lane: None,
+            version: 1,
+            correction_meta: None,
+        };
+        item.correction_meta = Some(CorrectionMetadata {
+            corrects_id: Some(original_id),
+            source_turn: Some("s1-t5".to_string()),
+            captured_by: Some(CaptureSource::Manual),
+            confidence: Some(0.9),
+        });
+
+        let summary = render_explain_summary(
+            &ExplainMemoryResponse {
+                route: RetrievalRoute::Auto,
+                intent: RetrievalIntent::General,
+                item,
+                canonical_key: "deploy-target".to_string(),
+                redundancy_key: "deploy-target".to_string(),
+                reasons: vec!["correction_boost".to_string()],
+                entity: None,
+                events: vec![],
+                sources: vec![],
+                retrieval_feedback: RetrievalFeedbackSummary {
+                    total_retrievals: 0,
+                    last_retrieved_at: None,
+                    by_surface: vec![],
+                    recent_policy_hooks: vec![],
+                },
+                branch_siblings: vec![],
+                rehydration: vec![],
+                policy_hooks: vec![],
+                corrections_chain: vec![],
+                confidence_timeline: vec![],
+                trust_rank_history: vec![],
+            },
+            false,
+        );
+
+        assert!(summary.contains("learned_from=s1-t5"));
+        assert!(summary.contains("captured_by=manual"));
+        assert!(summary.contains(&format!("corrects={}", original_id.to_string()[..8].to_string())));
+    }
 
     #[test]
     fn policy_summary_includes_skill_gates() {

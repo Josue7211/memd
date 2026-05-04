@@ -386,6 +386,7 @@ pub(crate) struct BundleConfigSnapshot {
     fallback_base_url: Option<String>,
     localhost_fallback_policy: Option<String>,
     voice_mode: String,
+    auto_commit_enabled: bool,
 }
 
 pub(crate) fn render_bundle_config_snapshot(
@@ -448,12 +449,16 @@ pub(crate) fn render_bundle_config_snapshot(
                 .to_string()
         }),
         voice_mode,
+        auto_commit_enabled: runtime
+            .as_ref()
+            .map(|value| value.auto_commit.enabled)
+            .unwrap_or_else(default_true),
     }
 }
 
 pub(crate) fn render_bundle_config_summary(config: &BundleConfigSnapshot) -> String {
     format!(
-        "config bundle={} ready={} project={} namespace={} agent={} session={} base_url={} route={} intent={} voice={} authority={} degraded={}",
+        "config bundle={} ready={} project={} namespace={} agent={} session={} base_url={} route={} intent={} voice={} auto_commit={} authority={} degraded={}",
         config.bundle_root,
         config.setup_ready,
         config.project.as_deref().unwrap_or("none"),
@@ -464,6 +469,7 @@ pub(crate) fn render_bundle_config_summary(config: &BundleConfigSnapshot) -> Str
         config.route.as_deref().unwrap_or("none"),
         config.intent.as_deref().unwrap_or("none"),
         config.voice_mode.as_str(),
+        if config.auto_commit_enabled { "on" } else { "off" },
         config.authority_mode.as_deref().unwrap_or("shared"),
         if config.authority_degraded {
             "yes"
@@ -514,6 +520,14 @@ pub(crate) fn render_bundle_config_markdown(config: &BundleConfigSnapshot) -> St
         config.intent.as_deref().unwrap_or("none")
     ));
     markdown.push_str(&format!("- voice mode: `{}`\n", config.voice_mode.as_str()));
+    markdown.push_str(&format!(
+        "- auto commit: `{}`\n",
+        if config.auto_commit_enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    ));
     markdown.push_str(&format!(
         "- workspace: `{}`\n",
         config.workspace.as_deref().unwrap_or("none")
@@ -715,6 +729,43 @@ pub(crate) fn set_bundle_auto_short_term_capture(
         "$env:MEMD_AUTO_SHORT_TERM_CAPTURE = ",
         &format!(
             "$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"{}\"\n",
+            if enabled { "true" } else { "false" }
+        ),
+    )?;
+
+    Ok(())
+}
+
+pub(crate) fn set_bundle_auto_commit_enabled(output: &Path, enabled: bool) -> anyhow::Result<()> {
+    let config_path = output.join("config.json");
+    if !config_path.exists() {
+        anyhow::bail!(
+            "{} does not exist; initialize the bundle first",
+            config_path.display()
+        );
+    }
+
+    let raw = fs::read_to_string(&config_path)
+        .with_context(|| format!("read {}", config_path.display()))?;
+    let mut config: BundleConfigFile =
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", config_path.display()))?;
+    config.auto_commit.enabled = enabled;
+    fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")
+        .with_context(|| format!("write {}", config_path.display()))?;
+
+    rewrite_env_assignment(
+        &output.join("env"),
+        "MEMD_AUTO_COMMIT_ENABLED=",
+        &format!(
+            "MEMD_AUTO_COMMIT_ENABLED={}\n",
+            if enabled { "true" } else { "false" }
+        ),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env.ps1"),
+        "$env:MEMD_AUTO_COMMIT_ENABLED = ",
+        &format!(
+            "$env:MEMD_AUTO_COMMIT_ENABLED = \"{}\"\n",
             if enabled { "true" } else { "false" }
         ),
     )?;

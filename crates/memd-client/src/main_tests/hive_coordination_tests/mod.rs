@@ -1809,6 +1809,7 @@ fn hive_project_state_round_trips_through_bundle_runtime_config() {
         visibility: Some("workspace".to_string()),
         heartbeat_model: Some("gpt-4.1-mini".to_string()),
         auto_short_term_capture: true,
+        auto_commit: BundleAutoCommitConfig::default(),
         hive_project_enabled: true,
         hive_project_anchor: Some("project:demo".to_string()),
         hive_project_joined_at: Some(Utc::now()),
@@ -1845,6 +1846,7 @@ fn merge_bundle_runtime_config_prefers_overlay_scope() {
         visibility: Some("private".to_string()),
         heartbeat_model: Some("llama-desktop/qwen".to_string()),
         auto_short_term_capture: true,
+        auto_commit: BundleAutoCommitConfig::default(),
         authority_policy: BundleAuthorityPolicy::default(),
         authority_state: BundleAuthorityState::default(),
     };
@@ -1871,6 +1873,7 @@ fn merge_bundle_runtime_config_prefers_overlay_scope() {
         visibility: Some("workspace".to_string()),
         heartbeat_model: None,
         auto_short_term_capture: false,
+        auto_commit: BundleAutoCommitConfig::default(),
         authority_policy: BundleAuthorityPolicy::default(),
         authority_state: BundleAuthorityState::default(),
     };

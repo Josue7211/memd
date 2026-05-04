@@ -1,9 +1,9 @@
 use axum::http::StatusCode;
 use chrono::Utc;
 use memd_schema::{
-    CorrectMemoryRequest, CorrectMemoryResponse, ExpireMemoryRequest, MemoryItem, MemoryRepairMode,
-    MemoryStage, MemoryStatus, RepairMemoryRequest, RepairMemoryResponse, StoreMemoryRequest,
-    VerifyMemoryRequest,
+    CaptureSource, CorrectMemoryRequest, CorrectMemoryResponse, CorrectionMetadata,
+    ExpireMemoryRequest, MemoryItem, MemoryRepairMode, MemoryStage, MemoryStatus,
+    RepairMemoryRequest, RepairMemoryResponse, StoreMemoryRequest, VerifyMemoryRequest,
 };
 use tracing::warn;
 
@@ -109,6 +109,13 @@ pub(crate) fn correct_item(
     if !new_tags.contains(&"correction".to_string()) {
         new_tags.push("correction".to_string());
     }
+    let correction_confidence = req.confidence.unwrap_or(old_item.confidence).clamp(0.0, 1.0);
+    let correction_meta = CorrectionMetadata {
+        corrects_id: Some(old_item.id),
+        source_turn: correction_source_turn(&new_tags),
+        captured_by: Some(CaptureSource::Manual),
+        confidence: Some(correction_confidence),
+    };
     let store_req = StoreMemoryRequest {
         content: req.content.trim().to_string(),
         kind: old_item.kind,
@@ -122,11 +129,7 @@ pub(crate) fn correct_item(
         source_system: old_item.source_system.clone(),
         source_path: old_item.source_path.clone(),
         source_quality: old_item.source_quality,
-        confidence: Some(
-            req.confidence
-                .unwrap_or(old_item.confidence)
-                .clamp(0.0, 1.0),
-        ),
+        confidence: Some(correction_confidence),
         ttl_seconds: old_item.ttl_seconds,
         last_verified_at: Some(Utc::now()),
         supersedes: vec![old_item.id],
@@ -140,6 +143,7 @@ pub(crate) fn correct_item(
 
     // Corrections outrank the original in retrieval
     new_item.preferred = true;
+    new_item.correction_meta = Some(correction_meta);
     new_item.updated_at = Utc::now();
     let pref_canonical = canonical_key(&new_item);
     let pref_redundancy = redundancy_key(&new_item);
@@ -209,6 +213,20 @@ pub(crate) fn correct_item(
         new_item,
         contested,
     })
+}
+
+fn correction_source_turn(tags: &[String]) -> Option<String> {
+    tags.iter()
+        .find_map(|tag| {
+            tag.strip_prefix("turn:")
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| value.to_string())
+        })
+        .or_else(|| {
+            tags.iter()
+                .find(|tag| tag.as_str() != "correction" && tag.contains("correct"))
+                .cloned()
+        })
 }
 
 pub(crate) fn repair_item(

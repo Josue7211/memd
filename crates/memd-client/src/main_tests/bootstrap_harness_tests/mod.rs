@@ -177,6 +177,7 @@ fn resolves_nested_bundle_rag_config() {
         heartbeat_model: Some(default_heartbeat_model()),
         voice_mode: Some(default_voice_mode()),
         auto_short_term_capture: true,
+        auto_commit: BundleAutoCommitConfig::default(),
         rag_url: None,
         authority_policy: BundleAuthorityPolicy::default(),
         authority_state: BundleAuthorityState::default(),
@@ -221,6 +222,7 @@ fn resolves_legacy_bundle_rag_url() {
         heartbeat_model: Some(default_heartbeat_model()),
         voice_mode: Some(default_voice_mode()),
         auto_short_term_capture: true,
+        auto_commit: BundleAutoCommitConfig::default(),
         rag_url: Some("http://127.0.0.1:9000".to_string()),
         backend: None,
         authority_policy: BundleAuthorityPolicy::default(),
@@ -260,6 +262,7 @@ fn serializes_bundle_config_with_nested_rag_state() {
         heartbeat_model: default_heartbeat_model(),
         voice_mode: default_voice_mode(),
         auto_short_term_capture: true,
+        auto_commit: BundleAutoCommitConfig::default(),
         authority_policy: BundleAuthorityPolicy::default(),
         authority_state: BundleAuthorityState::default(),
         backend: BundleBackendConfig {
@@ -323,6 +326,7 @@ fn writes_bundle_memory_placeholder_with_hot_path_guidance() {
         heartbeat_model: default_heartbeat_model(),
         voice_mode: default_voice_mode(),
         auto_short_term_capture: true,
+        auto_commit: BundleAutoCommitConfig::default(),
         authority_policy: BundleAuthorityPolicy::default(),
         authority_state: BundleAuthorityState::default(),
         backend: BundleBackendConfig {
@@ -400,6 +404,7 @@ fn writes_bundle_memory_placeholder_with_normal_voice_mode() {
         heartbeat_model: default_heartbeat_model(),
         voice_mode: "normal".to_string(),
         auto_short_term_capture: true,
+        auto_commit: BundleAutoCommitConfig::default(),
         authority_policy: BundleAuthorityPolicy::default(),
         authority_state: BundleAuthorityState::default(),
         backend: BundleBackendConfig {
@@ -447,6 +452,7 @@ fn writes_bundle_memory_placeholder_with_normal_voice_mode() {
             heartbeat_model: Some(default_heartbeat_model()),
             voice_mode: Some("normal".to_string()),
             auto_short_term_capture: true,
+            auto_commit: BundleAutoCommitConfig::default(),
             rag_url: Some("http://127.0.0.1:9000".to_string()),
             backend: Some(BundleBackendConfigFile {
                 rag: Some(BundleRagConfigFile {
@@ -503,6 +509,7 @@ fn writes_bundle_memory_placeholder_with_caveman_lite_voice_mode() {
         heartbeat_model: default_heartbeat_model(),
         voice_mode: "caveman-lite".to_string(),
         auto_short_term_capture: true,
+        auto_commit: BundleAutoCommitConfig::default(),
         authority_policy: BundleAuthorityPolicy::default(),
         authority_state: BundleAuthorityState::default(),
         backend: BundleBackendConfig {
@@ -550,6 +557,7 @@ fn writes_bundle_memory_placeholder_with_caveman_lite_voice_mode() {
             heartbeat_model: Some(default_heartbeat_model()),
             voice_mode: Some("caveman-lite".to_string()),
             auto_short_term_capture: true,
+            auto_commit: BundleAutoCommitConfig::default(),
             rag_url: Some("http://127.0.0.1:9000".to_string()),
             backend: Some(BundleBackendConfigFile {
                 rag: Some(BundleRagConfigFile {
@@ -609,6 +617,7 @@ fn write_bundle_backend_env_includes_embed_model_when_configured() {
         heartbeat_model: default_heartbeat_model(),
         voice_mode: default_voice_mode(),
         auto_short_term_capture: true,
+        auto_commit: BundleAutoCommitConfig::default(),
         authority_policy: BundleAuthorityPolicy::default(),
         authority_state: BundleAuthorityState::default(),
         backend: BundleBackendConfig {

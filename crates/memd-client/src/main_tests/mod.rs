@@ -219,6 +219,7 @@ mod substrate_e5_tests;
 mod substrate_f5_real_tests;
 mod substrate_f5_tests;
 mod substrate_g5_tests;
+mod substrate_v7_real_tests;
 mod substrate_v7_tests;
 mod tasks_hive_tests;
 mod test_support;

@@ -57,6 +57,7 @@
             heartbeat_model: Some(default_heartbeat_model()),
             voice_mode: Some(default_voice_mode()),
             auto_short_term_capture: true,
+            auto_commit: BundleAutoCommitConfig::default(),
             rag_url: None,
             authority_policy: BundleAuthorityPolicy::default(),
             authority_state: BundleAuthorityState::default(),
@@ -101,6 +102,7 @@
             heartbeat_model: Some(default_heartbeat_model()),
             voice_mode: Some(default_voice_mode()),
             auto_short_term_capture: true,
+            auto_commit: BundleAutoCommitConfig::default(),
             rag_url: Some("http://127.0.0.1:9000".to_string()),
             backend: None,
             authority_policy: BundleAuthorityPolicy::default(),
@@ -140,6 +142,7 @@
             heartbeat_model: default_heartbeat_model(),
             voice_mode: default_voice_mode(),
             auto_short_term_capture: true,
+            auto_commit: BundleAutoCommitConfig::default(),
             authority_policy: BundleAuthorityPolicy::default(),
             authority_state: BundleAuthorityState::default(),
             backend: BundleBackendConfig {
@@ -203,6 +206,7 @@
             heartbeat_model: default_heartbeat_model(),
             voice_mode: default_voice_mode(),
             auto_short_term_capture: true,
+            auto_commit: BundleAutoCommitConfig::default(),
             authority_policy: BundleAuthorityPolicy::default(),
             authority_state: BundleAuthorityState::default(),
             backend: BundleBackendConfig {

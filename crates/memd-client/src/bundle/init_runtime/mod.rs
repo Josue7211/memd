@@ -1663,6 +1663,7 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         heartbeat_model: default_heartbeat_model(),
         voice_mode: args.voice_mode.clone().unwrap_or_else(default_voice_mode),
         auto_short_term_capture: true,
+        auto_commit: BundleAutoCommitConfig::default(),
         authority_policy: BundleAuthorityPolicy::default(),
         authority_state: BundleAuthorityState {
             mode: default_authority_mode(),
@@ -1729,6 +1730,14 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         q(&config.heartbeat_model)
     ));
     env_lines.push(format!("MEMD_VOICE_MODE={}\n", q(&config.voice_mode)));
+    env_lines.push(format!(
+        "MEMD_AUTO_COMMIT_ENABLED={}\n",
+        if config.auto_commit.enabled {
+            "'true'"
+        } else {
+            "'false'"
+        }
+    ));
     env_lines.push(format!(
         "MEMD_AUTO_SHORT_TERM_CAPTURE={}\n",
         if config.auto_short_term_capture {
@@ -1808,7 +1817,7 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("env.ps1"),
         format!(
-            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n{}$env:MEMD_AGENT = \"{}\"\n$env:MEMD_WORKER_NAME = \"{}\"\n$env:MEMD_SESSION = \"{}\"\n{}$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n$env:MEMD_HEARTBEAT_MODEL = \"{}\"\n$env:MEMD_VOICE_MODE = \"{}\"\n$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"{}\"\n{}{}{}",
+            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n{}$env:MEMD_AGENT = \"{}\"\n$env:MEMD_WORKER_NAME = \"{}\"\n$env:MEMD_SESSION = \"{}\"\n{}$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n$env:MEMD_HEARTBEAT_MODEL = \"{}\"\n$env:MEMD_VOICE_MODE = \"{}\"\n$env:MEMD_AUTO_COMMIT_ENABLED = \"{}\"\n$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"{}\"\n{}{}{}",
             escape_ps1(&args.base_url),
             escape_ps1(&project),
             namespace
@@ -1826,6 +1835,7 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
             escape_ps1(&args.intent),
             escape_ps1(&config.heartbeat_model),
             escape_ps1(&config.voice_mode),
+            if config.auto_commit.enabled { "true" } else { "false" },
             if config.auto_short_term_capture { "true" } else { "false" },
             args.workspace
                 .as_ref()
@@ -2032,6 +2042,10 @@ pub(crate) fn build_bundle_turn_placeholder_config(
         .as_ref()
         .map(|value| value.auto_short_term_capture)
         .unwrap_or_else(default_auto_short_term_capture);
+    let auto_commit = runtime
+        .as_ref()
+        .map(|value| value.auto_commit.clone())
+        .unwrap_or_default();
 
     BundleConfig {
         schema_version: 2,
@@ -2057,6 +2071,7 @@ pub(crate) fn build_bundle_turn_placeholder_config(
         heartbeat_model,
         voice_mode,
         auto_short_term_capture,
+        auto_commit,
         authority_policy: runtime
             .as_ref()
             .map(|value| value.authority_policy.clone())
@@ -2382,7 +2397,7 @@ pub(crate) fn write_bundle_memory_placeholder(
     ));
     markdown.push_str("## Bundle Defaults\n\n");
     markdown.push_str(&format!(
-        "- project: {}\n- namespace: {}\n- agent: {}\n- session: {}\n- tab: {}\n- workspace: {}\n- visibility: {}\n- route: {}\n- intent: {}\n- heartbeat_model: {}\n- voice_mode: {}\n- auto_short_term_capture: {}\n",
+        "- project: {}\n- namespace: {}\n- agent: {}\n- session: {}\n- tab: {}\n- workspace: {}\n- visibility: {}\n- route: {}\n- intent: {}\n- heartbeat_model: {}\n- voice_mode: {}\n- auto_short_term_capture: {}\n- auto_commit: {}\n",
         config.project,
         config.namespace.as_deref().unwrap_or("none"),
         config.agent,
@@ -2395,6 +2410,7 @@ pub(crate) fn write_bundle_memory_placeholder(
         config.heartbeat_model,
         config.voice_mode,
         if config.auto_short_term_capture { "true" } else { "false" },
+        if config.auto_commit.enabled { "true" } else { "false" },
     ));
     markdown.push_str("\n## Notes\n\n");
     markdown

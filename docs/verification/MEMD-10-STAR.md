@@ -39,15 +39,15 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 
 | Axis | Weight | Score | Status |
 |------|--------|-------|--------|
-| Session continuity | 20% | 4/10 | A4 ledger survives compaction (seal → restore 10/10 loop) + B4 contract-gated enforce wrapper with trace + budget + per-(session,event) lock + A5 substrate-native cross-session-recall benchmark with locked floor + nightly regression gate |
-| Correction retention | 15% | 4/10 | C4 correction lane + F4 preference drift detector landed; G4 asserter `assert_c4_correction_provenance` green on 3-session harness (synthetic; real-session NDJSON deferred to V5+ per V4 deviation 2026-05-02) | evidence: v4-proof-runs/2026-05-02-stability-pass-2-and-close.md |
+| Session continuity | 20% | 5/10 | A4 ledger survives compaction + B4 contract-gated hooks + A5 cross-session benchmark + V7 correction behavior-change proves S1 correction influences S2 behavior and S3 rollback without re-prompt. |
+| Correction retention | 15% | 5/10 | C4 correction lane + F4 preference drift + V7 correction-behavior-change substrate and real memd-server backend prove corrected values supersede old beliefs across sessions, with rollback preserving chain integrity. |
 | Procedural reuse | 15% | 4/10 | V5 F5 live-fire harness on real memd-server (HttpRoutineSubstrate via spawned memd-server subprocess): routine plant in S1 → invocation in S2+ with token_savings ≥ 1×baseline_retrieval_cost via per-routine cost ledger (PerfectRoutineSubstrate caches in-process; NoCacheRoutineSubstrate is the negative control that fails the gate; HttpRoutineSubstrate stores `MemoryKind::Procedural` with per-routine tag and retrieves by tag-filtered search across sessions). ten_star_writer requires `live_fire_pass=1.0` metric for PR=4 — typed-retrieval correctness alone is RR credit, not PR credit | evidence: SUBSTRATE_BENCHMARKS.md typed-retrieval block (live_fire_total_savings=900); locked real-backend baseline `docs/verification/substrate-baselines/f5_real-2026-05-03.json` (3/5/5-routine scenarios at perfect r·i·90 savings) |
 | Cross-harness continuity | 15% | 4/10 | V4 G4 cross-harness flip asserter green (2→3) + V5 C5 substrate suite materializes banked +1 (3→4) on V4 G4 close 2026-05-02 | evidence: v4-proof-runs/2026-05-02-stability-pass-2-and-close.md |
 | Raw retrieval strength | 15% | 7/10 | V6 typed-ingest public-bench gate passes all four canonical thresholds: LME qa_accuracy 0.860 ≥ 0.850, LoCoMo token_f1_avg 0.760 ≥ 0.750, MemBench mc_accuracy 0.760 ≥ 0.750, ConvoMem judge_accuracy 0.910 ≥ 0.900; LME session_recall_any@5 0.960 ≥ 0.950. V6 writer pins each value to the contract metric key before lifting RR 6→7. | evidence: `tests/fixtures/typed_ingest/f6/canonical-gates.jsonl`; `typed_ingest_f6_tests` 18/18 green |
 | Token efficiency | 10% | 4/10 | D4 wake compiler + E4 depth-contract metrics; G4 asserter `assert_d4_wake_within_budget` green on 3-session harness | evidence: v4-proof-runs/2026-05-02-stability-pass-2-and-close.md |
-| Trust + provenance | 10% | 4/10 | V6 method-card + reproducibility gate landed for all four public benches; each card records typed pipeline, source dataset, provenance drilldown, and ±0.03 reproduction tolerance; F6 reasoning traces preserve lookup result ids and source-turn back-pointers for explain drilldown. |
+| Trust + provenance | 10% | 5/10 | V6 method-card + reproducibility gate plus V7 correction metadata/explain chain: corrected records carry `corrects_id`, `source_turn`, capture source, confidence, and user-visible learned-from summary. |
 
-**Composite: 4.45/10 (F6 regenerated 2026-05-04 — V6 typed pipeline)**
+**Composite: 4.90/10 (V7 closed 2026-05-04 — correction E2E + rollback + atomic commit)**
 *Prior composite 2.9 counted "code exists" as partial credit; regrade counts only "user gets value."*
 *Prior axis table (scores 2,2,1,3,4,6,5) summed to 3.0 but reported 1.8 — reconciled 2026-04-22 to the pessimistic axis row that actually yields 1.80.*
 *2026-04-24: session continuity axis moved 1 → 2 on A4 ledger-survival gate (10/10 loop, zero breach lines). Composite moved 1.80 → 2.00. Evidence:*
@@ -117,6 +117,13 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 - *Composite arithmetic: 4·.20 + 4·.15 + 2·.15 + 4·.15 + 4·.15 + 4·.10 + 3·.10 = 0.80 + 0.60 + 0.30 + 0.60 + 0.60 + 0.40 + 0.30 = 3.60*
 
 *MILESTONE-v4's historical `composite_pre: 2.15` is superseded — see 0.1.0-CONTRACT.md baseline.*
+
+*2026-05-04: V7 milestone closes. Composite 4.45 → 4.90 (+0.45): session_continuity 4→5, correction_retention 4→5, trust_provenance 4→5. Evidence:*
+- *`cargo test -p memd-client v7_ -- --nocapture` → 4 passed, 1 ignored real-backend test by default*
+- *`cargo test -p memd-client v7_real_backend_correction_behavior_change_and_meta -- --ignored --nocapture` → 1 passed*
+- *`cargo run -p memd-client --bin memd -- benchmark substrate --suite correction-behavior-change --output /tmp/memd-v7-substrate --report /tmp/memd-v7-substrate/SUBSTRATE_BENCHMARKS.md --json` → S2 and S3 rollback rows pass at 1.0*
+- *`cargo test -p memd-server correct_item_ -- --nocapture`; `cargo test -p memd-server explain_shows_correction_events -- --nocapture`; `cargo test -p memd-server d2_contradiction_marks_siblings_contested -- --nocapture` green*
+- *H7 smoke: `memd configure --output /tmp/memd-v7-config auto_commit.enabled=false --summary` reports `auto_commit=off`; git auto-commit tests pass*
 
 ## 11 Pillars — Current Reality
 

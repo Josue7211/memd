@@ -279,9 +279,11 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
                     );
                 } else {
                     println!(
-                        "substrate {suite}: next_session_behavior_rate={:.3}, chain_completeness={:.3}, pass={}",
+                        "substrate {suite}: next_session_behavior_rate={:.3}, chain_completeness={:.3}, rollback_behavior={:.3}, rollback_chain={:.3}, pass={}",
                         outcome.next_session_behavior_rate,
                         outcome.chain_completeness_rate,
+                        outcome.rollback_behavior_rate,
+                        outcome.rollback_chain_completeness_rate,
                         outcome.overall_pass
                     );
                 }

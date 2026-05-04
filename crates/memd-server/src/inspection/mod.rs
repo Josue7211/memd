@@ -114,6 +114,10 @@ fn build_corrections_chain(
             status: predecessor.status,
             updated_at: predecessor.updated_at,
             supersedes: predecessor.supersedes.clone(),
+            correction_source_turn: predecessor
+                .correction_meta
+                .as_ref()
+                .and_then(|meta| meta.source_turn.clone()),
         });
         frontier.extend(predecessor.supersedes);
     }

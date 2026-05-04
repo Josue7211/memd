@@ -18,6 +18,8 @@ use uuid::Uuid;
 pub(crate) struct V7PassGate {
     pub(crate) next_session_behavior_rate: f64,
     pub(crate) chain_completeness_rate: f64,
+    pub(crate) rollback_behavior_rate: f64,
+    pub(crate) rollback_chain_completeness_rate: f64,
 }
 
 impl Default for V7PassGate {
@@ -25,6 +27,8 @@ impl Default for V7PassGate {
         Self {
             next_session_behavior_rate: 0.05,
             chain_completeness_rate: 1.0,
+            rollback_behavior_rate: 1.0,
+            rollback_chain_completeness_rate: 1.0,
         }
     }
 }
@@ -57,6 +61,8 @@ pub(crate) struct V7Outcome {
     pub(crate) overall_pass: bool,
     pub(crate) next_session_behavior_rate: f64,
     pub(crate) chain_completeness_rate: f64,
+    pub(crate) rollback_behavior_rate: f64,
+    pub(crate) rollback_chain_completeness_rate: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -257,6 +263,7 @@ pub(crate) fn run_v7_correction_behavior_with_backend<B: V7BehaviorBackend>(
     let facts = generate_corpus(config.seed, config.fact_count, &config.kind_mix);
     let s1 = session_id(config.seed, 1);
     let s2 = session_id(config.seed, 2);
+    let s3 = session_id(config.seed, 3);
 
     backend.open_session(&s1);
     for fact in &facts {
@@ -291,11 +298,11 @@ pub(crate) fn run_v7_correction_behavior_with_backend<B: V7BehaviorBackend>(
     let n = facts.len().max(1) as f64;
     let next_session_behavior_rate = behavior_hits as f64 / n;
     let chain_completeness_rate = chain_hits as f64 / n;
-    let pass = next_session_behavior_rate >= config.pass_gate.next_session_behavior_rate
+    let s2_pass = next_session_behavior_rate >= config.pass_gate.next_session_behavior_rate
         && chain_completeness_rate >= config.pass_gate.chain_completeness_rate;
-    let records = vec![ScenarioRecord {
+    let mut records = vec![ScenarioRecord {
         suite: "correction-behavior-change".into(),
-        run_id,
+        run_id: run_id.clone(),
         ts_ms,
         seed: config.seed,
         fact_count: config.fact_count,
@@ -306,9 +313,62 @@ pub(crate) fn run_v7_correction_behavior_with_backend<B: V7BehaviorBackend>(
         tokens_per_recall: 0,
         latency_ms_p50: 0,
         latency_ms_p95: 0,
-        pass,
+        pass: s2_pass,
     }];
 
+    backend.seal_session(&s2);
+    backend.open_session(&s3);
+    backend.restore_session(&s3, &s2);
+    let (rollback_behavior_rate, rollback_chain_completeness_rate) =
+        if let Some(fact) = facts.first() {
+            backend.apply_correction(&s3, fact, &fact.value);
+            let query = BehaviorQuery {
+                fact_id: fact.id,
+                subject: fact.subject.clone(),
+                predicate: fact.predicate.clone(),
+            };
+            if let Some(hit) = backend.query_behavior(&s3, &query) {
+                let rollback_current = if hit.value == fact.value { 1.0 } else { 0.0 };
+                let cites_s1_correction = provenance_chain_cites_correction(
+                    &hit.provenance_chain,
+                    &correction_turn_id(&s1, fact.id),
+                );
+                let cites_s3_rollback = provenance_chain_cites_correction(
+                    &hit.provenance_chain,
+                    &correction_turn_id(&s3, fact.id),
+                );
+                let rollback_chain = if cites_s1_correction && cites_s3_rollback {
+                    1.0
+                } else {
+                    0.0
+                };
+                (rollback_current, rollback_chain)
+            } else {
+                (0.0, 0.0)
+            }
+        } else {
+            (0.0, 0.0)
+        };
+    let rollback_pass =
+        rollback_behavior_rate >= config.pass_gate.rollback_behavior_rate
+            && rollback_chain_completeness_rate
+                >= config.pass_gate.rollback_chain_completeness_rate;
+    records.push(ScenarioRecord {
+        suite: "correction-behavior-change".into(),
+        run_id,
+        ts_ms,
+        seed: config.seed,
+        fact_count: 1,
+        cut_k: 3,
+        recall_at_1: rollback_behavior_rate,
+        recall_at_3: rollback_chain_completeness_rate,
+        answer_exact_match: rollback_behavior_rate,
+        tokens_per_recall: 0,
+        latency_ms_p50: 0,
+        latency_ms_p95: 0,
+        pass: rollback_pass,
+    });
+    let overall_pass = s2_pass && rollback_pass;
     let ndjson_path = ndjson_path_for(&config.results_dir, ts_ms);
     append_ndjson(&ndjson_path, &records)?;
     write_run_metadata(&config.results_dir, &records[0].run_id, ts_ms, config)?;
@@ -316,9 +376,11 @@ pub(crate) fn run_v7_correction_behavior_with_backend<B: V7BehaviorBackend>(
     Ok(V7Outcome {
         records,
         ndjson_path,
-        overall_pass: pass,
+        overall_pass,
         next_session_behavior_rate,
         chain_completeness_rate,
+        rollback_behavior_rate,
+        rollback_chain_completeness_rate,
     })
 }
 
@@ -362,6 +424,8 @@ fn write_run_metadata(
         "pass_gate": {
             "next_session_behavior_rate": config.pass_gate.next_session_behavior_rate,
             "chain_completeness_rate": config.pass_gate.chain_completeness_rate,
+            "rollback_behavior_rate": config.pass_gate.rollback_behavior_rate,
+            "rollback_chain_completeness_rate": config.pass_gate.rollback_chain_completeness_rate,
         },
     });
     let mut file = std::fs::OpenOptions::new()

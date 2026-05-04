@@ -3214,6 +3214,7 @@ fn shared_awareness_scope_prefers_workspace_over_project_filters() {
         visibility: None,
         heartbeat_model: None,
         auto_short_term_capture: true,
+        auto_commit: BundleAutoCommitConfig::default(),
         authority_policy: BundleAuthorityPolicy::default(),
         authority_state: BundleAuthorityState::default(),
     };

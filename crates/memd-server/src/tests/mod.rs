@@ -4790,7 +4790,7 @@ fn correct_item_supersedes_old_and_creates_new() {
             id: original.id,
             content: "the capital of France is Paris".to_string(),
             reason: Some("Berlin is Germany's capital, not France's".to_string()),
-            tags: None,
+            tags: Some(vec!["turn:s1-t5".to_string(), "geography".to_string()]),
             confidence: None,
         },
     )
@@ -4804,11 +4804,83 @@ fn correct_item_supersedes_old_and_creates_new() {
     assert!(response.new_item.supersedes.contains(&original.id));
     assert!(response.new_item.tags.contains(&"correction".to_string()));
     assert!(response.new_item.tags.contains(&"geography".to_string()));
+    let meta = response
+        .new_item
+        .correction_meta
+        .as_ref()
+        .expect("correction metadata");
+    assert_eq!(meta.corrects_id, Some(original.id));
+    assert_eq!(meta.source_turn.as_deref(), Some("s1-t5"));
+    assert_eq!(meta.captured_by, Some(memd_schema::CaptureSource::Manual));
 
     let old_from_store = state.store.get(original.id).unwrap().unwrap();
     assert_eq!(old_from_store.status, MemoryStatus::Superseded);
     let new_from_store = state.store.get(response.new_item.id).unwrap().unwrap();
     assert_eq!(new_from_store.status, MemoryStatus::Active);
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn correct_item_derives_correction_meta_from_legacy_turn_tag() {
+    let (dir, state) = temp_state("memd-correct-meta-legacy-tag");
+
+    let (original, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "deploy target is AWS".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: Some("test".to_string()),
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.7),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: vec![],
+                tags: vec!["infra".to_string()],
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store original");
+
+    let response = repair::correct_item(
+        &state,
+        CorrectMemoryRequest {
+            id: original.id,
+            content: "deploy target is GCP".to_string(),
+            reason: Some("migration finished".to_string()),
+            tags: Some(vec![
+                "infra".to_string(),
+                "v7-seed47-s1-correct-001".to_string(),
+            ]),
+            confidence: Some(0.91),
+        },
+    )
+    .expect("correct item");
+
+    let meta = response
+        .new_item
+        .correction_meta
+        .as_ref()
+        .expect("correction metadata");
+    assert_eq!(meta.corrects_id, Some(original.id));
+    assert_eq!(
+        meta.source_turn.as_deref(),
+        Some("v7-seed47-s1-correct-001")
+    );
+    assert_eq!(meta.confidence, Some(0.91));
+
+    let from_store = state.store.get(response.new_item.id).unwrap().unwrap();
+    assert_eq!(from_store.correction_meta, response.new_item.correction_meta);
 
     std::fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -5035,6 +5107,11 @@ fn explain_shows_correction_events() {
             .iter()
             .any(|entry| entry.id == original.id),
         "new item's corrections_chain should contain the superseded original"
+    );
+    assert_eq!(
+        explain_new.item.correction_meta.as_ref().and_then(|m| m.corrects_id),
+        Some(original.id),
+        "explain should carry correction metadata on corrected item"
     );
     assert!(
         !explain_new.confidence_timeline.is_empty(),

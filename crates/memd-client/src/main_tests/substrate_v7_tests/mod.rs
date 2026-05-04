@@ -24,6 +24,8 @@ fn v7_correction_behavior_happy_path() {
     assert!(outcome.overall_pass);
     assert_eq!(outcome.next_session_behavior_rate, 1.0);
     assert_eq!(outcome.chain_completeness_rate, 1.0);
+    assert_eq!(outcome.rollback_behavior_rate, 1.0);
+    assert_eq!(outcome.rollback_chain_completeness_rate, 1.0);
     assert!(outcome.ndjson_path.exists());
 
     let body = std::fs::read_to_string(&outcome.ndjson_path).unwrap();
@@ -42,6 +44,7 @@ fn v7_original_value_backend_fails_behavior_gate() {
     assert!(!outcome.overall_pass);
     assert_eq!(outcome.next_session_behavior_rate, 0.0);
     assert_eq!(outcome.chain_completeness_rate, 0.0);
+    assert_eq!(outcome.rollback_chain_completeness_rate, 0.0);
     assert!(!outcome.records[0].pass);
 }
 
@@ -59,7 +62,7 @@ fn v7_s2_query_does_not_repeat_corrected_value() {
     let query_events: Vec<V7Event> = backend
         .events()
         .into_iter()
-        .filter(|e| matches!(e, V7Event::BehaviorQuery { .. }))
+        .filter(|e| matches!(e, V7Event::BehaviorQuery { session, .. } if session.contains("-s2")))
         .collect();
 
     assert_eq!(query_events.len(), facts.len());
@@ -92,4 +95,5 @@ fn v7_writes_results_dir_tree() {
     let runs_body = std::fs::read_to_string(&runs_jsonl).unwrap();
     assert!(runs_body.contains("correction-behavior-change"));
     assert!(runs_body.contains("chain_completeness_rate"));
+    assert!(runs_body.contains("rollback_chain_completeness_rate"));
 }

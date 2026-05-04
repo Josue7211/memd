@@ -124,6 +124,9 @@ pub(crate) async fn run_bundle_config_command(
     base_url: &str,
 ) -> anyhow::Result<()> {
     let bundle_root = resolve_setup_bundle_root(args.output.as_deref())?;
+    for setting in &args.set {
+        apply_bundle_config_setting(&bundle_root, setting)?;
+    }
     let project_root = args.project_root.clone().or(detect_current_project_root()?);
     let runtime = read_bundle_runtime_config(&bundle_root)?;
     let status = read_bundle_status(&bundle_root, base_url).await.ok();
@@ -141,6 +144,26 @@ pub(crate) async fn run_bundle_config_command(
         println!("{}", render_bundle_config_markdown(&config));
     }
     Ok(())
+}
+
+fn apply_bundle_config_setting(bundle_root: &Path, setting: &str) -> anyhow::Result<()> {
+    let (key, value) = setting
+        .split_once('=')
+        .ok_or_else(|| anyhow::anyhow!("config setting must be KEY=VALUE"))?;
+    match key.trim() {
+        "auto_commit.enabled" => {
+            set_bundle_auto_commit_enabled(bundle_root, parse_config_bool(value.trim())?)
+        }
+        other => anyhow::bail!("unknown config key '{other}'"),
+    }
+}
+
+fn parse_config_bool(value: &str) -> anyhow::Result<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" | "enabled" => Ok(true),
+        "0" | "false" | "no" | "off" | "disabled" => Ok(false),
+        other => anyhow::bail!("invalid boolean '{other}'"),
+    }
 }
 
 pub(crate) async fn run_bundle_init_command(args: InitArgs) -> anyhow::Result<()> {

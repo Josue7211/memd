@@ -61,6 +61,7 @@ pub(crate) enum Commands {
     Commands(CommandCatalogArgs),
     Setup(SetupArgs),
     Doctor(DoctorArgs),
+    #[command(visible_alias = "configure")]
     Config(ConfigArgs),
     Memory(MemoryArgs),
     Store(RequestInput),
@@ -1728,6 +1729,9 @@ pub(crate) struct DoctorArgs {
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct ConfigArgs {
+    #[arg(value_name = "KEY=VALUE")]
+    pub(crate) set: Vec<String>,
+
     #[arg(long)]
     pub(crate) output: Option<PathBuf>,
 

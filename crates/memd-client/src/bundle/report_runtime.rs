@@ -433,6 +433,7 @@ pub(crate) fn read_bundle_runtime_config_raw(
         heartbeat_model: config.heartbeat_model,
         voice_mode: Some(config.voice_mode.unwrap_or_else(default_voice_mode)),
         auto_short_term_capture: config.auto_short_term_capture,
+        auto_commit: config.auto_commit,
         authority_policy: config.authority_policy,
         authority_state: config.authority_state,
     }))
@@ -527,6 +528,7 @@ pub(crate) fn resolve_live_session_overlay(
         heartbeat_model: None,
         voice_mode: Some(default_voice_mode()),
         auto_short_term_capture: false,
+        auto_commit: BundleAutoCommitConfig::default(),
         authority_policy: BundleAuthorityPolicy::default(),
         authority_state: BundleAuthorityState::default(),
     }))
