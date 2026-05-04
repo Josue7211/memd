@@ -1,4 +1,4 @@
-//! V6 / F6 — iterative-reasoning scratchpad (scaffold-symmetric).
+//! V6 / F6 — iterative-reasoning scratchpad.
 //!
 //! F6 sits *downstream* of E6: where E6 lets the model re-query memd
 //! once mid-answer, F6 lets the model chain N depth-routed lookups
@@ -10,8 +10,7 @@
 //! tool-call (`ReasoningStep::Lookup`) or a terminal answer
 //! (`ReasoningStep::Answer`). Hard caps stop the loop early.
 //!
-//! Runtime activation graduates with A6.9 / B6 / C6 / D6 / E6 post
-//! V5 close (2026-05-02).
+//! Runtime activation closed with A6-F6.
 //!
 //! Contract: `docs/contracts/iterative-reasoning.md`.
 //! Plan: `docs/phases/v6/phase-f6-plan.md` §3.

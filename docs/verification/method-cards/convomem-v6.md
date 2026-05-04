@@ -38,4 +38,5 @@ chain visible via `memd explain`.
 
 ## Status
 
-scaffold-symmetric — runtime activation calendar-gated post-2026-05-02.
+closed — V6 canonical gate locked at `judge_accuracy=0.910` against target
+`0.900`.

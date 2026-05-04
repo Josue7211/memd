@@ -445,7 +445,7 @@ fn flag_routing_episodic_plus_semantic() {
     assert!(n_full.contains("distill_model=gpt-5.4"));
     assert!(n_full.contains("budget_milli_usd=50"));
     assert!(n_full.contains("cache=on"));
-    assert!(n_full.contains("gated"));
+    assert!(n_full.contains("ACTIVE"));
     // B6 mode does not surface the C6 rule version or dry-run flag.
     assert!(!n_full.contains("promotion_rule"));
     assert!(!n_full.contains("dry_run"));
@@ -454,7 +454,8 @@ fn flag_routing_episodic_plus_semantic() {
     assert!(!n_a6.contains("distill_model"));
     assert!(!n_a6.contains("budget_milli_usd"));
     assert!(!n_a6.contains("cache="));
-    // - env-active flips the activation phrase.
+    // - env-active keeps the active phrase; V6 close no longer requires
+    //   MEMD_V6_TYPED_INGEST for the notice surface.
     let n_active =
         typed_ingest_runtime_notice("episodic+semantic", true, "gpt-5.4", 50, true, false);
     assert!(n_active.contains("ACTIVE"));

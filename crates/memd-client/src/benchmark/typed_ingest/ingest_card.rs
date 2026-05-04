@@ -4,7 +4,7 @@
 //! adapter on the canonical A6 fixtures. A regression here means a bench
 //! adapter changed shape: either a real bug, or an intentional schema
 //! shift that needs a baseline bump in the same PR. The card is the
-//! human-readable summary appended to ingest logs and (in A6.9) to the
+//! human-readable summary appended to ingest logs and to the
 //! nightly substrate report.
 
 use super::TypedIngestReport;
@@ -47,8 +47,8 @@ pub(crate) fn assert_baseline(
     Ok(())
 }
 
-/// Render a typed-ingest card as markdown. Stable shape — A6.9 nightly
-/// gate parses the `bench_id` / `turn_count` / `session_count` lines.
+/// Render a typed-ingest card as markdown. Stable shape — V6 nightly
+/// gates parse the `bench_id` / `turn_count` / `session_count` lines.
 pub(crate) fn render_ingest_card(report: &TypedIngestReport) -> String {
     let mut s = String::new();
     s.push_str("## Typed Ingest Card\n\n");

@@ -401,7 +401,7 @@ fn flag_routing_episodic_plus_semantic_plus_canonical() {
     assert!(n_canonical.contains("distill_model=gpt-5.4"));
     assert!(n_canonical.contains("promotion_rule=canonical-promotion/v1"));
     assert!(n_canonical.contains("dry_run=on"));
-    assert!(n_canonical.contains("gated"));
+    assert!(n_canonical.contains("ACTIVE"));
 
     // dry_run=off when CLI flag false and env unset.
     let prev_env = std::env::var("MEMD_V6_PROMOTION_DRY_RUN").ok();

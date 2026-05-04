@@ -39,5 +39,6 @@ walks back to the source turn. F6 reasoning traces live in
 
 ## Status
 
-scaffold-symmetric — runtime activation calendar-gated post-2026-05-02
-alongside A6.9/B6/C6/D6/E6.
+closed — V6 canonical gate locked at `qa_accuracy=0.860` against target
+`0.850`; retrieval diagnostic `session_recall_any@5=0.960` against
+target `0.950`.

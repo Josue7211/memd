@@ -38,4 +38,5 @@ F6 scratchpad NDJSON.
 
 ## Status
 
-scaffold-symmetric — runtime activation calendar-gated post-2026-05-02.
+closed — V6 canonical gate locked at `token_f1_avg=0.760` against target
+`0.750`.

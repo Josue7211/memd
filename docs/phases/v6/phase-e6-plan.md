@@ -3,7 +3,7 @@ phase: E6
 name: Progressive-Depth Routing on Bench
 version: v6
 kind: implementation-plan
-status: ready-to-execute
+status: complete
 opened: 2026-04-22
 depends_on: [D6]
 phase_doc: docs/phases/v6/phase-e6-progressive-depth-routing.md

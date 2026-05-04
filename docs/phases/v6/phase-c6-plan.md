@@ -3,7 +3,7 @@ phase: C6
 name: Canonical Promotion
 version: v6
 kind: implementation-plan
-status: ready-to-execute
+status: complete
 opened: 2026-04-22
 depends_on: [B6]
 phase_doc: docs/phases/v6/phase-c6-canonical-promotion.md

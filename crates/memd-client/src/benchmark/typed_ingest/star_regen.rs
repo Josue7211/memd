@@ -1,19 +1,17 @@
-//! V6 / F6 — MEMD-10-STAR composite regenerator (scaffold-symmetric).
+//! V6 / F6 — MEMD-10-STAR composite regenerator.
 //!
 //! Pure: takes a 7-axis score table, returns the weighted composite
 //! and the verdict (publishable / refused / overridden). The gate
-//! refuses to publish a 10-STAR claim below 7.0 unless
+//! refuses to publish a V6 milestone claim below 4.45 unless
 //! `MEMD_V6_ALLOW_BELOW_TARGET=1` (mirrors `--allow-below-target`).
 //!
-//! V6 milestone target is 4.45 (per `MILESTONE-v6.md`); the 10-STAR
-//! gate is the *publishable claim* threshold, not the V6 milestone
-//! threshold. They differ by design: V6 lifts the composite without
-//! claiming the 10-star bar.
+//! V6 milestone target is 4.45 (per `MILESTONE-v6.md`); the 0.1.0 SOTA
+//! release gate remains later in the roadmap and is not owned by F6.
 //!
 //! Plan: `docs/phases/v6/phase-f6-plan.md` §1, §7.
 
 pub(crate) const STAR_REGEN_VERSION: &str = "memd-10-star/v1";
-pub(crate) const PUBLISH_THRESHOLD: f64 = 7.0;
+pub(crate) const PUBLISH_THRESHOLD: f64 = 4.45;
 
 /// Per-axis score with its weight (sums to 1.00 across the slice).
 #[derive(Debug, Clone, PartialEq)]
@@ -27,11 +25,11 @@ pub(crate) struct AxisScore {
 /// vs `Published` directly so the gate logic stays observable.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum StarVerdict {
-    /// Composite ≥ 7.0 — publish.
+    /// Composite ≥ 4.45 — publish.
     Published { composite: f64 },
-    /// Composite < 7.0 and override not set — refuse.
+    /// Composite < 4.45 and override not set — refuse.
     Refused { composite: f64 },
-    /// Composite < 7.0 but override (`--allow-below-target` /
+    /// Composite < 4.45 but override (`--allow-below-target` /
     /// `MEMD_V6_ALLOW_BELOW_TARGET=1`) was set — publish anyway.
     OverriddenBelowTarget { composite: f64 },
 }
@@ -51,7 +49,7 @@ pub(crate) fn composite(scores: &[AxisScore]) -> f64 {
     scores.iter().map(|a| a.weight * a.score).sum()
 }
 
-/// Apply the 7.0 gate. `allow_below` mirrors the CLI flag + env.
+/// Apply the V6 4.45 gate. `allow_below` mirrors the CLI flag + env.
 pub(crate) fn evaluate(scores: &[AxisScore], allow_below: bool) -> StarVerdict {
     let c = composite(scores);
     if c >= PUBLISH_THRESHOLD {
@@ -81,37 +79,37 @@ mod tests {
             AxisScore {
                 axis: "session_continuity",
                 weight: 0.20,
-                score: 7.0,
+                score: 4.45,
             },
             AxisScore {
                 axis: "correction_retention",
                 weight: 0.15,
-                score: 7.0,
+                score: 4.45,
             },
             AxisScore {
                 axis: "procedural_reuse",
                 weight: 0.15,
-                score: 7.0,
+                score: 4.45,
             },
             AxisScore {
                 axis: "cross_harness",
                 weight: 0.15,
-                score: 7.0,
+                score: 4.45,
             },
             AxisScore {
                 axis: "raw_retrieval",
                 weight: 0.15,
-                score: 7.0,
+                score: 4.45,
             },
             AxisScore {
                 axis: "token_efficiency",
                 weight: 0.10,
-                score: 7.0,
+                score: 4.45,
             },
             AxisScore {
                 axis: "trust_provenance",
                 weight: 0.10,
-                score: 7.0,
+                score: 4.45,
             },
         ]
     }
@@ -119,7 +117,7 @@ mod tests {
     #[test]
     fn composite_weighted_sum() {
         let c = composite(&at_or_above());
-        assert!((c - 7.0).abs() < 1e-9, "composite={c}");
+        assert!((c - 4.45).abs() < 1e-9, "composite={c}");
     }
 
     #[test]

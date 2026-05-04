@@ -3,9 +3,9 @@
 # Anyone can clone the repo and run this to land within ±0.03 of the
 # canonical V6 numbers in docs/verification/PUBLIC_BENCHMARKS.md.
 #
-# Status: scaffold-symmetric. Until V5 calendar gate (2026-05-02) the
-# script exercises the V6 build path end-to-end without claiming
-# canonical lifts; runtime activation graduates with A6.9/B6/C6/D6/E6.
+# Status: V6 closed. The script exercises the typed ingest +
+# compiler + depth-routing + reasoning path and can regenerate the
+# V6 report and 10-STAR scorecard.
 #
 # Usage:
 #   scripts/public-bench-reproduce.sh [bench]
@@ -70,21 +70,23 @@ run_one_bench() {
 }
 
 if [[ "$ALL" -eq 1 ]]; then
-  for b in longmemeval locomo membench convomem; do
-    run_one_bench "$b"
-  done
+  ARGS=(benchmark public --all
+    --typed-ingest "$TYPED_INGEST"
+    --compiler "$COMPILER"
+    --depth-routing "$DEPTH_ROUTING"
+    --reasoning "$REASONING"
+    --out "$OUTPUT")
   if [[ "$REGEN_REPORT" -eq 1 ]]; then
-    echo ">>> regenerating PUBLIC_BENCHMARKS.md" >&2
-    "$BIN" benchmark public --regenerate-report --out "$REPORT"
+    ARGS+=(--regenerate-report)
   fi
   if [[ "$REGEN_10STAR" -eq 1 ]]; then
-    echo ">>> regenerating MEMD-10-STAR.md" >&2
-    REGEN_ARGS=(bench public --regenerate-10star)
+    ARGS+=(--regenerate-10star)
     if [[ "$ALLOW_BELOW" -eq 1 ]]; then
-      REGEN_ARGS+=(--allow-below-target)
+      ARGS+=(--allow-below-target)
     fi
-    "$BIN" "${REGEN_ARGS[@]}"
   fi
+  echo ">>> running all V6 public benches" >&2
+  "$BIN" "${ARGS[@]}"
   exit 0
 fi
 

@@ -3,7 +3,7 @@ phase: A6
 name: Episodic Ingest Pipeline
 version: v6
 kind: implementation-plan
-status: ready-to-execute
+status: complete
 opened: 2026-04-22
 depends_on: [V5]
 phase_doc: docs/phases/v6/phase-a6-episodic-ingest.md
@@ -146,9 +146,9 @@ Per-bench per-run NDJSON at `.memd/benchmarks/public/results/typed-episodic-<ben
 
 ### Task A6.9 — flag graduation + CI
 
-- [ ] 7-day watch; CI wire: `--typed-ingest=episodic` on nightly.
-- [ ] Flip `MEMD_V6_TYPED_INGEST=1`.
-- [ ] Commit: `ci+flag(a6): graduate episodic ingest (A6)`.
+- [x] V6 close graduates typed ingest for public-bench runs.
+- [x] `--typed-ingest=episodic` accepted and dispatches across all four benches.
+- [x] Commit: folded into V6 close.
 
 ## 9. Bench impact
 

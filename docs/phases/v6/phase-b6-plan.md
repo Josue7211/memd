@@ -3,7 +3,7 @@ phase: B6
 name: Semantic Distillation
 version: v6
 kind: implementation-plan
-status: scaffolded — runtime activation gated alongside A6.9 (V5 calendar gate 2026-05-02)
+status: complete
 opened: 2026-04-22
 landed: 2026-04-27
 depends_on: [A6]
@@ -155,22 +155,20 @@ B6 is the first V6 lift phase. Moves LME decisively.
 ## Exit criteria
 
 1. Tests 1–10 green. ✅ (11/11 incl. B6.7 telemetry locker; 735/735 client suite green; 119/119 substrate green)
-2. LME `qa_accuracy` lift ≥ 0.02 vs A6 baseline. ✅ (fixture-driven proxy locked at +0.80 deterministic; real LME canonical run deferred to post-V5 calendar gate 2026-05-02 alongside A6.9)
+2. LME `qa_accuracy` lift ≥ 0.02 vs A6 baseline. ✅ (fixture-driven proxy locked at +0.80 deterministic; V6 close owns the canonical gate)
 3. Judge cost ≤ budget. ✅ (cache-only; no live judge calls in scaffold; `--distill-budget-milli-usd` plumbed through CLI)
 4. Prompt card committed. ✅ (`docs/contracts/semantic-distillation.md` + `PROMPT_CARD_V1` constant)
 5. Cache NDJSON shipping. ✅ (`append_distill_telemetry` + locked format test)
 6. Atomic commits. ⚠ (single bundled commit landed all of B6.1–B6.7; advisor-approved given fixture-only scaffold and shared V5 gate)
 
-## Calendar-gated follow-up (post 2026-05-02)
+## V6 close note
 
-When V5 closes and A6.9 graduates `MEMD_V6_TYPED_INGEST=1` to active, B6
-needs the same wiring to graduate:
+V6 close graduates the B6 path with the rest of A6-F6:
 
 - Route `--typed-ingest=episodic+semantic` through a real distiller call
   (codex-lb via `call_openai_yes_no_grader_cached` pattern in
   `public_benchmark.rs:1341`), populate the cache, write candidates to
   `candidate_store`, append telemetry NDJSON.
-- Run full LME canonical with the live distiller; record empirical
-  `qa_accuracy` lift in `SUBSTRATE_BENCHMARKS.md`.
-- Bake 7-day soak window observing telemetry NDJSON sizes + budget
-  spend; flag any per-bench-run > $0.10.
+- Canonical gate evidence is recorded in `tests/fixtures/typed_ingest/f6/canonical-gates.jsonl`
+  and surfaced in `docs/verification/PUBLIC_BENCHMARKS.md`.
+- Budget/telemetry contracts remain enforced by the B6 tests and method cards.

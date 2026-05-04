@@ -3,7 +3,7 @@
 //! Separate JSONL store for canonical records (`stage=canonical`).
 //! Reads from / writes to `.memd/benchmarks/public/canonical/<bench-id>.jsonl`
 //! by convention; the runtime layer wraps these helpers behind the
-//! V5-calendar-gated dispatch.
+//! V6-closed dispatch.
 //!
 //! Contract: `docs/contracts/canonical-promotion.md` §6. Provenance
 //! shape is the E5 auditor target (`source_turn`, `captured_by`,

@@ -68,12 +68,12 @@ pub(crate) fn typed_ingest_runtime_notice(
         String::new()
     };
     let activation = if env_active {
-        "ACTIVE (preview)"
+        "ACTIVE"
     } else {
-        "gated — flag is a no-op until A6.9"
+        "ACTIVE (V6 closed; env override no longer required)"
     };
     format!(
-        "[bench] --typed-ingest={} recognised;{}{} runtime activation {} (env MEMD_V6_TYPED_INGEST=1 graduates in A6.9; C6 promotion shares the same gate)",
+        "[bench] --typed-ingest={} recognised;{}{} runtime activation {}",
         mode, distill_note, canonical_note, activation
     )
 }
@@ -216,8 +216,8 @@ pub(crate) struct TypedIngestReport {
 
 /// Maps a public-benchmark dataset id to its episodic adapter and walks
 /// the full turn stream, producing a `TypedIngestReport`. Pure: no
-/// network, no server. Runtime activation (CLI → live ingest) graduates
-/// in A6.9 once the calendar gate clears.
+/// network, no server. V6 close graduates this path from calendar-gated
+/// scaffold to the canonical public-bench typed-ingest adapter.
 pub(crate) fn dispatch_typed_ingest_episodic(
     dataset_id: &str,
     path: &Path,

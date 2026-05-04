@@ -2,8 +2,8 @@
 //!
 //! Wraps V4 D4's `runtime::resume::compiler::compile_wake` for use on
 //! public-benchmark answer prompts. Pure: no IO, no network. The
-//! runtime layer (D6 dispatch, gated by V5 calendar gate alongside
-//! A6.9/B6/C6) wraps these helpers to load the budget profile, build
+//! runtime layer (D6 dispatch, closed with V6 alongside A6/B6/C6)
+//! wraps these helpers to load the budget profile, build
 //! a `CompilerInput` from typed-ingest records, and append telemetry
 //! NDJSON.
 //!

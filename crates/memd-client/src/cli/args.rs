@@ -3203,8 +3203,8 @@ pub(crate) struct PublicBenchmarkArgs {
     /// - `episodic+semantic+canonical` (C6) — B6 + C6 canonical
     ///   promotion under the rule card (corroboration ≥ 2, confidence
     ///   ≥ 0.8, session-age ≥ 3 turns, contradiction reuse via C4).
-    /// Off by default; runtime activation gated by env
-    /// `MEMD_V6_TYPED_INGEST=1` and the V5 calendar gate (graduates in A6.9).
+    /// Off by default unless the flag is passed. V6 close graduates this
+    /// from calendar-gated scaffold to active public-bench typed ingest.
     #[arg(long, value_parser = ["episodic", "episodic+semantic", "episodic+semantic+canonical"])]
     pub(crate) typed_ingest: Option<String>,
 
@@ -3243,9 +3243,7 @@ pub(crate) struct PublicBenchmarkArgs {
     /// across the wake/targeted/resume tiers, capped by
     /// `--max-depth-calls` and `--max-retrieval-tokens`. `off`
     /// preserves the single-call legacy path. Also forced off by
-    /// `MEMD_V6_DEPTH_ROUTING=0`. Runtime activation is calendar-gated
-    /// alongside A6.9/B6/C6/D6 (post-2026-05-02 V5 close); until then
-    /// the flag is recognised + surfaced but not dispatched.
+    /// `MEMD_V6_DEPTH_ROUTING=0`.
     #[arg(long, value_parser = ["on", "off"], default_value = "on")]
     pub(crate) depth_routing: String,
 
@@ -3262,8 +3260,7 @@ pub(crate) struct PublicBenchmarkArgs {
     /// V6/F6 iterative-reasoning harness. `on` (default) chains up to
     /// `--max-reasoning-steps` depth-routed lookups into a single
     /// answer scratchpad. `off` preserves the E6 single-call path.
-    /// Forced off by `MEMD_V6_REASONING=0`. Runtime activation is
-    /// calendar-gated alongside A6.9/B6/C6/D6/E6 (post-2026-05-02).
+    /// Forced off by `MEMD_V6_REASONING=0`.
     #[arg(long, value_parser = ["on", "off"], default_value = "on")]
     pub(crate) reasoning: String,
 
@@ -3285,14 +3282,14 @@ pub(crate) struct PublicBenchmarkArgs {
     pub(crate) regenerate_report: bool,
 
     /// V6/F6 regenerate `docs/verification/MEMD-10-STAR.md` from the
-    /// V6 axis deltas. Refuses to publish a 10-STAR claim with
-    /// composite < 7.0 unless `--allow-below-target` is set.
+    /// V6 axis deltas. Refuses to publish the V6 milestone claim with
+    /// composite < 4.45 unless `--allow-below-target` is set.
     #[arg(long, default_value_t = false)]
     pub(crate) regenerate_10star: bool,
 
     /// V6/F6 allow the 10-STAR regenerator to publish a composite
-    /// below the 7.0 publishable threshold (V6 milestone target is
-    /// 4.45). Also forced on by `MEMD_V6_ALLOW_BELOW_TARGET=1`.
+    /// below the 4.45 V6 milestone threshold. Also forced on by
+    /// `MEMD_V6_ALLOW_BELOW_TARGET=1`.
     #[arg(long, default_value_t = false)]
     pub(crate) allow_below_target: bool,
 }

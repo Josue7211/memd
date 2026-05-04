@@ -1,1 +1,1 @@
-2026-05-04-f6-scorecard-merge-ready.md
+2026-05-04-v6-closed-v7-next.md

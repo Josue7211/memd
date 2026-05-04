@@ -2,8 +2,8 @@
 //!
 //! Promotes B6 `CandidateRecord`s (`stage=candidate`) to canonical
 //! records (`stage=canonical`) when the rule card matches. Pure: no
-//! network, no server, no I/O. The runtime layer (C6 dispatch, gated
-//! by the V5 calendar gate) wraps this to read the candidate store
+//! network, no server, no I/O. The runtime layer (C6 dispatch, closed
+//! with V6) wraps this to read the candidate store
 //! and append to the canonical index.
 //!
 //! Contract: `docs/contracts/canonical-promotion.md`.

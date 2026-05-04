@@ -170,8 +170,7 @@ pub(crate) fn effective_distill_model(cli_default: &str) -> String {
 }
 
 /// Cache enabled? Default true. `MEMD_V6_DISTILL_CACHE=0` disables. The
-/// runtime checks this before calling `cache_get`/`cache_put` (graduates
-/// alongside A6.9 when judge calls go live).
+/// runtime checks this before calling `cache_get`/`cache_put`.
 pub(crate) fn cache_enabled() -> bool {
     !matches!(std::env::var("MEMD_V6_DISTILL_CACHE").as_deref(), Ok("0"))
 }

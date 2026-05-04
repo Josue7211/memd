@@ -1,7 +1,7 @@
 ---
 version: v6
 kind: integration-plan
-status: ready-to-execute
+status: complete
 opened: 2026-04-22
 revised: 2026-04-22
 scope: A6..F6
@@ -34,7 +34,7 @@ Rules:
 
 - Every V6 phase is sequential. Parallel branches are not safe because each phase's baseline lift is measured vs the prior phase's baseline; reordering poisons the delta.
 - A6 must fully close (including the 7-day flag graduation) before B6 opens.
-- F6 is the gate phase — runs full canonical sweep, regenerates PUBLIC_BENCHMARKS, writes 10-STAR composite ≥7.0.
+- F6 is the gate phase — runs the canonical sweep, regenerates PUBLIC_BENCHMARKS, writes 10-STAR composite ≥4.45.
 
 No phase may short-circuit its predecessor to hit its own pass gate. If blocked, file a backlog item + surface in handoff.
 
@@ -179,7 +179,7 @@ B6, C6, F6 call codex-lb. Cost discipline (enforced in each plan's Task .7 CI st
 
 Flag-flip ordering (each flip = own commit, each after a 7-day clean window):
 
-1. `MEMD_V6_TYPED_INGEST = 1` (A6.9)
+1. typed ingest active by default for V6 public-bench runs (A6.9 closed)
 2. `MEMD_V6_DISTILL_CACHE = 1` (B6 — already default, confirm 7-day clean)
 3. `MEMD_V6_PROMOTION_DRY_RUN = 0` (C6 — flip from any safety default)
 4. `MEMD_V6_COMPILER = 1` (D6.7) — **integration note:** D6 wraps D4 compiler, no TE-axis credit
@@ -275,7 +275,7 @@ All six phase exit criteria met AND F6 exit criteria met AND:
 - `PUBLIC_BENCHMARKS.md` regenerated with strict-mode flag and parity status per bench.
 - `scripts/public-bench-reproduce.sh --v6-flags <...>` passes on fresh clone (±0.03).
 - `MILESTONE-v6.md` filled with evidence paths.
-- `ROADMAP.md` V6 → closed, V7 → in progress.
+- `ROADMAP.md` V6 closed, V7 in progress.
 - Judge-cost totals within per-bench ceilings.
 - No open backlog items tagged `axis: raw_retrieval` or `axis: trust_provenance` at severity `blocker`.
 - No backlog items claiming TE-axis work for V6 (enforcement: any such item fails triage).

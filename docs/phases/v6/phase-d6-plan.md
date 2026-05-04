@@ -3,7 +3,7 @@ phase: D6
 name: Working-Context Compiler on Bench
 version: v6
 kind: implementation-plan
-status: ready-to-execute
+status: complete
 opened: 2026-04-22
 depends_on: [C6]
 phase_doc: docs/phases/v6/phase-d6-compiler-on-bench.md

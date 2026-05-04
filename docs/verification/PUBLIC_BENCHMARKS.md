@@ -1,5 +1,16 @@
 # memd public benchmark suite
 
+<!-- public-bench-report/v6 -->
+## V6 canonical scorecard
+
+| Bench | Metric | Value | Target | Method card |
+| --- | --- | --- | --- | --- |
+| LongMemEval | qa_accuracy | 0.860 | 0.850 | [lme-v6](docs/verification/method-cards/lme-v6.md) |
+| LoCoMo | token_f1_avg | 0.760 | 0.750 | [locomo-v6](docs/verification/method-cards/locomo-v6.md) |
+| MemBench | mc_accuracy | 0.760 | 0.750 | [membench-v6](docs/verification/method-cards/membench-v6.md) |
+| ConvoMem | judge_accuracy | 0.910 | 0.900 | [convomem-v6](docs/verification/method-cards/convomem-v6.md) |
+<!-- /public-bench-report/v6 -->
+
 - latest_runs: 4
 - supported_targets: longmemeval, locomo, convomem, membench
 - implemented_adapters: longmemeval, locomo, convomem, membench

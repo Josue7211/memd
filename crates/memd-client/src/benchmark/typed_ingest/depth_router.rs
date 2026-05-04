@@ -1,4 +1,4 @@
-//! V6 / E6 — progressive-depth router (scaffold-symmetric).
+//! V6 / E6 — progressive-depth router.
 //!
 //! Pure parser + resolver for the bench-side multi-call depth loop.
 //! The model emits inline tool-calls of the shape
@@ -7,9 +7,7 @@
 //! the result back into the conversation. Hard caps (`max_calls`,
 //! `max_retrieval_tokens`) are enforced here.
 //!
-//! Runtime activation (CLI dispatch wraps this on real bench runs) is
-//! gated behind the same calendar gate as A6.9 / B6 / C6 / D6 (V5
-//! close, 2026-05-02).
+//! Runtime activation closed with the same V6 gate as A6 / B6 / C6 / D6.
 //!
 //! Contract: `docs/contracts/bench-depth-routing.md`.
 //! Plan: `docs/phases/v6/phase-e6-plan.md`.

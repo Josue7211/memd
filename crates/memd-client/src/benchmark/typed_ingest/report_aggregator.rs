@@ -1,4 +1,4 @@
-//! V6 / F6 — public benchmark report regenerator (scaffold-symmetric).
+//! V6 / F6 — public benchmark report regenerator.
 //!
 //! Pure renderer: takes a per-bench `BenchScorecard` set, formats the
 //! canonical PUBLIC_BENCHMARKS.md V6 section. Method-card links are
