@@ -36,7 +36,7 @@ use crate::store_hive::{
 use crate::store_migrations::{
     create_hive_session_identity_indexes, migrate_episodes_tables, migrate_fts5_index,
     migrate_hive_sessions_identity_columns, migrate_hive_sessions_last_wake_at,
-    migrate_lane_column, migrate_memory_entities_indexed_lookups,
+    migrate_lane_column, migrate_memory_entities_indexed_lookups, migrate_memory_item_authors,
     migrate_memory_items_embedding_model, migrate_memory_items_user_identity,
     migrate_memory_vectors_chunk_idx, migrate_memory_vectors_embedding_model,
     migrate_redundancy_key, migrate_version_column, migrate_visibility_column,
@@ -105,6 +105,19 @@ fn next_user_session_seq(conn: &Connection, item: &MemoryItem) -> anyhow::Result
         )
         .context("read next user session sequence")?;
     Ok(max_seq.saturating_add(1))
+}
+
+fn memory_item_author_identity(item: &MemoryItem) -> Option<(String, String, String)> {
+    let agent_id = item.source_agent.as_deref()?.trim();
+    if agent_id.is_empty() {
+        return None;
+    }
+    let user_id = memory_item_user_id(item).unwrap_or_else(|| agent_id.to_string());
+    Some((
+        user_id,
+        agent_id.to_string(),
+        memory_item_harness_preset(item),
+    ))
 }
 
 fn env_f64(name: &str, default: f64) -> f64 {
@@ -601,6 +614,7 @@ impl SqliteStore {
         migrate_memory_vectors_embedding_model(&conn)?;
         migrate_memory_items_embedding_model(&conn)?;
         migrate_memory_items_user_identity(&conn)?;
+        migrate_memory_item_authors(&conn)?;
         migrate_hive_sessions_identity_columns(&mut conn)?;
         migrate_hive_sessions_last_wake_at(&conn)?;
         create_hive_session_identity_indexes(&conn)?;
@@ -622,6 +636,61 @@ impl SqliteStore {
         conn.execute_batch(sqlite_connection_pragmas())
             .context("configure sqlite connection")?;
         Ok(conn)
+    }
+
+    pub fn record_memory_item_author(
+        &self,
+        memory_id: Uuid,
+        item: &MemoryItem,
+    ) -> anyhow::Result<()> {
+        let Some((user_id, agent_id, harness_preset)) = memory_item_author_identity(item) else {
+            return Ok(());
+        };
+        let conn = self.connect()?;
+        conn.execute(
+            r#"
+            INSERT OR IGNORE INTO memory_item_authors (
+              memory_id, user_id, agent_id, harness_preset, first_seen_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5)
+            "#,
+            params![
+                memory_id.to_string(),
+                user_id,
+                agent_id,
+                harness_preset,
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )
+        .context("record memory item author")?;
+        Ok(())
+    }
+
+    pub fn list_memory_item_authors(
+        &self,
+        memory_id: Uuid,
+    ) -> anyhow::Result<Vec<(Option<String>, String, String)>> {
+        let conn = self.connect()?;
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT user_id, agent_id, harness_preset
+                FROM memory_item_authors
+                WHERE memory_id = ?1
+                ORDER BY first_seen_at ASC, agent_id ASC
+                "#,
+            )
+            .context("prepare memory item author list")?;
+        let rows = stmt
+            .query_map(params![memory_id.to_string()], |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .context("query memory item authors")?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .context("read memory item authors")
     }
 
     pub fn insert_or_get_duplicate(
@@ -672,13 +741,17 @@ impl SqliteStore {
         };
 
         match rows {
-            Ok(_) => Ok(None),
+            Ok(_) => {
+                self.record_memory_item_author(item.id, item)?;
+                Ok(None)
+            }
             Err(rusqlite::Error::SqliteFailure(err, _))
                 if err.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
             {
                 let duplicate = self
                     .find_by_any_key(redundancy_key, canonical_key, &item.stage)?
                     .context("duplicate key reported but no row found")?;
+                self.record_memory_item_author(duplicate.id, item)?;
                 Ok(Some(duplicate))
             }
             Err(err) => Err(err).context("insert memory item"),

@@ -12,6 +12,16 @@ fn identity_columns(store: &SqliteStore) -> Vec<String> {
         .expect("read columns")
 }
 
+fn table_exists(store: &SqliteStore, table: &str) -> bool {
+    let conn = store.connect().expect("connect store");
+    conn.query_row(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+        params![table],
+        |_| Ok(()),
+    )
+    .is_ok()
+}
+
 #[test]
 fn a9_migration_adds_identity_columns_idempotently() {
     let (dir, store) = open_temp_store("a9-identity-columns");
@@ -150,5 +160,58 @@ fn a9_store_backfills_legacy_user_identity() {
     assert_eq!(row.0.as_deref(), Some("legacy-user-agent"));
     assert_eq!(row.1.as_deref(), Some("claude-code"));
     assert_eq!(row.2, 0);
+    std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+}
+
+#[test]
+fn d9_memory_item_authors_table_exists() {
+    let (dir, store) = open_temp_store("d9-authors-table");
+    assert!(table_exists(&store, "memory_item_authors"));
+    let reopened = SqliteStore::open(dir.join("state.sqlite")).expect("reopen sqlite store");
+    assert!(table_exists(&reopened, "memory_item_authors"));
+    std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+}
+
+#[test]
+fn d9_identity_collision_preserves_both_authors() {
+    let (dir, store) = open_temp_store("d9-identity-collision");
+    let mut user_a = sample_memory_item();
+    user_a.kind = MemoryKind::Fact;
+    user_a.content = "Postgres primary key is UUID".to_string();
+    user_a.source_agent = Some("user-a-agent".to_string());
+    user_a.source_system = Some("claude-code".to_string());
+    user_a.tags = vec!["identity-collision".to_string()];
+    let canonical_key_a = canonical_key(&user_a);
+    let redundancy_key_a = redundancy_key(&user_a);
+    let duplicate_a = store
+        .insert_or_get_duplicate(&user_a, &canonical_key_a, &redundancy_key_a)
+        .expect("insert user A item");
+    assert!(duplicate_a.is_none());
+
+    let mut user_b = user_a.clone();
+    user_b.id = Uuid::new_v4();
+    user_b.source_agent = Some("user-b-agent".to_string());
+    user_b.source_system = Some("codex".to_string());
+    let canonical_key_b = canonical_key(&user_b);
+    let redundancy_key_b = redundancy_key(&user_b);
+    let duplicate_b = store
+        .insert_or_get_duplicate(&user_b, &canonical_key_b, &redundancy_key_b)
+        .expect("insert user B duplicate");
+    assert_eq!(duplicate_b.as_ref().map(|found| found.id), Some(user_a.id));
+
+    let authors = store
+        .list_memory_item_authors(user_a.id)
+        .expect("list co-authors");
+    assert_eq!(authors.len(), 2, "dedup must preserve both authors");
+    assert!(
+        authors
+            .iter()
+            .any(|(_, agent, harness)| { agent == "user-a-agent" && harness == "claude-code" })
+    );
+    assert!(
+        authors
+            .iter()
+            .any(|(_, agent, harness)| agent == "user-b-agent" && harness == "codex")
+    );
     std::fs::remove_dir_all(dir).expect("cleanup temp dir");
 }

@@ -140,6 +140,26 @@ pub(crate) fn migrate_memory_items_user_identity(conn: &Connection) -> anyhow::R
     Ok(())
 }
 
+pub(crate) fn migrate_memory_item_authors(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS memory_item_authors (
+          memory_id TEXT NOT NULL,
+          user_id TEXT,
+          agent_id TEXT NOT NULL,
+          harness_preset TEXT NOT NULL,
+          first_seen_at TEXT NOT NULL,
+          PRIMARY KEY (memory_id, user_id, agent_id, harness_preset)
+        );
+        CREATE INDEX IF NOT EXISTS idx_memory_item_authors_memory
+          ON memory_item_authors(memory_id);
+        CREATE INDEX IF NOT EXISTS idx_memory_item_authors_identity
+          ON memory_item_authors(user_id, agent_id, harness_preset);
+        "#,
+    )?;
+    Ok(())
+}
+
 pub(crate) fn migrate_redundancy_key(conn: &Connection) -> anyhow::Result<()> {
     let mut stmt = conn.prepare("PRAGMA table_info(memory_items)")?;
     let columns = stmt
