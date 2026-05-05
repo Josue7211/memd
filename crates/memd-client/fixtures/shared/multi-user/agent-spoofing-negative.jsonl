@@ -1,0 +1,2 @@
+{"scenario":"agent_spoofing","caller_user":"user-b","caller_agent":"codex-beta","claimed_user":"user-a","claimed_agent":"claude-code-alpha","workspace":"team-alpha","operation":"store","expected":"permission_denied"}
+{"scenario":"agent_spoofing","caller_user":"user-b","caller_agent":"codex-beta","claimed_user":"user-a","claimed_agent":"claude-code-alpha","workspace":"team-alpha","operation":"update_agent_id","expected":"permission_denied"}

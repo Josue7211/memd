@@ -1,0 +1,61 @@
+{
+  "version": "v9",
+  "axes": ["scope", "visibility", "user_id", "agent_id", "workspace"],
+  "rules": [
+    {
+      "id": "private_same_user",
+      "scope": "any",
+      "visibility": "private",
+      "caller": "same_user",
+      "decision": "allow"
+    },
+    {
+      "id": "private_cross_user",
+      "scope": "any",
+      "visibility": "private",
+      "caller": "cross_user",
+      "decision": "deny"
+    },
+    {
+      "id": "workspace_same_workspace",
+      "scope": "project",
+      "visibility": "workspace",
+      "caller": "same_workspace",
+      "decision": "allow"
+    },
+    {
+      "id": "workspace_cross_workspace",
+      "scope": "project",
+      "visibility": "workspace",
+      "caller": "cross_workspace",
+      "decision": "deny"
+    },
+    {
+      "id": "global_public",
+      "scope": "global",
+      "visibility": "public",
+      "caller": "any",
+      "decision": "allow_with_project_route"
+    },
+    {
+      "id": "agent_spoofing_write",
+      "operation": "write",
+      "caller": "claims_other_agent",
+      "decision": "deny"
+    },
+    {
+      "id": "local_project_auto_promotion",
+      "operation": "lookup",
+      "scope": "local",
+      "requested_promotion": "project",
+      "decision": "deny"
+    },
+    {
+      "id": "workspace_global_retention",
+      "operation": "lookup",
+      "visibility": "workspace",
+      "requested_scope": "global",
+      "decision": "deny"
+    }
+  ]
+}

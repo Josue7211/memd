@@ -1,0 +1,2 @@
+{"scenario":"cross_workspace_leak","user_id":"user-a","agent_id":"claude-code-alpha","workspace":"workspace-one","visibility":"workspace","content":"Workspace one correction stays in W1"}
+{"scenario":"cross_workspace_leak","user_id":"user-b","agent_id":"codex-beta","workspace":"workspace-two","visibility":"workspace","query":"Workspace one correction","expected":"no_result"}

@@ -1,0 +1,10 @@
+{"turn":"t1","user_id":"user-a","agent_id":"claude-code-alpha","harness_preset":"claude-code","workspace":"team-alpha","visibility":"workspace","content":"Postgres primary key is UUID","expected_canonical_count":1}
+{"turn":"t2","user_id":"user-b","agent_id":"codex-beta","harness_preset":"codex","workspace":"team-alpha","visibility":"workspace","content":"Postgres primary key is UUID","expected_canonical_count":1,"expected_author_count":2}
+{"turn":"t3","user_id":"user-a","agent_id":"claude-code-alpha","harness_preset":"claude-code","workspace":"team-alpha","visibility":"workspace","query":"Postgres primary key","expected_author":"user-b"}
+{"turn":"t4","user_id":"user-b","agent_id":"codex-beta","harness_preset":"codex","workspace":"team-alpha","visibility":"workspace","query":"Postgres primary key","expected_author":"user-a"}
+{"turn":"t5","user_id":"user-a","agent_id":"claude-code-alpha","harness_preset":"claude-code","workspace":"team-alpha","visibility":"workspace","assertion":"no silent overwrite"}
+{"turn":"t6","user_id":"user-b","agent_id":"codex-beta","harness_preset":"codex","workspace":"team-alpha","visibility":"workspace","assertion":"dedup preserves both authors"}
+{"turn":"t7","user_id":"user-a","agent_id":"claude-code-alpha","harness_preset":"claude-code","workspace":"team-alpha","visibility":"workspace","content":"Redis cache TTL is 300 seconds","expected_canonical_count":1}
+{"turn":"t8","user_id":"user-b","agent_id":"codex-beta","harness_preset":"codex","workspace":"team-alpha","visibility":"workspace","content":"Redis cache TTL is 300 seconds","expected_canonical_count":1,"expected_author_count":2}
+{"turn":"t9","user_id":"user-a","agent_id":"claude-code-alpha","harness_preset":"claude-code","workspace":"team-alpha","visibility":"workspace","assertion":"second collision no overwrite"}
+{"turn":"t10","user_id":"user-b","agent_id":"codex-beta","harness_preset":"codex","workspace":"team-alpha","visibility":"workspace","assertion":"co-attribution stable"}

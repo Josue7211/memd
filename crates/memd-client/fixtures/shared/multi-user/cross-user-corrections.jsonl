@@ -1,0 +1,4 @@
+{"scenario":"correction_provenance","actor":"user-a","agent_id":"claude-code-alpha","harness_preset":"claude-code","workspace":"team-alpha","visibility":"workspace","claim":"API returns 200 on success.","correction":"API returns 201 on create success.","attribution_required":true}
+{"scenario":"correction_provenance","actor":"user-b","agent_id":"codex-beta","harness_preset":"codex","workspace":"team-alpha","visibility":"workspace","query":"What did user A correct?","expected_attribution":"user-a"}
+{"scenario":"correction_provenance","actor":"user-b","agent_id":"codex-beta","harness_preset":"codex","workspace":"team-alpha","visibility":"workspace","correction":"Use 204 No Content for delete success.","attribution_required":true}
+{"scenario":"correction_provenance","actor":"user-a","agent_id":"claude-code-alpha","harness_preset":"claude-code","workspace":"team-alpha","visibility":"workspace","query":"What did user B correct?","expected_attribution":"user-b"}

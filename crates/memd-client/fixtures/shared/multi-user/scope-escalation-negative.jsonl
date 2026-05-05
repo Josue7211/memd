@@ -1,0 +1,2 @@
+{"scenario":"scope_escalation","user_id":"user-a","agent_id":"claude-code-alpha","workspace":"team-alpha","scope":"local","visibility":"private","content":"Local deployment token is scoped to user A","attempt":"lookup --promote=global","expected":"deny_requires_trusted_promotion"}
+{"scenario":"scope_escalation","user_id":"user-b","agent_id":"codex-beta","workspace":"team-alpha","scope":"project","visibility":"workspace","query":"deployment token","expected":"no_result"}

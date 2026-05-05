@@ -1,0 +1,2 @@
+{"scenario":"per_scope_retention","user_id":"user-a","agent_id":"claude-code-alpha","workspace":"team-alpha","scope":"project","visibility":"workspace","content":"Workspace scoped correction does not become global"}
+{"scenario":"per_scope_retention","user_id":"user-b","agent_id":"codex-beta","workspace":"team-alpha","scope":"global","visibility":"public","query":"Workspace scoped correction","expected":"no_result"}
