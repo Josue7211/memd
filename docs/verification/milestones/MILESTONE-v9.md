@@ -1,9 +1,10 @@
 ---
 milestone: v9
 name: Multi-User / Team
-status: planned
+status: closed
 opened: 2026-04-22
 revised: 2026-04-22
+closed: 2026-05-05
 depends_on: [v8]
 composite_pre: 5.10
 composite_target: 5.60
@@ -80,14 +81,24 @@ Multi-user adversarial suite (G9 harness, federated-memory-visibility.md, 8 scen
 
 Evidence: recorded trace + G9 harness NDJSON + 8 adversarial scenario results + regenerated composite in `docs/verification/MEMD-10-STAR.md` via G9 scorecard regenerator.
 
+## Evidence
+
+- A9/B9/D9 substrate tests: `scripts/verify/v9-adversarial-suite.sh` reruns
+  `cargo test -p memd-server a9`, `b9`, and `d9`.
+- F9 dry-run: `docs/verification/v9-runs/f9-dry-run.ndjson`
+- G9 proof: `docs/verification/v9-proof-runs/2026-05-05-adversarial-suite.ndjson`
+- G9 summary: `docs/verification/v9-proof-runs/2026-05-05-adversarial-suite.md`
+- Shared fixtures: `crates/memd-client/fixtures/shared/multi-user/`
+- Matrix: `docs/contracts/federated-visibility-matrix.json`
+
 ## Pre-ship checklist (V9 close = release-candidate dry-run entry)
 
-- G9 runs full adversarial suite with zero failures (all 8 scenarios pass).
-- G9 cross-user flip test: user A → B → A round-trip, canonical never branches.
-- G9 negative controls firing: inject scope escalation → test catches it; drop agent_id validation → test catches it.
-- Scorecard regenerator strict-mode: cannot score CH > 6 without G9 adversarial proof.
-- federated-memory-visibility.md contract in force during G9; any spec contradiction fails review.
-- Release artifact: `docs/verification/v9-proof-runs/YYYY-MM-DD-adversarial-suite.ndjson` signed by G9 gate.
+- [x] G9 runs full adversarial suite with zero failures (all 8 scenarios pass).
+- [x] G9 cross-user flip test: user A → B → A round-trip, canonical never branches.
+- [x] G9 negative controls firing: inject scope escalation → test catches it; drop agent_id validation → test catches it.
+- [x] Scorecard regenerator strict-mode: cannot score CH > 6 without G9 adversarial proof.
+- [x] federated-memory-visibility.md contract in force during G9; any spec contradiction fails review.
+- [x] Release artifact: `docs/verification/v9-proof-runs/2026-05-05-adversarial-suite.ndjson` signed by G9 gate.
 
 ## Non-goals
 

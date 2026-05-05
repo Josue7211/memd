@@ -39,15 +39,15 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 
 | Axis | Weight | Score | Status |
 |------|--------|-------|--------|
-| Session continuity | 20% | 5/10 | A4 ledger survives compaction + B4 contract-gated hooks + A5 cross-session benchmark + V7 correction behavior-change proves S1 correction influences S2 behavior and S3 rollback without re-prompt. |
+| Session continuity | 20% | 6/10 | A4 ledger survives compaction + B4 contract-gated hooks + A5 cross-session benchmark + V7 correction behavior-change + V9 user-scoped harness state and A→B→A fixtures prove private focus isolation across user context switches. |
 | Correction retention | 15% | 5/10 | C4 correction lane + F4 preference drift + V7 correction-behavior-change substrate and real memd-server backend prove corrected values supersede old beliefs across sessions, with rollback preserving chain integrity. |
 | Procedural reuse | 15% | 4/10 | V5 F5 live-fire harness on real memd-server (HttpRoutineSubstrate via spawned memd-server subprocess): routine plant in S1 → invocation in S2+ with token_savings ≥ 1×baseline_retrieval_cost via per-routine cost ledger (PerfectRoutineSubstrate caches in-process; NoCacheRoutineSubstrate is the negative control that fails the gate; HttpRoutineSubstrate stores `MemoryKind::Procedural` with per-routine tag and retrieves by tag-filtered search across sessions). ten_star_writer requires `live_fire_pass=1.0` metric for PR=4 — typed-retrieval correctness alone is RR credit, not PR credit | evidence: SUBSTRATE_BENCHMARKS.md typed-retrieval block (live_fire_total_savings=900); locked real-backend baseline `docs/verification/substrate-baselines/f5_real-2026-05-03.json` (3/5/5-routine scenarios at perfect r·i·90 savings) |
-| Cross-harness continuity | 15% | 4/10 | V4 G4 cross-harness flip asserter green (2→3) + V5 C5 substrate suite materializes banked +1 (3→4) on V4 G4 close 2026-05-02 | evidence: v4-proof-runs/2026-05-02-stability-pass-2-and-close.md |
+| Cross-harness continuity | 15% | 6/10 | V4 G4 cross-harness flip + V5 C5 substrate suite + V9 multi-user adversarial gate: workspace retrieval guard, identity columns, content-hash co-attribution, 8 shared fixtures, and G9 proof suite with 8/8 scenarios and 8/8 negative controls. | evidence: `docs/verification/v9-proof-runs/2026-05-05-adversarial-suite.ndjson`; `scripts/verify/v9-adversarial-suite.sh` |
 | Raw retrieval strength | 15% | 7/10 | V6 typed-ingest public-bench gate passes all four canonical thresholds: LME qa_accuracy 0.860 ≥ 0.850, LoCoMo token_f1_avg 0.760 ≥ 0.750, MemBench mc_accuracy 0.760 ≥ 0.750, ConvoMem judge_accuracy 0.910 ≥ 0.900; LME session_recall_any@5 0.960 ≥ 0.950. V6 writer pins each value to the contract metric key before lifting RR 6→7. | evidence: `tests/fixtures/typed_ingest/f6/canonical-gates.jsonl`; `typed_ingest_f6_tests` 18/18 green |
 | Token efficiency | 10% | 5/10 | V8 operator cost ledger is visible and tunable; G8 proof edits budget cap to 2000 and logs `cost_ledger_visible=true`, `budget_tunable=true`. | evidence: `docs/verification/v8-runs/ui/operator/2026-05-05-g8-proof.ndjson`; `scripts/verify/v8-operator-proof.sh` |
 | Trust + provenance | 10% | 6/10 | V8 provenance browser reaches depth 3: fact metadata, source turn, correction history, and alternate candidates; G8 proof logs `provenance_depth_max=3`. | evidence: `docs/verification/v8-runs/ui/operator/2026-05-05-g8-proof.ndjson`; screenshots in `docs/verification/v8-runs/ui/operator/` |
 
-**Composite: 5.10/10 (V8 internal close 2026-05-05 — operator surfaces + configure CLI + G8 proof harness)**
+**Composite: 5.60/10 (V9 close 2026-05-05 — multi-user/team memory adversarial gate)**
 *Prior composite 2.9 counted "code exists" as partial credit; regrade counts only "user gets value."*
 *Prior axis table (scores 2,2,1,3,4,6,5) summed to 3.0 but reported 1.8 — reconciled 2026-04-22 to the pessimistic axis row that actually yields 1.80.*
 *2026-04-24: session continuity axis moved 1 → 2 on A4 ledger-survival gate (10/10 loop, zero breach lines). Composite moved 1.80 → 2.00. Evidence:*
@@ -131,6 +131,13 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 - *Repeatable proof: `scripts/verify/v8-operator-proof.sh` builds Astro, serves `/operator`, drives Chromium, captures desktop/mobile screenshots, and writes `docs/verification/v8-runs/ui/operator/2026-05-05-g8-proof.ndjson`.*
 - *Proof metrics: `cost_ledger_visible=true`, `budget_tunable=true`, `provenance_depth_max=3`, `correction_history_visible=true`, `alternate_candidates_visible=true`, `console_errors=0`, `configure_suite.pass_count=7`, `fail_count=0`.*
 - *External stranger-review artifacts remain a public-review gate, not fabricated by this internal close.*
+
+*2026-05-05: V9 multi-user/team gate closes. Composite 5.10 → 5.60 (+0.50): session_continuity 5→6 and cross_harness 4→6. Evidence:*
+- *A9 user-scoped identity substrate: `memory_items.user_id`, `harness_preset`, `user_id_session_seq`, idempotent migration/backfill, and tests `a9_*` green.*
+- *B9 workspace retrieval guard: Workspace visibility requires matching workspace before context/search/working ranking; tests `b9_*` green.*
+- *D9 content-hash co-attribution: `memory_item_authors` preserves both authors on duplicate canonical content; tests `d9_*` green.*
+- *Shared V9 fixtures under `crates/memd-client/fixtures/shared/multi-user/` cover A→B→A flip, corrections, identity collision, spoofing, scope escalation, workspace leak, and per-scope retention negatives.*
+- *G9 proof: `scripts/verify/v9-adversarial-suite.sh` writes `docs/verification/v9-proof-runs/2026-05-05-adversarial-suite.ndjson` with 8/8 scenarios passing, 8/8 negative controls firing, SC=6, CH=6, non-owned axes unchanged.*
 
 ## 11 Pillars — Current Reality
 
