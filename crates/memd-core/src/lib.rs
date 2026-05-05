@@ -1,14 +1,19 @@
+pub mod compaction;
 pub mod contract;
 pub mod correction;
+pub mod cost;
 pub mod detector;
 pub mod enforcement;
 pub mod file_ledger;
 pub mod hook_runtime;
 pub mod index;
+pub mod isolation;
 pub mod lifecycle_probe;
 pub mod preference;
 pub mod routine;
+pub mod runtime;
 pub mod skill_mirror;
+pub mod v11;
 
 use memd_schema::{
     CandidateMemoryRequest, CompactContextResponse, CompactionDecision, CompactionOpenLoop,

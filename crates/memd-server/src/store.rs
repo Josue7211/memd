@@ -39,7 +39,8 @@ use crate::store_migrations::{
     migrate_lane_column, migrate_memory_entities_indexed_lookups, migrate_memory_item_authors,
     migrate_memory_items_embedding_model, migrate_memory_items_user_identity,
     migrate_memory_vectors_chunk_idx, migrate_memory_vectors_embedding_model,
-    migrate_redundancy_key, migrate_version_column, migrate_visibility_column,
+    migrate_redundancy_key, migrate_v11_compiler_tables, migrate_v11_project_workspace_columns,
+    migrate_version_column, migrate_visibility_column,
 };
 #[path = "store_coordination.rs"]
 mod store_coordination;
@@ -614,6 +615,8 @@ impl SqliteStore {
         migrate_memory_vectors_embedding_model(&conn)?;
         migrate_memory_items_embedding_model(&conn)?;
         migrate_memory_items_user_identity(&conn)?;
+        migrate_v11_project_workspace_columns(&conn)?;
+        migrate_v11_compiler_tables(&conn)?;
         migrate_memory_item_authors(&conn)?;
         migrate_hive_sessions_identity_columns(&mut conn)?;
         migrate_hive_sessions_last_wake_at(&conn)?;

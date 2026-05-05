@@ -1,0 +1,5 @@
+{"turn_seq":1,"intent":"lookup","target_token_budget":1500,"actual_tokens":420,"depth_decision":"immediate:3, procedural:0, background:0"}
+{"turn_seq":2,"intent":"recall","target_token_budget":1500,"actual_tokens":1480,"depth_decision":"immediate:4, procedural:2, background:0"}
+{"turn_seq":3,"intent":"create","target_token_budget":1500,"actual_tokens":1490,"depth_decision":"immediate:4, procedural:3, background:1"}
+{"turn_seq":4,"intent":"refine","target_token_budget":1500,"actual_tokens":1500,"depth_decision":"immediate:4, procedural:3, background:1"}
+{"turn_seq":5,"intent":"synthesize","target_token_budget":1500,"actual_tokens":1470,"depth_decision":"immediate:4, procedural:2, background:2"}

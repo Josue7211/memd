@@ -6,6 +6,7 @@
 pub mod auto_apply;
 pub mod detector;
 pub mod judge;
+pub mod silent;
 
 use memd_schema::CaptureSource;
 use serde::{Deserialize, Serialize};

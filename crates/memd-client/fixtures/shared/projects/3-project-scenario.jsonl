@@ -1,0 +1,6 @@
+{"turn":"t1","project_id":"project-a","workspace_id":"workspace-1","actor":"user","text":"Focus: finish project A redesign"}
+{"turn":"t4","project_id":"project-a","workspace_id":"workspace-1","actor":"user","text":"No, I meant the cache is Redis."}
+{"turn":"t7","project_id":"project-b","workspace_id":"workspace-1","actor":"user","text":"Focus: debug project B API"}
+{"turn":"t8","project_id":"project-b","workspace_id":"workspace-1","actor":"user","text":"The API uses gRPC."}
+{"turn":"t13","project_id":"project-a","workspace_id":"workspace-1","actor":"user","text":"What did we store in the cache?"}
+{"turn":"t18","project_id":"project-a","workspace_id":"workspace-1","actor":"user","text":"Remind me the cache protocol."}

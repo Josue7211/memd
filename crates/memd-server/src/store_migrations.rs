@@ -140,6 +140,91 @@ pub(crate) fn migrate_memory_items_user_identity(conn: &Connection) -> anyhow::R
     Ok(())
 }
 
+pub(crate) fn migrate_v11_project_workspace_columns(conn: &Connection) -> anyhow::Result<()> {
+    let mut stmt = conn.prepare("PRAGMA table_xinfo(memory_items)")?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if !columns.iter().any(|column| column == "project_id") {
+        conn.execute_batch(
+            r#"
+            ALTER TABLE memory_items ADD COLUMN project_id TEXT
+              GENERATED ALWAYS AS (
+                COALESCE(project, json_extract(payload_json, '$.project'), '__default_project__')
+              ) VIRTUAL;
+            "#,
+        )
+        .context("add memory_items.project_id generated column")?;
+    }
+
+    if !columns.iter().any(|column| column == "workspace_id") {
+        conn.execute_batch(
+            r#"
+            ALTER TABLE memory_items ADD COLUMN workspace_id TEXT
+              GENERATED ALWAYS AS (
+                COALESCE(json_extract(payload_json, '$.workspace'), '__default_workspace__')
+              ) VIRTUAL;
+            "#,
+        )
+        .context("add memory_items.workspace_id generated column")?;
+    }
+
+    conn.execute_batch(
+        r#"
+        CREATE INDEX IF NOT EXISTS idx_memory_project_workspace
+          ON memory_items(project_id, workspace_id, updated_at DESC);
+        "#,
+    )
+    .context("create idx_memory_project_workspace")?;
+
+    Ok(())
+}
+
+pub(crate) fn migrate_v11_compiler_tables(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS compiler_context (
+          compiler_context_id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          turn_seq INTEGER NOT NULL,
+          intent_class TEXT,
+          target_token_budget INTEGER,
+          actual_tokens INTEGER,
+          depth_decision TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_compiler_context_session_turn
+          ON compiler_context(session_id, turn_seq);
+
+        CREATE TABLE IF NOT EXISTS cost_ledger (
+          cost_ledger_id TEXT PRIMARY KEY,
+          turn_seq INTEGER NOT NULL,
+          project_id TEXT NOT NULL,
+          cost_cents REAL,
+          token_count INTEGER,
+          timestamp TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_cost_ledger_project_turn
+          ON cost_ledger(project_id, turn_seq);
+
+        CREATE TABLE IF NOT EXISTS correction_flags (
+          correction_flag_id TEXT PRIMARY KEY,
+          memory_item_id TEXT,
+          project_id TEXT NOT NULL,
+          rephrasing_count INTEGER,
+          ignore_count INTEGER,
+          flagged_at TEXT NOT NULL,
+          detection_latency_ms INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_correction_flags_project
+          ON correction_flags(project_id, flagged_at);
+        "#,
+    )
+    .context("create v11 compiler tables")?;
+    Ok(())
+}
+
 pub(crate) fn migrate_memory_item_authors(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(
         r#"
@@ -690,6 +775,93 @@ pub(crate) fn migrate_memory_entities_indexed_lookups(conn: &mut Connection) -> 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod v11_schema_tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn setup_memory_items(conn: &Connection) {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE memory_items (
+              id TEXT PRIMARY KEY,
+              kind TEXT NOT NULL,
+              scope TEXT NOT NULL,
+              stage TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              source_agent TEXT,
+              redundancy_key TEXT,
+              status TEXT NOT NULL,
+              confidence REAL NOT NULL,
+              canonical_key TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            INSERT INTO memory_items (
+              id, kind, scope, stage, project, namespace, status, confidence,
+              canonical_key, updated_at, payload_json
+            ) VALUES (
+              'm1', 'fact', 'project', 'canonical', 'project-a', 'main',
+              'active', 0.9, 'k1', '2026-05-05T00:00:00Z',
+              '{"project":"project-a","workspace":"workspace-1"}'
+            );
+            "#,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn v11_project_workspace_columns_are_generated_and_indexed() {
+        let conn = Connection::open_in_memory().unwrap();
+        setup_memory_items(&conn);
+        migrate_v11_project_workspace_columns(&conn).unwrap();
+
+        let project_id: String = conn
+            .query_row(
+                "SELECT project_id FROM memory_items WHERE id = 'm1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let workspace_id: String = conn
+            .query_row(
+                "SELECT workspace_id FROM memory_items WHERE id = 'm1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(project_id, "project-a");
+        assert_eq!(workspace_id, "workspace-1");
+
+        let indexed: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_memory_project_workspace'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexed, 1);
+    }
+
+    #[test]
+    fn v11_compiler_tables_exist() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate_v11_compiler_tables(&conn).unwrap();
+
+        for table in ["compiler_context", "cost_ledger", "correction_flags"] {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "{table} missing");
+        }
+    }
 }
 
 pub(crate) fn create_hive_session_identity_indexes(conn: &Connection) -> anyhow::Result<()> {

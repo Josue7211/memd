@@ -1,0 +1,3 @@
+{"cut_id":"cut-a-after-t4","project_id":"project-a","workspace_id":"workspace-1","record":"cache is Redis","correction_active":true}
+{"cut_id":"cut-b-heavy","project_id":"project-b","workspace_id":"workspace-1","record":"API uses gRPC","correction_active":false}
+{"cut_id":"cut-a-roundtrip","project_id":"project-a","workspace_id":"workspace-1","record":"Focus: finish project A redesign","correction_active":false}
