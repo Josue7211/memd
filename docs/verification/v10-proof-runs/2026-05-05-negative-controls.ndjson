@@ -1,0 +1,4 @@
+{"control": "skip_a10_detector", "expected_failure": true, "fired": true, "generated_at": "2026-05-05T23:01:47.575066+00:00"}
+{"control": "drop_b10_auto_apply", "expected_failure": true, "fired": true, "generated_at": "2026-05-05T23:01:47.575066+00:00"}
+{"control": "zero_c10_routine_observations", "expected_failure": true, "fired": true, "generated_at": "2026-05-05T23:01:47.575066+00:00"}
+{"control": "d10_weight_delta_over_0_05", "expected_failure": true, "fired": true, "generated_at": "2026-05-05T23:01:47.575066+00:00"}

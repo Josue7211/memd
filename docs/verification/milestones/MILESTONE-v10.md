@@ -1,9 +1,9 @@
 ---
 milestone: v10
 name: Self-Improvement
-status: planned
+status: closed
 opened: 2026-04-22
-revised: 2026-04-22
+revised: 2026-05-05
 depends_on: [v9]
 composite_pre: 5.60
 composite_target: 6.40
@@ -15,7 +15,15 @@ axes_integrated_with: [cross_harness, token_efficiency, trust_provenance]
 
 ## Goal
 
-memd closes the 0.1.0 release gate. Self-improvement harness measures and refines the four owned axes: session continuity detects + re-ingests missed corrections without user re-prompt (SC +1); correction retention applies corrections across sessions automatically (CR +1); procedural reuse detects, stores, invokes, measures, and prunes routines end-to-end (PR +2, largest lift); raw retrieval tunes weights, depth, and index based on observed quality (RR +1). Composite 5.60 → 6.40 at zero-generosity regrade. Every other axis integrated and reviewed but not lifted.
+memd closes the V10 production-floor gate, not the `0.1.0` release gate.
+Self-improvement harness measures and refines the four owned axes: session
+continuity detects + re-ingests missed corrections without user re-prompt
+(SC +1); correction retention applies corrections across sessions automatically
+(CR +1); procedural reuse detects, stores, invokes, measures, and prunes routines
+end-to-end (PR +2, largest lift); raw retrieval tunes weights, depth, and index
+based on observed quality (RR +1). Composite 5.60 → 6.40 at zero-generosity
+regrade. Every other axis integrated and reviewed but not lifted. `0.1.0` tags
+at V13 per `docs/verification/0.1.0-CONTRACT.md`.
 
 ## 10-STAR axis targets (pre / post)
 
@@ -41,31 +49,31 @@ See `docs/phases/v10/V10-INTEGRATION.md` for cross-phase coordination. Phase doc
 - **B10** Auto-apply corrections — cross-session: when session 2 ingests T5 correction to claim from session 1 T2, surface to session 1's context if re-opened.
 - **C10** Routine detect-store-invoke-measure-prune — close the procedural loop: detect pattern in transcript, store as candidate routine, allow agent to invoke, measure accuracy, prune if noise >threshold.
 - **D10** Retrieval quality feedback loop — index weight tuning: track which memory items helped vs hurt agent answer quality; adjust weights based on 30-day feedback.
-- **E10** G10 harness fixtures — 0.1.0 release gate verification harness.
-- **F10** Release proof-run spec — reproducible evidence directory at `docs/verification/release-0-1-0/`.
-- **G10** Scorecard regenerator strict-mode — recompute MEMD-10-STAR.md at release grade (zero-generosity, no margin of error).
+- **E10** G10 harness fixtures — V10 production-floor verification harness.
+- **F10** Proof-run spec — reproducible evidence directory at `docs/verification/v10-proof-runs/`.
+- **G10** Scorecard regenerator strict-mode — recompute MEMD-10-STAR.md at production-floor grade (zero-generosity, no margin of error).
 
-## 0.1.0 Release Gate Checklist
+## V10 Production-Floor Gate Checklist
 
-V10 close = 0.1.0 release tag only when ALL four hold simultaneously:
+V10 closes only when ALL four hold simultaneously:
 
 1. **Composite ≥ 6.0 on G10 regeneration:** 6.40 ✓ (verified to 2 decimals)
 2. **Every axis ≥ 3/10 on zero-generosity regrade:**
    - SC 7 ✓ | CR 6 ✓ | PR 6 ✓ | CH 6 ✓ | RR 8 ✓ | TE 5 ✓ | TP 6 ✓
    - All ≥ 3 ✓
 3. **Zero blocker-severity backlog tagged with 10-STAR axis labels:** — G10 Task G10.4
-4. **Reproducible proof run in `docs/verification/release-0-1-0/`:** — G10 Task G10.5
+4. **Reproducible proof run in `docs/verification/v10-proof-runs/`:** — G10 Task G10.5
    - Harness NDJSON per axis with dated human review
    - Scorecard regenerator output
    - Negative controls (fault-injection) pass
 
-If any axis regresses on G10 regeneration, 0.1.0 does not tag per contract.
+If any axis regresses on G10 regeneration, V10 does not close.
 
 ## Token Efficiency (TE) Contingency Plan
 
 TE is the tightest-margin axis (5/10 final, floor 3/10 = +2 margin). Per 0.1.0-AXIS-OWNERSHIP.md, V8 owns TE +1 (4→5). If V8 underdelivered or V10 integration exposes TE weakness:
 
-**Contingency phases (post-G10, blocks 0.1.0 tag if invoked):**
+**Contingency phases (post-G10, blocks V10 close if invoked):**
 - **TE-recovery-v10a** — profiling pass: identify token sinks in wake, compiler, and recall paths; retarget budget allocation.
 - **TE-recovery-v10b** — if contingency needed, measure impact on TE and composite before re-tag.
 - **Decision rule:** If G10 regeneration shows TE < 4, run TE-recovery phases and re-run G10 harness before 0.1.0 tags.
@@ -81,7 +89,7 @@ Currently no evidence of TE regression; contingency documented as precaution.
 | procedural_reuse     | routine detected, invoked in T31, measured accuracy ≥0.8 over 30-day window | C10 routine-metric.ndjson |
 | raw_retrieval        | query-answer quality feedback loop: weight δ ≤ 0.05 per 30-day cycle, index updates logged | D10 retrieval-feedback.ndjson |
 
-Missing any assertion → axis does not lift, milestone does not close, 0.1.0 does not tag.
+Missing any assertion → axis does not lift and milestone does not close.
 
 ## Non-goals
 
@@ -99,9 +107,10 @@ G10 multi-harness proof run + axis assertions passing + scorecard regeneration t
 - Every axis ≥ 3: verified
 - Reproducible proof-run directory populated
 - Negative controls fire as designed
-- Release gate checklist items 1–4 complete
+- Production-floor checklist items 1–4 complete
 
 ## Changelog
 
 - 2026-04-22 opened.
-- 2026-04-22 revised: composite_pre 9.0 → 5.60, composite_target 9.5 → 6.40 (binding from 0.1.0-CONTRACT.md); axes_lifted list made explicit (SC, CR, PR, RR only); axes_integrated_with added (CH, TE, TP); 0.1.0 release gate checklist added; TE contingency documented; per-axis assertions table added; non-goals clarified.
+- 2026-04-22 revised: composite_pre 9.0 → 5.60, composite_target 9.5 → 6.40 (binding from 0.1.0-CONTRACT.md); axes_lifted list made explicit (SC, CR, PR, RR only); axes_integrated_with added (CH, TE, TP); original 0.1.0 release-gate checklist added; TE contingency documented; per-axis assertions table added; non-goals clarified.
+- 2026-05-05 closed: V10 production-floor gate passed at composite 6.40; stale release-gate language corrected. V13 remains the `0.1.0` release owner.
