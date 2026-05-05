@@ -1,11 +1,12 @@
 ---
 opened: 2026-05-04
 phase: v7-close
-status: v7-closed-v8-next
+status: handoff-ready
 prev_handoff: 2026-05-04-v6-closed-v7-next.md
-branch: codex/v7-correction-e2e
-v7_close_commit: this handoff commit
-repo_state: clean after commit
+branch: main
+v7_feature_commit: f7a5e1e
+handoff_head: dfa0873
+repo_state: clean and pushed to origin/main
 next_step_a: start V8 operator surfaces from clean V7 close
 next_step_b: keep H7 default-on auto-commit toggle visible in V8 configure work
 ---
@@ -13,7 +14,20 @@ next_step_b: keep H7 default-on auto-commit toggle visible in V8 configure work
 # V7 Closed - V8 Next
 
 One sentence: V7 closes correction behavior-change E2E at composite `4.90/10`;
-next session starts V8 operator surfaces.
+latest `main` is clean/pushed at `dfa0873`, and next session starts V8
+operator surfaces.
+
+## Pickup
+
+```bash
+cd /Volumes/T7/memd
+git switch main
+git pull --ff-only origin main
+git status --short --branch
+sed -n '1,140p' docs/handoff/LATEST.md
+```
+
+Expected pickup state: `main...origin/main` clean at `dfa0873`.
 
 ## Closed Gates
 
@@ -43,8 +57,9 @@ next session starts V8 operator surfaces.
 - `cargo build --bin memd-server` -> passed.
 - `MEMD_AUTO_COMMIT_ENABLED=false cargo run -p memd-client --bin memd -- benchmark substrate --suite correction-behavior-change --output /tmp/memd-v7-substrate --report /tmp/memd-v7-substrate/SUBSTRATE_BENCHMARKS.md --json` -> S2 and rollback rows pass.
 - Temp config smoke: `memd configure --output /tmp/memd-v7-config auto_commit.enabled=false --summary` -> reports `auto_commit=off`.
+- `cargo fmt --check` -> clean after installing `rustfmt`.
 - `git diff --check` -> clean.
-- `cargo fmt --check` could not run because `cargo-fmt` is not installed for `stable-aarch64-apple-darwin`.
+- `git push origin main` -> pushed `1218954..dfa0873`.
 
 ## V6 Commit Check
 
@@ -56,3 +71,10 @@ V6 was committed in the prior handoff. Main/origin had the V6 close commit
 V8 owns operator surfaces: atlas, corrections, provenance, diff, rollback, and
 configuration UX. Start from clean V7 head and keep `auto_commit.enabled`
 visible, because V8 G8 expands `memd configure` into the full settings surface.
+
+## Commit Stack On Main
+
+- `188f79a` `feat(V7): seed correction behavior-change substrate gate`
+- `f7a5e1e` `feat(V7): close correction behavior e2e`
+- `c049f92` `docs: point status to V8 milestone`
+- `dfa0873` `style: apply rustfmt`

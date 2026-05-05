@@ -13,15 +13,22 @@ if [ ! -d "$HANDOFF_DIR" ]; then
 fi
 
 # Primary key: date prefix (desc). Tie-break: mtime (desc) so same-day
-# packets resolve to the most recently written one. Using -printf so we
-# get `<mtime>\t<date>\t<path>` and sort on the first two fields.
-newest=$(find "$HANDOFF_DIR" -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]-*.md' \
-    -not -name 'LATEST.md' -not -name 'INDEX.md' \
-    -printf '%T@\t%f\t%p\n' \
-    | awk -F'\t' '{ date=substr($2,1,10); print date "\t" $1 "\t" $3 }' \
-    | sort -k1,1r -k2,2nr \
-    | head -1 \
-    | cut -f3)
+# packets resolve to the most recently written one. Keep this portable across
+# GNU/Linux and macOS/BSD where `find -printf` is unavailable.
+newest=$(python3 - "$HANDOFF_DIR" <<'PY'
+from pathlib import Path
+import sys
+
+handoff_dir = Path(sys.argv[1])
+packets = [
+    p for p in handoff_dir.glob("[0-9][0-9][0-9][0-9]-*.md")
+    if p.name not in {"LATEST.md", "INDEX.md"}
+]
+if packets:
+    newest = max(packets, key=lambda p: (p.name[:10], p.stat().st_mtime))
+    print(newest)
+PY
+)
 
 if [ -z "$newest" ]; then
     echo "handoff-latest: no dated handoff packets found in $HANDOFF_DIR" >&2
@@ -39,16 +46,41 @@ ln -sfn "$newest_base" "$HANDOFF_DIR/LATEST.md"
     echo ""
     echo "LATEST → \`$newest_base\`"
     echo ""
-    find "$HANDOFF_DIR" -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]-*.md' \
-        -not -name 'LATEST.md' -not -name 'INDEX.md' \
-        | sort -r | while read -r h; do
-        base=$(basename "$h")
-        title=$(awk '/^# / { sub(/^# /, ""); print; exit }' "$h")
-        date=$(echo "$base" | sed 's/^\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\).*/\1/')
-        [ -z "$title" ] && title="$base"
-        echo "- **$date** — [$title](./$base)"
-    done
+    python3 - "$HANDOFF_DIR" <<'PY'
+from pathlib import Path
+import sys
+
+handoff_dir = Path(sys.argv[1])
+packets = sorted(
+    [
+        p for p in handoff_dir.glob("[0-9][0-9][0-9][0-9]-*.md")
+        if p.name not in {"LATEST.md", "INDEX.md"}
+    ],
+    key=lambda p: p.name,
+    reverse=True,
+)
+for packet in packets:
+    title = ""
+    for line in packet.read_text(encoding="utf-8").splitlines():
+        if line.startswith("# "):
+            title = line[2:]
+            break
+    if not title:
+        title = packet.name
+    date = packet.name[:10]
+    print(f"- **{date}** — [{title}](./{packet.name})")
+PY
 } > "$HANDOFF_DIR/INDEX.md"
 
-count=$(find "$HANDOFF_DIR" -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]-*.md' -not -name 'LATEST.md' -not -name 'INDEX.md' | wc -l)
+count=$(python3 - "$HANDOFF_DIR" <<'PY'
+from pathlib import Path
+import sys
+
+handoff_dir = Path(sys.argv[1])
+print(len([
+    p for p in handoff_dir.glob("[0-9][0-9][0-9][0-9]-*.md")
+    if p.name not in {"LATEST.md", "INDEX.md"}
+]))
+PY
+)
 echo "handoff-latest: LATEST.md → $newest_base; INDEX.md ($count entries)"
