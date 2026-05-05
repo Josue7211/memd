@@ -113,11 +113,7 @@ pub(crate) fn axis_scores_from_v6_scorecards(
             .map(|c| c.value >= c.target)
             .unwrap_or(false)
     });
-    let rr = if all_pass {
-        RR_CEILING_V6
-    } else {
-        RR_FLOOR_V5
-    };
+    let rr = if all_pass { RR_CEILING_V6 } else { RR_FLOOR_V5 };
     let tp = if method_cards_present && reproducibility_script_present {
         TP_CEILING_V6
     } else {

@@ -87,7 +87,10 @@ impl B5Backend for HttpB5Backend {
             // collapses two synthetic facts that happen to share a
             // subject/predicate/value triple — corpus tables are small
             // and collisions are common at fact_count >= 20.
-            content: format!("f{} {} {} {}", fact.id, fact.subject, fact.predicate, fact.value),
+            content: format!(
+                "f{} {} {} {}",
+                fact.id, fact.subject, fact.predicate, fact.value
+            ),
             kind: MemoryKind::Fact,
             scope: MemoryScope::Project,
             project: Some(self.project.clone()),
@@ -224,12 +227,8 @@ fn run_one_scenario(base_url: &str, fact_count: usize) -> (f64, f64, f64) {
     // recall_at_1 carries propagation_rate; recall_at_3 carries provenance_rate.
     let prop_s3 = outcome.records[0].recall_at_1;
     let prop_s8 = outcome.records[2].recall_at_1;
-    let prov_avg = outcome
-        .records
-        .iter()
-        .map(|r| r.recall_at_3)
-        .sum::<f64>()
-        / outcome.records.len() as f64;
+    let prov_avg =
+        outcome.records.iter().map(|r| r.recall_at_3).sum::<f64>() / outcome.records.len() as f64;
     (prop_s3, prop_s8, prov_avg)
 }
 
@@ -292,7 +291,9 @@ fn b5_real_baseline_canonical_numbers() {
         })
         .collect();
     entries.sort();
-    let latest = entries.last().expect("at least one b5_real-*.json baseline");
+    let latest = entries
+        .last()
+        .expect("at least one b5_real-*.json baseline");
 
     #[derive(serde::Deserialize)]
     struct BaselineScenario {

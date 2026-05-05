@@ -311,10 +311,7 @@ fn aggregator_writes_10star_composite_section() {
             if s.id == "typed-retrieval" {
                 let mut m = s.metrics.clone();
                 m.insert("live_fire_pass".into(), 0.0);
-                crate::benchmark::substrate::aggregator::SuiteSummary::passed(
-                    "typed-retrieval",
-                    m,
-                )
+                crate::benchmark::substrate::aggregator::SuiteSummary::passed("typed-retrieval", m)
             } else {
                 s.clone()
             }

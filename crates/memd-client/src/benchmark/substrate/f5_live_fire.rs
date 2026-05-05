@@ -167,8 +167,7 @@ pub(crate) fn run_live_fire_with_substrate<S: RoutineSubstrate>(
         .filter(|r| r.is_invocation)
         .map(|r| r.baseline_cost)
         .sum();
-    let overall_pass = !per_routine_pass.is_empty()
-        && per_routine_pass.values().all(|&p| p);
+    let overall_pass = !per_routine_pass.is_empty() && per_routine_pass.values().all(|&p| p);
 
     let ndjson_path = cfg.results_dir.join("typed-retrieval-live-fire.ndjson");
     if let Some(parent) = ndjson_path.parent() {
@@ -212,7 +211,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let cfg = small_cfg(dir.path().to_path_buf());
         let out = run_live_fire_in_process(&cfg).unwrap();
-        assert!(out.overall_pass, "perfect routine cache must pass live-fire");
+        assert!(
+            out.overall_pass,
+            "perfect routine cache must pass live-fire"
+        );
         for (rid, pass) in &out.per_routine_pass {
             assert!(pass, "routine {rid} must pass");
         }

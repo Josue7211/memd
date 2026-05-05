@@ -258,9 +258,7 @@ pub(crate) async fn run_substrate_command(args: &SubstrateArgs) -> anyhow::Resul
                     cfg.seed = seed;
                 }
                 let outcome = run_v7_correction_behavior_in_process(&cfg).map_err(|e| {
-                    anyhow::anyhow!(
-                        "substrate correction-behavior-change runner io error: {e}"
-                    )
+                    anyhow::anyhow!("substrate correction-behavior-change runner io error: {e}")
                 })?;
                 upsert_markdown_section(
                     &args.report,

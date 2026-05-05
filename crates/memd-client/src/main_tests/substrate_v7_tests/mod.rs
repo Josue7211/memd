@@ -68,9 +68,7 @@ fn v7_s2_query_does_not_repeat_corrected_value() {
     assert_eq!(query_events.len(), facts.len());
     for event in query_events {
         if let V7Event::BehaviorQuery {
-            subject,
-            predicate,
-            ..
+            subject, predicate, ..
         } = event
         {
             for corrected in &corrected_values {

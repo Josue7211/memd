@@ -1385,9 +1385,14 @@ pub(crate) fn v6_bench_scorecards_from_reports(
 /// Method-card presence gate for the V6 TP axis lift.
 fn v6_method_cards_present(repo_root: &std::path::Path) -> bool {
     let dir = repo_root.join("docs/verification/method-cards");
-    ["lme-v6.md", "locomo-v6.md", "membench-v6.md", "convomem-v6.md"]
-        .iter()
-        .all(|name| dir.join(name).exists())
+    [
+        "lme-v6.md",
+        "locomo-v6.md",
+        "membench-v6.md",
+        "convomem-v6.md",
+    ]
+    .iter()
+    .all(|name| dir.join(name).exists())
 }
 
 /// Splice the V6 scorecard chunk into PUBLIC_BENCHMARKS.md between
@@ -1512,9 +1517,10 @@ pub(crate) async fn run_public_benchmark_command(
                 let repro_present = repo_root.join("scripts/public-bench-reproduce.sh").exists();
                 let scores: V6AxisScores =
                     axis_scores_from_v6_scorecards(&cards, method_cards_present, repro_present);
-                let allow_below = crate::benchmark::typed_ingest::star_regen::allow_below_target_active(
-                    args.allow_below_target,
-                );
+                let allow_below =
+                    crate::benchmark::typed_ingest::star_regen::allow_below_target_active(
+                        args.allow_below_target,
+                    );
                 match regenerate_10star_md_v6(&star_path, &scores, allow_below) {
                     Ok(composite) => eprintln!(
                         "[bench] V6 10-STAR composite={composite:.2} (rr={} tp={}) → {}",
@@ -1866,10 +1872,7 @@ mod v6_helper_tests {
     use serde_json::json;
     use std::collections::BTreeMap;
 
-    fn synthetic_report(
-        benchmark_id: &str,
-        metrics: &[(&str, f64)],
-    ) -> PublicBenchmarkRunReport {
+    fn synthetic_report(benchmark_id: &str, metrics: &[(&str, f64)]) -> PublicBenchmarkRunReport {
         let mut m = BTreeMap::new();
         for (k, v) in metrics {
             m.insert((*k).to_string(), *v);
@@ -1910,22 +1913,13 @@ mod v6_helper_tests {
     #[test]
     fn v6_scorecard_pins_value_to_contract_metric_key() {
         let reports = vec![
-            synthetic_report(
-                "longmemeval",
-                &[("accuracy", 0.10), ("qa_accuracy", 0.86)],
-            ),
+            synthetic_report("longmemeval", &[("accuracy", 0.10), ("qa_accuracy", 0.86)]),
             synthetic_report(
                 "locomo",
                 &[("accuracy", 0.10), ("f1", 0.10), ("token_f1_avg", 0.76)],
             ),
-            synthetic_report(
-                "membench",
-                &[("accuracy", 0.10), ("mc_accuracy", 0.76)],
-            ),
-            synthetic_report(
-                "convomem",
-                &[("accuracy", 0.10), ("judge_accuracy", 0.91)],
-            ),
+            synthetic_report("membench", &[("accuracy", 0.10), ("mc_accuracy", 0.76)]),
+            synthetic_report("convomem", &[("accuracy", 0.10), ("judge_accuracy", 0.91)]),
         ];
         let cards = v6_bench_scorecards_from_reports(&reports);
         assert_eq!(cards.len(), 4);
@@ -1990,9 +1984,6 @@ mod v6_helper_tests {
         // Idempotent — second call must not duplicate the block.
         regenerate_public_benchmarks_v6_section(&path, &[sample_card()]).unwrap();
         let body2 = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(
-            body2.matches("<!-- public-bench-report/v6 -->").count(),
-            1
-        );
+        assert_eq!(body2.matches("<!-- public-bench-report/v6 -->").count(), 1);
     }
 }

@@ -469,7 +469,11 @@ pub(crate) fn render_bundle_config_summary(config: &BundleConfigSnapshot) -> Str
         config.route.as_deref().unwrap_or("none"),
         config.intent.as_deref().unwrap_or("none"),
         config.voice_mode.as_str(),
-        if config.auto_commit_enabled { "on" } else { "off" },
+        if config.auto_commit_enabled {
+            "on"
+        } else {
+            "off"
+        },
         config.authority_mode.as_deref().unwrap_or("shared"),
         if config.authority_degraded {
             "yes"

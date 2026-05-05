@@ -4880,7 +4880,10 @@ fn correct_item_derives_correction_meta_from_legacy_turn_tag() {
     assert_eq!(meta.confidence, Some(0.91));
 
     let from_store = state.store.get(response.new_item.id).unwrap().unwrap();
-    assert_eq!(from_store.correction_meta, response.new_item.correction_meta);
+    assert_eq!(
+        from_store.correction_meta,
+        response.new_item.correction_meta
+    );
 
     std::fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -5109,7 +5112,11 @@ fn explain_shows_correction_events() {
         "new item's corrections_chain should contain the superseded original"
     );
     assert_eq!(
-        explain_new.item.correction_meta.as_ref().and_then(|m| m.corrects_id),
+        explain_new
+            .item
+            .correction_meta
+            .as_ref()
+            .and_then(|m| m.corrects_id),
         Some(original.id),
         "explain should carry correction metadata on corrected item"
     );

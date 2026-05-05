@@ -349,10 +349,8 @@ pub(crate) fn run_v7_correction_behavior_with_backend<B: V7BehaviorBackend>(
         } else {
             (0.0, 0.0)
         };
-    let rollback_pass =
-        rollback_behavior_rate >= config.pass_gate.rollback_behavior_rate
-            && rollback_chain_completeness_rate
-                >= config.pass_gate.rollback_chain_completeness_rate;
+    let rollback_pass = rollback_behavior_rate >= config.pass_gate.rollback_behavior_rate
+        && rollback_chain_completeness_rate >= config.pass_gate.rollback_chain_completeness_rate;
     records.push(ScenarioRecord {
         suite: "correction-behavior-change".into(),
         run_id,

@@ -400,7 +400,9 @@ pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: b
         output.push_str(&format!(
             " learned_from={} corrects={} captured_by={}",
             meta.source_turn.as_deref().unwrap_or("none"),
-            meta.corrects_id.map(short_uuid).unwrap_or_else(|| "none".into()),
+            meta.corrects_id
+                .map(short_uuid)
+                .unwrap_or_else(|| "none".into()),
             meta.captured_by
                 .map(|source| format!("{:?}", source).to_ascii_lowercase())
                 .unwrap_or_else(|| "unknown".into())
@@ -547,22 +549,23 @@ pub(crate) fn is_default_runtime(runtime: &memd_schema::MemoryPolicyRuntime) -> 
 #[cfg(test)]
 mod tests {
     use super::{
-        render_bundle_status_summary, render_harness_preset_markdown, render_policy_summary,
-        render_explain_summary, render_skill_policy_summary, render_visible_memory_artifact_detail,
+        render_bundle_status_summary, render_explain_summary, render_harness_preset_markdown,
+        render_policy_summary, render_skill_policy_summary, render_visible_memory_artifact_detail,
         render_visible_memory_home, render_visible_memory_knowledge_map,
     };
     use crate::harness::preset::HarnessPresetRegistry;
     use memd_schema::{
         CaptureSource, CorrectionMetadata, ExplainMemoryResponse, HiveClaimsResponse,
         HiveSessionsResponse, HiveTasksResponse, MemoryItem, MemoryKind, MemoryPolicyConsolidation,
-        MemoryPolicyDecay, MemoryPolicyFeedback, MemoryPolicyLiveTruth, MemoryPolicyMemoryCompilation,
-        MemoryPolicyPromotion, MemoryPolicyResponse, MemoryPolicyRouteDefault, MemoryPolicyRuntime,
-        MemoryPolicySemanticFallback, MemoryPolicySkillGating, MemoryPolicyWorkingMemory, MemoryScope,
-        MemoryStage, MemoryStatus, MemoryVisibility, RetrievalFeedbackSummary, RetrievalIntent,
-        RetrievalRoute, SourceMemoryResponse, VisibleMemoryArtifact, VisibleMemoryArtifactDetailResponse,
-        VisibleMemoryGraphEdge, VisibleMemoryGraphNode, VisibleMemoryHome, VisibleMemoryKnowledgeMap,
-        VisibleMemoryProvenance, VisibleMemorySnapshotResponse, VisibleMemoryStatus,
-        VisibleMemoryUiActionKind, WorkspaceMemoryResponse,
+        MemoryPolicyDecay, MemoryPolicyFeedback, MemoryPolicyLiveTruth,
+        MemoryPolicyMemoryCompilation, MemoryPolicyPromotion, MemoryPolicyResponse,
+        MemoryPolicyRouteDefault, MemoryPolicyRuntime, MemoryPolicySemanticFallback,
+        MemoryPolicySkillGating, MemoryPolicyWorkingMemory, MemoryScope, MemoryStage, MemoryStatus,
+        MemoryVisibility, RetrievalFeedbackSummary, RetrievalIntent, RetrievalRoute,
+        SourceMemoryResponse, VisibleMemoryArtifact, VisibleMemoryArtifactDetailResponse,
+        VisibleMemoryGraphEdge, VisibleMemoryGraphNode, VisibleMemoryHome,
+        VisibleMemoryKnowledgeMap, VisibleMemoryProvenance, VisibleMemorySnapshotResponse,
+        VisibleMemoryStatus, VisibleMemoryUiActionKind, WorkspaceMemoryResponse,
     };
     use serde_json::json;
 
@@ -635,7 +638,10 @@ mod tests {
 
         assert!(summary.contains("learned_from=s1-t5"));
         assert!(summary.contains("captured_by=manual"));
-        assert!(summary.contains(&format!("corrects={}", original_id.to_string()[..8].to_string())));
+        assert!(summary.contains(&format!(
+            "corrects={}",
+            original_id.to_string()[..8].to_string()
+        )));
     }
 
     #[test]

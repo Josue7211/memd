@@ -34,8 +34,8 @@ use crate::benchmark::substrate::cross_harness::{
     C5PassGate, C5RunConfig, C5Scenario, run_c5_with_adapters,
 };
 use crate::benchmark::substrate::harness_adapter::{
-    HarnessAdapter, MemdGateway, ReadHit, Scope, WriteResult,
-    claude_code::ClaudeCodeAdapter, codex::CodexAdapter,
+    HarnessAdapter, MemdGateway, ReadHit, Scope, WriteResult, claude_code::ClaudeCodeAdapter,
+    codex::CodexAdapter,
 };
 use memd_schema::{
     MemoryKind, MemoryScope, MemoryStatus, MemoryVisibility, SearchMemoryRequest,
@@ -337,7 +337,9 @@ fn c5_real_baseline_canonical_numbers() {
         })
         .collect();
     entries.sort();
-    let latest = entries.last().expect("at least one c5_real-*.json baseline");
+    let latest = entries
+        .last()
+        .expect("at least one c5_real-*.json baseline");
 
     #[derive(serde::Deserialize)]
     struct BaselineScenario {

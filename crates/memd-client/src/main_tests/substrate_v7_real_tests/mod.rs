@@ -12,8 +12,8 @@ use crate::benchmark::substrate::correction_behavior::{
 };
 use crate::benchmark::substrate::fixtures::{Fact, KindMix};
 use memd_schema::{
-    CorrectMemoryRequest, ExplainMemoryRequest, MemoryKind, MemoryScope, MemoryStatus, MemoryVisibility,
-    SearchMemoryRequest, StoreMemoryRequest,
+    CorrectMemoryRequest, ExplainMemoryRequest, MemoryKind, MemoryScope, MemoryStatus,
+    MemoryVisibility, SearchMemoryRequest, StoreMemoryRequest,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -59,7 +59,10 @@ impl V7BehaviorBackend for HttpV7BehaviorBackend {
 
     fn ingest_fact(&self, _session: &str, fact: &Fact) {
         let req = StoreMemoryRequest {
-            content: format!("f{} {} {} {}", fact.id, fact.subject, fact.predicate, fact.value),
+            content: format!(
+                "f{} {} {} {}",
+                fact.id, fact.subject, fact.predicate, fact.value
+            ),
             kind: MemoryKind::Fact,
             scope: MemoryScope::Project,
             project: Some(self.project.clone()),
@@ -185,8 +188,8 @@ fn v7_real_backend_correction_behavior_change_and_meta() {
     let dir = tempdir().expect("tempdir for results");
     let cfg = v7_real_config(dir.path().to_path_buf());
 
-    let outcome = run_v7_correction_behavior_with_backend(&cfg, &backend)
-        .expect("run v7 real behavior gate");
+    let outcome =
+        run_v7_correction_behavior_with_backend(&cfg, &backend).expect("run v7 real behavior gate");
 
     assert!(outcome.overall_pass);
     assert_eq!(outcome.next_session_behavior_rate, 1.0);

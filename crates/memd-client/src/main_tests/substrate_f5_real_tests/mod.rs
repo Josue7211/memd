@@ -157,11 +157,7 @@ fn run_one_scenario(base_url: &str, routine_count: usize, invocations_per_routin
     outcome.total_savings
 }
 
-const F5_LIVE_FIRE_SCENARIOS: &[(usize, usize)] = &[
-    (3, 2),
-    (5, 2),
-    (5, 4),
-];
+const F5_LIVE_FIRE_SCENARIOS: &[(usize, usize)] = &[(3, 2), (5, 2), (5, 4)];
 
 /// Sanity floor: a real memd-server must durably cache a planted routine
 /// across `observe_or_invoke` calls. The locked baseline test below
@@ -219,7 +215,9 @@ fn f5_real_baseline_canonical_numbers() {
         })
         .collect();
     entries.sort();
-    let latest = entries.last().expect("at least one f5_real-*.json baseline");
+    let latest = entries
+        .last()
+        .expect("at least one f5_real-*.json baseline");
 
     #[derive(serde::Deserialize)]
     struct BaselineScenario {
@@ -237,8 +235,11 @@ fn f5_real_baseline_canonical_numbers() {
 
     let server = spawn_memd_server().expect("spawn memd-server");
     for floor in &baseline.scenarios {
-        let savings =
-            run_one_scenario(&server.base_url, floor.routine_count, floor.invocations_per_routine);
+        let savings = run_one_scenario(
+            &server.base_url,
+            floor.routine_count,
+            floor.invocations_per_routine,
+        );
         assert!(
             savings >= floor.total_savings,
             "regression: r={} i={} total_savings {} < floor {}",

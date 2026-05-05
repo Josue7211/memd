@@ -109,7 +109,10 @@ pub(crate) fn correct_item(
     if !new_tags.contains(&"correction".to_string()) {
         new_tags.push("correction".to_string());
     }
-    let correction_confidence = req.confidence.unwrap_or(old_item.confidence).clamp(0.0, 1.0);
+    let correction_confidence = req
+        .confidence
+        .unwrap_or(old_item.confidence)
+        .clamp(0.0, 1.0);
     let correction_meta = CorrectionMetadata {
         corrects_id: Some(old_item.id),
         source_turn: correction_source_turn(&new_tags),

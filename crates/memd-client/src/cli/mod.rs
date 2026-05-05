@@ -738,7 +738,11 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                 }
             }
             if args.auto_commit || bundle_auto_commit_enabled_for(&args.output) {
-                maybe_auto_commit_before_write(Some(&args.output), "checkpoint", args.content.as_deref())?;
+                maybe_auto_commit_before_write(
+                    Some(&args.output),
+                    "checkpoint",
+                    args.content.as_deref(),
+                )?;
             }
             let (default_project, default_namespace) = infer_bundle_identity_defaults(&args.output);
             let response = match checkpoint_with_bundle_defaults(&args, &base_url).await {
@@ -789,7 +793,11 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             print_json(&response)?;
         }
         Commands::Remember(args) => {
-            maybe_auto_commit_before_write(Some(&args.output), "remember", args.content.as_deref())?;
+            maybe_auto_commit_before_write(
+                Some(&args.output),
+                "remember",
+                args.content.as_deref(),
+            )?;
             let (default_project, default_namespace) = infer_bundle_identity_defaults(&args.output);
             let response = remember_with_bundle_defaults(&args, &base_url).await?;
             let snapshot = crate::runtime::read_bundle_resume(

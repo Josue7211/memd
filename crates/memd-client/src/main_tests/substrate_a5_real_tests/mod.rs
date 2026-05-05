@@ -143,11 +143,7 @@ const A5_SCENARIOS: &[(usize, usize)] = &[
     (100, 8),
 ];
 
-fn run_one_scenario(
-    base_url: &str,
-    n: usize,
-    k: usize,
-) -> (f64, f64) {
+fn run_one_scenario(base_url: &str, n: usize, k: usize) -> (f64, f64) {
     let project = format!("a5-real-n{n}-k{k}");
     let backend = HttpMemdBackend::new(base_url, &project, "main");
     let dir = tempdir().expect("tempdir for results");
@@ -223,7 +219,9 @@ fn a5_real_baseline_canonical_numbers() {
         })
         .collect();
     entries.sort();
-    let latest = entries.last().expect("at least one a5_real-*.json baseline");
+    let latest = entries
+        .last()
+        .expect("at least one a5_real-*.json baseline");
 
     #[derive(serde::Deserialize)]
     struct BaselineScenario {
