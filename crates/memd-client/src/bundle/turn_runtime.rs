@@ -124,6 +124,8 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
             args.budget_tokens
         } else if env_tokens > 0 {
             env_tokens
+        } else if let Some(config_tokens) = config_budget_tokens_from_bundle(&args.output) {
+            config_tokens
         } else {
             2000
         };

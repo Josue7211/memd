@@ -1729,6 +1729,9 @@ pub(crate) struct DoctorArgs {
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct ConfigArgs {
+    #[command(subcommand)]
+    pub(crate) command: Option<ConfigCommand>,
+
     #[arg(value_name = "KEY=VALUE")]
     pub(crate) set: Vec<String>,
 
@@ -1741,6 +1744,57 @@ pub(crate) struct ConfigArgs {
     #[arg(long)]
     pub(crate) summary: bool,
 
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum ConfigCommand {
+    /// List canonical runtime settings.
+    List(ConfigListArgs),
+    /// Print one setting.
+    Get(ConfigKeyArgs),
+    /// Set one setting as KEY=VALUE.
+    Set(ConfigSetArgs),
+    /// Reset one setting, or all V8 settings when no key is passed.
+    Reset(ConfigResetArgs),
+    /// Emit the canonical settings JSON schema.
+    #[command(name = "show-schema")]
+    ShowSchema(ConfigSchemaArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ConfigListArgs {
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ConfigKeyArgs {
+    pub(crate) key: String,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ConfigSetArgs {
+    pub(crate) setting: String,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ConfigResetArgs {
+    pub(crate) key: Option<String>,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ConfigSchemaArgs {
     #[arg(long)]
     pub(crate) json: bool,
 }
