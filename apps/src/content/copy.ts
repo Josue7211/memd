@@ -2,6 +2,7 @@ export const siteCopy = {
   brand: "memd",
   nav: [
     { label: "Why Cloud", href: "#why-it-matters" },
+    { label: "Operator", href: "/operator" },
     { label: "Pricing", href: "#pricing" },
     { label: "Docs", href: "/docs" },
     { label: "GitHub", href: "https://github.com/Josue7211/memd" }

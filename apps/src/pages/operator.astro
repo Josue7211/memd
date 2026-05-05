@@ -1,0 +1,319 @@
+---
+import Layout from "../components/Layout.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+import { siteCopy } from "../content/copy";
+
+const title = "memd Operator";
+const description =
+  "Operator surfaces for atlas navigation, provenance, memory inspection, corrections, rollback, and token budget control.";
+
+const records = [
+  {
+    id: "mem-8f12",
+    kind: "fact",
+    stage: "canonical",
+    scope: "project",
+    content: "primary ID format is ULID",
+    confidence: "0.95",
+    sourceTurn: "turn-003",
+    method: "pattern + correction",
+    chain: 3,
+    burn: 420
+  },
+  {
+    id: "mem-73ca",
+    kind: "preference",
+    stage: "canonical",
+    scope: "project",
+    content: "handoff always means commit",
+    confidence: "0.90",
+    sourceTurn: "turn-014",
+    method: "durable correction",
+    chain: 2,
+    burn: 310
+  },
+  {
+    id: "mem-c1b0",
+    kind: "status",
+    stage: "active",
+    scope: "workspace",
+    content: "V7 closed, V8 operator surfaces active",
+    confidence: "0.88",
+    sourceTurn: "turn-021",
+    method: "checkpoint",
+    chain: 1,
+    burn: 470
+  },
+  {
+    id: "mem-d4aa",
+    kind: "decision",
+    stage: "candidate",
+    scope: "private",
+    content: "cost ledger cap defaults to 4000 tokens",
+    confidence: "0.82",
+    sourceTurn: "turn-027",
+    method: "configure schema",
+    chain: 1,
+    burn: 250
+  }
+];
+
+const chain = [
+  { depth: 1, label: "Fact", value: "primary ID format is ULID", meta: "confidence 0.95 / extraction pattern + correction" },
+  { depth: 2, label: "Source Turn", value: "turn-003: correction: ULID, not UUID", meta: "captured by V7 correction path" },
+  { depth: 3, label: "Corrections", value: "T3 correction plus later affirmation", meta: "alternate candidate: UUID rejected" }
+];
+
+const methods = [
+  "Membench mini: reproducible",
+  "LoCoMo mini: reproducible",
+  "ConvoMem mini: reproducible"
+];
+---
+
+<Layout {title} {description}>
+  <Nav brand={siteCopy.brand} links={siteCopy.nav} />
+
+  <main class="operator-page" data-operator>
+    <section class="operator-hero">
+      <div class="container operator-grid">
+        <aside class="operator-sidebar panel" aria-label="Operator navigation">
+          <div class="operator-brand">
+            <span>V8</span>
+            <strong>Operator</strong>
+          </div>
+          <nav class="operator-tabs" aria-label="Operator surfaces">
+            <a href="#atlas">Atlas</a>
+            <a href="#correction">Correct</a>
+            <a href="#inspector">Inspect</a>
+            <a href="#provenance">Provenance</a>
+            <a href="#budget">Budget</a>
+            <a href="#rollback">Rollback</a>
+            <a href="#leaderboard">Leaderboard</a>
+          </nav>
+        </aside>
+
+        <div class="operator-main">
+          <section class="operator-topline panel">
+            <div>
+              <p class="eyebrow">Live surface</p>
+              <h1>Operator console</h1>
+            </div>
+            <div class="operator-status-grid">
+              <span><strong>4</strong> records</span>
+              <span><strong data-budget-cap>4000</strong> token cap</span>
+              <span><strong>3</strong> provenance depth</span>
+            </div>
+          </section>
+
+          <section class="operator-panels">
+            <article class="operator-panel panel operator-panel--wide" id="atlas">
+              <div class="operator-panel__head">
+                <div>
+                  <p class="eyebrow">Atlas</p>
+                  <h2>Canonical graph</h2>
+                </div>
+                <input class="operator-search" data-record-filter type="search" placeholder="Filter records" aria-label="Filter records" />
+              </div>
+              <div class="atlas-canvas" aria-label="Memory atlas">
+                {records.map((record, index) => (
+                  <button
+                    class:list={["atlas-node", index === 0 && "is-selected"]}
+                    type="button"
+                    data-record-node
+                    data-id={record.id}
+                    data-kind={record.kind}
+                    data-stage={record.stage}
+                    data-scope={record.scope}
+                    data-content={record.content}
+                    data-confidence={record.confidence}
+                    data-source-turn={record.sourceTurn}
+                    style={`--x:${18 + index * 21}%;--y:${index % 2 === 0 ? 34 : 64}%`}
+                  >
+                    <span>{record.kind}</span>
+                    <strong>{record.id}</strong>
+                  </button>
+                ))}
+                <svg class="atlas-links" viewBox="0 0 100 100" aria-hidden="true" preserveAspectRatio="none">
+                  <path d="M22 38 C 36 18, 48 76, 43 64" />
+                  <path d="M43 64 C 56 42, 65 42, 64 35" />
+                  <path d="M64 35 C 76 18, 82 78, 85 64" />
+                </svg>
+              </div>
+              <div class="node-panel" data-node-panel>
+                <span data-node-kind>fact</span>
+                <strong data-node-content>primary ID format is ULID</strong>
+                <small data-node-meta>mem-8f12 / canonical / project / confidence 0.95 / turn-003</small>
+              </div>
+            </article>
+
+            <article class="operator-panel panel" id="budget">
+              <div class="operator-panel__head">
+                <div>
+                  <p class="eyebrow">Cost ledger</p>
+                  <h2>Token Budget</h2>
+                </div>
+                <span class="pill" data-budget-state>under cap</span>
+              </div>
+              <div class="budget-meter" aria-label="Token budget meter">
+                <div data-budget-bar style="width: 53%"></div>
+              </div>
+              <div class="budget-readout">
+                <strong><span data-budget-used>2150</span> / <span data-budget-total>4000</span></strong>
+                <span>turn burn tracked</span>
+              </div>
+              <form class="budget-form" data-budget-form>
+                <label>
+                  <span>Cap</span>
+                  <input id="budget-cap" name="budget" type="number" min="500" step="100" value="4000" />
+                </label>
+                <button class="button button-solid button-small" id="edit-budget" type="submit">Apply</button>
+              </form>
+            </article>
+
+            <article class="operator-panel panel" id="provenance">
+              <div class="operator-panel__head">
+                <div>
+                  <p class="eyebrow">Provenance</p>
+                  <h2>Drilldown</h2>
+                </div>
+                <span class="pill">depth 3</span>
+              </div>
+              <ol class="provenance-chain">
+                {chain.map((item) => (
+                  <li>
+                    <span>{item.depth}</span>
+                    <div>
+                      <strong>{item.label}</strong>
+                      <p>{item.value}</p>
+                      <small>{item.meta}</small>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </article>
+
+            <article class="operator-panel panel operator-panel--wide" id="inspector">
+              <div class="operator-panel__head">
+                <div>
+                  <p class="eyebrow">Inspector</p>
+                  <h2>Memory records</h2>
+                </div>
+                <div class="operator-actions">
+                  <button class="icon-button" type="button" title="Export CSV" aria-label="Export CSV">CSV</button>
+                  <button class="icon-button" type="button" title="Export NDJSON" aria-label="Export NDJSON">JSON</button>
+                </div>
+              </div>
+              <div class="records-table" role="table" aria-label="Memory records">
+                <div role="row" class="records-table__head">
+                  <span>ID</span><span>Kind</span><span>Stage</span><span>Scope</span><span>Content</span><span>Chain</span>
+                </div>
+                {records.map((record) => (
+                  <button class="records-row" type="button" role="row" data-record-row data-content={record.content}>
+                    <span>{record.id}</span><span>{record.kind}</span><span>{record.stage}</span><span>{record.scope}</span><span>{record.content}</span><span>{record.chain}</span>
+                  </button>
+                ))}
+              </div>
+            </article>
+
+            <article class="operator-panel panel" id="correction">
+              <div class="operator-panel__head">
+                <div>
+                  <p class="eyebrow">Correction</p>
+                  <h2>Before / after</h2>
+                </div>
+                <span class="pill">judge 0.91</span>
+              </div>
+              <div class="diff-stack">
+                <div><span>Before</span><p>primary ID format is UUID</p></div>
+                <div><span>After</span><p>primary ID format is ULID</p></div>
+              </div>
+              <button class="button button-ghost button-small" type="button" data-preview-correction>Preview retrieval</button>
+              <p class="operator-receipt" data-correction-receipt>top-5 retrieval would promote mem-8f12</p>
+            </article>
+
+            <article class="operator-panel panel" id="rollback">
+              <div class="operator-panel__head">
+                <div>
+                  <p class="eyebrow">Rollback</p>
+                  <h2>Change audit</h2>
+                </div>
+                <span class="pill">actor ui</span>
+              </div>
+              <div class="rollback-box">
+                <span>- UUID</span>
+                <span>+ ULID</span>
+              </div>
+              <button class="button button-ghost button-small" type="button" data-rollback>Rollback correction</button>
+              <p class="operator-receipt" data-rollback-receipt>eligible correction chain</p>
+            </article>
+
+            <article class="operator-panel panel" id="leaderboard">
+              <div class="operator-panel__head">
+                <div>
+                  <p class="eyebrow">Transparency</p>
+                  <h2>Public proof</h2>
+                </div>
+                <span class="pill">zero retractions</span>
+              </div>
+              <ul class="method-list">
+                {methods.map((method) => <li>{method}</li>)}
+              </ul>
+              <p class="audit-rule">Gaming audit rule active. Reproduction commands linked in public benchmark docs.</p>
+            </article>
+          </section>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <Footer brand={siteCopy.brand} links={siteCopy.footer} />
+
+  <script>
+    const root = document.querySelector("[data-operator]");
+    const filter = root?.querySelector("[data-record-filter]");
+    const nodes = Array.from(root?.querySelectorAll("[data-record-node]") || []);
+    const rows = Array.from(root?.querySelectorAll("[data-record-row]") || []);
+    const panel = root?.querySelector("[data-node-panel]");
+
+    const setPanel = (target) => {
+      nodes.forEach((node) => node.classList.toggle("is-selected", node === target));
+      panel.querySelector("[data-node-kind]").textContent = target.dataset.kind;
+      panel.querySelector("[data-node-content]").textContent = target.dataset.content;
+      panel.querySelector("[data-node-meta]").textContent = `${target.dataset.id} / ${target.dataset.stage} / ${target.dataset.scope} / confidence ${target.dataset.confidence} / ${target.dataset.sourceTurn}`;
+    };
+
+    nodes.forEach((node) => node.addEventListener("click", () => setPanel(node)));
+
+    filter?.addEventListener("input", () => {
+      const query = filter.value.trim().toLowerCase();
+      [...nodes, ...rows].forEach((entry) => {
+        const text = `${entry.textContent} ${entry.dataset.content || ""} ${entry.dataset.kind || ""} ${entry.dataset.stage || ""} ${entry.dataset.scope || ""}`.toLowerCase();
+        const hidden = Boolean(query && !text.includes(query));
+        entry.hidden = hidden;
+        entry.classList.toggle("is-hidden", hidden);
+      });
+    });
+
+    root?.querySelector("[data-budget-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const input = event.currentTarget.querySelector("input");
+      const cap = Math.max(500, Number(input.value || 4000));
+      const used = 2150;
+      const ratio = Math.min(100, Math.round((used / cap) * 100));
+      root.querySelector("[data-budget-cap]").textContent = String(cap);
+      root.querySelector("[data-budget-total]").textContent = String(cap);
+      root.querySelector("[data-budget-bar]").style.width = `${ratio}%`;
+      root.querySelector("[data-budget-state]").textContent = used > cap ? "over cap" : "under cap";
+    });
+
+    root?.querySelector("[data-preview-correction]")?.addEventListener("click", () => {
+      root.querySelector("[data-correction-receipt]").textContent = "preview matches post-commit retrieval";
+    });
+
+    root?.querySelector("[data-rollback]")?.addEventListener("click", () => {
+      root.querySelector("[data-rollback-receipt]").textContent = "rollback queued with actor ui";
+    });
+  </script>
+</Layout>
