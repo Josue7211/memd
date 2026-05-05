@@ -6,6 +6,7 @@ pub mod file_ledger;
 pub mod hook_runtime;
 pub mod lifecycle_probe;
 pub mod preference;
+pub mod routine;
 pub mod skill_mirror;
 
 use memd_schema::{
