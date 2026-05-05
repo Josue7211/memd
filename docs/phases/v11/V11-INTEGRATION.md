@@ -1,7 +1,7 @@
 ---
 version: v11
 kind: integration-plan
-status: ready-to-execute
+status: closed
 opened: 2026-04-22
 revised: 2026-04-22
 scope: A11..G11 (outline only; phase-a11-plan.md etc. created by future executor)
@@ -300,4 +300,8 @@ All seven phase exit criteria met AND G11 exit criteria met AND:
 
 ## 13. Changelog
 
+- 2026-05-05 closed. A11-G11 landed with deterministic core modules,
+  schema locks, shared fixtures, phase docs, and G11 proof runner. Evidence:
+  `docs/verification/v11-proof-runs/2026-05-05-compiler-sota-suite.ndjson`.
+  Composite regenerated to 6.95; V12 is next.
 - 2026-04-22 initial spec. V11 is the first SOTA-push milestone after V10 production-floor close. Composite 6.40 → 6.95. SC +1 (project awareness), CR +1 (silent-correction detection ≤1s), TE +2 (dynamic compiler). Phase letters a11-g11 outlined (outline only, no implementation specs created in milestone-land phase). Non-goals explicit (PR, CH, RR, TP). Feature-flag calendar: 3 graduations over 21 days, spillover into V12 planning window. Shared fixtures consolidated in section 2. Schema locks detailed in section 3 (project ID, compiler context + cost ledger, silent-correction state). 3-project dogfood scenario documented in section 4 with fault-injection negatives. Composite math verified at 6.95 exactly. Theory alignment explicit.

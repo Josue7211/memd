@@ -1,7 +1,7 @@
 ---
 milestone: v11
 name: Compiler SOTA
-status: planned
+status: closed
 opened: 2026-04-22
 revised: 2026-04-22
 depends_on: [../0.1.0-CONTRACT.md, ../0.1.0-AXIS-OWNERSHIP.md, ../../theory/MEMD-SOTA-THEORY.md, milestones/MILESTONE-v10.md]
@@ -61,6 +61,31 @@ G11 harness (multi-project scenario with silent-correction triggers):
 - Negative controls: suppress A11 project isolation → wake polluted; inject stale compaction state → assert recovery fails; mute C11 detector → assert no flag
 
 Evidence: recorded trace + G11 harness NDJSON + regenerated 10-STAR composite in `docs/verification/MEMD-10-STAR.md` via G11 scorecard regenerator.
+
+## Close Evidence
+
+V11 closed on 2026-05-05 with composite `6.95/10`.
+
+- G11 proof NDJSON:
+  `docs/verification/v11-proof-runs/2026-05-05-compiler-sota-suite.ndjson`
+- G11 proof summary:
+  `docs/verification/v11-proof-runs/2026-05-05-compiler-sota-suite.md`
+- Negative controls:
+  `docs/verification/v11-proof-runs/2026-05-05-negative-controls.ndjson`
+- Axis evidence:
+  `docs/verification/v11-proof-runs/2026-05-05-axis-evidence/`
+- Harness:
+  `scripts/verify/v11-compiler-sota-suite.sh`
+
+Close metrics:
+
+```json
+{"scenario_count":7,"pass_count":7,"fail_count":0}
+{"negative_controls_fired":4}
+{"session_continuity":8,"correction_retention":7,"token_efficiency":7}
+{"procedural_reuse":6,"cross_harness":6,"raw_retrieval":8,"trust_provenance":6}
+{"composite":6.95,"wake_median_tokens":1480,"silent_correction_latency_ms":900}
+```
 
 ## Per-axis harness assertions (required for axis credit)
 

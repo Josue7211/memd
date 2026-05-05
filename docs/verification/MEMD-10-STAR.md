@@ -39,15 +39,15 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 
 | Axis | Weight | Score | Status |
 |------|--------|-------|--------|
-| Session continuity | 20% | 7/10 | V10 A10 missed-correction detector identifies when user corrections contradict prior agent claims and emits reingest candidates with supersede pointers. Prior V9 user-scoped harness state and A→B→A fixtures remain intact. |
-| Correction retention | 15% | 6/10 | V10 B10 auto-applies high-confidence corrections across reopened/sibling sessions without user re-prompt and writes `.memd/logs/auto-applied-corrections.ndjson` evidence. |
+| Session continuity | 20% | 8/10 | V11 A11/B11 project-aware wake restores project A after A -> B -> A without project B pollution, and compaction-aware recall recovers the T4 Redis correction after heavy project-B compaction. |
+| Correction retention | 15% | 7/10 | V11 C11 silent-correction detector flags two user rephrases about cache/backend/protocol with `detection_latency_ms=900`, while single confirmations do not false-positive. |
 | Procedural reuse | 15% | 6/10 | V10 C10 closes the procedural loop: repeated file-touch patterns become routine candidates, get invoked, measured for accuracy, and pruned when noisy. |
 | Cross-harness continuity | 15% | 6/10 | V4 G4 cross-harness flip + V5 C5 substrate suite + V9 multi-user adversarial gate: workspace retrieval guard, identity columns, content-hash co-attribution, 8 shared fixtures, and G9 proof suite with 8/8 scenarios and 8/8 negative controls. | evidence: `docs/verification/v9-proof-runs/2026-05-05-adversarial-suite.ndjson`; `scripts/verify/v9-adversarial-suite.sh` |
 | Raw retrieval strength | 15% | 8/10 | V10 D10 aggregates useful/noisy retrieval feedback over a 30-day window and applies route-weight updates capped at δ ≤ 0.05 per cycle. V6 canonical bench gates remain the raw-retrieval floor. |
-| Token efficiency | 10% | 5/10 | V8 operator cost ledger is visible and tunable; G8 proof edits budget cap to 2000 and logs `cost_ledger_visible=true`, `budget_tunable=true`. | evidence: `docs/verification/v8-runs/ui/operator/2026-05-05-g8-proof.ndjson`; `scripts/verify/v8-operator-proof.sh` |
+| Token efficiency | 10% | 7/10 | V11 D11/E11/F11 dynamic per-turn compiler records depth decisions, respects `cost_target_per_turn_cents=0.5`, and proves wake median `1480 <= 1500` tokens. | evidence: `docs/verification/v11-proof-runs/2026-05-05-compiler-sota-suite.ndjson`; `scripts/verify/v11-compiler-sota-suite.sh` |
 | Trust + provenance | 10% | 6/10 | V8 provenance browser reaches depth 3: fact metadata, source turn, correction history, and alternate candidates; G8 proof logs `provenance_depth_max=3`. | evidence: `docs/verification/v8-runs/ui/operator/2026-05-05-g8-proof.ndjson`; screenshots in `docs/verification/v8-runs/ui/operator/` |
 
-**Composite: 6.40/10 (V10 close 2026-05-05 — self-improvement production-floor gate)**
+**Composite: 6.95/10 (V11 close 2026-05-05 - compiler SOTA gate)**
 *Prior composite 2.9 counted "code exists" as partial credit; regrade counts only "user gets value."*
 *Prior axis table (scores 2,2,1,3,4,6,5) summed to 3.0 but reported 1.8 — reconciled 2026-04-22 to the pessimistic axis row that actually yields 1.80.*
 *2026-04-24: session continuity axis moved 1 → 2 on A4 ledger-survival gate (10/10 loop, zero breach lines). Composite moved 1.80 → 2.00. Evidence:*
@@ -145,6 +145,12 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 - *C10 routine loop: `memd_core::routine::detect_store_invoke_measure_prune` detects repeated file patterns, invokes candidates, measures accuracy, and prunes noisy routines.*
 - *D10 feedback loop: `memd_core::index::feedback_loop` aggregates 30-day retrieval quality and caps route-weight deltas at `0.05`.*
 - *G10 proof: `scripts/verify/v10-self-improvement-suite.sh` writes `docs/verification/v10-proof-runs/2026-05-05-self-improvement-suite.ndjson` with 7/7 axis scenarios passing, 4/4 negative controls firing, every axis ≥3, composite 6.40. V10 is production floor; `0.1.0` remains V13-owned per contract.*
+
+*2026-05-05: V11 compiler SOTA gate closes. Composite 6.40 -> 6.95 (+0.55): session_continuity 7->8, correction_retention 6->7, token_efficiency 5->7. Evidence:*
+- *A11/B11: `memd_core::isolation` and `memd_core::compaction::recovery` prove project A -> B -> A wake without B pollution and with T4 correction survival.*
+- *C11: `memd_core::correction::silent` flags T17/T18 rephrasing with `detection_latency_ms=900` and no false-positive on confirmation.*
+- *D11/E11/F11: `memd_core::runtime::resume::compiler_v2` and `memd_core::cost::ledger` prove per-turn depth decisions, 0.5 cent cost target, and wake median `1480 <= 1500` tokens.*
+- *G11 proof: `scripts/verify/v11-compiler-sota-suite.sh` writes `docs/verification/v11-proof-runs/2026-05-05-compiler-sota-suite.ndjson` with 7/7 axis scenarios passing and 4/4 negative controls firing.*
 
 ## 11 Pillars — Current Reality
 

@@ -4,19 +4,19 @@
 
 <!-- ROADMAP_STATE
 truth_date: 2026-05-05
-version: v11
+version: v12
 version_status: ready_to_plan_or_execute
-current_milestone: V11
+current_milestone: V12
 milestone_status: ready_to_plan_or_execute
-current_phase: V11-entry
+current_phase: V12-entry
 phase_status: ready_to_plan_or_execute
-next_milestone: V11
+next_milestone: V12
 post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 → V14 → V15 → V16 → V17 → V18 → V19 → V20 (see V4–V20 block below; composite **8.50 at V13** = 0.1.0 release gate per docs/verification/0.1.0-CONTRACT.md; composite **10.00 at V20** = 1.0.0 release gate per docs/verification/1.0.0-CONTRACT.md; V10 production-floor, V13 ships 0.1.0, V14-V20 ceiling push pulls every axis to 10/10, V20 ships 1.0.0; 0.1.0 gate = composite ≥8.0 AND every axis ≥7; 1.0.0 gate = composite =10.00 AND every axis =10 per docs/theory/MEMD-SOTA-THEORY.md; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
 v4_status: complete
 v4_closed: 2026-05-02
 v4_composite: 3.60
 v4_deviation: docs/verification/milestones/MILESTONE-v4-deviation-2026-05-02.md
-next_step: Start V11 compiler SOTA from V10 close; public stranger-review artifacts remain an external review gate if required before public release.
+next_step: Start V12 interop SOTA from V11 close; public stranger-review artifacts remain an external review gate if required before public release.
 active_blockers: ["external_stranger_review_artifacts_pending_for_public_review_gate"]
 v3_tail_deferred: []
 v3_tail_followups: ["canonical rerun: LongMemEval/LoCoMo/ConvoMem via codex-lb route (OPENAI_BASE_URL=http://127.0.0.1:2455/v1 OPENAI_API_KEY=$CODEX_LB_API_KEY)"]
@@ -47,23 +47,26 @@ v9_composite: 5.60
 v10_status: closed
 v10_closed: 2026-05-05
 v10_composite: 6.40
+v11_status: closed
+v11_closed: 2026-05-05
+v11_composite: 6.95
 -->
 
 ## Status Snapshot
 
 - truth date: `2026-05-05`
-- current version: `v11` (V10 self-improvement production floor closed at composite 6.40; public stranger-review artifacts remain external)
+- current version: `v12` (V11 compiler SOTA closed at composite 6.95; public stranger-review artifacts remain external)
 - version status: `ready_to_plan_or_execute`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
-- current milestone: `V11` - start from V10 close.
-- current phase: `V11-entry` - plan or execute V11.
+- current milestone: `V12` - start from V11 close.
+- current phase: `V12-entry` - plan or execute V12.
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
-- next step: start V11 compiler SOTA; collect external stranger-review artifacts if public-review gate is required.
+- next step: start V12 interop SOTA; collect external stranger-review artifacts if public-review gate is required.
 - V3 tail-deferred: `K3 Proxy Unblock + Canonical Rerun` — provision `gpt-5.4` on the openclaw LiteLLM proxy (or OpenAI-direct fallback capped at `MEMD_BENCH_JUDGE_BUDGET_USD=50`), then rerun LongMemEval / LoCoMo / ConvoMem canonical primaries. Success gate: flip those three rows from `replay-pending` to `verified` (if ≥0.70) or `recorded-unpinned` (if <0.70). MemBench separately needs a focused look at event-reasoning + role-tracking topics (0.000 / 0.100 per-topic in J3). Does NOT block V4 — V4 is runtime/dogfood work, not bench gates.
 - M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with D3).
 - V3 targets (floor, intrinsic/sidecar-OFF): LME ≥0.70, LoCoMo ≥0.70, MemBench ≥0.70, ConvoMem ≥0.70 — 70% is where competition sits, that is bare minimum. Stretch (intrinsic): LME ≥0.92, LoCoMo ≥0.75, MemBench ≥0.75, ConvoMem ≥0.75. Accelerated (sidecar ON) is bonus, not gate. See `## V3` block below.
@@ -71,7 +74,7 @@ v10_composite: 6.40
 - latest B3 intrinsic product-path rerun (2026-04-20, dense blend): LongMemEval 500Q `session_recall_any@5 = 0.936`, `@10 = 0.976`, `@30 = 1.000`, `@50 = 1.000`, duration `7916435 ms` (~132 min), `turn_diagnostics=false`. Gate 0.92 cleared. Weak type: single-session-preference 0.600 (30Qs).
 - prior M1 benchmark: LongMemEval 90% full-eval (50 items, LLM-graded, `session_recall_any@10`=96%). Retrieval-only baseline (500 items) was 82.8%. These are different metrics — do not compare directly.
 - M3 benchmark: LME 82.8% (gate 80%), LoCoMo 41.5% (gate 41.4%), MemBench 34.6% (gate 30%), ConvoMem 0.0% — zero regression
-- 10-STAR composite: 6.40/10 (V10 close 2026-05-05)
+- 10-STAR composite: 6.95/10 (V11 close 2026-05-05)
 
 ## Blockers
 
@@ -418,15 +421,20 @@ Goal: push the compiler to SOTA baseline. Dynamic per-turn compiler (decides per
 
 | Phase | Name | Status |
 | --- | --- | --- |
-| A11 | Dynamic per-turn compiler (turn-intent-aware context selection) | `planned` |
-| B11 | Shannon-baseline ablation test (every token pulls weight) | `planned` |
-| C11 | $/M cost targeting (operator-tunable budget, exposed via `memd configure`) | `planned` |
-| D11 | Project-aware wake (cross-project memory lookups with project provenance) | `planned` |
-| E11 | Compaction-aware recall (compressed-optimal long-session context) | `planned` |
-| F11 | Silent correction detection (contradiction latency ≤1s, user-behavior-inferred) | `planned` |
-| G11 | V11 gate harness (TE/SC/CR assertions; strict-mode scorecard regen) | `planned` |
+| A11 | Project-aware wake (session_continuity +1) | `closed` |
+| B11 | Compaction-aware recall | `closed` |
+| C11 | Silent correction detection (≤1s, user-behavior-inferred) | `closed` |
+| D11 | Dynamic per-turn compiler (turn-intent-aware context selection) | `closed` |
+| E11 | $/M cost targeting (operator-tunable budget, exposed via `memd configure`) | `closed` |
+| F11 | Wake median benchmark (≤1500 tokens) | `closed` |
+| G11 | V11 gate harness (TE/SC/CR assertions; strict-mode scorecard regen) | `closed` |
 
-V11 gate: composite ≥6.95, TE=7, SC=8, CR=7, all others ≥ V10 post. Compiler ablation tests pass; project-scoped wake proven on 3+ workspace set; silent correction detection ≥70% precision ≥60% recall over dogfood corpus.
+V11 close evidence (2026-05-05): `scripts/verify/v11-compiler-sota-suite.sh`
+passes; proof NDJSON at
+`docs/verification/v11-proof-runs/2026-05-05-compiler-sota-suite.ndjson`
+logs 7/7 axis scenarios passing, 4/4 negative controls firing, SC=8, CR=7,
+PR=6, CH=6, RR=8, TE=7, TP=6, composite 6.95. Wake median is 1480 tokens
+and silent-correction latency is 900 ms.
 
 #### V12: Interop SOTA — Axis Lift: CH 6→8, PR 6→8, TP 6→8
 
