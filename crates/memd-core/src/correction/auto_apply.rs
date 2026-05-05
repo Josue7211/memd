@@ -77,7 +77,9 @@ pub fn append_auto_apply_log(
     if decisions.is_empty() {
         return Ok(());
     }
-    let log_path = bundle_root.join("logs").join("auto-applied-corrections.ndjson");
+    let log_path = bundle_root
+        .join("logs")
+        .join("auto-applied-corrections.ndjson");
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("create auto-apply log dir {}", parent.display()))?;

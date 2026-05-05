@@ -9,10 +9,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 const STOPWORDS: &[&str] = &[
-    "the", "and", "for", "but", "not", "are", "was", "were", "you", "your", "this", "that",
-    "with", "from", "have", "has", "had", "been", "they", "them", "their", "our", "his",
-    "her", "its", "into", "about", "then", "than", "will", "would", "should", "could",
-    "agent", "user",
+    "the", "and", "for", "but", "not", "are", "was", "were", "you", "your", "this", "that", "with",
+    "from", "have", "has", "had", "been", "they", "them", "their", "our", "his", "her", "its",
+    "into", "about", "then", "than", "will", "would", "should", "could", "agent", "user",
 ];
 
 const CORRECTION_MARKERS: &[&str] = &[
@@ -110,9 +109,7 @@ pub fn detect_missed_corrections(turns: &[TranscriptTurn]) -> Vec<MissedCorrecti
     out
 }
 
-pub fn build_reingest_candidates(
-    corrections: &[MissedCorrection],
-) -> Vec<ReingestCandidate> {
+pub fn build_reingest_candidates(corrections: &[MissedCorrection]) -> Vec<ReingestCandidate> {
     corrections
         .iter()
         .filter(|correction| correction.reingest)
@@ -154,7 +151,9 @@ fn is_user(speaker: &str) -> bool {
 
 fn looks_like_correction(text: &str) -> bool {
     let text = text.to_ascii_lowercase();
-    CORRECTION_MARKERS.iter().any(|marker| text.contains(marker))
+    CORRECTION_MARKERS
+        .iter()
+        .any(|marker| text.contains(marker))
 }
 
 fn token_set(text: &str) -> BTreeSet<String> {
@@ -180,8 +179,16 @@ mod tests {
     #[test]
     fn detects_user_correction_of_prior_agent_claim() {
         let turns = vec![
-            turn("t1", "assistant", "The production database is postgres on alpha."),
-            turn("t2", "user", "Actually, the production database is sqlite on beta now."),
+            turn(
+                "t1",
+                "assistant",
+                "The production database is postgres on alpha.",
+            ),
+            turn(
+                "t2",
+                "user",
+                "Actually, the production database is sqlite on beta now.",
+            ),
         ];
         let found = detect_missed_corrections(&turns);
         assert_eq!(found.len(), 1);
