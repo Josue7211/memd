@@ -4,6 +4,7 @@ pub mod detector;
 pub mod enforcement;
 pub mod file_ledger;
 pub mod hook_runtime;
+pub mod index;
 pub mod lifecycle_probe;
 pub mod preference;
 pub mod routine;
