@@ -3,6 +3,7 @@
 //! Auto-detection of in-session corrections is conservative by design.
 //! Detector runs deterministic regexes; LLM-judge confirms marginal candidates.
 
+pub mod auto_apply;
 pub mod detector;
 pub mod judge;
 
