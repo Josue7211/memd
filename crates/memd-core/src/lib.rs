@@ -1,5 +1,6 @@
 pub mod contract;
 pub mod correction;
+pub mod detector;
 pub mod enforcement;
 pub mod file_ledger;
 pub mod hook_runtime;
