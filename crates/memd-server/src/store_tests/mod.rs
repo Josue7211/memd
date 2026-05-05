@@ -54,3 +54,5 @@ mod hive_board;
 mod hive_sessions;
 #[path = "maintenance.rs"]
 mod maintenance;
+#[path = "multi_user.rs"]
+mod multi_user;

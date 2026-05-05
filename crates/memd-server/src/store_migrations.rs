@@ -82,6 +82,64 @@ pub(crate) fn migrate_memory_items_embedding_model(conn: &Connection) -> anyhow:
     Ok(())
 }
 
+pub(crate) fn migrate_memory_items_user_identity(conn: &Connection) -> anyhow::Result<()> {
+    let mut stmt = conn.prepare("PRAGMA table_info(memory_items)")?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if !columns.iter().any(|column| column == "user_id") {
+        conn.execute_batch("ALTER TABLE memory_items ADD COLUMN user_id TEXT;")?;
+    }
+    if !columns.iter().any(|column| column == "harness_preset") {
+        conn.execute_batch("ALTER TABLE memory_items ADD COLUMN harness_preset TEXT;")?;
+    }
+    if !columns.iter().any(|column| column == "user_id_session_seq") {
+        conn.execute_batch(
+            "ALTER TABLE memory_items ADD COLUMN user_id_session_seq INTEGER NOT NULL DEFAULT 0;",
+        )?;
+    }
+
+    conn.execute_batch(
+        r#"
+        UPDATE memory_items
+        SET user_id = source_agent
+        WHERE user_id IS NULL
+          AND source_agent IS NOT NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_memory_user_session
+          ON memory_items(user_id, source_agent, user_id_session_seq);
+        CREATE INDEX IF NOT EXISTS idx_memory_harness_preset
+          ON memory_items(harness_preset);
+        "#,
+    )?;
+
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT id, payload_json
+        FROM memory_items
+        WHERE harness_preset IS NULL
+        "#,
+    )?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (id, payload) in rows {
+        let harness = serde_json::from_str::<MemoryItem>(&payload)
+            .ok()
+            .and_then(|item| item.source_system)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "legacy".to_string());
+        conn.execute(
+            "UPDATE memory_items SET harness_preset = ?1 WHERE id = ?2",
+            params![harness, id],
+        )?;
+    }
+    Ok(())
+}
+
 pub(crate) fn migrate_redundancy_key(conn: &Connection) -> anyhow::Result<()> {
     let mut stmt = conn.prepare("PRAGMA table_info(memory_items)")?;
     let columns = stmt

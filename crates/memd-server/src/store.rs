@@ -37,9 +37,9 @@ use crate::store_migrations::{
     create_hive_session_identity_indexes, migrate_episodes_tables, migrate_fts5_index,
     migrate_hive_sessions_identity_columns, migrate_hive_sessions_last_wake_at,
     migrate_lane_column, migrate_memory_entities_indexed_lookups,
-    migrate_memory_items_embedding_model, migrate_memory_vectors_chunk_idx,
-    migrate_memory_vectors_embedding_model, migrate_redundancy_key, migrate_version_column,
-    migrate_visibility_column,
+    migrate_memory_items_embedding_model, migrate_memory_items_user_identity,
+    migrate_memory_vectors_chunk_idx, migrate_memory_vectors_embedding_model,
+    migrate_redundancy_key, migrate_version_column, migrate_visibility_column,
 };
 #[path = "store_coordination.rs"]
 mod store_coordination;
@@ -70,6 +70,41 @@ fn env_truthy(name: &str) -> bool {
         }
         Err(_) => false,
     }
+}
+
+fn memory_item_user_id(item: &MemoryItem) -> Option<String> {
+    item.source_agent
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn memory_item_harness_preset(item: &MemoryItem) -> String {
+    item.source_system
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("legacy")
+        .to_string()
+}
+
+fn next_user_session_seq(conn: &Connection, item: &MemoryItem) -> anyhow::Result<i64> {
+    let user_id = memory_item_user_id(item);
+    let source_agent = item.source_agent.clone();
+    let max_seq: i64 = conn
+        .query_row(
+            r#"
+            SELECT COALESCE(MAX(user_id_session_seq), 0)
+            FROM memory_items
+            WHERE (?1 IS NULL OR user_id = ?1)
+              AND (?2 IS NULL OR source_agent = ?2)
+            "#,
+            params![user_id, source_agent],
+            |row| row.get(0),
+        )
+        .context("read next user session sequence")?;
+    Ok(max_seq.saturating_add(1))
 }
 
 fn env_f64(name: &str, default: f64) -> f64 {
@@ -223,6 +258,9 @@ impl SqliteStore {
               confidence REAL NOT NULL,
               canonical_key TEXT NOT NULL,
               embedding_model TEXT,
+              user_id TEXT,
+              harness_preset TEXT,
+              user_id_session_seq INTEGER NOT NULL DEFAULT 0,
               updated_at TEXT NOT NULL,
               payload_json TEXT NOT NULL,
               version INTEGER NOT NULL DEFAULT 1
@@ -562,6 +600,7 @@ impl SqliteStore {
         migrate_version_column(&conn)?;
         migrate_memory_vectors_embedding_model(&conn)?;
         migrate_memory_items_embedding_model(&conn)?;
+        migrate_memory_items_user_identity(&conn)?;
         migrate_hive_sessions_identity_columns(&mut conn)?;
         migrate_hive_sessions_last_wake_at(&conn)?;
         create_hive_session_identity_indexes(&conn)?;
@@ -599,11 +638,14 @@ impl SqliteStore {
 
         let rows = {
             let conn = self.connect()?;
+            let user_id = memory_item_user_id(item);
+            let harness_preset = memory_item_harness_preset(item);
+            let user_id_session_seq = next_user_session_seq(&conn, item)?;
             conn.execute(
                 r#"
                 INSERT INTO memory_items (
-                  id, kind, scope, stage, project, namespace, source_agent, redundancy_key, status, confidence, canonical_key, updated_at, payload_json, lane, visibility, version
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+                  id, kind, scope, stage, project, namespace, source_agent, redundancy_key, status, confidence, canonical_key, updated_at, payload_json, lane, visibility, version, user_id, harness_preset, user_id_session_seq
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
                 "#,
                 params![
                     item.id.to_string(),
@@ -622,6 +664,9 @@ impl SqliteStore {
                     item.lane,
                     serde_json::to_string(&item.visibility).unwrap_or_else(|_| "\"workspace\"".to_string()),
                     item.version as i64,
+                    user_id,
+                    harness_preset,
+                    user_id_session_seq,
                 ],
             )
         };
@@ -653,6 +698,8 @@ impl SqliteStore {
         let status = serde_json::to_string(&item.status).context("serialize memory status")?;
 
         let mut conn = self.connect()?;
+        let user_id = memory_item_user_id(item);
+        let harness_preset = memory_item_harness_preset(item);
         // L2.1: monotonic version bump. `version = version + 1` runs against
         // the pre-update row, and `json_set` rewrites the nested payload copy
         // atomically so the column and payload_json stay in lock-step.
@@ -673,7 +720,9 @@ impl SqliteStore {
                 payload_json = json_set(?13, '$.version', version + 1),
                 lane = ?14,
                 visibility = ?15,
-                version = version + 1
+                version = version + 1,
+                user_id = ?16,
+                harness_preset = ?17
             WHERE id = ?1
             "#,
             params![
@@ -693,6 +742,8 @@ impl SqliteStore {
                 item.lane,
                 serde_json::to_string(&item.visibility)
                     .unwrap_or_else(|_| "\"workspace\"".to_string()),
+                user_id,
+                harness_preset,
             ],
         );
 
@@ -732,6 +783,8 @@ impl SqliteStore {
                         updated_at = ?12,
                         payload_json = json_set(?13, '$.version', version + 1),
                         visibility = ?14,
+                        user_id = ?15,
+                        harness_preset = ?16,
                         version = version + 1
                     WHERE id = ?1
                     "#,
@@ -751,6 +804,8 @@ impl SqliteStore {
                         &payload_json,
                         serde_json::to_string(&item.visibility)
                             .unwrap_or_else(|_| "\"workspace\"".to_string()),
+                        memory_item_user_id(item),
+                        memory_item_harness_preset(item),
                     ],
                 )
                 .context("merge duplicate memory item")?;
@@ -804,6 +859,8 @@ impl SqliteStore {
             let stage = serde_json::to_string(&item.stage).context("serialize stage")?;
             let status = serde_json::to_string(&item.status).context("serialize status")?;
             let conn = self.connect()?;
+            let user_id = memory_item_user_id(item);
+            let harness_preset = memory_item_harness_preset(item);
             conn.execute(
                 r#"
                 UPDATE memory_items
@@ -821,7 +878,9 @@ impl SqliteStore {
                     payload_json = ?13,
                     lane = ?14,
                     visibility = ?15,
-                    version = ?16
+                    version = ?16,
+                    user_id = ?17,
+                    harness_preset = ?18
                 WHERE id = ?1
                 "#,
                 params![
@@ -842,6 +901,8 @@ impl SqliteStore {
                     serde_json::to_string(&item.visibility)
                         .unwrap_or_else(|_| "\"workspace\"".to_string()),
                     item.version as i64,
+                    user_id,
+                    harness_preset,
                 ],
             )
             .context("apply imported memory item")?;
