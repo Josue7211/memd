@@ -7,7 +7,7 @@ Use this after session clear or when an agent feels lost.
 1. [[ROADMAP]]
 2. [[docs/handoff/2026-05-04-v7-closed-v8-next.md|V7 closed / V8 next handoff packet (2026-05-04)]]
 3. backlog items linked from `ROADMAP`
-4. active milestone note: [[docs/verification/milestones/MILESTONE-v7.md]]
+4. active milestone note: [[docs/verification/milestones/MILESTONE-v8.md]]
 
 ## Current Truth
 
