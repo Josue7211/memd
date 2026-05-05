@@ -373,12 +373,13 @@ Goal: shared-namespace memory, visibility honored by retrieval, merge collisions
 
 | Phase | Name | Status |
 | --- | --- | --- |
-| A9 | Shared Namespace Semantics | `planned` |
+| A9 | Per-User Harness State Isolation | `planned` |
 | B9 | Visibility/ACL Honored by Retrieval | `planned` |
-| C9 | Merge Collision Governor Live | `planned` |
-| D9 | Hive Divergence Receipts | `planned` |
-| E9 | Multi-Agent Handoff Quality | `planned` |
-| F9 | Team-Wide Correction Propagation | `planned` |
+| C9 | Multi-User Multi-Harness Flip | `planned` |
+| D9 | Identity Collision + Adversarial Suite | `planned` |
+| E9 | Correction Provenance Across Users | `planned` |
+| F9 | Pre-Ship Harness Dry-Run | `planned` |
+| G9 | Multi-User Adversarial Gate Harness | `planned` |
 
 V9 gate: 2-user 3-agent dogfood holds truth across 10 sessions, divergence surfaced, no silent overwrites.
 
