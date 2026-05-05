@@ -55,6 +55,7 @@ pub(crate) fn build_context(
             req.visibility
                 .is_none_or(|visibility| entry.item.visibility == visibility)
         })
+        .filter(|entry| workspace_visibility_allows(&req.workspace, &entry.item))
         .filter(|entry| visibility_allows(&req.agent, &entry.item))
         .cloned()
         .collect();
@@ -84,6 +85,7 @@ pub(crate) fn build_context(
             req.visibility
                 .is_none_or(|visibility| entry.item.visibility == visibility)
         })
+        .filter(|entry| workspace_visibility_allows(&req.workspace, &entry.item))
         .filter(|entry| visibility_allows(&req.agent, &entry.item))
         .cloned()
         .collect();
@@ -185,6 +187,7 @@ pub(crate) fn filter_items(
             req.visibility
                 .is_none_or(|visibility| entry.item.visibility == visibility)
         })
+        .filter(|entry| workspace_visibility_allows(&req.workspace, &entry.item))
         .filter(|entry| visibility_allows(&req.source_agent, &entry.item))
         .filter(|entry| {
             req.belief_branch
@@ -1129,6 +1132,21 @@ pub(crate) fn visibility_allows(requesting_agent: &Option<String>, item: &Memory
     }
 }
 
+pub(crate) fn workspace_visibility_allows(
+    requested_workspace: &Option<String>,
+    item: &MemoryItem,
+) -> bool {
+    match item.visibility {
+        MemoryVisibility::Workspace => match (&item.workspace, requested_workspace) {
+            (Some(item_workspace), Some(requested)) => item_workspace == requested,
+            // Legacy workspace rows without workspace metadata keep old behavior.
+            (None, _) => true,
+            _ => false,
+        },
+        MemoryVisibility::Private | MemoryVisibility::Public => true,
+    }
+}
+
 pub(crate) fn project_scope_bonus(
     item: &MemoryItem,
     requested_project: Option<&String>,
@@ -1336,6 +1354,40 @@ mod tests {
         assert!(matches_requested_project(&requested, &shared_global));
         assert!(matches_requested_project(&requested, &local_project));
         assert!(matches_requested_project(&None, &foreign_global));
+    }
+
+    #[test]
+    fn b9_workspace_visibility_requires_matching_workspace() {
+        let item = sample_item("workspace scoped", vec![], Some("memd"));
+        assert!(workspace_visibility_allows(
+            &Some("team-alpha".to_string()),
+            &item
+        ));
+        assert!(!workspace_visibility_allows(
+            &Some("team-beta".to_string()),
+            &item
+        ));
+        assert!(!workspace_visibility_allows(&None, &item));
+    }
+
+    #[test]
+    fn b9_public_visibility_does_not_require_workspace() {
+        let public = MemoryItem {
+            visibility: MemoryVisibility::Public,
+            workspace: Some("team-alpha".to_string()),
+            ..sample_item("public scoped", vec![], Some("memd"))
+        };
+        assert!(workspace_visibility_allows(&None, &public));
+    }
+
+    #[test]
+    fn b9_legacy_workspace_row_without_workspace_keeps_old_behavior() {
+        let legacy = MemoryItem {
+            workspace: None,
+            visibility: MemoryVisibility::Workspace,
+            ..sample_item("legacy workspace row", vec![], Some("memd"))
+        };
+        assert!(workspace_visibility_allows(&None, &legacy));
     }
 
     #[test]
