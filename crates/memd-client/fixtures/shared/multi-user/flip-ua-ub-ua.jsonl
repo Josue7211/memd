@@ -1,0 +1,6 @@
+{"cut":"s1","assertion":"user_a_focus_written","user_id":"user-a","agent_id":"claude-code-alpha","harness_preset":"claude-code","workspace":"team-alpha","expected":true}
+{"cut":"s2","assertion":"user_a_private_focus_visible_to_user_b","user_id":"user-b","agent_id":"codex-beta","harness_preset":"codex","workspace":"team-alpha","expected":false}
+{"cut":"s2","assertion":"user_b_sees_user_a_workspace_correction_with_attribution","user_id":"user-b","agent_id":"codex-beta","harness_preset":"codex","workspace":"team-alpha","expected":true,"attribution_user":"user-a"}
+{"cut":"s3","assertion":"user_a_focus_restored","user_id":"user-a","agent_id":"claude-code-alpha","harness_preset":"claude-code","workspace":"team-alpha","expected":true}
+{"cut":"s3","assertion":"user_b_private_focus_visible_to_user_a","user_id":"user-a","agent_id":"claude-code-alpha","harness_preset":"claude-code","workspace":"team-alpha","expected":false}
+{"cut":"s3","assertion":"canonical_response_code","user_id":"user-a","agent_id":"claude-code-alpha","harness_preset":"claude-code","workspace":"team-alpha","expected_value":"204"}
