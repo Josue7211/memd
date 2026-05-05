@@ -12,7 +12,21 @@ AXIS_DIR="${AXIS_DIR:-$OUT_DIR/${RUN_DATE}-axis-evidence}"
 NEGATIVE_CONTROLS="${NEGATIVE_CONTROLS:-$OUT_DIR/${RUN_DATE}-negative-controls.ndjson}"
 HUMAN_REVIEW="${HUMAN_REVIEW:-$OUT_DIR/${RUN_DATE}-human-review.md}"
 
-mkdir -p "$OUT_DIR" "$AXIS_DIR"
+mkdir -p "$OUT_DIR"
+
+OUT_REAL="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve())' "$OUT_DIR")"
+for path in "$NDJSON" "$SUMMARY" "$AXIS_DIR" "$NEGATIVE_CONTROLS" "$HUMAN_REVIEW"; do
+  path_real="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve())' "$path")"
+  case "$path_real" in
+    "$OUT_REAL"/*) ;;
+    *)
+      echo "v10 proof refused: output path escapes OUT_DIR: $path" >&2
+      exit 2
+      ;;
+  esac
+done
+
+mkdir -p "$AXIS_DIR"
 rm -f "$NDJSON" "$SUMMARY" "$NEGATIVE_CONTROLS" "$HUMAN_REVIEW"
 rm -rf "$AXIS_DIR"
 mkdir -p "$AXIS_DIR"/{SC,CR,PR,RR,CH,TE,TP}
