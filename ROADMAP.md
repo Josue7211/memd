@@ -3,12 +3,12 @@
 `ROADMAP.md` is the single roadmap source of truth for this repo.
 
 <!-- ROADMAP_STATE
-truth_date: 2026-05-04
-version: v8
-version_status: ready_to_execute
-current_milestone: V8
-milestone_status: ready_to_execute
-current_phase: V8-entry
+truth_date: 2026-05-05
+version: v9
+version_status: ready_to_plan_or_execute
+current_milestone: V9
+milestone_status: ready_to_plan_or_execute
+current_phase: V9-entry
 phase_status: ready_to_plan_or_execute
 next_milestone: V9
 post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 → V14 → V15 → V16 → V17 → V18 → V19 → V20 (see V4–V20 block below; composite **8.50 at V13** = 0.1.0 release gate per docs/verification/0.1.0-CONTRACT.md; composite **10.00 at V20** = 1.0.0 release gate per docs/verification/1.0.0-CONTRACT.md; V10 production-floor, V13 ships 0.1.0, V14-V20 ceiling push pulls every axis to 10/10, V20 ships 1.0.0; 0.1.0 gate = composite ≥8.0 AND every axis ≥7; 1.0.0 gate = composite =10.00 AND every axis =10 per docs/theory/MEMD-SOTA-THEORY.md; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
@@ -16,8 +16,8 @@ v4_status: complete
 v4_closed: 2026-05-02
 v4_composite: 3.60
 v4_deviation: docs/verification/milestones/MILESTONE-v4-deviation-2026-05-02.md
-next_step: Start V8 operator surfaces from clean V7 close; V7 closed at composite 4.90 with SC=5, CR=5, TP=5.
-active_blockers: []
+next_step: Start V9 from V8 internal close; public stranger-review artifacts remain an external review gate if required before public release.
+active_blockers: ["external_stranger_review_artifacts_pending_for_public_review_gate"]
 v3_tail_deferred: []
 v3_tail_followups: ["canonical rerun: LongMemEval/LoCoMo/ConvoMem via codex-lb route (OPENAI_BASE_URL=http://127.0.0.1:2455/v1 OPENAI_API_KEY=$CODEX_LB_API_KEY)"]
 v1_status: frozen_architecture_complete
@@ -38,23 +38,26 @@ v6_composite: 4.45
 v7_status: closed
 v7_closed: 2026-05-04
 v7_composite: 4.90
+v8_status: closed_internal
+v8_closed_internal: 2026-05-05
+v8_composite: 5.10
 -->
 
 ## Status Snapshot
 
-- truth date: `2026-05-04`
-- current version: `v8` (V7 closed at composite 4.90; V8 operator surfaces are next)
-- version status: `ready_to_execute`
+- truth date: `2026-05-05`
+- current version: `v9` (V8 internal operator surfaces closed at composite 5.10; public stranger-review artifacts remain external)
+- version status: `ready_to_plan_or_execute`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
-- current milestone: `V8: Operator Surfaces` - V7 correction behavior-change E2E closed; start V8 from clean V7 head.
-- current phase: `V8-entry` - plan or execute V8 operator surfaces.
+- current milestone: `V9` - start from V8 internal close.
+- current phase: `V9-entry` - plan or execute V9.
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
-- next step: start V8 operator surfaces from clean V7 close.
+- next step: start V9 from V8 internal close; collect external stranger-review artifacts if public-review gate is required.
 - V3 tail-deferred: `K3 Proxy Unblock + Canonical Rerun` — provision `gpt-5.4` on the openclaw LiteLLM proxy (or OpenAI-direct fallback capped at `MEMD_BENCH_JUDGE_BUDGET_USD=50`), then rerun LongMemEval / LoCoMo / ConvoMem canonical primaries. Success gate: flip those three rows from `replay-pending` to `verified` (if ≥0.70) or `recorded-unpinned` (if <0.70). MemBench separately needs a focused look at event-reasoning + role-tracking topics (0.000 / 0.100 per-topic in J3). Does NOT block V4 — V4 is runtime/dogfood work, not bench gates.
 - M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with D3).
 - V3 targets (floor, intrinsic/sidecar-OFF): LME ≥0.70, LoCoMo ≥0.70, MemBench ≥0.70, ConvoMem ≥0.70 — 70% is where competition sits, that is bare minimum. Stretch (intrinsic): LME ≥0.92, LoCoMo ≥0.75, MemBench ≥0.75, ConvoMem ≥0.75. Accelerated (sidecar ON) is bonus, not gate. See `## V3` block below.
@@ -62,7 +65,7 @@ v7_composite: 4.90
 - latest B3 intrinsic product-path rerun (2026-04-20, dense blend): LongMemEval 500Q `session_recall_any@5 = 0.936`, `@10 = 0.976`, `@30 = 1.000`, `@50 = 1.000`, duration `7916435 ms` (~132 min), `turn_diagnostics=false`. Gate 0.92 cleared. Weak type: single-session-preference 0.600 (30Qs).
 - prior M1 benchmark: LongMemEval 90% full-eval (50 items, LLM-graded, `session_recall_any@10`=96%). Retrieval-only baseline (500 items) was 82.8%. These are different metrics — do not compare directly.
 - M3 benchmark: LME 82.8% (gate 80%), LoCoMo 41.5% (gate 41.4%), MemBench 34.6% (gate 30%), ConvoMem 0.0% — zero regression
-- 10-STAR composite: 4.90/10 (V7 close 2026-05-04)
+- 10-STAR composite: 5.10/10 (V8 internal close 2026-05-05)
 
 ## Blockers
 
@@ -352,15 +355,17 @@ Goal: user can see memd — atlas, corrections, provenance, diff, rollback. Comp
 
 | Phase | Name | Status |
 | --- | --- | --- |
-| A8 | Atlas Navigation UI | `planned` |
-| B8 | Correction UX | `planned` |
-| C8 | Memory Inspector | `planned` |
-| D8 | Provenance Browser | `planned` |
-| E8 | Diff + Rollback UI | `planned` |
-| F8 | Public Leaderboard Transparency Page | `planned` |
-| G8 | `memd configure` Settings CLI (canonical settings surface) | `planned` |
+| A8 | Atlas Navigation UI | `complete` |
+| B8 | Correction UX | `complete` |
+| C8 | Memory Inspector | `complete` |
+| D8 | Provenance Browser | `complete` |
+| E8 | Diff + Rollback UI | `complete` |
+| F8 | Public Leaderboard Transparency Page | `complete` |
+| G8 | `memd configure` Settings CLI (canonical settings surface) | `complete` |
 
 V8 gate: stranger test (outside reviewer, sidecar OFF) rates memd best-in-class vs mempalace/supermemory/letta/mem0 on 5 surfaces. G8 ships the `memd configure` CLI as the single canonical entry point for all runtime settings — subcommands `list/get/set/reset`, schema-validated against `.memd/config.json`, TAB-completion in zsh/bash. Exposes V7 H7 atomic-commit toggle plus V8 cost-ledger caps plus V9 visibility defaults plus V11-V13 feature flags. All ad-hoc settings surfaces are either deprecated or delegate to G8.
+
+V8 internal close evidence (2026-05-05): `scripts/verify/v8-operator-proof.sh` passes; proof NDJSON at `docs/verification/v8-runs/ui/operator/2026-05-05-g8-proof.ndjson` logs cost ledger visible/tunable, provenance depth 3, configure suite 7/0, and zero console errors. External stranger-review artifacts remain a public-review gate, not internal repo work.
 
 #### V9: Multi-User / Team — Axis Lift: SC 5→6, CH 4→6 (enforces federated-memory-visibility contract)
 

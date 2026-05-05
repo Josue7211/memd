@@ -1,12 +1,14 @@
 ---
 milestone: v8
 name: Operator Surfaces
-status: planned
+status: closed-internal
 opened: 2026-04-22
-revised: 2026-04-22
+revised: 2026-05-05
+closed_internal: 2026-05-05
 depends_on: [v7]
 composite_pre: 4.90
 composite_target: 5.10
+composite_post: 5.10
 axes_lifted: [token_efficiency, trust_provenance]
 axes_integrated_with: [session_continuity]
 ---
@@ -16,6 +18,34 @@ axes_integrated_with: [session_continuity]
 ## Goal
 
 Operator can see and tune memd. Visible cost ledger (token budget inspector, per-turn burn tracking) enables budget-aware operation. Provenance browser (depth 3+ drilldown to source turn + correction history) replaces partial surfaces from prior milestones. Correction UX, atlas navigation, memory inspector, diff + rollback all updated for operator workflow. Competitor surfaces (mempalace atlas, mem0 dashboard, letta correction UX) are the bar for feature parity.
+
+## Close Evidence
+
+V8 internal repo-owned work closed 2026-05-05:
+
+- `feat(g8): add canonical configure settings CLI`
+- `feat(v8): add operator surfaces UI`
+- `test(g8): add repeatable operator proof harness`
+
+Proof artifacts:
+
+- `scripts/verify/v8-operator-proof.sh`
+- `docs/verification/v8-runs/ui/operator/2026-05-05-g8-proof.ndjson`
+- `docs/verification/v8-runs/ui/operator/operator-desktop.png`
+- `docs/verification/v8-runs/ui/operator/operator-mobile.png`
+
+Proof metrics:
+
+```json
+{"cost_ledger_visible":true,"budget_tunable":true,"budget_cap_after_edit":2000}
+{"provenance_depth_max":3,"correction_history_visible":true,"alternate_candidates_visible":true}
+{"continuity_data_visible":true}
+{"configure_suite":{"pass_count":7,"fail_count":0}}
+{"console_errors":0,"memory_inspector_filter_visible_nodes":1}
+```
+
+External stranger-review artifacts remain a public-review gate. They are not
+fabricated by this internal milestone close.
 
 ## 10-STAR axis targets (pre / post)
 
@@ -45,13 +75,13 @@ failure here is recoverable in V11; V13 zero-margin is the real release cliff.
 
 See `ROADMAP.md` → "V8: Operator Surfaces". Phase docs at `docs/phases/v8/phase-{a8..f8}-*.md`.
 
-- **A8** Atlas navigation UI — graph view of canonical memory, click to provenance. SC integration.
-- **B8** Correction UX — inline capture, live preview of "before/after" retrieval. SC integration.
-- **C8** Memory inspector — all records by type, searchable, filterable. SC integration.
-- **D8** Provenance browser — click any fact, trace to source turn + extraction reason + correction history. **OWNS TP +1 (5→6).**
-- **E8** Cost ledger UI — token budget cap, per-turn burn tracking, cumulative cost graph. **OWNS TE +1 (4→5).**
-- **F8** Public leaderboard transparency page — live method cards, reproduction commands, retraction log, gaming-audit rule. SC integration.
-- **G8** `memd configure` settings CLI — single canonical entry point for all runtime settings. Subcommands: `memd configure list`, `memd configure get <key>`, `memd configure set <key>=<value>`, `memd configure reset [<key>]`. Writes to `.memd/config.json` (schema v0.3+). Exposes V7 H7 atomic-commit toggle (`auto_commit.enabled`), V8 cost-ledger budget caps, V9 federated-memory visibility defaults, and future V11-V13 feature toggles. Must validate keys against schema (unknown key = error with "did you mean"). TAB-completion for keys in zsh/bash. No axis credit claimed; foundational for operator UX consistency. Phase G8 is the sole canonical config surface — all other "settings" references in the codebase either delegate to it or are deprecated.
+- **A8** Atlas navigation UI — graph view of canonical memory, click to provenance. SC integration. **Closed internal.**
+- **B8** Correction UX — inline capture, live preview of "before/after" retrieval. SC integration. **Closed internal.**
+- **C8** Memory inspector — all records by type, searchable, filterable. SC integration. **Closed internal.**
+- **D8** Provenance browser — click any fact, trace to source turn + extraction reason + correction history. **Closed internal; OWNS TP +1 (5→6).**
+- **E8** Cost ledger UI — token budget cap, per-turn burn tracking, cumulative cost graph. **Closed internal; OWNS TE +1 (4→5).**
+- **F8** Public leaderboard transparency page — live method cards, reproduction commands, retraction log, gaming-audit rule. SC integration. **Closed internal.**
+- **G8** `memd configure` settings CLI — single canonical entry point for all runtime settings. Subcommands: `memd configure list`, `memd configure get <key>`, `memd configure set <key>=<value>`, `memd configure reset [<key>]`, `memd configure show-schema`. Writes to `.memd/config.json` atomically. Exposes V7 H7 atomic-commit toggle (`auto_commit.enabled`), V8 cost-ledger budget caps, V9 federated-memory visibility defaults, and future V11-V13 feature toggles. Unknown keys exit 2 with "did you mean". **Closed internal.**
 
 ## Completion gate
 
@@ -86,6 +116,12 @@ G8 is dual-deliverable: (1) `memd configure` CLI (no axis credit; canonical sett
 - Evidence: reviewer write-up + 5 side-by-side screencasts + zero console errors in browser devtools
 
 Evidence: recorded trace + G8 harness NDJSON (TE + TP assertions) + regenerated 10-STAR composite in `docs/verification/MEMD-10-STAR.md` via G8 scorecard regenerator.
+
+Internal evidence landed:
+
+- G8 proof NDJSON: `docs/verification/v8-runs/ui/operator/2026-05-05-g8-proof.ndjson`
+- Harness: `scripts/verify/v8-operator-proof.sh`
+- Scorecard: `docs/verification/MEMD-10-STAR.md` composite `5.10/10`
 
 ## Per-axis harness assertions (required for axis credit)
 
@@ -135,3 +171,8 @@ No UI change ships without live browser verification + harness proof. This is ma
 - 2026-04-22 revised (V11-V13 SOTA extension):
   - TE-margin-risk framing superseded — V11 takes TE 5→7, V13 closes at zero margin; V8's TE=5 is intermediate, not release-critical
   - Added G8 phase — `memd configure` settings CLI. Canonical entry point for all runtime settings, exposes V7 H7 atomic-commit toggle plus V8-V13 feature flags. No axis credit; foundational operator UX.
+- 2026-05-05 closed internal:
+  - A8–F8 consolidated into the existing Astro operator surface at `/operator`.
+  - G8 `memd configure` canonical subcommands shipped.
+  - G8 proof harness landed and passed with TE + TP metrics, configure suite metrics, screenshots, and zero console errors.
+  - 10-STAR composite regenerated to `5.10/10`.

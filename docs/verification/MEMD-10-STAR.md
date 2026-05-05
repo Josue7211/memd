@@ -44,10 +44,10 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 | Procedural reuse | 15% | 4/10 | V5 F5 live-fire harness on real memd-server (HttpRoutineSubstrate via spawned memd-server subprocess): routine plant in S1 → invocation in S2+ with token_savings ≥ 1×baseline_retrieval_cost via per-routine cost ledger (PerfectRoutineSubstrate caches in-process; NoCacheRoutineSubstrate is the negative control that fails the gate; HttpRoutineSubstrate stores `MemoryKind::Procedural` with per-routine tag and retrieves by tag-filtered search across sessions). ten_star_writer requires `live_fire_pass=1.0` metric for PR=4 — typed-retrieval correctness alone is RR credit, not PR credit | evidence: SUBSTRATE_BENCHMARKS.md typed-retrieval block (live_fire_total_savings=900); locked real-backend baseline `docs/verification/substrate-baselines/f5_real-2026-05-03.json` (3/5/5-routine scenarios at perfect r·i·90 savings) |
 | Cross-harness continuity | 15% | 4/10 | V4 G4 cross-harness flip asserter green (2→3) + V5 C5 substrate suite materializes banked +1 (3→4) on V4 G4 close 2026-05-02 | evidence: v4-proof-runs/2026-05-02-stability-pass-2-and-close.md |
 | Raw retrieval strength | 15% | 7/10 | V6 typed-ingest public-bench gate passes all four canonical thresholds: LME qa_accuracy 0.860 ≥ 0.850, LoCoMo token_f1_avg 0.760 ≥ 0.750, MemBench mc_accuracy 0.760 ≥ 0.750, ConvoMem judge_accuracy 0.910 ≥ 0.900; LME session_recall_any@5 0.960 ≥ 0.950. V6 writer pins each value to the contract metric key before lifting RR 6→7. | evidence: `tests/fixtures/typed_ingest/f6/canonical-gates.jsonl`; `typed_ingest_f6_tests` 18/18 green |
-| Token efficiency | 10% | 4/10 | D4 wake compiler + E4 depth-contract metrics; G4 asserter `assert_d4_wake_within_budget` green on 3-session harness | evidence: v4-proof-runs/2026-05-02-stability-pass-2-and-close.md |
-| Trust + provenance | 10% | 5/10 | V6 method-card + reproducibility gate plus V7 correction metadata/explain chain: corrected records carry `corrects_id`, `source_turn`, capture source, confidence, and user-visible learned-from summary. |
+| Token efficiency | 10% | 5/10 | V8 operator cost ledger is visible and tunable; G8 proof edits budget cap to 2000 and logs `cost_ledger_visible=true`, `budget_tunable=true`. | evidence: `docs/verification/v8-runs/ui/operator/2026-05-05-g8-proof.ndjson`; `scripts/verify/v8-operator-proof.sh` |
+| Trust + provenance | 10% | 6/10 | V8 provenance browser reaches depth 3: fact metadata, source turn, correction history, and alternate candidates; G8 proof logs `provenance_depth_max=3`. | evidence: `docs/verification/v8-runs/ui/operator/2026-05-05-g8-proof.ndjson`; screenshots in `docs/verification/v8-runs/ui/operator/` |
 
-**Composite: 4.90/10 (V7 closed 2026-05-04 — correction E2E + rollback + atomic commit)**
+**Composite: 5.10/10 (V8 internal close 2026-05-05 — operator surfaces + configure CLI + G8 proof harness)**
 *Prior composite 2.9 counted "code exists" as partial credit; regrade counts only "user gets value."*
 *Prior axis table (scores 2,2,1,3,4,6,5) summed to 3.0 but reported 1.8 — reconciled 2026-04-22 to the pessimistic axis row that actually yields 1.80.*
 *2026-04-24: session continuity axis moved 1 → 2 on A4 ledger-survival gate (10/10 loop, zero breach lines). Composite moved 1.80 → 2.00. Evidence:*
@@ -124,6 +124,13 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 - *`cargo run -p memd-client --bin memd -- benchmark substrate --suite correction-behavior-change --output /tmp/memd-v7-substrate --report /tmp/memd-v7-substrate/SUBSTRATE_BENCHMARKS.md --json` → S2 and S3 rollback rows pass at 1.0*
 - *`cargo test -p memd-server correct_item_ -- --nocapture`; `cargo test -p memd-server explain_shows_correction_events -- --nocapture`; `cargo test -p memd-server d2_contradiction_marks_siblings_contested -- --nocapture` green*
 - *H7 smoke: `memd configure --output /tmp/memd-v7-config auto_commit.enabled=false --summary` reports `auto_commit=off`; git auto-commit tests pass*
+
+*2026-05-05: V8 internal operator-surface gate closes. Composite 4.90 → 5.10 (+0.20): token_efficiency 4→5, trust_provenance 5→6. Evidence:*
+- *G8 configure CLI: `memd configure list/get/set/reset/show-schema`, unknown-key exit 2 with "did you mean", and `memd wake` reads `cost_ledger.budget_tokens` from `.memd/config.json`.*
+- *Operator UI: atlas navigation, correction preview, memory inspector, provenance depth 3, cost ledger, rollback audit, and transparency panel in `apps/src/pages/operator.astro`.*
+- *Repeatable proof: `scripts/verify/v8-operator-proof.sh` builds Astro, serves `/operator`, drives Chromium, captures desktop/mobile screenshots, and writes `docs/verification/v8-runs/ui/operator/2026-05-05-g8-proof.ndjson`.*
+- *Proof metrics: `cost_ledger_visible=true`, `budget_tunable=true`, `provenance_depth_max=3`, `correction_history_visible=true`, `alternate_candidates_visible=true`, `console_errors=0`, `configure_suite.pass_count=7`, `fail_count=0`.*
+- *External stranger-review artifacts remain a public-review gate, not fabricated by this internal close.*
 
 ## 11 Pillars — Current Reality
 
