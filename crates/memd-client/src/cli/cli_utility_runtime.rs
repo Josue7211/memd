@@ -155,7 +155,11 @@ pub(crate) fn run_loops_command(args: LoopsArgs) -> anyhow::Result<()> {
 }
 
 pub(crate) fn run_telemetry_command(args: TelemetryArgs) -> anyhow::Result<()> {
-    run_telemetry(&args)
+    if let Some(command) = args.command.as_ref() {
+        run_v14_telemetry_command(&args.output, args.json, command)
+    } else {
+        run_telemetry(&args)
+    }
 }
 
 pub(crate) async fn run_autoresearch_command(

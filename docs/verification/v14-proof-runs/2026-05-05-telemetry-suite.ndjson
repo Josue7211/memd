@@ -1,0 +1,6 @@
+{"suite":"v14_telemetry","check":"core_telemetry_tests","status":"pass"}
+{"suite":"v14_telemetry","check":"client_telemetry_tests","status":"pass"}
+{"suite":"v14_telemetry","check":"opt_in_cli","status":"pass"}
+{"suite":"v14_telemetry","check":"per_user_per_harness_report","status":"pass","report":{"window":"30d","event_count":1,"total_tokens":1500,"total_cost_usd":0.005,"users":{"7ZHPC1KZ0E2AZGT9495S2SGZH4":{"token_count":1500,"estimated_cost_usd":0.005,"harnesses":{"codex":{"event_count":1,"token_count":1500,"estimated_cost_usd":0.005}}}}}}
+{"suite":"v14_telemetry","check":"bench_export_anonymized","status":"pass","pii_scan":"clean"}
+{"suite":"v14_telemetry","check":"token_efficiency_axis","status":"pass","pre":7,"post":8,"composite_pre":8.50,"composite_post":8.60}

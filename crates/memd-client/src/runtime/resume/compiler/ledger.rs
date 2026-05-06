@@ -97,7 +97,14 @@ pub fn write_cost_line(
         model_family: model_family.to_string(),
         estimated_cost_usd: estimate_cost(wake_token_count, model_family),
     };
-    append_ndjson(bundle_root, COST_LOG_RELPATH, &line)
+    append_ndjson(bundle_root, COST_LOG_RELPATH, &line)?;
+    crate::append_cost_telemetry_event(
+        bundle_root,
+        session_id,
+        wake_token_count,
+        model_family,
+        line.estimated_cost_usd,
+    )
 }
 
 /// Conservative input-token cost per 1k tokens. Numbers are deliberately

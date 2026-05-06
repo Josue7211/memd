@@ -2477,11 +2477,84 @@ pub(crate) struct LoopsArgs {
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct TelemetryArgs {
+    #[command(subcommand)]
+    pub(crate) command: Option<TelemetryCommand>,
+
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     pub(crate) output: PathBuf,
 
     #[arg(long, help = "Emit telemetry JSON instead of text")]
     pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum TelemetryCommand {
+    /// Opt in to local-first telemetry.
+    Enable,
+    /// Opt out and stop writing telemetry events.
+    Disable,
+    /// Show telemetry config and local event count.
+    Status,
+    /// Append one telemetry event. Used by harnesses and proof scripts.
+    Record(TelemetryRecordArgs),
+    /// Print per-user per-harness token cost breakdown.
+    Report(TelemetryReportArgs),
+    /// Export anonymized telemetry NDJSON.
+    Export(TelemetryExportArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct TelemetryRecordArgs {
+    #[arg(long)]
+    pub(crate) user: Option<String>,
+
+    #[arg(long)]
+    pub(crate) harness: Option<String>,
+
+    #[arg(long, default_value = "manual")]
+    pub(crate) source: String,
+
+    #[arg(long, default_value = "usage")]
+    pub(crate) event_kind: String,
+
+    #[arg(long, default_value_t = 0)]
+    pub(crate) tokens: u64,
+
+    #[arg(long, default_value_t = 0.0)]
+    pub(crate) cost_usd: f64,
+
+    #[arg(long)]
+    pub(crate) session_id: Option<String>,
+
+    #[arg(long)]
+    pub(crate) model_family: Option<String>,
+
+    #[arg(long)]
+    pub(crate) metadata_json: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) force: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct TelemetryReportArgs {
+    #[arg(long, default_value = "30d")]
+    pub(crate) window: String,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct TelemetryExportArgs {
+    #[arg(long)]
+    pub(crate) output_file: Option<PathBuf>,
+
+    #[arg(long, default_value = "local")]
+    pub(crate) scope: String,
+
+    #[arg(long, default_value = "30d")]
+    pub(crate) window: String,
 }
 
 #[derive(Debug, Clone, Args)]

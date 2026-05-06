@@ -1664,6 +1664,7 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         voice_mode: args.voice_mode.clone().unwrap_or_else(default_voice_mode),
         auto_short_term_capture: true,
         auto_commit: BundleAutoCommitConfig::default(),
+        telemetry: BundleTelemetryConfig::default(),
         authority_policy: BundleAuthorityPolicy::default(),
         authority_state: BundleAuthorityState {
             mode: default_authority_mode(),
@@ -2072,6 +2073,7 @@ pub(crate) fn build_bundle_turn_placeholder_config(
         voice_mode,
         auto_short_term_capture,
         auto_commit,
+        telemetry: BundleTelemetryConfig::default(),
         authority_policy: runtime
             .as_ref()
             .map(|value| value.authority_policy.clone())

@@ -238,12 +238,10 @@ fn apply_bundle_config_setting(bundle_root: &Path, setting: &str) -> anyhow::Res
     let (key, value) = setting
         .split_once('=')
         .ok_or_else(|| anyhow::anyhow!("config setting must be KEY=VALUE"))?;
-    match key.trim() {
-        "auto_commit.enabled" => {
-            set_bundle_auto_commit_enabled(bundle_root, parse_config_bool(value.trim())?)
-        }
-        other => anyhow::bail!("unknown config key '{other}'"),
-    }
+    let key = normalize_config_key(key)?;
+    let mut doc = read_config_json(bundle_root)?;
+    set_config_value(&mut doc, key, value.trim())?;
+    write_config_json(bundle_root, &doc)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -260,6 +258,9 @@ const CONFIG_KEYS: &[&str] = &[
     "cost_ledger.budget_tokens",
     "cost_ledger.per_turn_warn",
     "provenance.drilldown_depth_max",
+    "telemetry.enabled",
+    "telemetry.retention_days",
+    "telemetry.export_scope",
     "voice.mode",
     "visibility.default_scope",
     "feature_flags.v11_compiler",
@@ -330,6 +331,9 @@ fn config_default_value(key: &str) -> JsonValue {
         "cost_ledger.budget_tokens" => json!(4000),
         "cost_ledger.per_turn_warn" => json!(1200),
         "provenance.drilldown_depth_max" => json!(3),
+        "telemetry.enabled" => json!(false),
+        "telemetry.retention_days" => json!(default_telemetry_retention_days()),
+        "telemetry.export_scope" => json!(default_telemetry_export_scope()),
         "voice.mode" => json!(default_voice_mode()),
         "visibility.default_scope" => json!("project"),
         "feature_flags.v11_compiler" => json!(false),
@@ -340,13 +344,15 @@ fn config_default_value(key: &str) -> JsonValue {
 
 fn config_type(key: &str) -> &'static str {
     match key {
-        "auto_commit.enabled" | "feature_flags.v11_compiler" | "feature_flags.v13_sota_guard" => {
-            "bool"
-        }
+        "auto_commit.enabled"
+        | "telemetry.enabled"
+        | "feature_flags.v11_compiler"
+        | "feature_flags.v13_sota_guard" => "bool",
         "cost_ledger.budget_tokens"
         | "cost_ledger.per_turn_warn"
-        | "provenance.drilldown_depth_max" => "number",
-        "voice.mode" | "visibility.default_scope" => "string",
+        | "provenance.drilldown_depth_max"
+        | "telemetry.retention_days" => "number",
+        "voice.mode" | "visibility.default_scope" | "telemetry.export_scope" => "string",
         _ => "unknown",
     }
 }
@@ -356,6 +362,7 @@ fn config_owner(key: &str) -> &'static str {
         "auto_commit.enabled" => "V7 H7",
         "cost_ledger.budget_tokens" | "cost_ledger.per_turn_warn" => "V8 E8/G8",
         "provenance.drilldown_depth_max" => "V8 D8/G8",
+        "telemetry.enabled" | "telemetry.retention_days" | "telemetry.export_scope" => "V14",
         "voice.mode" => "memd voice bootstrap",
         "visibility.default_scope" => "V9 reserved",
         "feature_flags.v11_compiler" => "V11 reserved",

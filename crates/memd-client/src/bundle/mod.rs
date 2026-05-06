@@ -19,6 +19,7 @@ mod profile_runtime;
 mod report_runtime;
 mod state_runtime;
 mod status_runtime;
+mod telemetry_runtime;
 mod turn_runtime;
 
 #[allow(unused_imports)]
@@ -48,12 +49,34 @@ pub(crate) use state_runtime::*;
 #[allow(unused_imports)]
 pub(crate) use status_runtime::*;
 #[allow(unused_imports)]
+pub(crate) use telemetry_runtime::*;
+#[allow(unused_imports)]
 pub(crate) use turn_runtime::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct BundleAutoCommitConfig {
     #[serde(default = "default_true")]
     pub(crate) enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct BundleTelemetryConfig {
+    #[serde(default)]
+    pub(crate) enabled: bool,
+    #[serde(default = "default_telemetry_retention_days")]
+    pub(crate) retention_days: u64,
+    #[serde(default = "default_telemetry_export_scope")]
+    pub(crate) export_scope: String,
+}
+
+impl Default for BundleTelemetryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            retention_days: default_telemetry_retention_days(),
+            export_scope: default_telemetry_export_scope(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -105,6 +128,8 @@ pub(crate) struct BundleConfigFile {
     #[serde(default)]
     pub(crate) auto_commit: BundleAutoCommitConfig,
     #[serde(default)]
+    pub(crate) telemetry: BundleTelemetryConfig,
+    #[serde(default)]
     pub(crate) rag_url: Option<String>,
     #[serde(default)]
     pub(crate) backend: Option<BundleBackendConfigFile>,
@@ -140,6 +165,7 @@ pub(crate) struct BundleConfig {
     pub(crate) voice_mode: String,
     pub(crate) auto_short_term_capture: bool,
     pub(crate) auto_commit: BundleAutoCommitConfig,
+    pub(crate) telemetry: BundleTelemetryConfig,
     pub(crate) authority_policy: BundleAuthorityPolicy,
     pub(crate) authority_state: BundleAuthorityState,
     pub(crate) backend: BundleBackendConfig,
@@ -315,6 +341,14 @@ pub(crate) struct BundleRuntimeConfig {
 
 pub(crate) fn escape_ps1(value: &str) -> String {
     value.replace('\"', "`\"")
+}
+
+pub(crate) fn default_telemetry_retention_days() -> u64 {
+    90
+}
+
+pub(crate) fn default_telemetry_export_scope() -> String {
+    "local".to_string()
 }
 
 pub(crate) fn compact_bundle_value(value: &str) -> String {

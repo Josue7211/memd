@@ -15,6 +15,7 @@ pub mod preference;
 pub mod routine;
 pub mod runtime;
 pub mod skill_mirror;
+pub mod telemetry;
 pub mod v11;
 pub mod v12;
 pub mod v13;
