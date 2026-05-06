@@ -261,6 +261,11 @@ const CONFIG_KEYS: &[&str] = &[
     "telemetry.enabled",
     "telemetry.retention_days",
     "telemetry.export_scope",
+    "compiler.mode",
+    "compiler.self_tuning.min_samples",
+    "compiler.self_tuning.min_quality_score",
+    "compiler.self_tuning.max_quality_regression",
+    "compiler.self_tuning.max_budget_regression_pct",
     "voice.mode",
     "visibility.default_scope",
     "feature_flags.v11_compiler",
@@ -334,6 +339,19 @@ fn config_default_value(key: &str) -> JsonValue {
         "telemetry.enabled" => json!(false),
         "telemetry.retention_days" => json!(default_telemetry_retention_days()),
         "telemetry.export_scope" => json!(default_telemetry_export_scope()),
+        "compiler.mode" => json!(memd_core::self_tuning::CompilerMode::Dynamic.as_str()),
+        "compiler.self_tuning.min_samples" => {
+            json!(memd_core::self_tuning::DEFAULT_MIN_TUNING_SAMPLES)
+        }
+        "compiler.self_tuning.min_quality_score" => {
+            json!(memd_core::self_tuning::DEFAULT_MIN_QUALITY_SCORE)
+        }
+        "compiler.self_tuning.max_quality_regression" => {
+            json!(memd_core::self_tuning::DEFAULT_MAX_QUALITY_REGRESSION)
+        }
+        "compiler.self_tuning.max_budget_regression_pct" => {
+            json!(memd_core::self_tuning::DEFAULT_MAX_BUDGET_REGRESSION_PCT)
+        }
         "voice.mode" => json!(default_voice_mode()),
         "visibility.default_scope" => json!("project"),
         "feature_flags.v11_compiler" => json!(false),
@@ -351,8 +369,14 @@ fn config_type(key: &str) -> &'static str {
         "cost_ledger.budget_tokens"
         | "cost_ledger.per_turn_warn"
         | "provenance.drilldown_depth_max"
+        | "compiler.self_tuning.min_samples"
         | "telemetry.retention_days" => "number",
-        "voice.mode" | "visibility.default_scope" | "telemetry.export_scope" => "string",
+        "compiler.self_tuning.min_quality_score"
+        | "compiler.self_tuning.max_quality_regression"
+        | "compiler.self_tuning.max_budget_regression_pct" => "float",
+        "voice.mode" | "visibility.default_scope" | "telemetry.export_scope" | "compiler.mode" => {
+            "string"
+        }
         _ => "unknown",
     }
 }
@@ -363,6 +387,11 @@ fn config_owner(key: &str) -> &'static str {
         "cost_ledger.budget_tokens" | "cost_ledger.per_turn_warn" => "V8 E8/G8",
         "provenance.drilldown_depth_max" => "V8 D8/G8",
         "telemetry.enabled" | "telemetry.retention_days" | "telemetry.export_scope" => "V14",
+        "compiler.mode"
+        | "compiler.self_tuning.min_samples"
+        | "compiler.self_tuning.min_quality_score"
+        | "compiler.self_tuning.max_quality_regression"
+        | "compiler.self_tuning.max_budget_regression_pct" => "V15",
         "voice.mode" => "memd voice bootstrap",
         "visibility.default_scope" => "V9 reserved",
         "feature_flags.v11_compiler" => "V11 reserved",
@@ -403,7 +432,22 @@ fn set_config_value(doc: &mut JsonValue, key: &str, raw: &str) -> anyhow::Result
                 .with_context(|| format!("parse numeric config value for {key}"))?;
             json!(parsed)
         }
-        "string" => json!(raw.trim().to_string()),
+        "float" => {
+            let parsed: f64 = raw
+                .parse()
+                .with_context(|| format!("parse float config value for {key}"))?;
+            json!(parsed)
+        }
+        "string" => {
+            if key == "compiler.mode" {
+                let mode =
+                    <memd_core::self_tuning::CompilerMode as std::str::FromStr>::from_str(raw)
+                        .map_err(anyhow::Error::msg)?;
+                json!(mode.as_str())
+            } else {
+                json!(raw.trim().to_string())
+            }
+        }
         _ => anyhow::bail!("unsupported config key '{key}'"),
     };
     write_config_value(doc, key, value)

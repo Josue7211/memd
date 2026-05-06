@@ -162,6 +162,10 @@ pub(crate) fn run_telemetry_command(args: TelemetryArgs) -> anyhow::Result<()> {
     }
 }
 
+pub(crate) fn run_compiler_command(args: CompilerArgs) -> anyhow::Result<()> {
+    run_v15_compiler_command(&args.output, args.json, args.command.as_ref())
+}
+
 pub(crate) async fn run_autoresearch_command(
     args: AutoresearchArgs,
     base_url: &str,

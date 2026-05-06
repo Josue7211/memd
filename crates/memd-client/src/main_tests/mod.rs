@@ -207,6 +207,7 @@ mod real_server_support;
 mod recall_depth_tests;
 mod runtime_memory_tests;
 mod runtime_verification_tests;
+mod self_tuning_v15_tests;
 mod skill_workflow_tests;
 mod substrate_a5_real_tests;
 mod substrate_a5_tests;

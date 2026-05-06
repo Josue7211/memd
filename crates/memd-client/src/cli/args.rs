@@ -107,6 +107,7 @@ pub(crate) enum Commands {
     Init(InitArgs),
     Loops(LoopsArgs),
     Telemetry(TelemetryArgs),
+    Compiler(CompilerArgs),
     Autoresearch(AutoresearchArgs),
     Diagnostics(DiagnosticsArgs),
     #[command(name = "prime-reads")]
@@ -2555,6 +2556,68 @@ pub(crate) struct TelemetryExportArgs {
 
     #[arg(long, default_value = "30d")]
     pub(crate) window: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct CompilerArgs {
+    #[command(subcommand)]
+    pub(crate) command: Option<CompilerCommand>,
+
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long, help = "Emit compiler JSON instead of text")]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum CompilerCommand {
+    /// Build per-user per-harness self-tuning profiles from V14 telemetry.
+    Tune(CompilerTuneArgs),
+    /// Print persisted self-tuning profiles.
+    Profiles(CompilerProfilesArgs),
+    /// Compare static, dynamic, and self-tuning budgets.
+    #[command(name = "ab-bench")]
+    AbBench(CompilerAbBenchArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct CompilerTuneArgs {
+    #[arg(long, default_value_t = 1500)]
+    pub(crate) baseline_budget: u64,
+
+    #[arg(long, default_value_t = 3)]
+    pub(crate) min_samples: usize,
+
+    #[arg(long, default_value_t = 0.90)]
+    pub(crate) min_quality_score: f64,
+
+    #[arg(long, default_value_t = 1.10)]
+    pub(crate) tuning_headroom: f64,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct CompilerProfilesArgs {
+    #[arg(long, default_value_t = false)]
+    pub(crate) accepted_only: bool,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct CompilerAbBenchArgs {
+    #[arg(long, default_value_t = 4000)]
+    pub(crate) static_budget: u64,
+
+    #[arg(long, default_value_t = 1500)]
+    pub(crate) dynamic_budget: u64,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Clone, Args)]

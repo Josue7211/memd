@@ -1020,6 +1020,9 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::Telemetry(args) => {
             run_telemetry_command(args)?;
         }
+        Commands::Compiler(args) => {
+            run_compiler_command(args)?;
+        }
         Commands::Autoresearch(args) => {
             run_autoresearch_command(args, &base_url).await?;
         }

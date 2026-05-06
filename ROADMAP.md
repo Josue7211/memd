@@ -3,27 +3,27 @@
 `ROADMAP.md` is the single roadmap source of truth for this repo.
 
 <!-- ROADMAP_STATE
-truth_date: 2026-05-05
-version: v14
+truth_date: 2026-05-06
+version: v15
 version_status: code_complete_dogfood_pending
-current_milestone: V14
+current_milestone: V15
 milestone_status: code_complete_dogfood_pending
-current_phase: V14-dogfood
+current_phase: V15-dogfood
 phase_status: pending_real_user_window
-next_milestone: V14
+next_milestone: V15
 post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 → V14 → V15 → V16 → V17 → V18 → V19 → V20 (see V4–V20 block below; composite **8.50 at V13** = 0.1.0 release gate per docs/verification/0.1.0-CONTRACT.md; composite **10.00 at V20** = 1.0.0 release gate per docs/verification/1.0.0-CONTRACT.md; V10 production-floor, V13 ships 0.1.0, V14-V20 ceiling push pulls every axis to 10/10, V20 ships 1.0.0; 0.1.0 gate = composite ≥8.0 AND every axis ≥7; 1.0.0 gate = composite =10.00 AND every axis =10 per docs/theory/MEMD-SOTA-THEORY.md; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
 v4_status: complete
 v4_closed: 2026-05-02
 v4_composite: 3.60
 v4_deviation: docs/verification/milestones/MILESTONE-v4-deviation-2026-05-02.md
-next_step: Run V14 real-user telemetry dogfood window (>=30 days, >=3 users) before final close; V14 substrate/proof harness passed in docs/verification/v14-proof-runs/2026-05-05-telemetry-suite.md.
-active_blockers: ["v14_real_user_30_day_dogfood_pending", "external_stranger_review_artifacts_pending_for_public_review_gate"]
+next_step: Run V14 real-user telemetry dogfood window (>=30 days, >=3 users) and V15 self-tuning dogfood window (>=60 days, >=3 harness-user pairs) before final close; V15 substrate/proof harness passed in docs/verification/v15-proof-runs/2026-05-06-self-tuning-suite.md.
+active_blockers: ["v14_real_user_30_day_dogfood_pending", "v15_real_user_60_day_tuning_pending", "external_stranger_review_artifacts_pending_for_public_review_gate"]
 v3_tail_deferred: []
 v3_tail_followups: ["canonical rerun: LongMemEval/LoCoMo/ConvoMem via codex-lb route (OPENAI_BASE_URL=http://127.0.0.1:2455/v1 OPENAI_API_KEY=$CODEX_LB_API_KEY)"]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
 note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. A3 Continuity Foundation closed 2026-04-17: Part 1 (file-interaction ledger + prime-reads + PreCompact non-blocking + PreEdit prime), Part 2 (hooks consolidation under .memd/hooks, contract v0.2, write-path hook gate, preference replay), Part 3 (file_layout v0.3 guarantee, backlog/phases regroup under v1/v2/v3, LATEST.md symlink fix, MANIFEST.json + `memd hooks doctor` green/red, lifecycle-probe NDJSON log, cross-harness pre-send validator pure function + 4 tests). B3 Part 2 plumbing landed 2026-04-18 (optional RAG fan-out, dense candidate injection, healthz rag state, dual-mode bench rows, turn diagnostics opt-in). 2026-04-20: 500-Q intrinsic product-path rerun on the real dense blend lands `session_recall_any@5 = 0.936` — gate 0.92 passed. The prior 0.828/0.882 numbers were lexical-only fallback because the bench search path left `source_agent=None` and `MemoryVisibility::Private` denied every item; one-line fix at public_benchmark.rs:1770 unblocked dense. V3 phase order: A3 ✓ → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty.
-last_handoff: docs/handoff/2026-05-05-v13-closed-v14-next.md
+last_handoff: docs/handoff/2026-05-06-v15-code-complete-dogfood-next.md
 bench_cadence: every_two_phases  # test every TWO phases per user directive 2026-04-21
 v5_a5_status: real_backend_locked
 v5_b5_status: real_backend_locked
@@ -59,23 +59,26 @@ v13_composite: 8.50
 v14_status: code_complete_dogfood_pending
 v14_code_complete: 2026-05-05
 v14_composite_provisional: 8.60
+v15_status: code_complete_dogfood_pending
+v15_code_complete: 2026-05-06
+v15_composite_provisional: 8.70
 -->
 
 ## Status Snapshot
 
-- truth date: `2026-05-05`
-- current version: `v14` (telemetry substrate code complete; real-user 30-day dogfood gate pending)
+- truth date: `2026-05-06`
+- current version: `v15` (self-tuning compiler substrate code complete; real-user 60-day dogfood gate pending)
 - version status: `code_complete_dogfood_pending`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
-- current milestone: `V14` - telemetry foundation code complete.
-- current phase: `V14-dogfood` - collect real-user telemetry window evidence.
+- current milestone: `V15` - self-tuning compiler code complete.
+- current phase: `V15-dogfood` - collect real-user self-tuning window evidence.
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
-- next step: run V14 real-user telemetry dogfood window (>=30 days, >=3 users); collect external stranger-review artifacts if public-review gate is required.
+- next step: run V14 real-user telemetry dogfood window (>=30 days, >=3 users) and V15 self-tuning dogfood window (>=60 days, >=3 harness-user pairs); collect external stranger-review artifacts if public-review gate is required.
 - V3 tail-deferred: `K3 Proxy Unblock + Canonical Rerun` — provision `gpt-5.4` on the openclaw LiteLLM proxy (or OpenAI-direct fallback capped at `MEMD_BENCH_JUDGE_BUDGET_USD=50`), then rerun LongMemEval / LoCoMo / ConvoMem canonical primaries. Success gate: flip those three rows from `replay-pending` to `verified` (if ≥0.70) or `recorded-unpinned` (if <0.70). MemBench separately needs a focused look at event-reasoning + role-tracking topics (0.000 / 0.100 per-topic in J3). Does NOT block V4 — V4 is runtime/dogfood work, not bench gates.
 - M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with D3).
 - V3 targets (floor, intrinsic/sidecar-OFF): LME ≥0.70, LoCoMo ≥0.70, MemBench ≥0.70, ConvoMem ≥0.70 — 70% is where competition sits, that is bare minimum. Stretch (intrinsic): LME ≥0.92, LoCoMo ≥0.75, MemBench ≥0.75, ConvoMem ≥0.75. Accelerated (sidecar ON) is bonus, not gate. See `## V3` block below.
@@ -83,7 +86,7 @@ v14_composite_provisional: 8.60
 - latest B3 intrinsic product-path rerun (2026-04-20, dense blend): LongMemEval 500Q `session_recall_any@5 = 0.936`, `@10 = 0.976`, `@30 = 1.000`, `@50 = 1.000`, duration `7916435 ms` (~132 min), `turn_diagnostics=false`. Gate 0.92 cleared. Weak type: single-session-preference 0.600 (30Qs).
 - prior M1 benchmark: LongMemEval 90% full-eval (50 items, LLM-graded, `session_recall_any@10`=96%). Retrieval-only baseline (500 items) was 82.8%. These are different metrics — do not compare directly.
 - M3 benchmark: LME 82.8% (gate 80%), LoCoMo 41.5% (gate 41.4%), MemBench 34.6% (gate 30%), ConvoMem 0.0% — zero regression
-- 10-STAR composite: 8.50/10 closed; V14 provisional proof marker 8.60/10 pending real-user dogfood close.
+- 10-STAR composite: 8.50/10 closed; V14 provisional proof marker 8.60/10 and V15 provisional proof marker 8.70/10 pending real-user dogfood close.
 
 ## Blockers
 

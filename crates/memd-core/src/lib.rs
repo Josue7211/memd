@@ -14,6 +14,7 @@ pub mod lifecycle_probe;
 pub mod preference;
 pub mod routine;
 pub mod runtime;
+pub mod self_tuning;
 pub mod skill_mirror;
 pub mod telemetry;
 pub mod v11;

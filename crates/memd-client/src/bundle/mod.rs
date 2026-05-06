@@ -17,6 +17,7 @@ mod memory_surface;
 mod models;
 mod profile_runtime;
 mod report_runtime;
+mod self_tuning_runtime;
 mod state_runtime;
 mod status_runtime;
 mod telemetry_runtime;
@@ -44,6 +45,8 @@ pub(crate) use models::*;
 pub(crate) use profile_runtime::*;
 #[allow(unused_imports)]
 pub(crate) use report_runtime::*;
+#[allow(unused_imports)]
+pub(crate) use self_tuning_runtime::*;
 #[allow(unused_imports)]
 pub(crate) use state_runtime::*;
 #[allow(unused_imports)]
