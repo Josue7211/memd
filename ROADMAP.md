@@ -8,22 +8,22 @@ version: v20
 version_status: code_complete_dogfood_pending
 current_milestone: V20
 milestone_status: code_complete_dogfood_pending
-current_phase: V20-external-replay-dogfood
-phase_status: pending_real_user_and_third_party_evidence
+current_phase: V20-evidence-ops
+phase_status: evidence_clock_opened_real_user_and_third_party_evidence_pending
 next_milestone: V20
 post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 → V14 → V15 → V16 → V17 → V18 → V19 → V20 (see V4–V20 block below; composite **8.50 at V13** = 0.1.0 release gate per docs/verification/0.1.0-CONTRACT.md; composite **10.00 at V20** = 1.0.0 release gate per docs/verification/1.0.0-CONTRACT.md; V10 production-floor, V13 ships 0.1.0, V14-V20 ceiling push pulls every axis to 10/10, V20 ships 1.0.0; 0.1.0 gate = composite ≥8.0 AND every axis ≥7; 1.0.0 gate = composite =10.00 AND every axis =10 per docs/theory/MEMD-SOTA-THEORY.md; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
 v4_status: complete
 v4_closed: 2026-05-02
 v4_composite: 3.60
 v4_deviation: docs/verification/milestones/MILESTONE-v4-deviation-2026-05-02.md
-next_step: Collect real dogfood/external replay gates before final 1.0.0 close: V14 >=30-day telemetry, V15 >=60-day self-tuning, V16 >=90-day 3-device sync, V17 >=30-day marketplace, V18 >=3-month/50-chain correction graph, V19 external auditor smoke, V20 third-party replay. V16-V20 proof substrate passed 2026-05-06; do not tag 1.0.0 until real gates land.
+next_step: Evidence clock opened 2026-05-06. Collect real dogfood/external replay gates before final 1.0.0 close: V14 earliest 2026-06-05, V15 earliest 2026-07-05, V16 earliest 2026-08-04, V17 earliest 2026-06-05, V18 earliest 2026-08-06, V19 external auditor smoke pending assignee, V20 third-party replay pending reviewer. Do not tag 1.0.0 until real gates land.
 active_blockers: ["v14_real_user_30_day_dogfood_pending", "v15_real_user_60_day_tuning_pending", "v16_real_90_day_3_device_sync_pending", "v17_real_30_day_marketplace_pending", "v18_real_3_month_50_chain_pending", "v19_external_auditor_smoke_pending", "v20_third_party_replay_pending", "external_stranger_review_artifacts_pending_for_public_review_gate"]
 v3_tail_deferred: []
 v3_tail_followups: ["canonical rerun: LongMemEval/LoCoMo/ConvoMem via codex-lb route (OPENAI_BASE_URL=http://127.0.0.1:2455/v1 OPENAI_API_KEY=$CODEX_LB_API_KEY)"]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
 note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. A3 Continuity Foundation closed 2026-04-17: Part 1 (file-interaction ledger + prime-reads + PreCompact non-blocking + PreEdit prime), Part 2 (hooks consolidation under .memd/hooks, contract v0.2, write-path hook gate, preference replay), Part 3 (file_layout v0.3 guarantee, backlog/phases regroup under v1/v2/v3, LATEST.md symlink fix, MANIFEST.json + `memd hooks doctor` green/red, lifecycle-probe NDJSON log, cross-harness pre-send validator pure function + 4 tests). B3 Part 2 plumbing landed 2026-04-18 (optional RAG fan-out, dense candidate injection, healthz rag state, dual-mode bench rows, turn diagnostics opt-in). 2026-04-20: 500-Q intrinsic product-path rerun on the real dense blend lands `session_recall_any@5 = 0.936` — gate 0.92 passed. The prior 0.828/0.882 numbers were lexical-only fallback because the bench search path left `source_agent=None` and `MemoryVisibility::Private` denied every item; one-line fix at public_benchmark.rs:1770 unblocked dense. V3 phase order: A3 ✓ → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty.
-last_handoff: docs/handoff/2026-05-06-v20-code-complete-real-gates-pending.md
+last_handoff: docs/handoff/2026-05-06-v20-evidence-ops-started.md
 bench_cadence: every_two_phases  # test every TWO phases per user directive 2026-04-21
 v5_a5_status: real_backend_locked
 v5_b5_status: real_backend_locked
@@ -77,6 +77,8 @@ v19_composite_provisional: 9.75
 v20_status: code_complete_external_replay_and_dogfood_pending
 v20_code_complete: 2026-05-06
 v20_composite_provisional: 10.00
+v20_evidence_ops_started: 2026-05-06
+v20_earliest_honest_1_0_0_close: 2026-08-06
 -->
 
 ## Status Snapshot
@@ -87,13 +89,13 @@ v20_composite_provisional: 10.00
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
 - current milestone: `V20` - 1.0.0 ceiling substrate code complete.
-- current phase: `V20-external-replay-dogfood` - collect real-user dogfood and third-party replay evidence before final close.
+- current phase: `V20-evidence-ops` - real-user dogfood and third-party replay clock opened 2026-05-06; collect evidence before final close.
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
-- next step: collect real dogfood/external replay gates for V14-V20; do not cut `1.0.0` until those elapsed-window and third-party artifacts exist.
+- next step: execute evidence ops from `docs/verification/release-1-0-0/2026-05-06-evidence-ops-start.md`; first weekly review note due 2026-05-13; do not cut `1.0.0` until elapsed-window and third-party artifacts exist.
 - V3 tail-deferred: `K3 Proxy Unblock + Canonical Rerun` — provision `gpt-5.4` on the openclaw LiteLLM proxy (or OpenAI-direct fallback capped at `MEMD_BENCH_JUDGE_BUDGET_USD=50`), then rerun LongMemEval / LoCoMo / ConvoMem canonical primaries. Success gate: flip those three rows from `replay-pending` to `verified` (if ≥0.70) or `recorded-unpinned` (if <0.70). MemBench separately needs a focused look at event-reasoning + role-tracking topics (0.000 / 0.100 per-topic in J3). Does NOT block V4 — V4 is runtime/dogfood work, not bench gates.
 - M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with D3).
 - V3 targets (floor, intrinsic/sidecar-OFF): LME ≥0.70, LoCoMo ≥0.70, MemBench ≥0.70, ConvoMem ≥0.70 — 70% is where competition sits, that is bare minimum. Stretch (intrinsic): LME ≥0.92, LoCoMo ≥0.75, MemBench ≥0.75, ConvoMem ≥0.75. Accelerated (sidecar ON) is bonus, not gate. See `## V3` block below.

@@ -1,0 +1,8 @@
+{"event":"evidence_ops_started","date":"2026-05-06","status":"clock_opened","code_scope":"freeze_substrate_fix_only_evidence_blockers"}
+{"gate":"v14_telemetry","start":"2026-05-06","earliest_close":"2026-06-05","required":{ "days":30, "users":3 }, "status":"in_progress"}
+{"gate":"v15_self_tuning","start":"2026-05-06","earliest_close":"2026-07-05","required":{ "days":60, "harness_user_pairs":3 }, "status":"in_progress"}
+{"gate":"v16_sync","start":"2026-05-06","earliest_close":"2026-08-04","required":{ "days":90, "devices":3 }, "status":"in_progress"}
+{"gate":"v17_marketplace","start":"2026-05-06","earliest_close":"2026-06-05","required":{ "days":30, "cross_user_installs":5 }, "status":"in_progress"}
+{"gate":"v18_correction_graph","start":"2026-05-06","earliest_close":"2026-08-06","required":{ "months":3, "multi_hop_chains":50 }, "status":"in_progress"}
+{"gate":"v19_external_auditor","start":"2026-05-06","earliest_close":null,"required":{ "auditor_smoke_artifacts":true }, "status":"needs_assignee"}
+{"gate":"v20_third_party_replay","start":"2026-05-06","earliest_close":null,"required":{ "independent_replay":true }, "status":"needs_reviewer"}
