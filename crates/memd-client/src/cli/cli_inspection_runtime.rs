@@ -583,6 +583,279 @@ fn render_procedures_match(response: &memd_schema::ProcedureMatchResponse) -> St
     out
 }
 
+pub(crate) fn run_routines_command(args: super::args::RoutinesArgs) -> anyhow::Result<()> {
+    use super::args::RoutinesCommand;
+    use memd_core::routine::library::{RoutineExport, RoutineLibrary, RoutineStatus};
+
+    match args.command {
+        RoutinesCommand::Browse(args) => {
+            let library = read_routine_library(&args.output)?;
+            let status = args
+                .status
+                .as_deref()
+                .map(parse_routine_status)
+                .transpose()?;
+            let routines = if matches!(args.status.as_deref(), Some("all")) {
+                library.browse_all()
+            } else {
+                library.browse(status)
+            };
+            if args.json {
+                print_json(&serde_json::json!({ "routines": routines }))?;
+            } else {
+                println!("{}", render_routines(&routines));
+            }
+        }
+        RoutinesCommand::Edit(args) => {
+            require_routine_mutation_flag()?;
+            let mut library = read_routine_library(&args.output)?;
+            let id = args.id.parse().context("parse routine id")?;
+            let steps = read_steps_file(&args.steps_file)?;
+            let routine = library.edit(id, args.name, args.summary, steps, args.updated_by)?;
+            write_routine_library(&args.output, &library)?;
+            if args.json {
+                print_json(&serde_json::json!({ "routine": routine }))?;
+            } else {
+                println!(
+                    "Edited routine: {} [{}]",
+                    routine.name,
+                    &routine.id.to_string()[..8]
+                );
+            }
+        }
+        RoutinesCommand::Merge(args) => {
+            require_routine_mutation_flag()?;
+            let mut library = read_routine_library(&args.output)?;
+            let ids = parse_routine_ids(&args.ids)?;
+            let routine = library.merge(&ids, args.name, args.summary, args.updated_by)?;
+            write_routine_library(&args.output, &library)?;
+            if args.json {
+                print_json(&serde_json::json!({ "routine": routine, "source_ids": ids }))?;
+            } else {
+                println!(
+                    "Merged routine: {} [{}]",
+                    routine.name,
+                    &routine.id.to_string()[..8]
+                );
+            }
+        }
+        RoutinesCommand::Compose(args) => {
+            require_routine_mutation_flag()?;
+            let mut library = read_routine_library(&args.output)?;
+            let left = args.left.parse().context("parse left routine id")?;
+            let right = args.right.parse().context("parse right routine id")?;
+            let routine = library.compose(left, right, args.name, args.summary, args.updated_by)?;
+            write_routine_library(&args.output, &library)?;
+            if args.json {
+                print_json(&serde_json::json!({ "routine": routine }))?;
+            } else {
+                println!(
+                    "Composed routine: {} [{}]",
+                    routine.name,
+                    &routine.id.to_string()[..8]
+                );
+            }
+        }
+        RoutinesCommand::Deprecate(args) => {
+            require_routine_mutation_flag()?;
+            let mut library = read_routine_library(&args.output)?;
+            let id = args.id.parse().context("parse routine id")?;
+            let routine = library.deprecate(id, args.reason, args.updated_by)?;
+            write_routine_library(&args.output, &library)?;
+            if args.json {
+                print_json(&serde_json::json!({ "routine": routine }))?;
+            } else {
+                println!(
+                    "Deprecated routine: {} [{}]",
+                    routine.name,
+                    &routine.id.to_string()[..8]
+                );
+            }
+        }
+        RoutinesCommand::Export(args) => {
+            let library = read_routine_library(&args.output)?;
+            let export = library.export_workspace()?;
+            if let Some(parent) = args.file.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("create {}", parent.display()))?;
+            }
+            fs::write(&args.file, serde_json::to_string_pretty(&export)?)
+                .with_context(|| format!("write {}", args.file.display()))?;
+            println!("Exported routines: {}", args.file.display());
+        }
+        RoutinesCommand::Import(args) => {
+            require_routine_mutation_flag()?;
+            let raw = fs::read_to_string(&args.from)
+                .with_context(|| format!("read {}", args.from.display()))?;
+            let export: RoutineExport =
+                serde_json::from_str(&raw).context("parse routine export")?;
+            let library = RoutineLibrary::import_workspace(&export)?;
+            write_routine_library(&args.output, &library)?;
+            println!("Imported routines: {}", library.routines.len());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn run_audit_command(args: super::args::AuditArgs) -> anyhow::Result<()> {
+    use super::args::AuditCommand;
+    use memd_core::audit::AuditLog;
+
+    match args.command {
+        AuditCommand::Browse(args) => {
+            let log = read_audit_log(&args.export)?;
+            let entries = if let Some(since) = args.since {
+                let since = chrono::DateTime::parse_from_rfc3339(&since)
+                    .context("parse --since as RFC3339")?
+                    .with_timezone(&chrono::Utc);
+                log.browse_since(since)
+            } else {
+                log.entries
+            };
+            if args.json {
+                print_json(&serde_json::json!({ "entries": entries }))?;
+            } else {
+                println!("{}", render_audit_entries(&entries));
+            }
+        }
+        AuditCommand::Explain(args) => {
+            let log = read_audit_log(&args.export)?;
+            let entries = log.explain(&args.item_id);
+            if args.json {
+                print_json(&serde_json::json!({ "entries": entries }))?;
+            } else {
+                println!("{}", render_audit_entries(&entries));
+            }
+        }
+        AuditCommand::Verify(args) => {
+            let log = read_audit_log(&args.export)?;
+            let verified = log.verify_all()?;
+            if args.json {
+                print_json(
+                    &serde_json::json!({ "verified": verified, "entries": log.entries.len() }),
+                )?;
+            } else if verified {
+                println!("Audit verified: {} entries", log.entries.len());
+            } else {
+                anyhow::bail!("audit verification failed");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn read_routine_library(
+    output: &Path,
+) -> anyhow::Result<memd_core::routine::library::RoutineLibrary> {
+    let path = output.join("routines.json");
+    if !path.exists() {
+        return Ok(memd_core::routine::library::RoutineLibrary::new(
+            "default-workspace",
+        ));
+    }
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))
+}
+
+fn write_routine_library(
+    output: &Path,
+    library: &memd_core::routine::library::RoutineLibrary,
+) -> anyhow::Result<()> {
+    fs::create_dir_all(output).with_context(|| format!("create {}", output.display()))?;
+    fs::write(
+        output.join("routines.json"),
+        serde_json::to_string_pretty(library)?,
+    )
+    .with_context(|| format!("write {}", output.join("routines.json").display()))
+}
+
+fn require_routine_mutation_flag() -> anyhow::Result<()> {
+    let enabled = std::env::var("MEMD_A12_ROUTINE_LIB_UI")
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false);
+    if !enabled {
+        anyhow::bail!("routine library UI is behind MEMD_A12_ROUTINE_LIB_UI=1");
+    }
+    Ok(())
+}
+
+fn read_steps_file(path: &Path) -> anyhow::Result<Vec<String>> {
+    let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let steps = raw
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    Ok(steps)
+}
+
+fn parse_routine_ids(values: &[String]) -> anyhow::Result<Vec<uuid::Uuid>> {
+    values
+        .iter()
+        .map(|value| value.parse().context("parse routine id"))
+        .collect()
+}
+
+fn parse_routine_status(value: &str) -> anyhow::Result<memd_core::routine::library::RoutineStatus> {
+    use memd_core::routine::library::RoutineStatus;
+    match value.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+        "candidate" => Ok(RoutineStatus::Candidate),
+        "active" => Ok(RoutineStatus::Active),
+        "deprecated" => Ok(RoutineStatus::Deprecated),
+        "merged" => Ok(RoutineStatus::Merged),
+        "all" => Ok(RoutineStatus::Active),
+        other => anyhow::bail!("invalid routine status '{other}'"),
+    }
+}
+
+fn render_routines(routines: &[memd_core::routine::library::RoutineRecord]) -> String {
+    let mut out = String::from("# Routines\n\n");
+    if routines.is_empty() {
+        out.push_str("No routines found.\n");
+        return out;
+    }
+    for routine in routines {
+        out.push_str(&format!(
+            "- **{}** [{}] ({:?})\n",
+            routine.name,
+            &routine.id.to_string()[..8],
+            routine.status
+        ));
+        out.push_str(&format!("  summary: {}\n", routine.summary));
+        for (idx, step) in routine.steps.iter().enumerate() {
+            out.push_str(&format!("  {}. {}\n", idx + 1, step));
+        }
+    }
+    out
+}
+
+fn read_audit_log(path: &Path) -> anyhow::Result<memd_core::audit::AuditLog> {
+    let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    memd_core::audit::AuditLog::import_ndjson(&raw)
+}
+
+fn render_audit_entries(entries: &[memd_core::audit::SignedAuditEntry]) -> String {
+    let mut out = String::from("# Audit\n\n");
+    if entries.is_empty() {
+        out.push_str("No audit entries found.\n");
+        return out;
+    }
+    for entry in entries {
+        out.push_str(&format!(
+            "- `{}` {} {} {}\n",
+            entry.timestamp, entry.actor, entry.action, entry.item_id
+        ));
+        out.push_str(&format!("  context: {}\n", entry.context));
+    }
+    out
+}
+
 fn render_atlas_regions(response: &memd_schema::AtlasRegionsResponse) -> String {
     let mut out = String::from("# Atlas Regions\n\n");
     if response.regions.is_empty() {

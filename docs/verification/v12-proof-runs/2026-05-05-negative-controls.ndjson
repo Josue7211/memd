@@ -1,0 +1,4 @@
+{"control": "skip_a12_routine_library", "expected_failure": true, "fired": true, "generated_at": "2026-05-06T00:09:52.233394+00:00"}
+{"control": "inject_h12_bad_signature", "expected_failure": true, "fired": true, "generated_at": "2026-05-06T00:09:52.233394+00:00"}
+{"control": "drop_e12_mcp_connection", "expected_failure": true, "fired": true, "generated_at": "2026-05-06T00:09:52.233394+00:00"}
+{"control": "corrupt_d12_export_file", "expected_failure": true, "fired": true, "generated_at": "2026-05-06T00:09:52.233394+00:00"}

@@ -1,0 +1,4 @@
+{"harness":"claude-code","action":"write_correction","value":"ulid"}
+{"harness":"codex","action":"read_primary_key","value":"ulid"}
+{"harness":"codex","action":"write_correction","value":"uuid"}
+{"harness":"claude-code","action":"read_primary_key","value":"uuid"}

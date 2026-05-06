@@ -89,6 +89,8 @@ pub(crate) enum Commands {
     Timeline(TimelineArgs),
     Atlas(AtlasArgs),
     Procedure(ProcedureArgs),
+    Routines(RoutinesArgs),
+    Audit(AuditArgs),
     Events(EventsArgs),
     Consolidate(ConsolidateArgs),
     /// E3-D5: scan existing memory vectors for near-duplicates (cosine).
@@ -1082,6 +1084,189 @@ pub(crate) struct ProcedureDetectArgs {
     pub(crate) max_candidates: Option<usize>,
 
     #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum RoutinesCommand {
+    /// Browse the curated routine library.
+    Browse(RoutinesBrowseArgs),
+    /// Edit a routine into a new active revision.
+    Edit(RoutinesEditArgs),
+    /// Merge duplicate routines into one active routine.
+    Merge(RoutinesMergeArgs),
+    /// Compose two routines into one active routine.
+    Compose(RoutinesComposeArgs),
+    /// Deprecate a routine.
+    Deprecate(RoutinesDeprecateArgs),
+    /// Export a workspace routine library.
+    Export(RoutinesExportArgs),
+    /// Import a workspace routine library.
+    Import(RoutinesImportArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutinesArgs {
+    #[command(subcommand)]
+    pub(crate) command: RoutinesCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutinesBrowseArgs {
+    #[arg(long)]
+    pub(crate) status: Option<String>,
+
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutinesEditArgs {
+    pub(crate) id: String,
+
+    #[arg(long)]
+    pub(crate) name: String,
+
+    #[arg(long)]
+    pub(crate) summary: String,
+
+    #[arg(long = "steps-file")]
+    pub(crate) steps_file: PathBuf,
+
+    #[arg(long, default_value = "codex")]
+    pub(crate) updated_by: String,
+
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutinesMergeArgs {
+    pub(crate) ids: Vec<String>,
+
+    #[arg(long)]
+    pub(crate) name: String,
+
+    #[arg(long)]
+    pub(crate) summary: String,
+
+    #[arg(long, default_value = "codex")]
+    pub(crate) updated_by: String,
+
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutinesComposeArgs {
+    pub(crate) left: String,
+    pub(crate) right: String,
+
+    #[arg(long)]
+    pub(crate) name: String,
+
+    #[arg(long)]
+    pub(crate) summary: String,
+
+    #[arg(long, default_value = "codex")]
+    pub(crate) updated_by: String,
+
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutinesDeprecateArgs {
+    pub(crate) id: String,
+
+    #[arg(long)]
+    pub(crate) reason: String,
+
+    #[arg(long, default_value = "codex")]
+    pub(crate) updated_by: String,
+
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutinesExportArgs {
+    #[arg(long)]
+    pub(crate) file: PathBuf,
+
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutinesImportArgs {
+    #[arg(long = "from")]
+    pub(crate) from: PathBuf,
+
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum AuditCommand {
+    /// Browse signed audit entries from an export.
+    Browse(AuditBrowseArgs),
+    /// Explain an item chain from an export.
+    Explain(AuditExplainArgs),
+    /// Verify a signed audit export.
+    Verify(AuditVerifyArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AuditArgs {
+    #[command(subcommand)]
+    pub(crate) command: AuditCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AuditBrowseArgs {
+    #[arg(long)]
+    pub(crate) export: PathBuf,
+
+    #[arg(long)]
+    pub(crate) since: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AuditExplainArgs {
+    pub(crate) item_id: String,
+
+    #[arg(long)]
+    pub(crate) export: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AuditVerifyArgs {
+    #[arg(long)]
+    pub(crate) export: PathBuf,
+
+    #[arg(long, default_value_t = false)]
     pub(crate) json: bool,
 }
 

@@ -1,9 +1,9 @@
 ---
 version: v12
 kind: integration-plan
-status: ready-to-plan
+status: closed
 opened: 2026-04-22
-revised: 2026-04-22
+revised: 2026-05-05
 scope: A12..J12 (outline only — implementation phase plans follow)
 depends_on: [../../verification/0.1.0-CONTRACT.md, ../../verification/0.1.0-AXIS-OWNERSHIP.md, ../../verification/milestones/MILESTONE-v12.md, ../../theory/MEMD-SOTA-THEORY.md]
 ---
@@ -306,4 +306,6 @@ All ten phase exit criteria met AND G12 exit criteria met AND:
 
 ## 13. Changelog
 
+- 2026-05-05 closed. A12-J12 landed through core routine, interop, and audit
+  primitives plus G12 proof. Composite regenerated to 7.75; V13 is next.
 - 2026-04-22 opened. V12 Interop SOTA integration plan — ten-phase scope (A12–J12 outline only); dual-harness scenario with three cuts (routine discovery + cross-ws export + simultaneous multi-harness); protocol coverage (MCP + ACP TBD + custom typed-channel); shared fixtures for routines + protocols + audit; seven-flag graduation calendar (49-day spillover); bench regression watch; exit criteria including dual-harness proof + universal-protocol parity; questions for executor.

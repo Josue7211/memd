@@ -1,0 +1,1 @@
+{"fixture":"canonical-audit-log","phase":"H12","expectation":"generated G12 audit entries verify with ed25519 signatures"}

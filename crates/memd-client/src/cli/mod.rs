@@ -941,6 +941,12 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::Procedure(args) => {
             run_procedure_command(&client, args).await?;
         }
+        Commands::Routines(args) => {
+            run_routines_command(args)?;
+        }
+        Commands::Audit(args) => {
+            run_audit_command(args)?;
+        }
         Commands::Events(args) => {
             run_events_command(args)?;
         }

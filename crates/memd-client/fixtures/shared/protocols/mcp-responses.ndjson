@@ -1,0 +1,2 @@
+{"protocol":"mcp","harness":"claude-code","workspace_id":"ws-1","content":"primary key is uuid","fidelity":1.0}
+{"protocol":"typed_channel","harness":"codex","workspace_id":"ws-1","content":"primary key is uuid","fidelity":1.0}

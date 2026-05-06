@@ -1,12 +1,13 @@
 ---
 milestone: v12
 name: Interop SOTA
-status: planned
+status: closed
 opened: 2026-04-22
-revised: 2026-04-22
+revised: 2026-05-05
 depends_on: [v11]
 composite_pre: 6.95
 composite_target: 7.75
+composite_post: 7.75
 axes_lifted: [procedural_reuse, cross_harness, trust_provenance]
 axes_integrated_with: [session_continuity, correction_retention, raw_retrieval, token_efficiency]
 ---
@@ -111,6 +112,31 @@ G12 proof harness + axis assertions passing + scorecard regeneration to 7.75 + z
 
 If any axis regresses on G12 regeneration, 0.1.0 does not tag per contract. Recovery phases are named `v12-recovery-<axis>-<date>`.
 
+## Close Evidence
+
+V12 closed on 2026-05-05 with composite `7.75/10`.
+
+- G12 proof NDJSON:
+  `docs/verification/v12-proof-runs/2026-05-05-interop-sota-suite.ndjson`
+- G12 proof summary:
+  `docs/verification/v12-proof-runs/2026-05-05-interop-sota-suite.md`
+- Negative controls:
+  `docs/verification/v12-proof-runs/2026-05-05-negative-controls.ndjson`
+- Axis evidence:
+  `docs/verification/v12-proof-runs/2026-05-05-axis-evidence/`
+- Verification command:
+  `scripts/verify/v12-interop-sota-suite.sh`
+
+Close metrics:
+
+```json
+{"scenario_count":7,"pass_count":7,"fail_count":0}
+{"negative_controls_fired":4}
+{"procedural_reuse":8,"cross_harness":8,"trust_provenance":8}
+{"session_continuity":8,"correction_retention":7,"raw_retrieval":8,"token_efficiency":7}
+{"composite":7.75,"parity_delta":0.0,"signed_audit_entries":4,"tamper_detected":true}
+```
+
 ## Flag-graduation calendar
 
 Feature-flag flip ordering (each flip = its own commit, each after 7-day clean window):
@@ -135,4 +161,6 @@ V12 focuses on protocol + audit, not retrieval tuning. However, cross-harness sw
 
 ## Changelog
 
+- 2026-05-05 closed. V12 Interop SOTA gate passed. PR, CH, and TP lift to 8/10;
+  composite regenerated to 7.75. V13 is next.
 - 2026-04-22 opened. V12 Interop SOTA milestone spec — procedural_reuse +2, cross_harness +2, trust_provenance +2; composite 6.95 → 7.75; axes_lifted and axes_integrated_with explicit per 0.1.0-AXIS-OWNERSHIP.md; per-axis harness assertions table added; non-goals list confirms SC/CR/RR/TE are integration-only; flag-graduation calendar (7 flags, 49-day spillover); public bench watch (MCP latency, audit overhead, full sweep).
