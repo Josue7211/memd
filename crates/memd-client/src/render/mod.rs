@@ -675,6 +675,33 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
             output.push_str(&format!(" missing={missing}"));
         }
     }
+    if !setup_ready {
+        let missing_harnesses = status
+            .get("harness_bridge")
+            .and_then(|value| value.get("missing_harnesses"))
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            })
+            .unwrap_or_default();
+        if !missing_harnesses.is_empty() {
+            output.push_str(&format!(" missing_harnesses={missing_harnesses}"));
+        }
+        let next = if status
+            .get("config")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            "memd doctor --output .memd --repair --summary"
+        } else {
+            "memd setup --agent auto --summary"
+        };
+        output.push_str(&format!(" setup_next=\"{}\"", next));
+    }
 
     output
 }

@@ -1,1 +1,1 @@
-2026-05-06-security-sweep-complete-v20-evidence-ops-next.md
+2026-05-06-dogfood-installer-m0-m4-ready.md

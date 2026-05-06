@@ -149,6 +149,459 @@ pub(crate) async fn run_bundle_config_command(
     Ok(())
 }
 
+pub(crate) fn run_device_command(args: &DeviceArgs) -> anyhow::Result<()> {
+    match &args.command {
+        DeviceCommand::Add(add_args) => run_device_add_command(add_args),
+    }
+}
+
+pub(crate) fn run_dogfood_command(args: &DogfoodArgs) -> anyhow::Result<()> {
+    match &args.command {
+        DogfoodCommand::Enroll(enroll_args) => run_dogfood_enroll_command(enroll_args),
+        DogfoodCommand::Status(status_args) => run_dogfood_status_command(status_args),
+    }
+}
+
+fn run_device_add_command(args: &DeviceAddArgs) -> anyhow::Result<()> {
+    let bundle_root = resolve_setup_bundle_root(args.output.as_deref())?;
+    ensure_bundle_exists_for_dogfood(&bundle_root)?;
+    let user = args.user.clone().unwrap_or_else(default_local_user);
+    let record = register_device_record(&bundle_root, args.name.as_deref(), &user)?;
+    if args.json {
+        print_json(&record)?;
+    } else {
+        println!(
+            "device add: id={} name={} user={} bundle={} evidence={}",
+            record
+                .get("device_id")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("unknown"),
+            record
+                .get("name")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("unknown"),
+            record
+                .get("user")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("unknown"),
+            bundle_root.display(),
+            record
+                .get("evidence_path")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("bundle-only")
+        );
+    }
+    Ok(())
+}
+
+fn run_dogfood_enroll_command(args: &DogfoodEnrollArgs) -> anyhow::Result<()> {
+    if !args.consent && std::env::var("MEMD_DOGFOOD_CONSENT").ok().as_deref() != Some("1") {
+        anyhow::bail!("dogfood enroll requires --consent so real-user evidence is explicit");
+    }
+
+    let bundle_root = resolve_setup_bundle_root(args.output.as_deref())?;
+    ensure_bundle_exists_for_dogfood(&bundle_root)?;
+    let user_id = args
+        .user_id
+        .clone()
+        .unwrap_or_else(|| format!("user-{}", short_uuid()));
+    let device_id = match &args.device_id {
+        Some(id) => id.clone(),
+        None => latest_device_id(&bundle_root)?.unwrap_or_else(|| {
+            register_device_record(&bundle_root, None, &user_id)
+                .ok()
+                .and_then(|record| {
+                    record
+                        .get("device_id")
+                        .and_then(JsonValue::as_str)
+                        .map(str::to_string)
+                })
+                .unwrap_or_else(|| format!("device-{}", short_uuid()))
+        }),
+    };
+    let harnesses = if args.harness.is_empty() {
+        vec![active_agent_or_default(&bundle_root)]
+    } else {
+        args.harness.clone()
+    };
+    let enrollment_id = format!("dogfood-{}", short_uuid());
+    let now = Utc::now();
+    let started_at = now.to_rfc3339();
+    let started_on = now.format("%Y-%m-%d").to_string();
+    let weekly_review_due = (now + chrono::Duration::days(7))
+        .format("%Y-%m-%d")
+        .to_string();
+    let record = json!({
+        "enrollment_id": enrollment_id,
+        "user_id": user_id,
+        "device_id": device_id,
+        "harnesses": harnesses,
+        "consent": true,
+        "started_at": started_at,
+        "started_on": started_on,
+        "weekly_review_due": weekly_review_due,
+        "bundle": bundle_root,
+        "git_head": current_git_head().unwrap_or_else(|| "unknown".to_string()),
+    });
+    append_state_record(&bundle_root, "dogfood.json", "enrollments", record.clone())?;
+    let evidence_path = write_dogfood_enrollment_artifact(&record)?;
+    ensure_weekly_evidence_note(&weekly_review_due)?;
+    let mut response = record;
+    if let JsonValue::Object(ref mut map) = response {
+        if let Some(path) = evidence_path {
+            map.insert(
+                "evidence_path".to_string(),
+                JsonValue::String(path.display().to_string()),
+            );
+        }
+    }
+    if args.json {
+        print_json(&response)?;
+    } else {
+        println!(
+            "dogfood enroll: enrollment={} user={} device={} harnesses={} due={}",
+            response
+                .get("enrollment_id")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("unknown"),
+            response
+                .get("user_id")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("unknown"),
+            response
+                .get("device_id")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("unknown"),
+            response
+                .get("harnesses")
+                .and_then(JsonValue::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(JsonValue::as_str)
+                        .collect::<Vec<_>>()
+                        .join(",")
+                })
+                .unwrap_or_else(|| "unknown".to_string()),
+            response
+                .get("weekly_review_due")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("unknown")
+        );
+    }
+    Ok(())
+}
+
+fn run_dogfood_status_command(args: &DogfoodStatusArgs) -> anyhow::Result<()> {
+    let bundle_root = resolve_setup_bundle_root(args.output.as_deref())?;
+    ensure_bundle_exists_for_dogfood(&bundle_root)?;
+    let dogfood = read_state_json(&bundle_root, "dogfood.json")?;
+    let devices = read_state_json(&bundle_root, "devices.json")?;
+    let enrollments = dogfood
+        .get("enrollments")
+        .and_then(JsonValue::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    let device_count = devices
+        .get("devices")
+        .and_then(JsonValue::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    let response = json!({
+        "bundle": bundle_root,
+        "enrollments": enrollments,
+        "devices": device_count,
+        "real_user_gate": if enrollments >= 3 { "ready" } else { "needs_3_users" },
+        "device_gate": if device_count >= 3 { "ready" } else { "needs_3_devices" },
+        "next": if enrollments < 3 {
+            "run memd dogfood enroll --user-id <id> --consent"
+        } else if device_count < 3 {
+            "run memd device add --user <id> on another machine"
+        } else {
+            "collect weekly evidence notes"
+        },
+    });
+    if args.json {
+        print_json(&response)?;
+    } else {
+        println!(
+            "dogfood status: enrollments={} devices={} real_user_gate={} device_gate={} next=\"{}\"",
+            enrollments,
+            device_count,
+            response
+                .get("real_user_gate")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("unknown"),
+            response
+                .get("device_gate")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("unknown"),
+            response
+                .get("next")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("unknown")
+        );
+    }
+    Ok(())
+}
+
+fn ensure_bundle_exists_for_dogfood(bundle_root: &Path) -> anyhow::Result<()> {
+    if !bundle_root.join("config.json").exists() {
+        anyhow::bail!(
+            "memd bundle missing at {}; run `memd setup --summary` first",
+            bundle_root.display()
+        );
+    }
+    Ok(())
+}
+
+fn register_device_record(
+    bundle_root: &Path,
+    name: Option<&str>,
+    user: &str,
+) -> anyhow::Result<JsonValue> {
+    let device_id = format!("device-{}", short_uuid());
+    let now = Utc::now();
+    let record = json!({
+        "device_id": device_id,
+        "name": name.map(str::to_string).unwrap_or_else(default_device_name),
+        "user": user,
+        "added_at": now.to_rfc3339(),
+        "added_on": now.format("%Y-%m-%d").to_string(),
+        "bundle": bundle_root,
+        "git_head": current_git_head().unwrap_or_else(|| "unknown".to_string()),
+    });
+    append_state_record(bundle_root, "devices.json", "devices", record.clone())?;
+    let evidence_path = write_device_artifact(&record)?;
+    let mut response = record;
+    if let JsonValue::Object(ref mut map) = response {
+        if let Some(path) = evidence_path {
+            map.insert(
+                "evidence_path".to_string(),
+                JsonValue::String(path.display().to_string()),
+            );
+        }
+    }
+    Ok(response)
+}
+
+fn append_state_record(
+    bundle_root: &Path,
+    file_name: &str,
+    list_key: &str,
+    record: JsonValue,
+) -> anyhow::Result<()> {
+    let state_dir = bundle_root.join("state");
+    fs::create_dir_all(&state_dir)?;
+    let path = state_dir.join(file_name);
+    let mut doc = if path.exists() {
+        serde_json::from_str::<JsonValue>(&fs::read_to_string(&path)?)
+            .with_context(|| format!("parse {}", path.display()))?
+    } else {
+        json!({ list_key: [] })
+    };
+    let list = doc
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("{} must contain a JSON object", path.display()))?
+        .entry(list_key.to_string())
+        .or_insert_with(|| json!([]));
+    list.as_array_mut()
+        .ok_or_else(|| anyhow!("{}.{} must be an array", path.display(), list_key))?
+        .push(record);
+    fs::write(&path, serde_json::to_string_pretty(&doc)? + "\n")
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn read_state_json(bundle_root: &Path, file_name: &str) -> anyhow::Result<JsonValue> {
+    let path = bundle_root.join("state").join(file_name);
+    if !path.exists() {
+        return Ok(json!({}));
+    }
+    serde_json::from_str::<JsonValue>(&fs::read_to_string(&path)?)
+        .with_context(|| format!("parse {}", path.display()))
+}
+
+fn latest_device_id(bundle_root: &Path) -> anyhow::Result<Option<String>> {
+    Ok(read_state_json(bundle_root, "devices.json")?
+        .get("devices")
+        .and_then(JsonValue::as_array)
+        .and_then(|devices| devices.last())
+        .and_then(|device| device.get("device_id"))
+        .and_then(JsonValue::as_str)
+        .map(str::to_string))
+}
+
+fn active_agent_or_default(bundle_root: &Path) -> String {
+    read_config_json(bundle_root)
+        .ok()
+        .and_then(|doc| {
+            doc.get("agent")
+                .and_then(JsonValue::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "codex".to_string())
+}
+
+fn default_local_user() -> String {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "unknown-user".to_string())
+}
+
+fn default_device_name() -> String {
+    std::env::var("HOSTNAME")
+        .or_else(|_| std::env::var("COMPUTERNAME"))
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| format!("memd-device-{}", short_uuid()))
+}
+
+fn short_uuid() -> String {
+    uuid::Uuid::new_v4()
+        .to_string()
+        .chars()
+        .take(8)
+        .collect()
+}
+
+fn current_git_head() -> Option<String> {
+    let root = detect_current_project_root().ok().flatten()?;
+    let output = Command::new("git")
+        .arg("rev-parse")
+        .arg("--short")
+        .arg("HEAD")
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn release_evidence_root() -> Option<PathBuf> {
+    let root = detect_current_project_root().ok().flatten()?;
+    Some(root.join("docs").join("verification").join("release-1-0-0"))
+}
+
+fn write_device_artifact(record: &JsonValue) -> anyhow::Result<Option<PathBuf>> {
+    let Some(root) = release_evidence_root() else {
+        return Ok(None);
+    };
+    let dir = root.join("devices");
+    fs::create_dir_all(&dir)?;
+    let date = record
+        .get("added_on")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("unknown-date");
+    let device_id = record
+        .get("device_id")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("unknown-device");
+    let path = dir.join(format!("{date}-{device_id}.json"));
+    fs::write(&path, serde_json::to_string_pretty(record)? + "\n")
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(Some(path))
+}
+
+fn write_dogfood_enrollment_artifact(record: &JsonValue) -> anyhow::Result<Option<PathBuf>> {
+    let Some(root) = release_evidence_root() else {
+        return Ok(None);
+    };
+    let dir = root.join("dogfood");
+    fs::create_dir_all(&dir)?;
+    let date = record
+        .get("started_on")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("unknown-date");
+    let enrollment_id = record
+        .get("enrollment_id")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("unknown-enrollment");
+    let path = dir.join(format!("{date}-{enrollment_id}.md"));
+    let harnesses = record
+        .get("harnesses")
+        .and_then(JsonValue::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(JsonValue::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+    let markdown = format!(
+        "# Dogfood Enrollment - {date}\n\n\
+Status: enrolled\n\n\
+- enrollment: `{}`\n\
+- user: `{}`\n\
+- device: `{}`\n\
+- harnesses: `{}`\n\
+- started: `{}`\n\
+- weekly review due: `{}`\n\
+- git head: `{}`\n\n\
+## Evidence Notes\n\n\
+- Install completed.\n\
+- Real usage clock started.\n",
+        enrollment_id,
+        record
+            .get("user_id")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown"),
+        record
+            .get("device_id")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown"),
+        harnesses,
+        record
+            .get("started_at")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown"),
+        record
+            .get("weekly_review_due")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown"),
+        record
+            .get("git_head")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown"),
+    );
+    fs::write(&path, markdown).with_context(|| format!("write {}", path.display()))?;
+    Ok(Some(path))
+}
+
+fn ensure_weekly_evidence_note(date: &str) -> anyhow::Result<()> {
+    let Some(root) = release_evidence_root() else {
+        return Ok(());
+    };
+    fs::create_dir_all(&root)?;
+    let path = root.join(format!("{date}-weekly-review.md"));
+    if path.exists() {
+        return Ok(());
+    }
+    let markdown = format!(
+        "# 1.0.0 Weekly Evidence Review - {date}\n\n\
+Status: pending review\n\n\
+## Cohort\n\n\
+- real users enrolled:\n\
+- harness-user pairs enrolled:\n\
+- devices on current main:\n\n\
+## Gate Notes\n\n\
+- V14 telemetry dogfood:\n\
+- V15 self-tuning dogfood:\n\
+- V16 sync dogfood:\n\
+- V17 marketplace dogfood:\n\
+- V18 correction graph dogfood:\n\
+- V19 external auditor:\n\
+- V20 third-party replay:\n\n\
+## Blockers\n\n\
+- none recorded yet\n"
+    );
+    fs::write(&path, markdown).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
 fn run_bundle_config_subcommand(bundle_root: &Path, command: &ConfigCommand) -> anyhow::Result<()> {
     match command {
         ConfigCommand::List(args) => {

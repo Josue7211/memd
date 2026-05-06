@@ -61,6 +61,8 @@ pub(crate) enum Commands {
     Commands(CommandCatalogArgs),
     Setup(SetupArgs),
     Doctor(DoctorArgs),
+    Device(DeviceArgs),
+    Dogfood(DogfoodArgs),
     #[command(visible_alias = "configure")]
     Config(ConfigArgs),
     Memory(MemoryArgs),
@@ -1958,6 +1960,86 @@ pub(crate) struct DoctorArgs {
 
     #[arg(long)]
     pub(crate) repair: bool,
+
+    #[arg(long)]
+    pub(crate) summary: bool,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DeviceArgs {
+    #[command(subcommand)]
+    pub(crate) command: DeviceCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum DeviceCommand {
+    /// Register this machine as a dogfood/evidence device.
+    Add(DeviceAddArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DeviceAddArgs {
+    #[arg(long)]
+    pub(crate) output: Option<PathBuf>,
+
+    #[arg(long)]
+    pub(crate) name: Option<String>,
+
+    #[arg(long)]
+    pub(crate) user: Option<String>,
+
+    #[arg(long)]
+    pub(crate) summary: bool,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DogfoodArgs {
+    #[command(subcommand)]
+    pub(crate) command: DogfoodCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum DogfoodCommand {
+    /// Enroll a real dogfood user/harness/device lane.
+    Enroll(DogfoodEnrollArgs),
+    /// Show local dogfood enrollment state.
+    Status(DogfoodStatusArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DogfoodEnrollArgs {
+    #[arg(long)]
+    pub(crate) output: Option<PathBuf>,
+
+    #[arg(long)]
+    pub(crate) user_id: Option<String>,
+
+    #[arg(long)]
+    pub(crate) device_id: Option<String>,
+
+    #[arg(long, value_name = "HARNESS")]
+    pub(crate) harness: Vec<String>,
+
+    #[arg(long)]
+    pub(crate) consent: bool,
+
+    #[arg(long)]
+    pub(crate) summary: bool,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DogfoodStatusArgs {
+    #[arg(long)]
+    pub(crate) output: Option<PathBuf>,
 
     #[arg(long)]
     pub(crate) summary: bool,

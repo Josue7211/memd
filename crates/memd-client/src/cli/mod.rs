@@ -850,6 +850,12 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::Doctor(args) => {
             crate::run_bundle_doctor_command(&args, &base_url).await?;
         }
+        Commands::Device(args) => {
+            crate::run_device_command(&args)?;
+        }
+        Commands::Dogfood(args) => {
+            crate::run_dogfood_command(&args)?;
+        }
         Commands::Config(args) => {
             crate::run_bundle_config_command(&args, &base_url).await?;
         }

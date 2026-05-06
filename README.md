@@ -131,6 +131,15 @@ flowchart LR
 
 ## Quickstart
 
+For dogfood/new-machine setup from a checkout:
+
+```bash
+scripts/install-memd.sh
+memd dogfood enroll --user-id <your-name> --consent --summary
+```
+
+Manual dev setup:
+
 ```bash
 cargo run -p memd-server
 cargo run -p memd-client --bin memd -- setup --agent codex
@@ -149,6 +158,7 @@ between different projects.
 ## Docs
 
 - [Setup](./docs/core/setup.md)
+- [Dogfood](./docs/DOGFOOD.md)
 - [API](./docs/core/api.md)
 - [Architecture](./docs/core/architecture.md)
 - [10-Star Model](./docs/theory/models/2026-04-11-memd-10-star-memory-model-v2.md)
