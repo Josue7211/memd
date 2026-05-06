@@ -627,6 +627,14 @@ Info-theoretic optimal compiler (no token removable without quality loss) + ≥1
 
 **V20 zero-margin flag:** Every axis has zero margin at V20 close. Any regression blocks 1.0.0 tag. **V20.5 recovery reserve** is pre-declared: if V20 misses any axis, V20.5 files a recovery phase scoped to that axis before 1.0.0 tags. Recovery phase may not claim new axis credit — it restores the axis to its V20 target.
 
+### V21-V25: Post-1.0 CEO Mode (deferred)
+
+V21-V25 are strategy-seeded but **not active** until honest `1.0.0` close.
+They do not claim new 10-STAR substrate credit; V20 already closes the substrate
+ceiling. Next five versions shift from memory-core proof to business/deployment
+proof: hosted reliability, team adoption, ecosystem integrations, enterprise
+trust, and revenue engine. Strategy seed: [[docs/strategy/v21-v25-ceo-mode.md]].
+
 ## Benchmarks
 
 Continuous gate at every milestone. Regression = stop.

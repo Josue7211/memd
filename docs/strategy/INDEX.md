@@ -8,12 +8,14 @@
 - live-truth direction
 - research loops
 - self-evolution direction
+- post-1.0 CEO-mode strategy
 
 ## Recommended Order
 
 1. [[docs/strategy/live-truth.md|Live Truth]]
 2. [[docs/strategy/research-loops.md|Research Loop Manifest]]
 3. [[docs/strategy/self-evolution.md|Self-Evolution Pipeline]]
+4. [[docs/strategy/v21-v25-ceo-mode.md|V21-V25 CEO Mode]]
 
 ## Rule
 
