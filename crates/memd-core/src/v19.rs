@@ -83,12 +83,24 @@ pub fn generate_correction_applied_proof(
 }
 
 pub fn verify_zk_proof(proof: &CorrectionAppliedProof) -> bool {
-    proof.schema == "memd.zk_correction.v1"
-        && proof.verifier == "memd audit verify-zk"
-        && proof.pre_commitment.len() == 64
-        && proof.post_commitment.len() == 64
-        && proof.relation_commitment.len() == 64
-        && proof.public_claim_hash.len() == 64
+    if proof.schema != "memd.zk_correction.v1"
+        || proof.verifier != "memd audit verify-zk"
+        || !is_hex_64(&proof.pre_commitment)
+        || !is_hex_64(&proof.post_commitment)
+        || !is_hex_64(&proof.relation_commitment)
+        || !is_hex_64(&proof.public_claim_hash)
+    {
+        return false;
+    }
+
+    let expected_claim_hash = commitment(
+        "claim",
+        &format!(
+            "{}:{}:{}:{}",
+            proof.claim_id, proof.pre_commitment, proof.post_commitment, proof.relation_commitment
+        ),
+    );
+    proof.public_claim_hash == expected_claim_hash
 }
 
 pub fn attest_proof(
@@ -185,6 +197,10 @@ fn commitment(domain: &str, value: &str) -> String {
     to_hex(hasher.finalize())
 }
 
+fn is_hex_64(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 fn proof_hash(proof: &CorrectionAppliedProof) -> anyhow::Result<String> {
     let bytes = serde_json::to_vec(proof)?;
     Ok(to_hex(Sha256::digest(bytes)))
@@ -211,5 +227,29 @@ mod tests {
         assert_eq!(summary.trust_provenance, 10);
         assert!(summary.attestations_met_threshold);
         assert!(summary.tamper_detected);
+    }
+
+    #[test]
+    fn verify_zk_proof_rejects_forged_claim_hash() {
+        let forged = CorrectionAppliedProof {
+            schema: "memd.zk_correction.v1".into(),
+            claim_id: "claim-forged".into(),
+            pre_commitment: "a".repeat(64),
+            post_commitment: "b".repeat(64),
+            relation_commitment: "c".repeat(64),
+            public_claim_hash: "d".repeat(64),
+            verifier: "memd audit verify-zk".into(),
+        };
+
+        assert!(!verify_zk_proof(&forged));
+    }
+
+    #[test]
+    fn verify_zk_proof_rejects_non_hex_commitments() {
+        let mut proof =
+            generate_correction_applied_proof("claim-valid", "mysql", "postgres", "supersedes");
+        proof.pre_commitment = "z".repeat(64);
+
+        assert!(!verify_zk_proof(&proof));
     }
 }

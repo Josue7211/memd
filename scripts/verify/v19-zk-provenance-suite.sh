@@ -14,10 +14,10 @@ cat >"$TMP/proof.json" <<'JSON'
 {
   "schema": "memd.zk_correction.v1",
   "claim_id": "claim-cli-smoke",
-  "pre_commitment": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "post_commitment": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  "relation_commitment": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-  "public_claim_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "pre_commitment": "418593d845217365011f46fe13a4df9100d129380311450588c0b0856b1e1dff",
+  "post_commitment": "dbe03f3da1280941d6a13bb26c865db90ea575a68dfa5270a84f9ea55b66a1fa",
+  "relation_commitment": "ccc671d20f34ea0224ae90d7c691cc1701fea17baa571967b69098dcd253706b",
+  "public_claim_hash": "6c5788d1c037a357eeaac8d19dd14bc697de34603a1429941472488662dcce93",
   "verifier": "memd audit verify-zk"
 }
 JSON
