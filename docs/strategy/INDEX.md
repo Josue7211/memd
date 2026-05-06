@@ -16,6 +16,7 @@
 2. [[docs/strategy/research-loops.md|Research Loop Manifest]]
 3. [[docs/strategy/self-evolution.md|Self-Evolution Pipeline]]
 4. [[docs/strategy/v21-v25-ceo-mode.md|V21-V25 CEO Mode]]
+5. [[docs/plans/2026-05-06-v21-v25-ceo-execution-plan.md|V21-V25 CEO Execution Plan]]
 
 ## Rule
 

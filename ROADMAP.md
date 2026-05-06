@@ -634,6 +634,7 @@ They do not claim new 10-STAR substrate credit; V20 already closes the substrate
 ceiling. Next five versions shift from memory-core proof to business/deployment
 proof: hosted reliability, team adoption, ecosystem integrations, enterprise
 trust, and revenue engine. Strategy seed: [[docs/strategy/v21-v25-ceo-mode.md]].
+Execution plan: [[docs/plans/2026-05-06-v21-v25-ceo-execution-plan.md]].
 
 ## Benchmarks
 

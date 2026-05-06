@@ -4,6 +4,8 @@
 
 Status: post-1.0 strategy seed; not active until `1.0.0` gates close.
 
+Execution plan: [[docs/plans/2026-05-06-v21-v25-ceo-execution-plan.md]]
+
 ## Thesis
 
 V20 closes the memory OS substrate. V21-V25 should not add more "memory core"
