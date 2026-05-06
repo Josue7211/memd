@@ -39,15 +39,15 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 
 | Axis | Weight | Score | Status |
 |------|--------|-------|--------|
-| Session continuity | 20% | 8/10 | V11 A11/B11 project-aware wake restores project A after A -> B -> A without project B pollution, and compaction-aware recall recovers the T4 Redis correction after heavy project-B compaction. |
-| Correction retention | 15% | 7/10 | V11 C11 silent-correction detector flags two user rephrases about cache/backend/protocol with `detection_latency_ms=900`, while single confirmations do not false-positive. |
-| Procedural reuse | 15% | 8/10 | V12 A12-D12 routine curation: library browse/edit/merge, explicit composition, per-project inheritance, cross-workspace export/import with checksum rejection. | evidence: `docs/verification/v12-proof-runs/2026-05-05-interop-sota-suite.ndjson`; `scripts/verify/v12-interop-sota-suite.sh` |
-| Cross-harness continuity | 15% | 8/10 | V12 E12-G12 universal protocol envelope covers MCP, ACP, typed-channel, and Codex custom; parity delta `0.0 <= 0.02`; dual-harness correction session sees atomic updates. | evidence: `docs/verification/v12-proof-runs/2026-05-05-interop-sota-suite.ndjson`; `docs/contracts/universal-harness-protocol.md` |
-| Raw retrieval strength | 15% | 8/10 | V10 D10 aggregates useful/noisy retrieval feedback over a 30-day window and applies route-weight updates capped at δ <= 0.05 per cycle. V6 canonical bench gates remain the raw-retrieval floor. |
-| Token efficiency | 10% | 7/10 | V11 D11/E11/F11 dynamic per-turn compiler records depth decisions, respects `cost_target_per_turn_cents=0.5`, and proves wake median `1480 <= 1500` tokens. | evidence: `docs/verification/v11-proof-runs/2026-05-05-compiler-sota-suite.ndjson`; `scripts/verify/v11-compiler-sota-suite.sh` |
-| Trust + provenance | 10% | 8/10 | V12 H12-J12 ed25519 signed audit entries verify externally, browse/explain by item chain, and detect post-export tampering. | evidence: `docs/verification/v12-proof-runs/2026-05-05-interop-sota-suite.ndjson`; `crates/memd-core/src/audit/mod.rs` |
+| Session continuity | 20% | 9/10 | V13 A13/B13 cross-device CRDT merge resolves conflicts and dormant 30-day project wake rehydrates release focus under 1500-token median wake. Evidence: `docs/verification/release-0-1-0/2026-05-05-axis-session_continuity.ndjson`; `scripts/verify/v13-release-suite.sh` |
+| Correction retention | 15% | 8/10 | V13 C13 multi-hop correction chain applies X -> downstream Y/Z and preserves next-session behavior with provenance edges. Evidence: `docs/verification/release-0-1-0/2026-05-05-axis-correction_retention.ndjson`; `crates/memd-core/src/v13.rs` |
+| Procedural reuse | 15% | 9/10 | V13 D13/E13 auto-composes A+B+C into `read-migration-sequence` and shares it cross-workspace with origin metadata visible. Evidence: `docs/verification/release-0-1-0/2026-05-05-axis-procedural_reuse.ndjson`; `crates/memd-client/fixtures/shared/release-0-1-0/routines/` |
+| Cross-harness continuity | 15% | 8/10 | V13 integrates V12 protocol parity with no lift claimed; MCP and Codex custom responses keep parity delta `0.0 <= 0.02`. Evidence: `docs/verification/release-0-1-0/2026-05-05-ch-integration-check.ndjson` |
+| Raw retrieval strength | 15% | 9/10 | V13 F13 public-bench margin sweep clears LoCoMo, LongMemEval, MemBench, and ConvoMem targets by >=5pp. Evidence: `docs/verification/release-0-1-0/2026-05-05-axis-raw_retrieval.ndjson`; `docs/verification/release-0-1-0/2026-05-05-margin-targets.md` |
+| Token efficiency | 10% | 7/10 | V13 integrates V11 dynamic compiler without TE lift; wake median stays `1440 <= 1500`, preserving the zero-margin SOTA floor. Evidence: `docs/verification/release-0-1-0/2026-05-05-te-integration-check.ndjson` |
+| Trust + provenance | 10% | 9/10 | V13 G13 export + third-party replay matches 20/20 turns and verifies signed audit entries without memd runtime access. Evidence: `docs/verification/release-0-1-0/2026-05-05-axis-trust_provenance.ndjson`; `crates/memd-client/fixtures/shared/release-0-1-0/replay/third-party-harness.py` |
 
-**Composite: 7.75/10 (V12 close 2026-05-05 - interop SOTA gate)**
+**Composite: 8.50/10 (V13 close 2026-05-05 - 0.1.0 release gate)**
 *Prior composite 2.9 counted "code exists" as partial credit; regrade counts only "user gets value."*
 *Prior axis table (scores 2,2,1,3,4,6,5) summed to 3.0 but reported 1.8 — reconciled 2026-04-22 to the pessimistic axis row that actually yields 1.80.*
 *2026-04-24: session continuity axis moved 1 → 2 on A4 ledger-survival gate (10/10 loop, zero breach lines). Composite moved 1.80 → 2.00. Evidence:*
@@ -152,6 +152,7 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 - *D11/E11/F11: `memd_core::runtime::resume::compiler_v2` and `memd_core::cost::ledger` prove per-turn depth decisions, 0.5 cent cost target, and wake median `1480 <= 1500` tokens.*
 - *G11 proof: `scripts/verify/v11-compiler-sota-suite.sh` writes `docs/verification/v11-proof-runs/2026-05-05-compiler-sota-suite.ndjson` with 7/7 axis scenarios passing and 4/4 negative controls firing.*
 - *G12 proof: `scripts/verify/v12-interop-sota-suite.sh` writes `docs/verification/v12-proof-runs/2026-05-05-interop-sota-suite.ndjson` with 7/7 axis scenarios passing and 4/4 negative controls firing. Composite 6.95 -> 7.75.*
+- *G13 proof: `scripts/verify/v13-release-suite.sh` writes `docs/verification/release-0-1-0/2026-05-05-g13-harness.ndjson` with 12/12 release assertions passing, 5/5 negative controls firing, and 0.1.0 release gate marked ready. Composite 7.75 -> 8.50.*
 
 ## 11 Pillars — Current Reality
 

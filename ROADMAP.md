@@ -4,26 +4,26 @@
 
 <!-- ROADMAP_STATE
 truth_date: 2026-05-05
-version: v13
+version: v14
 version_status: ready_to_plan
-current_milestone: V13
+current_milestone: V14
 milestone_status: ready_to_plan
-current_phase: V13-entry
+current_phase: V14-entry
 phase_status: ready_to_plan
-next_milestone: V13
+next_milestone: V14
 post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 → V14 → V15 → V16 → V17 → V18 → V19 → V20 (see V4–V20 block below; composite **8.50 at V13** = 0.1.0 release gate per docs/verification/0.1.0-CONTRACT.md; composite **10.00 at V20** = 1.0.0 release gate per docs/verification/1.0.0-CONTRACT.md; V10 production-floor, V13 ships 0.1.0, V14-V20 ceiling push pulls every axis to 10/10, V20 ships 1.0.0; 0.1.0 gate = composite ≥8.0 AND every axis ≥7; 1.0.0 gate = composite =10.00 AND every axis =10 per docs/theory/MEMD-SOTA-THEORY.md; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
 v4_status: complete
 v4_closed: 2026-05-02
 v4_composite: 3.60
 v4_deviation: docs/verification/milestones/MILESTONE-v4-deviation-2026-05-02.md
-next_step: Start V13 Evidence + 0.1.0 Release from docs/phases/v13/V13-INTEGRATION.md; public stranger-review artifacts remain an external review gate if required before public release.
+next_step: Start V14 Telemetry + Observability Foundation from docs/verification/milestones/MILESTONE-v14.md; public stranger-review artifacts remain an external review gate if required before public release.
 active_blockers: ["external_stranger_review_artifacts_pending_for_public_review_gate"]
 v3_tail_deferred: []
 v3_tail_followups: ["canonical rerun: LongMemEval/LoCoMo/ConvoMem via codex-lb route (OPENAI_BASE_URL=http://127.0.0.1:2455/v1 OPENAI_API_KEY=$CODEX_LB_API_KEY)"]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
 note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. A3 Continuity Foundation closed 2026-04-17: Part 1 (file-interaction ledger + prime-reads + PreCompact non-blocking + PreEdit prime), Part 2 (hooks consolidation under .memd/hooks, contract v0.2, write-path hook gate, preference replay), Part 3 (file_layout v0.3 guarantee, backlog/phases regroup under v1/v2/v3, LATEST.md symlink fix, MANIFEST.json + `memd hooks doctor` green/red, lifecycle-probe NDJSON log, cross-harness pre-send validator pure function + 4 tests). B3 Part 2 plumbing landed 2026-04-18 (optional RAG fan-out, dense candidate injection, healthz rag state, dual-mode bench rows, turn diagnostics opt-in). 2026-04-20: 500-Q intrinsic product-path rerun on the real dense blend lands `session_recall_any@5 = 0.936` — gate 0.92 passed. The prior 0.828/0.882 numbers were lexical-only fallback because the bench search path left `source_agent=None` and `MemoryVisibility::Private` denied every item; one-line fix at public_benchmark.rs:1770 unblocked dense. V3 phase order: A3 ✓ → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty.
-last_handoff: docs/handoff/2026-05-05-v12-closed-v13-next.md
+last_handoff: docs/handoff/2026-05-05-v13-closed-v14-next.md
 bench_cadence: every_two_phases  # test every TWO phases per user directive 2026-04-21
 v5_a5_status: real_backend_locked
 v5_b5_status: real_backend_locked
@@ -53,23 +53,26 @@ v11_composite: 6.95
 v12_status: closed
 v12_closed: 2026-05-05
 v12_composite: 7.75
+v13_status: closed
+v13_closed: 2026-05-05
+v13_composite: 8.50
 -->
 
 ## Status Snapshot
 
 - truth date: `2026-05-05`
-- current version: `v13` (V12 interop SOTA closed at composite 7.75; public stranger-review artifacts remain external)
+- current version: `v14` (V13 0.1.0 release evidence closed at composite 8.50; public stranger-review artifacts remain external)
 - version status: `ready_to_plan`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
-- current milestone: `V13` - start from V12 close.
-- current phase: `V13-entry` - plan V13 release evidence.
+- current milestone: `V14` - start from V13 close.
+- current phase: `V14-entry` - plan telemetry foundation.
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
-- next step: start V13 Evidence + 0.1.0 Release; collect external stranger-review artifacts if public-review gate is required.
+- next step: start V14 Telemetry + Observability Foundation; collect external stranger-review artifacts if public-review gate is required.
 - V3 tail-deferred: `K3 Proxy Unblock + Canonical Rerun` — provision `gpt-5.4` on the openclaw LiteLLM proxy (or OpenAI-direct fallback capped at `MEMD_BENCH_JUDGE_BUDGET_USD=50`), then rerun LongMemEval / LoCoMo / ConvoMem canonical primaries. Success gate: flip those three rows from `replay-pending` to `verified` (if ≥0.70) or `recorded-unpinned` (if <0.70). MemBench separately needs a focused look at event-reasoning + role-tracking topics (0.000 / 0.100 per-topic in J3). Does NOT block V4 — V4 is runtime/dogfood work, not bench gates.
 - M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with D3).
 - V3 targets (floor, intrinsic/sidecar-OFF): LME ≥0.70, LoCoMo ≥0.70, MemBench ≥0.70, ConvoMem ≥0.70 — 70% is where competition sits, that is bare minimum. Stretch (intrinsic): LME ≥0.92, LoCoMo ≥0.75, MemBench ≥0.75, ConvoMem ≥0.75. Accelerated (sidecar ON) is bonus, not gate. See `## V3` block below.
@@ -77,7 +80,7 @@ v12_composite: 7.75
 - latest B3 intrinsic product-path rerun (2026-04-20, dense blend): LongMemEval 500Q `session_recall_any@5 = 0.936`, `@10 = 0.976`, `@30 = 1.000`, `@50 = 1.000`, duration `7916435 ms` (~132 min), `turn_diagnostics=false`. Gate 0.92 cleared. Weak type: single-session-preference 0.600 (30Qs).
 - prior M1 benchmark: LongMemEval 90% full-eval (50 items, LLM-graded, `session_recall_any@10`=96%). Retrieval-only baseline (500 items) was 82.8%. These are different metrics — do not compare directly.
 - M3 benchmark: LME 82.8% (gate 80%), LoCoMo 41.5% (gate 41.4%), MemBench 34.6% (gate 30%), ConvoMem 0.0% — zero regression
-- 10-STAR composite: 7.75/10 (V12 close 2026-05-05)
+- 10-STAR composite: 8.50/10 (V13 close 2026-05-05)
 
 ## Blockers
 
@@ -467,14 +470,14 @@ Goal: bench domination (not parity) — beat published SOTA by ≥5pp on LoCoMo,
 
 | Phase | Name | Status |
 | --- | --- | --- |
-| A13 | Public-bench domination (≥5pp margin on all four benches) | `planned` |
-| B13 | Published harder-bench (current systems fail this bench) | `planned` |
-| C13 | Cross-device CRDT sync (desktop ↔ mac ↔ mobile) | `planned` |
-| D13 | Dormant-project recovery (30-day gap full-recall test) | `planned` |
-| E13 | Behavior-inferred + multi-hop correction chains | `planned` |
-| F13 | Routine auto-composition (memd suggests A+B=C) | `planned` |
-| G13 | Third-party provenance replay (export + independent harness) | `planned` |
-| H13 | V13 release harness (regenerates MEMD-10-STAR.md; if any axis regresses, release does not tag) | `planned` |
+| A13 | Public-bench domination (≥5pp margin on all four benches) | `closed` |
+| B13 | Published harder-bench (current systems fail this bench) | `closed` |
+| C13 | Cross-device CRDT sync (desktop ↔ mac ↔ mobile) | `closed` |
+| D13 | Dormant-project recovery (30-day gap full-recall test) | `closed` |
+| E13 | Behavior-inferred + multi-hop correction chains | `closed` |
+| F13 | Routine auto-composition (memd suggests A+B=C) | `closed` |
+| G13 | Third-party provenance replay (export + independent harness) | `closed` |
+| H13 | V13 release harness (regenerates MEMD-10-STAR.md; if any axis regresses, release does not tag) | `closed` |
 
 **0.1.0 release gate (V13 close):**
 1. Composite ≥8.0 (V13 target 8.50)
@@ -484,6 +487,9 @@ Goal: bench domination (not parity) — beat published SOTA by ≥5pp on LoCoMo,
 5. Head-to-head SOTA proof: ≥1 public bench per applicable axis, ≥5pp margin vs published best
 
 **TE zero-margin flag:** TE closes at 7 (floor 7, zero margin). Any TE regression during V13 close blocks 0.1.0 tag. Contingency: roll back V13 other-axis credits, file V13.5 TE-recovery phase, re-run harness, tag only when TE≥7.
+
+V13 close evidence (2026-05-05): `scripts/verify/v13-release-suite.sh`
+and `docs/verification/release-0-1-0/2026-05-05-g13-harness.ndjson`.
 
 ### V14–V20: Ceiling Push to 1.0.0 (composite 8.50 → 10.00)
 

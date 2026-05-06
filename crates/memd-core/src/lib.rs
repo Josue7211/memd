@@ -17,6 +17,7 @@ pub mod runtime;
 pub mod skill_mirror;
 pub mod v11;
 pub mod v12;
+pub mod v13;
 
 use memd_schema::{
     CandidateMemoryRequest, CompactContextResponse, CompactionDecision, CompactionOpenLoop,

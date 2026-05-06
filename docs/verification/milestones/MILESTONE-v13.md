@@ -1,12 +1,13 @@
 ---
 milestone: v13
 name: Evidence + Release
-status: planned
+status: closed
 opened: 2026-04-22
-revised: 2026-04-22
+revised: 2026-05-05
 depends_on: [../0.1.0-CONTRACT.md, ../0.1.0-AXIS-OWNERSHIP.md, ../../theory/MEMD-SOTA-THEORY.md, milestones/MILESTONE-v12.md]
 composite_pre: 7.75
 composite_target: 8.50
+composite_post: 8.50
 axes_lifted: [session_continuity, correction_retention, procedural_reuse, raw_retrieval, trust_provenance]
 axes_integrated_with: [cross_harness, token_efficiency]
 non_goals: [cross_harness, token_efficiency]
@@ -93,6 +94,33 @@ G13 harness (full 0.1.0 release harness with all axes represented):
 
 Evidence: recorded trace + G13 harness NDJSON + regenerated 10-STAR composite in `docs/verification/MEMD-10-STAR.md` via G13 scorecard regenerator in strict mode.
 
+## Close Evidence
+
+V13 closed on 2026-05-05 with composite `8.50/10`.
+
+- G13 harness:
+  `docs/verification/release-0-1-0/2026-05-05-g13-harness.ndjson`
+- Release-ready marker:
+  `docs/verification/release-0-1-0/2026-05-05-0-1-0-release-ready.txt`
+- Margin targets:
+  `docs/verification/release-0-1-0/2026-05-05-margin-targets.md`
+- TE integration check:
+  `docs/verification/release-0-1-0/2026-05-05-te-integration-check.ndjson`
+- CH integration check:
+  `docs/verification/release-0-1-0/2026-05-05-ch-integration-check.ndjson`
+- Verification command:
+  `RUN_DATE=2026-05-05 scripts/verify/v13-release-suite.sh`
+
+Close metrics:
+
+```json
+{"scenario_count":12,"pass_count":12,"fail_count":0}
+{"negative_controls_fired":5}
+{"session_continuity":9,"correction_retention":8,"procedural_reuse":9}
+{"cross_harness":8,"raw_retrieval":9,"token_efficiency":7,"trust_provenance":9}
+{"composite":8.50,"zero_blocker_backlog":true,"safe_to_tag_0_1_0":true}
+```
+
 ## TE zero-margin contingency plan
 
 **Trigger**: G13 harness run shows TE <7 at regeneration time.
@@ -173,5 +201,7 @@ All features lifted in V13 ship feature-flagged. Graduation order (each 7-day cl
 
 ## Changelog
 
+- 2026-05-05 closed. V13 release evidence gate passed. Composite regenerated
+  to 8.50; all axes are at or above the SOTA floor; release evidence lives in
+  `docs/verification/release-0-1-0/`. V14 is next.
 - 2026-04-22 opened. V13 is the final milestone and release gate for memd 0.1.0. Composite 7.75 → 8.50. Five axes lifted (SC, CR, PR, RR, TP) to 9/10 (near-perfect). Two axes integrated (CH, TE) with zero-margin flag on TE. Phase letters a13-g13 outlined, no specs created (per binding instructions). Release gate checklist with 5 conditions embedded. TE contingency plan for regression. Public-bench margin targets named (5pp on RR, parity on SC/CR). Composite math verified at 8.50 exactly. Feature-flag graduation: 4 graduations over 28 days. CH and TE non-goals explicit (hold from V12/V11 respectively).
-

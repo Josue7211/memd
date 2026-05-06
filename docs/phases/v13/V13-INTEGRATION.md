@@ -1,16 +1,27 @@
 ---
 version: v13
 kind: integration-plan
-status: ready-to-execute
+status: closed
 opened: 2026-04-22
-revised: 2026-04-22
+revised: 2026-05-05
 scope: A13..G13
 depends_on: [../../verification/0.1.0-CONTRACT.md, ../../verification/0.1.0-AXIS-OWNERSHIP.md, ../../verification/milestones/MILESTONE-v13.md, ../../theory/MEMD-SOTA-THEORY.md]
 ---
 
-# V13 Integration — Full 0.1.0 Release Harness
+# V13 Integration - Full 0.1.0 Release Harness
 
 > Read after `docs/verification/milestones/MILESTONE-v13.md`. This doc covers the release harness architecture, proof-run directory structure, zero-generosity scorecard regenerator, TE zero-margin contingency, and commit strategy for 0.1.0 tag.
+
+## Close Status
+
+V13 closed on 2026-05-05. The release proof is rerunnable with:
+
+```bash
+RUN_DATE=2026-05-05 scripts/verify/v13-release-suite.sh
+```
+
+Evidence lives in `docs/verification/release-0-1-0/`; the strict scorecard
+regenerated to composite `8.50/10`.
 
 ## 1. Execution-order discipline
 
@@ -351,4 +362,3 @@ Surface in phase kickoff notes; do not silently assume:
 ## 10. Changelog
 
 - 2026-04-22 opened. V13 release harness integrates all 7 axes and 5 owned deltas. Full harness architecture: G13.A (dormant-project SC), G13.B (long-session compaction SC), G13.C (multi-hop CR), G13.D (routine composition PR), G13.E (xws sharing PR+TP), G13.F (public-bench RR), G13.G (export+replay TP). Proof-run directory: per-axis NDJSON + dated human review + margin targets table. Zero-generosity regenerator in strict mode with TE zero-margin abort trap. Contingency plan: if TE <7, file v13.5 recovery phase before 0.1.0 tag. Feature-flag graduation: 4 flags over 28 days (no block on tagging). Two plan-spec commits, release tag commit after G13 closes. All conditions from 0.1.0-CONTRACT.md embedded in milestone doc. Cross-phase API surface and open questions documented.
-

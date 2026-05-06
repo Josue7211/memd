@@ -1,0 +1,4 @@
+{"id":"x","value":"sqlite","derived_from":[]}
+{"id":"y","value":"sqlite-derived","derived_from":["x"]}
+{"id":"z","value":"sqlite-derived","derived_from":["x","y"]}
+{"correction":"x","new_value":"postgres","assert_downstream":["y","z"]}

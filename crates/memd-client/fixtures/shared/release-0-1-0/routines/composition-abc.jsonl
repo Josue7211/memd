@@ -1,0 +1,4 @@
+{"turn":50,"routine":"read-schema","step":"open schema.sql"}
+{"turn":55,"routine":"read-tests","step":"open migration_test.rs"}
+{"turn":60,"routine":"read-runbook","step":"open MIGRATION.md"}
+{"turn":61,"suggestion":"read-schema+read-tests+read-runbook=read-migration-sequence"}
