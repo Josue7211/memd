@@ -1104,6 +1104,8 @@ pub(crate) enum RoutinesCommand {
     Export(RoutinesExportArgs),
     /// Import a workspace routine library.
     Import(RoutinesImportArgs),
+    /// Search, browse, or install marketplace routines.
+    Marketplace(RoutinesMarketplaceArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1224,6 +1226,47 @@ pub(crate) struct RoutinesImportArgs {
 }
 
 #[derive(Debug, Clone, Subcommand)]
+pub(crate) enum RoutinesMarketplaceCommand {
+    /// Search marketplace routines.
+    Search(RoutinesMarketplaceSearchArgs),
+    /// Browse marketplace routines.
+    Browse(RoutinesMarketplaceBrowseArgs),
+    /// Install a marketplace routine into the local library.
+    Install(RoutinesMarketplaceInstallArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutinesMarketplaceArgs {
+    #[command(subcommand)]
+    pub(crate) command: RoutinesMarketplaceCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutinesMarketplaceSearchArgs {
+    pub(crate) query: String,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutinesMarketplaceBrowseArgs {
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutinesMarketplaceInstallArgs {
+    pub(crate) name: String,
+
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Subcommand)]
 pub(crate) enum AuditCommand {
     /// Browse signed audit entries from an export.
     Browse(AuditBrowseArgs),
@@ -1231,6 +1274,8 @@ pub(crate) enum AuditCommand {
     Explain(AuditExplainArgs),
     /// Verify a signed audit export.
     Verify(AuditVerifyArgs),
+    /// Verify a V19 correction-applied proof.
+    VerifyZk(AuditVerifyZkArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1266,6 +1311,14 @@ pub(crate) struct AuditExplainArgs {
 pub(crate) struct AuditVerifyArgs {
     #[arg(long)]
     pub(crate) export: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AuditVerifyZkArgs {
+    pub(crate) proof: PathBuf,
 
     #[arg(long, default_value_t = false)]
     pub(crate) json: bool,

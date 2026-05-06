@@ -1,0 +1,6 @@
+{"suite":"v19_zk_provenance","check":"core_v19_tests","status":"pass"}
+{"suite":"v19_zk_provenance","check":"proofs_verified","status":"pass","count":10}
+{"suite":"v19_zk_provenance","check":"standalone_verify_zk_cli","status":"pass"}
+{"suite":"v19_zk_provenance","check":"two_of_three_attestation","status":"pass","threshold":2}
+{"suite":"v19_zk_provenance","check":"tamper_evidence","status":"pass","tamper_detected":true}
+{"suite":"v19_zk_provenance","check":"axis_lift","status":"pass","correction_retention":10,"trust_provenance":10,"composite_pre":9.50,"composite_post":9.75,"gate":"code_complete_external_auditor_pending"}

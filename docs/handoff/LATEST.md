@@ -1,1 +1,1 @@
-2026-05-06-v16-to-v20-ceo-mode-execute-all.md
+2026-05-06-v20-code-complete-real-gates-pending.md

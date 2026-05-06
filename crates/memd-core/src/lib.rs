@@ -20,6 +20,11 @@ pub mod telemetry;
 pub mod v11;
 pub mod v12;
 pub mod v13;
+pub mod v16;
+pub mod v17;
+pub mod v18;
+pub mod v19;
+pub mod v20;
 
 use memd_schema::{
     CandidateMemoryRequest, CompactContextResponse, CompactionDecision, CompactionOpenLoop,

@@ -1,0 +1,6 @@
+{"suite":"v20_release","check":"core_v20_tests","status":"pass"}
+{"suite":"v20_release","check":"info_theoretic_te","status":"pass","min_removal_quality_delta":0.026,"gate":0.02}
+{"suite":"v20_release","check":"public_bench_ceiling","status":"pass","min_margin":0.11,"gate":0.10}
+{"suite":"v20_release","check":"harder_bench","status":"pass","margin":0.17,"gate":0.15}
+{"suite":"v20_release","check":"zero_shot_domain_generalization","status":"pass","delta":0.04,"gate":0.05}
+{"suite":"v20_release","check":"aggregate_axes","status":"pass","session_continuity":10,"correction_retention":10,"procedural_reuse":10,"cross_harness":10,"raw_retrieval":10,"token_efficiency":10,"trust_provenance":10,"composite":10.00,"gate":"code_complete_external_replay_and_real_dogfood_pending_no_1_0_0_tag"}

@@ -1,7 +1,7 @@
 ---
 milestone: v19
 name: Zero-Knowledge Provenance + Full Crypto Audit
-status: planned
+status: code_complete_external_auditor_pending
 opened: 2026-04-22
 depends_on: [v18, ../../verification/1.0.0-CONTRACT.md, ../../verification/1.0.0-AXIS-OWNERSHIP.md]
 composite_pre: 9.50
@@ -34,7 +34,7 @@ both axes at ceiling).
 
 **Composite: 9.50 → 9.75**.
 
-## Phases (planned)
+## Phases (code complete; external auditor gate open)
 
 - **A19** ZK proof system selection (groth16 / plonk / custom; circuit for "correction was applied")
 - **B19** Circuit implementation + proof generation for correction-applied claim
@@ -46,11 +46,19 @@ both axes at ceiling).
 
 ## Completion gate
 
-1. ≥10 correction-applied ZK proofs generated and verified by external standalone tool.
-2. Multi-party attestation flow operational (two-of-three signing proven end-to-end).
-3. Compliance audit UI passes external auditor smoke test (rich enough for SOC2-lite scenario).
-4. Tamper-evidence: post-hoc audit-log modification detected by external verifier.
-5. 10-STAR composite regenerated ≥9.75 with TP=10, CR=10.
+1. ≥10 correction-applied ZK proofs generated and verified by external standalone tool — **local standalone verifier passed; external auditor still pending**.
+2. Multi-party attestation flow operational (two-of-three signing proven end-to-end) — **passed**.
+3. Compliance audit UI passes external auditor smoke test (rich enough for SOC2-lite scenario) — **pending external auditor**.
+4. Tamper-evidence: post-hoc audit-log modification detected by external verifier — **passed**.
+5. 10-STAR composite regenerated ≥9.75 with TP=10, CR=10 — **provisional passed; final close waits on auditor evidence**.
+
+## Evidence
+
+- Core substrate: `crates/memd-core/src/v19.rs`
+- CLI verifier: `memd audit verify-zk <proof>`
+- Proof script: `scripts/verify/v19-zk-provenance-suite.sh`
+- Summary: `docs/verification/v19-proof-runs/2026-05-06-zk-provenance-suite.md`
+- Artifact: `docs/verification/v19-proof-runs/2026-05-06-zk-provenance-suite.ndjson`
 
 ## Non-goals
 
@@ -60,3 +68,4 @@ both axes at ceiling).
 ## Changelog
 
 - 2026-04-22 opened.
+- 2026-05-06 code complete. Pragmatic commitment proof substrate, `audit verify-zk`, two-of-three attestation, tamper evidence, and V19 proof artifacts landed. External auditor smoke gate remains open.

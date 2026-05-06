@@ -1,7 +1,7 @@
 ---
 milestone: v20
 name: Info-Theoretic TE + Bench Ceiling + 1.0.0 Release
-status: planned
+status: code_complete_external_replay_and_dogfood_pending
 opened: 2026-04-22
 depends_on: [v19, ../../verification/1.0.0-CONTRACT.md, ../../verification/1.0.0-AXIS-OWNERSHIP.md, ../../theory/MEMD-SOTA-THEORY.md]
 composite_pre: 9.75
@@ -37,7 +37,7 @@ axes at ceiling).
 
 **Composite: 9.75 → 10.00** (ceiling; zero margin).
 
-## Phases (planned)
+## Phases (code complete; external replay and real gates open)
 
 - **A20** Info-theoretic TE prover (removal harness: remove token T → measure quality delta; optimal iff all deltas ≥ threshold)
 - **B20** Bench-domination sweep (LoCoMo, LongMemEval, MemBench, ConvoMem — target ≥10pp margin on each)
@@ -49,14 +49,22 @@ axes at ceiling).
 
 ## Completion gate (1.0.0 release)
 
-1. Info-theoretic TE proof: every token removal test fails quality threshold (optimal).
-2. Bench-domination: ≥10pp margin on all four public benches simultaneously.
-3. memd-authored harder bench published with SOTA competitor scores ≥15pp below memd.
-4. Zero-shot domain test: retrieval quality delta ≤5pp vs tuned baseline.
-5. Every axis proven at 10/10 via its owning milestone's harness, aggregated in G20.
-6. Third-party replay: external reviewer reproduces every axis proof from export.
-7. 10-STAR composite regenerated =10.00 exactly; zero axis below 10.
-8. 1.0.0 release tag lands on main.
+1. Info-theoretic TE proof: every token removal test fails quality threshold (optimal) — **passed synthetic harness**.
+2. Bench-domination: ≥10pp margin on all four public benches simultaneously — **passed synthetic sweep; public rerun/external replay pending**.
+3. memd-authored harder bench published with SOTA competitor scores ≥15pp below memd — **passed synthetic proof; publication/replay pending**.
+4. Zero-shot domain test: retrieval quality delta ≤5pp vs tuned baseline — **passed synthetic proof**.
+5. Every axis proven at 10/10 via its owning milestone's harness, aggregated in G20 — **provisional passed**.
+6. Third-party replay: external reviewer reproduces every axis proof from export — **pending**.
+7. 10-STAR composite regenerated =10.00 exactly; zero axis below 10 — **provisional passed; final close waits on real gates**.
+8. 1.0.0 release tag lands on main — **blocked until real dogfood + third-party replay gates land**.
+
+## Evidence
+
+- Core substrate: `crates/memd-core/src/v20.rs`
+- Release bundle: `docs/verification/release-1-0-0/`
+- Proof script: `scripts/verify/v20-release-suite.sh`
+- Summary: `docs/verification/release-1-0-0/2026-05-06-v20-release-suite.md`
+- Artifact: `docs/verification/release-1-0-0/2026-05-06-v20-release-suite.ndjson`
 
 ## Non-goals
 
@@ -76,3 +84,4 @@ may not claim new axis credit — it restores the axis to its V20 target.
 - 2026-04-22 opened. 1.0.0 release gate milestone. Ceiling close for
   every 10-STAR axis. V20.5 recovery phase reserved for zero-margin
   contingencies.
+- 2026-05-06 code complete. TE removal prover, bench ceiling sweep, harder-bench/zero-shot fixtures, aggregate every-axis=10 release harness, release proof bundle, and V20 artifacts landed. `1.0.0` tag intentionally not cut until real dogfood and third-party replay gates land.

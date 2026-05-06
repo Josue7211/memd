@@ -1,7 +1,7 @@
 ---
 milestone: v18
 name: Correction Graph + Silent Detection
-status: planned
+status: code_complete_dogfood_pending
 opened: 2026-04-22
 depends_on: [v17, ../../verification/1.0.0-CONTRACT.md, ../../verification/1.0.0-AXIS-OWNERSHIP.md]
 composite_pre: 9.35
@@ -34,7 +34,7 @@ applications deterministically. Ships CR 8→9.
 
 **Composite: 9.35 → 9.50**.
 
-## Phases (planned)
+## Phases (code complete; dogfood gate open)
 
 - **A18** Correction graph data structure (edges: cites/supersedes/affects)
 - **B18** Multi-hop propagation engine (correction X affects Y → query Y returns X-aware value)
@@ -46,11 +46,18 @@ applications deterministically. Ships CR 8→9.
 
 ## Completion gate
 
-1. ≥3-month dogfood with ≥50 multi-hop correction chains traced end-to-end.
-2. Silent correction detector ≥0.90 precision / ≥0.85 recall on labeled corpus.
-3. Downstream-effect surface shows correction chain for ≥95% of affected queries.
-4. Third-party replay harness reproduces corrections deterministically on ≥10 exports.
-5. 10-STAR composite regenerated ≥9.50 with CR=9.
+1. ≥3-month dogfood with ≥50 multi-hop correction chains traced end-to-end — **pending real time**.
+2. Silent correction detector ≥0.90 precision / ≥0.85 recall on labeled corpus — **passed fixture**.
+3. Downstream-effect surface shows correction chain for ≥95% of affected queries — **passed synthetic chain**.
+4. Third-party replay harness reproduces corrections deterministically on ≥10 exports — **code path passed; external replay still pending**.
+5. 10-STAR composite regenerated ≥9.50 with CR=9 — **provisional passed; final close waits on dogfood**.
+
+## Evidence
+
+- Core substrate: `crates/memd-core/src/v18.rs`
+- Proof script: `scripts/verify/v18-correction-graph-suite.sh`
+- Summary: `docs/verification/v18-proof-runs/2026-05-06-correction-graph-suite.md`
+- Artifact: `docs/verification/v18-proof-runs/2026-05-06-correction-graph-suite.ndjson`
 
 ## Non-goals
 
@@ -60,3 +67,4 @@ applications deterministically. Ships CR 8→9.
 ## Changelog
 
 - 2026-04-22 opened.
+- 2026-05-06 code complete. Correction graph, multi-hop propagation, detector metrics harness, deterministic replay export, and V18 proof artifacts landed. Real 3-month/50-chain dogfood gate remains open.

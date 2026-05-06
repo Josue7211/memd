@@ -266,6 +266,9 @@ const CONFIG_KEYS: &[&str] = &[
     "compiler.self_tuning.min_quality_score",
     "compiler.self_tuning.max_quality_regression",
     "compiler.self_tuning.max_budget_regression_pct",
+    "sync.enabled",
+    "sync.relay_url",
+    "sync.conflict_policy",
     "voice.mode",
     "visibility.default_scope",
     "feature_flags.v11_compiler",
@@ -352,6 +355,9 @@ fn config_default_value(key: &str) -> JsonValue {
         "compiler.self_tuning.max_budget_regression_pct" => {
             json!(memd_core::self_tuning::DEFAULT_MAX_BUDGET_REGRESSION_PCT)
         }
+        "sync.enabled" => json!(false),
+        "sync.relay_url" => JsonValue::Null,
+        "sync.conflict_policy" => json!("last_writer_wins"),
         "voice.mode" => json!(default_voice_mode()),
         "visibility.default_scope" => json!("project"),
         "feature_flags.v11_compiler" => json!(false),
@@ -364,6 +370,7 @@ fn config_type(key: &str) -> &'static str {
     match key {
         "auto_commit.enabled"
         | "telemetry.enabled"
+        | "sync.enabled"
         | "feature_flags.v11_compiler"
         | "feature_flags.v13_sota_guard" => "bool",
         "cost_ledger.budget_tokens"
@@ -374,9 +381,12 @@ fn config_type(key: &str) -> &'static str {
         "compiler.self_tuning.min_quality_score"
         | "compiler.self_tuning.max_quality_regression"
         | "compiler.self_tuning.max_budget_regression_pct" => "float",
-        "voice.mode" | "visibility.default_scope" | "telemetry.export_scope" | "compiler.mode" => {
-            "string"
-        }
+        "voice.mode"
+        | "visibility.default_scope"
+        | "telemetry.export_scope"
+        | "compiler.mode"
+        | "sync.relay_url"
+        | "sync.conflict_policy" => "string",
         _ => "unknown",
     }
 }
@@ -392,6 +402,7 @@ fn config_owner(key: &str) -> &'static str {
         | "compiler.self_tuning.min_quality_score"
         | "compiler.self_tuning.max_quality_regression"
         | "compiler.self_tuning.max_budget_regression_pct" => "V15",
+        "sync.enabled" | "sync.relay_url" | "sync.conflict_policy" => "V16",
         "voice.mode" => "memd voice bootstrap",
         "visibility.default_scope" => "V9 reserved",
         "feature_flags.v11_compiler" => "V11 reserved",

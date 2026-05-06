@@ -584,8 +584,10 @@ fn render_procedures_match(response: &memd_schema::ProcedureMatchResponse) -> St
 }
 
 pub(crate) fn run_routines_command(args: super::args::RoutinesArgs) -> anyhow::Result<()> {
-    use super::args::RoutinesCommand;
-    use memd_core::routine::library::{RoutineExport, RoutineLibrary, RoutineStatus};
+    use super::args::{RoutinesCommand, RoutinesMarketplaceCommand};
+    use memd_core::routine::library::{
+        RoutineExport, RoutineLibrary, RoutineRecord, RoutineStatus,
+    };
 
     match args.command {
         RoutinesCommand::Browse(args) => {
@@ -693,6 +695,59 @@ pub(crate) fn run_routines_command(args: super::args::RoutinesArgs) -> anyhow::R
             write_routine_library(&args.output, &library)?;
             println!("Imported routines: {}", library.routines.len());
         }
+        RoutinesCommand::Marketplace(args) => {
+            let marketplace = seed_marketplace_routines();
+            match args.command {
+                RoutinesMarketplaceCommand::Browse(args) => {
+                    if args.json {
+                        print_json(&serde_json::json!({ "routines": marketplace }))?;
+                    } else {
+                        println!("{}", render_marketplace_routines(&marketplace));
+                    }
+                }
+                RoutinesMarketplaceCommand::Search(args) => {
+                    let policy = memd_core::v17::MarketplacePolicy {
+                        allowlist: std::collections::BTreeSet::from(["trusted-author".to_string()]),
+                        blocklist: std::collections::BTreeSet::new(),
+                        min_reputation: 50,
+                    };
+                    let found =
+                        memd_core::v17::marketplace_search(&marketplace, &args.query, &policy);
+                    if args.json {
+                        print_json(&serde_json::json!({ "routines": found }))?;
+                    } else {
+                        let found = found.into_iter().cloned().collect::<Vec<_>>();
+                        println!("{}", render_marketplace_routines(&found));
+                    }
+                }
+                RoutinesMarketplaceCommand::Install(args) => {
+                    require_routine_mutation_flag()?;
+                    let selected = marketplace
+                        .iter()
+                        .find(|routine| routine.name == args.name)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("marketplace routine not found: {}", args.name)
+                        })?;
+                    let mut library = read_routine_library(&args.output)?;
+                    let routine = RoutineRecord::new(
+                        selected.name.clone(),
+                        format!("Installed from marketplace by {}", selected.author),
+                        selected.steps.clone(),
+                        RoutineStatus::Active,
+                        "default-workspace",
+                    )?;
+                    library.push(routine.clone())?;
+                    write_routine_library(&args.output, &library)?;
+                    if args.json {
+                        print_json(
+                            &serde_json::json!({ "routine": routine, "marketplace_hash": selected.content_hash }),
+                        )?;
+                    } else {
+                        println!("Installed marketplace routine: {}", routine.name);
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -740,8 +795,50 @@ pub(crate) fn run_audit_command(args: super::args::AuditArgs) -> anyhow::Result<
                 anyhow::bail!("audit verification failed");
             }
         }
+        AuditCommand::VerifyZk(args) => {
+            let raw = fs::read_to_string(&args.proof)
+                .with_context(|| format!("read {}", args.proof.display()))?;
+            let proof: memd_core::v19::CorrectionAppliedProof =
+                serde_json::from_str(&raw).context("parse V19 zk proof")?;
+            let verified = memd_core::v19::verify_zk_proof(&proof);
+            if args.json {
+                print_json(
+                    &serde_json::json!({ "verified": verified, "claim_id": proof.claim_id }),
+                )?;
+            } else if verified {
+                println!("ZK correction proof verified: {}", proof.claim_id);
+            } else {
+                anyhow::bail!("ZK correction proof verification failed");
+            }
+        }
     }
     Ok(())
+}
+
+fn seed_marketplace_routines() -> Vec<memd_core::v17::MarketplaceRoutine> {
+    let traces = vec![
+        vec![
+            "open /Users/alice/project-a/README.md".to_string(),
+            "private:citation:alice-memory".to_string(),
+        ],
+        vec![
+            "open /Users/bob/project-b/README.md".to_string(),
+            "run cargo test".to_string(),
+        ],
+        vec![
+            "open /srv/carla/project-c/README.md".to_string(),
+            "run cargo test".to_string(),
+        ],
+    ];
+    (0..10)
+        .map(|idx| {
+            memd_core::v17::generalize_from_traces(
+                &format!("migration-{idx}"),
+                "trusted-author",
+                &traces,
+            )
+        })
+        .collect()
 }
 
 fn read_routine_library(
@@ -828,6 +925,27 @@ fn render_routines(routines: &[memd_core::routine::library::RoutineRecord]) -> S
             routine.status
         ));
         out.push_str(&format!("  summary: {}\n", routine.summary));
+        for (idx, step) in routine.steps.iter().enumerate() {
+            out.push_str(&format!("  {}. {}\n", idx + 1, step));
+        }
+    }
+    out
+}
+
+fn render_marketplace_routines(routines: &[memd_core::v17::MarketplaceRoutine]) -> String {
+    let mut out = String::from("# Routine Marketplace\n\n");
+    if routines.is_empty() {
+        out.push_str("No marketplace routines found.\n");
+        return out;
+    }
+    for routine in routines {
+        out.push_str(&format!(
+            "- **{}** {} author={} reputation={}\n",
+            routine.name,
+            &routine.content_hash[..12],
+            routine.author,
+            routine.reputation
+        ));
         for (idx, step) in routine.steps.iter().enumerate() {
             out.push_str(&format!("  {}. {}\n", idx + 1, step));
         }

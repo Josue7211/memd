@@ -1,7 +1,7 @@
 ---
 milestone: v16
 name: Cross-Device Sync at Scale
-status: planned
+status: code_complete_dogfood_pending
 opened: 2026-04-22
 depends_on: [v15, ../../verification/1.0.0-CONTRACT.md, ../../verification/1.0.0-AXIS-OWNERSHIP.md]
 composite_pre: 8.70
@@ -34,7 +34,7 @@ identical behavior turn-for-turn. Ships SC 9→10 and CH 8→9.
 
 **Composite: 8.70 → 9.05**.
 
-## Phases (planned)
+## Phases (code complete; dogfood gate open)
 
 - **A16** CRDT memory layer (conflict-free replicated datatype for `MemoryRecord`)
 - **B16** Sync protocol (optional self-hosted relay or peer-to-peer; opt-in)
@@ -46,11 +46,19 @@ identical behavior turn-for-turn. Ships SC 9→10 and CH 8→9.
 
 ## Completion gate
 
-1. ≥90-day 3-device dogfood (desktop + laptop + mobile or SSH'd server).
-2. Dormant-project recovery: ≥1 project with ≥6-month gap, wake re-hydrates focus with ≤0.02 fidelity delta.
-3. Cross-device replay: same turn sequence on two devices produces identical memory state.
-4. CRDT conflict resolution verified (synthetic conflict scenario: device A + B edit same record; merge resolves without data loss).
-5. 10-STAR composite regenerated ≥9.05 with SC=10, CH=9.
+1. ≥90-day 3-device dogfood (desktop + laptop + mobile or SSH'd server) — **pending real time**.
+2. Dormant-project recovery: ≥1 project with ≥6-month gap, wake re-hydrates focus with ≤0.02 fidelity delta — **synthetic proof passed**.
+3. Cross-device replay: same turn sequence on two devices produces identical memory state — **passed**.
+4. CRDT conflict resolution verified (synthetic conflict scenario: device A + B edit same record; merge resolves without data loss) — **passed**.
+5. 10-STAR composite regenerated ≥9.05 with SC=10, CH=9 — **provisional passed; final close waits on dogfood**.
+
+## Evidence
+
+- Core substrate: `crates/memd-core/src/v16.rs`
+- Config keys: `sync.enabled`, `sync.relay_url`, `sync.conflict_policy`
+- Proof script: `scripts/verify/v16-sync-suite.sh`
+- Summary: `docs/verification/v16-proof-runs/2026-05-06-sync-suite.md`
+- Artifact: `docs/verification/v16-proof-runs/2026-05-06-sync-suite.ndjson`
 
 ## Non-goals
 
@@ -61,3 +69,4 @@ identical behavior turn-for-turn. Ships SC 9→10 and CH 8→9.
 ## Changelog
 
 - 2026-04-22 opened.
+- 2026-05-06 code complete. CRDT merge, sync config, three-device replay, conflict-resolution proof, and V16 proof artifacts landed. Real 90-day 3-device dogfood gate remains open.

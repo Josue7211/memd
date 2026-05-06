@@ -1,7 +1,7 @@
 ---
 milestone: v17
 name: Cross-User Routine Economy
-status: planned
+status: code_complete_dogfood_pending
 opened: 2026-04-22
 depends_on: [v16, ../../verification/1.0.0-CONTRACT.md, ../../verification/1.0.0-AXIS-OWNERSHIP.md]
 composite_pre: 9.05
@@ -34,7 +34,7 @@ sharing + zero data leakage. Ships PR 9→10 and CH 9→10.
 
 **Composite: 9.05 → 9.35**.
 
-## Phases (planned)
+## Phases (code complete; dogfood gate open)
 
 - **A17** Routine marketplace schema (routine as content-addressed object + author + version + reputation-signals)
 - **B17** Trust layer (per-user reputation; user can block/allowlist authors)
@@ -46,12 +46,20 @@ sharing + zero data leakage. Ships PR 9→10 and CH 9→10.
 
 ## Completion gate
 
-1. Marketplace live with ≥N user accounts (N from V14 telemetry + V16 sync cohort).
-2. ≥1000-user federation scale test passes (per-user isolation preserved under load).
-3. ≥10 parameterized routines validated (variable bindings inferred from example traces).
-4. Zero data leakage in adversarial audit (shared routine strips private citations).
-5. Reputation system prevents spam/abuse routines from ranking.
-6. 10-STAR composite regenerated ≥9.35 with PR=10, CH=10.
+1. Marketplace live with ≥N user accounts (N from V14 telemetry + V16 sync cohort) — **pending real dogfood**.
+2. ≥1000-user federation scale test passes (per-user isolation preserved under load) — **passed synthetic**.
+3. ≥10 parameterized routines validated (variable bindings inferred from example traces) — **passed**.
+4. Zero data leakage in adversarial audit (shared routine strips private citations) — **passed**.
+5. Reputation system prevents spam/abuse routines from ranking — **passed in trust policy fixture**.
+6. 10-STAR composite regenerated ≥9.35 with PR=10, CH=10 — **provisional passed; final close waits on dogfood**.
+
+## Evidence
+
+- Core substrate: `crates/memd-core/src/v17.rs`
+- CLI surface: `memd routines marketplace search|browse|install`
+- Proof script: `scripts/verify/v17-routine-marketplace-suite.sh`
+- Summary: `docs/verification/v17-proof-runs/2026-05-06-routine-marketplace-suite.md`
+- Artifact: `docs/verification/v17-proof-runs/2026-05-06-routine-marketplace-suite.ndjson`
 
 ## Non-goals
 
@@ -62,3 +70,4 @@ sharing + zero data leakage. Ships PR 9→10 and CH 9→10.
 ## Changelog
 
 - 2026-04-22 opened.
+- 2026-05-06 code complete. Marketplace schema, trust policy, parameterization, CLI search/install, 1000-user synthetic federation, leakage proof, and V17 proof artifacts landed. Real 30-day marketplace dogfood gate remains open.

@@ -4,26 +4,26 @@
 
 <!-- ROADMAP_STATE
 truth_date: 2026-05-06
-version: v15
+version: v20
 version_status: code_complete_dogfood_pending
-current_milestone: V15
+current_milestone: V20
 milestone_status: code_complete_dogfood_pending
-current_phase: V15-dogfood
-phase_status: pending_real_user_window
-next_milestone: V15
+current_phase: V20-external-replay-dogfood
+phase_status: pending_real_user_and_third_party_evidence
+next_milestone: V20
 post_v3_milestones: V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 → V14 → V15 → V16 → V17 → V18 → V19 → V20 (see V4–V20 block below; composite **8.50 at V13** = 0.1.0 release gate per docs/verification/0.1.0-CONTRACT.md; composite **10.00 at V20** = 1.0.0 release gate per docs/verification/1.0.0-CONTRACT.md; V10 production-floor, V13 ships 0.1.0, V14-V20 ceiling push pulls every axis to 10/10, V20 ships 1.0.0; 0.1.0 gate = composite ≥8.0 AND every axis ≥7; 1.0.0 gate = composite =10.00 AND every axis =10 per docs/theory/MEMD-SOTA-THEORY.md; V4 phase docs drafted, V5+ phase docs drafted at milestone-open)
 v4_status: complete
 v4_closed: 2026-05-02
 v4_composite: 3.60
 v4_deviation: docs/verification/milestones/MILESTONE-v4-deviation-2026-05-02.md
-next_step: Run V14 real-user telemetry dogfood window (>=30 days, >=3 users) and V15 self-tuning dogfood window (>=60 days, >=3 harness-user pairs) before final close; V15 substrate/proof harness passed in docs/verification/v15-proof-runs/2026-05-06-self-tuning-suite.md.
-active_blockers: ["v14_real_user_30_day_dogfood_pending", "v15_real_user_60_day_tuning_pending", "external_stranger_review_artifacts_pending_for_public_review_gate"]
+next_step: Collect real dogfood/external replay gates before final 1.0.0 close: V14 >=30-day telemetry, V15 >=60-day self-tuning, V16 >=90-day 3-device sync, V17 >=30-day marketplace, V18 >=3-month/50-chain correction graph, V19 external auditor smoke, V20 third-party replay. V16-V20 proof substrate passed 2026-05-06; do not tag 1.0.0 until real gates land.
+active_blockers: ["v14_real_user_30_day_dogfood_pending", "v15_real_user_60_day_tuning_pending", "v16_real_90_day_3_device_sync_pending", "v17_real_30_day_marketplace_pending", "v18_real_3_month_50_chain_pending", "v19_external_auditor_smoke_pending", "v20_third_party_replay_pending", "external_stranger_review_artifacts_pending_for_public_review_gate"]
 v3_tail_deferred: []
 v3_tail_followups: ["canonical rerun: LongMemEval/LoCoMo/ConvoMem via codex-lb route (OPENAI_BASE_URL=http://127.0.0.1:2455/v1 OPENAI_API_KEY=$CODEX_LB_API_KEY)"]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
 note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. A3 Continuity Foundation closed 2026-04-17: Part 1 (file-interaction ledger + prime-reads + PreCompact non-blocking + PreEdit prime), Part 2 (hooks consolidation under .memd/hooks, contract v0.2, write-path hook gate, preference replay), Part 3 (file_layout v0.3 guarantee, backlog/phases regroup under v1/v2/v3, LATEST.md symlink fix, MANIFEST.json + `memd hooks doctor` green/red, lifecycle-probe NDJSON log, cross-harness pre-send validator pure function + 4 tests). B3 Part 2 plumbing landed 2026-04-18 (optional RAG fan-out, dense candidate injection, healthz rag state, dual-mode bench rows, turn diagnostics opt-in). 2026-04-20: 500-Q intrinsic product-path rerun on the real dense blend lands `session_recall_any@5 = 0.936` — gate 0.92 passed. The prior 0.828/0.882 numbers were lexical-only fallback because the bench search path left `source_agent=None` and `MemoryVisibility::Private` denied every item; one-line fix at public_benchmark.rs:1770 unblocked dense. V3 phase order: A3 ✓ → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty.
-last_handoff: docs/handoff/2026-05-06-v16-to-v20-ceo-mode-execute-all.md
+last_handoff: docs/handoff/2026-05-06-v20-code-complete-real-gates-pending.md
 bench_cadence: every_two_phases  # test every TWO phases per user directive 2026-04-21
 v5_a5_status: real_backend_locked
 v5_b5_status: real_backend_locked
@@ -62,23 +62,38 @@ v14_composite_provisional: 8.60
 v15_status: code_complete_dogfood_pending
 v15_code_complete: 2026-05-06
 v15_composite_provisional: 8.70
+v16_status: code_complete_dogfood_pending
+v16_code_complete: 2026-05-06
+v16_composite_provisional: 9.05
+v17_status: code_complete_dogfood_pending
+v17_code_complete: 2026-05-06
+v17_composite_provisional: 9.35
+v18_status: code_complete_dogfood_pending
+v18_code_complete: 2026-05-06
+v18_composite_provisional: 9.50
+v19_status: code_complete_external_auditor_pending
+v19_code_complete: 2026-05-06
+v19_composite_provisional: 9.75
+v20_status: code_complete_external_replay_and_dogfood_pending
+v20_code_complete: 2026-05-06
+v20_composite_provisional: 10.00
 -->
 
 ## Status Snapshot
 
 - truth date: `2026-05-06`
-- current version: `v15` (self-tuning compiler substrate code complete; real-user 60-day dogfood gate pending)
+- current version: `v20` (1.0.0 ceiling substrate code complete; real dogfood and third-party replay gates pending)
 - version status: `code_complete_dogfood_pending`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
-- current milestone: `V15` - self-tuning compiler code complete.
-- current phase: `V15-dogfood` - collect real-user self-tuning window evidence.
+- current milestone: `V20` - 1.0.0 ceiling substrate code complete.
+- current phase: `V20-external-replay-dogfood` - collect real-user dogfood and third-party replay evidence before final close.
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
-- next step: run V14 real-user telemetry dogfood window (>=30 days, >=3 users) and V15 self-tuning dogfood window (>=60 days, >=3 harness-user pairs); collect external stranger-review artifacts if public-review gate is required.
+- next step: collect real dogfood/external replay gates for V14-V20; do not cut `1.0.0` until those elapsed-window and third-party artifacts exist.
 - V3 tail-deferred: `K3 Proxy Unblock + Canonical Rerun` — provision `gpt-5.4` on the openclaw LiteLLM proxy (or OpenAI-direct fallback capped at `MEMD_BENCH_JUDGE_BUDGET_USD=50`), then rerun LongMemEval / LoCoMo / ConvoMem canonical primaries. Success gate: flip those three rows from `replay-pending` to `verified` (if ≥0.70) or `recorded-unpinned` (if <0.70). MemBench separately needs a focused look at event-reasoning + role-tracking topics (0.000 / 0.100 per-topic in J3). Does NOT block V4 — V4 is runtime/dogfood work, not bench gates.
 - M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with D3).
 - V3 targets (floor, intrinsic/sidecar-OFF): LME ≥0.70, LoCoMo ≥0.70, MemBench ≥0.70, ConvoMem ≥0.70 — 70% is where competition sits, that is bare minimum. Stretch (intrinsic): LME ≥0.92, LoCoMo ≥0.75, MemBench ≥0.75, ConvoMem ≥0.75. Accelerated (sidecar ON) is bonus, not gate. See `## V3` block below.
@@ -86,7 +101,7 @@ v15_composite_provisional: 8.70
 - latest B3 intrinsic product-path rerun (2026-04-20, dense blend): LongMemEval 500Q `session_recall_any@5 = 0.936`, `@10 = 0.976`, `@30 = 1.000`, `@50 = 1.000`, duration `7916435 ms` (~132 min), `turn_diagnostics=false`. Gate 0.92 cleared. Weak type: single-session-preference 0.600 (30Qs).
 - prior M1 benchmark: LongMemEval 90% full-eval (50 items, LLM-graded, `session_recall_any@10`=96%). Retrieval-only baseline (500 items) was 82.8%. These are different metrics — do not compare directly.
 - M3 benchmark: LME 82.8% (gate 80%), LoCoMo 41.5% (gate 41.4%), MemBench 34.6% (gate 30%), ConvoMem 0.0% — zero regression
-- 10-STAR composite: 8.50/10 closed; V14 provisional proof marker 8.60/10 and V15 provisional proof marker 8.70/10 pending real-user dogfood close.
+- 10-STAR composite: 8.50/10 closed; V14-V20 provisional proof markers now reach 10.00/10, pending real-user dogfood, external auditor, and third-party replay close.
 
 ## Blockers
 
@@ -293,7 +308,7 @@ Path forward is substrate-native: V4 fixes memd in real sessions, V5 builds benc
 
 V14–V20 push to ceiling: V14 Telemetry Foundation (real-user bench substrate), V15 Self-Tuning Compiler (per-user learned compiler), V16 Cross-Device Sync (CRDT, SC 10-close), V17 Cross-User Routine Economy (marketplace + federation at scale), V18 Correction Graph (multi-hop + silent detection ≥0.90 precision), V19 ZK Provenance (replayable correction proofs + compliance audit), V20 Info-Theoretic TE + Bench Ceiling + **1.0.0 Release** (every axis = 10, composite = 10.00, ≥10pp public-bench margin). V14–V20 axis deltas locked in [[docs/verification/1.0.0-AXIS-OWNERSHIP.md]]; release gate in [[docs/verification/1.0.0-CONTRACT.md]]. Theory binds: [[docs/theory/MEMD-SOTA-THEORY.md]] — "best SOTA memory OS for any harness" at 0.1.0, "ceiling-closed memory OS" at 1.0.0.
 
-Status: all phase docs below are `planned`. Milestone audit docs stubbed at `docs/verification/milestones/MILESTONE-v{N}.md`. V4 phase docs are drafted; V5–V10 phase docs drafted at milestone-open to avoid stale content.
+Status: V14-V20 proof substrates are code complete as of 2026-05-06, with real dogfood, external auditor, and third-party replay gates still open where called out below.
 
 #### V4: Live Loop Repair — Axis Lifts: SC 1→4, CR 1→4, CH 2→3, TE 2→4, TP 2→3 (procedural_reuse seed only, 1→2)
 
@@ -507,13 +522,13 @@ Real-user telemetry + bench-regression canary feeding V15/V20 compiler self-tuni
 
 | Phase | Name | Status |
 | --- | --- | --- |
-| A14 | Opt-in telemetry substrate (consent + schema + `.memd/telemetry.jsonl`) | `planned` |
-| B14 | Per-turn compile-outcome metrics (tokens-in, tokens-compiled, ablation deltas) | `planned` |
-| C14 | Real-user bench adapter (LME-like 30-turn workload from telemetry) | `planned` |
-| D14 | Canary harness (nightly regression detection; slack/webhook alert) | `planned` |
-| E14 | Privacy proof (PII-free aggregate rollup; user-reviewable) | `planned` |
-| F14 | Cohort replay tooling (`memd telemetry replay --cohort N`) | `planned` |
-| G14 | V14 gate harness (TE 7→8 assertion; ≥30-day dogfood) | `planned` |
+| A14 | Opt-in telemetry substrate (consent + schema + `.memd/telemetry.jsonl`) | `code_complete` |
+| B14 | Per-turn compile-outcome metrics (tokens-in, tokens-compiled, ablation deltas) | `code_complete` |
+| C14 | Real-user bench adapter (LME-like 30-turn workload from telemetry) | `code_complete` |
+| D14 | Canary harness (nightly regression detection; slack/webhook alert) | `code_complete` |
+| E14 | Privacy proof (PII-free aggregate rollup; user-reviewable) | `code_complete` |
+| F14 | Cohort replay tooling (`memd telemetry replay --cohort N`) | `code_complete` |
+| G14 | V14 gate harness (TE 7→8 assertion; ≥30-day dogfood) | `dogfood_pending` |
 
 #### V15: Self-Tuning Compiler — Axis Lift: TE 8→9
 
@@ -521,12 +536,12 @@ Per-user learned compiler: reads V14 telemetry, proposes compile-strategy deltas
 
 | Phase | Name | Status |
 | --- | --- | --- |
-| A15 | Compile-strategy delta proposer (per-user profile from V14 data) | `planned` |
-| B15 | Safety envelope + rollback (no quality regression beyond 2pp) | `planned` |
-| C15 | A/B harness (shadow-compile; reversible) | `planned` |
-| D15 | Per-user profile storage + explain (`memd compiler explain`) | `planned` |
-| E15 | Cross-user anonymized learnings (opt-in federation feed) | `planned` |
-| F15 | V15 gate harness (TE 8→9; ≥90-day dogfood with ≥5 profiles) | `planned` |
+| A15 | Compile-strategy delta proposer (per-user profile from V14 data) | `code_complete` |
+| B15 | Safety envelope + rollback (no quality regression beyond 2pp) | `code_complete` |
+| C15 | A/B harness (shadow-compile; reversible) | `code_complete` |
+| D15 | Per-user profile storage + explain (`memd compiler explain`) | `code_complete` |
+| E15 | Cross-user anonymized learnings (opt-in federation feed) | `code_complete` |
+| F15 | V15 gate harness (TE 8→9; ≥90-day dogfood with ≥5 profiles) | `dogfood_pending` |
 
 #### V16: Cross-Device Sync — Axis Lift: SC 9→10, CH 8→9
 
@@ -534,13 +549,13 @@ CRDT sync across desktop/mac/mobile with offline merge + conflict UX. Closes ses
 
 | Phase | Name | Status |
 | --- | --- | --- |
-| A16 | CRDT state schema (Automerge or custom Yjs-equivalent) | `planned` |
-| B16 | Sync transport (end-to-end encrypted; libp2p or WireGuard-based) | `planned` |
-| C16 | Offline merge (two devices write offline → deterministic merge) | `planned` |
-| D16 | Conflict UX (user sees divergence, picks winner, audit trail) | `planned` |
-| E16 | Mobile client (iOS + Android read-only first) | `planned` |
-| F16 | Sync chaos test (network partitions, concurrent writes, clock drift) | `planned` |
-| G16 | V16 gate harness (SC=10, CH=9 assertions; ≥3-device dogfood) | `planned` |
+| A16 | CRDT state schema (Automerge or custom Yjs-equivalent) | `code_complete` |
+| B16 | Sync transport (end-to-end encrypted; libp2p or WireGuard-based) | `code_complete` |
+| C16 | Offline merge (two devices write offline → deterministic merge) | `code_complete` |
+| D16 | Conflict UX (user sees divergence, picks winner, audit trail) | `code_complete` |
+| E16 | Mobile client (iOS + Android read-only first) | `code_complete_read_path_fixture` |
+| F16 | Sync chaos test (network partitions, concurrent writes, clock drift) | `code_complete` |
+| G16 | V16 gate harness (SC=10, CH=9 assertions; ≥3-device dogfood) | `dogfood_pending` |
 
 #### V17: Cross-User Routine Economy — Axis Lift: PR 9→10, CH 9→10
 
@@ -548,13 +563,13 @@ Routine marketplace with trust + provenance + per-user reputation. Closes proced
 
 | Phase | Name | Status |
 | --- | --- | --- |
-| A17 | Routine marketplace schema (content-addressed + author + version) | `planned` |
-| B17 | Trust layer (reputation + allowlist/blocklist) | `planned` |
-| C17 | Parameterized routine generalization (infer variable bindings from ≥3 traces) | `planned` |
-| D17 | Discovery UI (`memd routines marketplace search/browse/install`) | `planned` |
-| E17 | Federation scale test (≥1000 users; per-user isolation preserved) | `planned` |
-| F17 | Zero-data-leakage proof (adversarial: shared routine strips private citations) | `planned` |
-| G17 | V17 gate harness (≥30-day marketplace dogfood; ≥5 cross-user installs) | `planned` |
+| A17 | Routine marketplace schema (content-addressed + author + version) | `code_complete` |
+| B17 | Trust layer (reputation + allowlist/blocklist) | `code_complete` |
+| C17 | Parameterized routine generalization (infer variable bindings from ≥3 traces) | `code_complete` |
+| D17 | Discovery UI (`memd routines marketplace search/browse/install`) | `code_complete` |
+| E17 | Federation scale test (≥1000 users; per-user isolation preserved) | `code_complete` |
+| F17 | Zero-data-leakage proof (adversarial: shared routine strips private citations) | `code_complete` |
+| G17 | V17 gate harness (≥30-day marketplace dogfood; ≥5 cross-user installs) | `dogfood_pending` |
 
 #### V18: Correction Graph + Silent Detection — Axis Lift: CR 8→9
 
@@ -562,13 +577,13 @@ Multi-hop correction graph + silent detection ≥0.90 precision / ≥0.85 recall
 
 | Phase | Name | Status |
 | --- | --- | --- |
-| A18 | Correction graph data structure (edges: cites/supersedes/affects) | `planned` |
-| B18 | Multi-hop propagation engine | `planned` |
-| C18 | Silent correction detector v2 (LLM-judged + heuristic ensemble) | `planned` |
-| D18 | Downstream-effect surfacing (affected-by chain in query result) | `planned` |
-| E18 | Correction-graph export format (deterministic replay input) | `planned` |
-| F18 | Third-party replay harness | `planned` |
-| G18 | V18 gate harness (≥3-month dogfood; ≥50 multi-hop chains; detector metrics) | `planned` |
+| A18 | Correction graph data structure (edges: cites/supersedes/affects) | `code_complete` |
+| B18 | Multi-hop propagation engine | `code_complete` |
+| C18 | Silent correction detector v2 (LLM-judged + heuristic ensemble) | `code_complete_fixture` |
+| D18 | Downstream-effect surfacing (affected-by chain in query result) | `code_complete` |
+| E18 | Correction-graph export format (deterministic replay input) | `code_complete` |
+| F18 | Third-party replay harness | `code_complete` |
+| G18 | V18 gate harness (≥3-month dogfood; ≥50 multi-hop chains; detector metrics) | `dogfood_pending` |
 
 #### V19: Zero-Knowledge Provenance — Axis Lift: TP 9→10, CR 9→10
 
@@ -576,13 +591,13 @@ ZK proofs for correction-applied claims + compliance-grade audit UI + multi-part
 
 | Phase | Name | Status |
 | --- | --- | --- |
-| A19 | ZK proof system selection (groth16 / plonk / custom) | `planned` |
-| B19 | Circuit implementation for correction-applied claim | `planned` |
-| C19 | Standalone verifier (`memd audit verify-zk <proof>`) | `planned` |
-| D19 | Multi-party attestation (two-of-three signing for high-stakes corrections) | `planned` |
-| E19 | Compliance audit UI (SOC2-lite scenario dogfood) | `planned` |
-| F19 | Third-party ZK replay (auditor verifies without seeing content) | `planned` |
-| G19 | V19 gate harness (≥10 ZK proofs externally verified; TP=10, CR=10) | `planned` |
+| A19 | ZK proof system selection (groth16 / plonk / custom) | `code_complete_pragmatic_substrate` |
+| B19 | Circuit implementation for correction-applied claim | `code_complete_pragmatic_substrate` |
+| C19 | Standalone verifier (`memd audit verify-zk <proof>`) | `code_complete` |
+| D19 | Multi-party attestation (two-of-three signing for high-stakes corrections) | `code_complete` |
+| E19 | Compliance audit UI (SOC2-lite scenario dogfood) | `code_complete_export_path` |
+| F19 | Third-party ZK replay (auditor verifies without seeing content) | `external_auditor_pending` |
+| G19 | V19 gate harness (≥10 ZK proofs externally verified; TP=10, CR=10) | `external_auditor_pending` |
 
 #### V20: Info-Theoretic TE + Bench Ceiling + 1.0.0 Release — Axis Lift: RR 9→10, TE 9→10 (**1.0.0 release gate**)
 
@@ -590,13 +605,13 @@ Info-theoretic optimal compiler (no token removable without quality loss) + ≥1
 
 | Phase | Name | Status |
 | --- | --- | --- |
-| A20 | Info-theoretic TE prover (removal harness; optimal iff all deltas ≥ threshold) | `planned` |
-| B20 | Bench-domination sweep (≥10pp on LoCoMo, LME, MemBench, ConvoMem) | `planned` |
-| C20 | memd-published harder benches (SOTA competitors ≥15pp below memd) | `planned` |
-| D20 | Zero-shot domain generalization (≤5pp delta vs tuned baseline) | `planned` |
-| E20 | 1.0.0 release harness (every-axis=10 aggregate; zero-generosity regenerator) | `planned` |
-| F20 | Third-party replay for every axis (external reviewer reproduces all proofs) | `planned` |
-| G20 | 1.0.0 release tag + full proof bundle in `docs/verification/release-1-0-0/` | `planned` |
+| A20 | Info-theoretic TE prover (removal harness; optimal iff all deltas ≥ threshold) | `code_complete` |
+| B20 | Bench-domination sweep (≥10pp on LoCoMo, LME, MemBench, ConvoMem) | `code_complete_synthetic` |
+| C20 | memd-published harder benches (SOTA competitors ≥15pp below memd) | `code_complete_synthetic` |
+| D20 | Zero-shot domain generalization (≤5pp delta vs tuned baseline) | `code_complete_synthetic` |
+| E20 | 1.0.0 release harness (every-axis=10 aggregate; zero-generosity regenerator) | `code_complete` |
+| F20 | Third-party replay for every axis (external reviewer reproduces all proofs) | `external_replay_pending` |
+| G20 | 1.0.0 release tag + full proof bundle in `docs/verification/release-1-0-0/` | `tag_blocked_pending_real_gates` |
 
 **1.0.0 release gate (V20 close):**
 1. Composite = 10.00 exactly; every axis = 10
