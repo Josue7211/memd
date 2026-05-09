@@ -5,6 +5,7 @@ opened: 2026-05-09
 depends_on:
   - ../verification/1.0.0-CONTRACT.md
   - ../verification/25-star-CONTRACT.md
+  - ../verification/25-star-phase-ledger.md
   - v21-v25-ceo-mode.md
 ---
 
@@ -46,6 +47,7 @@ V20 close means:
 
 Every V21-V35 version uses the same A-G phase shell. One commit per phase.
 Each phase must be independently revertable.
+The atomic phase ledger lives in `../verification/25-star-phase-ledger.md`.
 
 | Phase | Purpose | Commit rule |
 | --- | --- | --- |
@@ -59,6 +61,12 @@ Each phase must be independently revertable.
 
 No version advances on synthetic proof alone if its gate requires users,
 customers, third parties, devices, orgs, or elapsed time.
+
+Audit command:
+
+```bash
+scripts/verify/25-star-roadmap-audit.sh
+```
 
 ## V21-V25: 15-Star Product Company
 

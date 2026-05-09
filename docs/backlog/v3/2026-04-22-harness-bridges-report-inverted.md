@@ -1,7 +1,7 @@
 ---
 status: open
 severity: high
-phase: tbd
+phase: C5
 opened: 2026-04-22
 scope: memd-cli, harness-bridge
 ---

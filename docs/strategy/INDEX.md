@@ -20,6 +20,7 @@
 5. [[docs/plans/2026-05-06-v21-v25-ceo-execution-plan.md|V21-V25 CEO Execution Plan]]
 6. [[docs/strategy/25-star-master-roadmap.md|25-Star Master Roadmap]]
 7. [[docs/verification/25-star-CONTRACT.md|25-Star Contract]]
+8. [[docs/verification/25-star-phase-ledger.md|25-Star Phase Ledger]]
 
 ## Rule
 

@@ -5,6 +5,7 @@ opened: 2026-05-09
 depends_on:
   - 1.0.0-CONTRACT.md
   - ../strategy/25-star-master-roadmap.md
+  - 25-star-phase-ledger.md
 ---
 
 # memd 25-Star Contract
@@ -130,6 +131,8 @@ Not accepted:
 
 - Each version opens with A-phase planning commit and closes with G-phase proof
   packet commit.
+- Phase boundaries and rollback notes are enumerated in
+  `25-star-phase-ledger.md`.
 - No A-G phase commit may mix unrelated runtime cleanup.
 - If a phase touches code, docs must name rollback command or revert scope.
 - If a phase touches docs only, docs must name the evidence gap it resolves.
@@ -150,6 +153,19 @@ Automated or manual review must fail if:
 - `1.0.0-CONTRACT.md` remains binding for V20 and 10-star closure.
 - `25-star-master-roadmap.md` explains product/network/category intent.
 - This contract defines the proof bar for V21-V35.
+- `25-star-phase-ledger.md` defines the atomic A-G execution ledger.
+
+## Audit Command
+
+Run:
+
+```bash
+scripts/verify/25-star-roadmap-audit.sh
+```
+
+The audit fails on missing V21-V35 metrics, artifact paths, kill criteria,
+recovery rules, active-status leaks, synthetic-proof close claims, or missing
+A-G rollback boundaries.
 
 ## Changelog
 

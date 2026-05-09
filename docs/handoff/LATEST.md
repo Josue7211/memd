@@ -1,1 +1,1 @@
-2026-05-09-runtime-authority-complete.md
+2026-05-09-25-star-plan-executable.md

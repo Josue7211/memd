@@ -1,57 +1,72 @@
 #!/usr/bin/env bash
-# Fail if any docs/backlog/**/*.md with status: open has a phase: that doesn't
-# resolve to a live phase doc. Allows `status: deferred` as an explicit escape
-# hatch (per phase-a3 Pass Gate wording: "assigned OR explicitly marked deferred").
+# Fail if any docs/backlog/**/*.md with status: open has a phase: that does not
+# resolve to a live phase doc. Portable across macOS Bash 3 and newer shells.
 
 set -euo pipefail
 
 REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-BACKLOG_DIR="$REPO_ROOT/docs/backlog"
-PHASES_DIR="$REPO_ROOT/docs/phases"
 
-# Live phase codes
-declare -A LIVE_PHASES
-while IFS= read -r pf; do
-    [ -f "$pf" ] || continue
-    code=$(awk '/^phase:/{sub(/^phase:[[:space:]]*/,""); print; exit}' "$pf")
-    [ -n "$code" ] && LIVE_PHASES["$code"]=1
-done < <(find "$PHASES_DIR" -maxdepth 3 -name 'phase-*.md' 2>/dev/null)
+python3 - "$REPO_ROOT" <<'PY'
+from pathlib import Path
+import sys
 
-fail=0
-total_open=0
-deferred=0
-problems=()
+repo = Path(sys.argv[1])
+backlog_dir = repo / "docs/backlog"
+phases_dir = repo / "docs/phases"
 
-while IFS= read -r f; do
-    status=$(awk 'NR==1 && /^---$/{fm=1;next} fm && /^---$/{exit} fm && /^status:/{sub(/^status:[[:space:]]*/,""); print; exit}' "$f")
-    phase=$(awk 'NR==1 && /^---$/{fm=1;next} fm && /^---$/{exit} fm && /^phase:/{sub(/^phase:[[:space:]]*/,""); print; exit}' "$f")
+def frontmatter_value(path: Path, key: str) -> str:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines or lines[0] != "---":
+        return ""
+    for line in lines[1:]:
+        if line == "---":
+            return ""
+        prefix = f"{key}:"
+        if line.startswith(prefix):
+            return line[len(prefix):].strip()
+    return ""
 
-    [ "$status" = "closed" ] && continue
-    [ "$status" = "in_progress" ] && status="open"  # treat in_progress as open
+live_phases: set[str] = set()
+for path in phases_dir.glob("**/phase-*.md"):
+    phase = frontmatter_value(path, "phase")
+    if phase:
+        live_phases.add(phase)
 
-    if [ "$status" = "deferred" ]; then
-        deferred=$((deferred+1))
+failures: list[str] = []
+total_open = 0
+deferred = 0
+
+for path in backlog_dir.glob("**/*.md"):
+    if path.name in {"INDEX.md", "TEMPLATE.md"}:
         continue
-    fi
+    status = frontmatter_value(path, "status")
+    phase = frontmatter_value(path, "phase")
 
-    total_open=$((total_open+1))
-
-    if [ -z "$phase" ] || [ "$phase" = "unassigned" ]; then
-        problems+=("$f: open item has phase='${phase:-<empty>}' — assign a live phase or mark status: deferred")
-        fail=1
+    if status in {"closed", "resolved"}:
         continue
-    fi
+    if status == "in_progress":
+        status = "open"
+    if status == "deferred":
+        deferred += 1
+        continue
 
-    if [ -z "${LIVE_PHASES[$phase]:-}" ]; then
-        problems+=("$f: phase '$phase' does not resolve to a live phase doc under $PHASES_DIR/")
-        fail=1
-    fi
-done < <(find "$BACKLOG_DIR" -maxdepth 3 -name '*.md' -not -name 'INDEX.md' -not -name 'TEMPLATE.md')
+    total_open += 1
 
-if [ "$fail" = "1" ]; then
-    echo "roadmap-audit: FAIL" >&2
-    for p in "${problems[@]}"; do echo "  - $p" >&2; done
-    exit 1
-fi
+    if not phase or phase == "unassigned":
+        failures.append(
+            f"{path}: open item has phase='{phase or '<empty>'}' -- assign a live phase or mark status: deferred"
+        )
+        continue
+    if phase not in live_phases:
+        failures.append(
+            f"{path}: phase '{phase}' does not resolve to a live phase doc under {phases_dir}/"
+        )
 
-echo "roadmap-audit: ok — $total_open open items, all assigned to live phases ($deferred deferred)"
+if failures:
+    print("roadmap-audit: FAIL", file=sys.stderr)
+    for failure in failures:
+        print(f"  - {failure}", file=sys.stderr)
+    sys.exit(1)
+
+print(f"roadmap-audit: ok -- {total_open} open items, all assigned to live phases ({deferred} deferred)")
+PY
