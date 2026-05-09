@@ -1,12 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useCallback, useRef, useEffect } from "react";
+import { lazy, Suspense, useState, useCallback, useRef, useEffect } from "react";
 import { useEntitySearch, useEntityLinks } from "../lib/queries";
 import { EmptyState } from "../components/ui/empty-state";
 import { GraphToggle } from "../components/graph/graph-toggle";
-import { ForceGraphWrapper } from "../components/graph/force-graph-wrapper";
 import { EntityDetail } from "../components/graph/entity-detail";
 import { useGraphMode } from "../components/graph/use-graph-mode";
-import type { GraphNode, GraphLink } from "../components/graph/force-graph-wrapper";
+import type {
+  GraphNode,
+  GraphLink,
+} from "../components/graph/force-graph-wrapper";
 import type { MemoryEntityRecord, EntityRelationKind } from "../lib/types";
 
 export const Route = createFileRoute("/graph")({
@@ -20,6 +22,12 @@ const ALL_RELATIONS: EntityRelationKind[] = [
   "contradicts",
   "related",
 ];
+
+const ForceGraphWrapper = lazy(() =>
+  import("../components/graph/force-graph-wrapper").then((module) => ({
+    default: module.ForceGraphWrapper,
+  })),
+);
 
 function GraphPage() {
   const { mode, toggle } = useGraphMode();
@@ -117,14 +125,22 @@ function GraphPage() {
             />
           )}
           {nodes.length > 0 && (
-            <ForceGraphWrapper
-              mode={mode}
-              nodes={nodes}
-              links={graphLinks}
-              width={dims.width - (selectedEntity ? 320 : 0)}
-              height={dims.height}
-              onNodeClick={handleNodeClick}
-            />
+            <Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center text-sm text-text-tertiary">
+                  Loading graph...
+                </div>
+              }
+            >
+              <ForceGraphWrapper
+                mode={mode}
+                nodes={nodes}
+                links={graphLinks}
+                width={dims.width - (selectedEntity ? 320 : 0)}
+                height={dims.height}
+                onNodeClick={handleNodeClick}
+              />
+            </Suspense>
           )}
         </div>
       </div>

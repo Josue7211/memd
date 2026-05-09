@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useHealth, useWorking, useInbox, useSessions } from "../lib/queries";
+import { useHealth, useWorking, useInbox, useSessions, useTasks } from "../lib/queries";
 import { MetricCard } from "../components/ui/metric-card";
 import { GlassPanel } from "../components/ui/glass-panel";
 import { EmptyState } from "../components/ui/empty-state";
@@ -25,24 +25,105 @@ function StatusDashboard() {
   const working = useWorking();
   const inbox = useInbox();
   const sessions = useSessions();
+  const tasks = useTasks();
 
   const isConnected = health.isSuccess;
   const h = health.data;
   const w = working.data;
+  const activeSessions = sessions.data?.sessions.filter((s) => s.status !== "retired") ?? [];
+  const openTasks =
+    tasks.data?.tasks.filter((task) => !["done", "closed", "retired"].includes(task.status)) ??
+    [];
+  const liveHarnesses = new Set(
+    activeSessions.map((s) =>
+      (s.effective_agent ?? s.agent ?? "unknown").toLowerCase(),
+    ),
+  );
+  const readiness = [
+    {
+      label: "Server",
+      ok: isConnected,
+      detail: isConnected ? h?.status ?? "online" : "offline",
+    },
+    {
+      label: "Working Set",
+      ok: Boolean(w && !w.truncated),
+      detail: w ? `${w.used_chars}/${w.budget_chars}` : "missing",
+    },
+    {
+      label: "Codex",
+      ok: Array.from(liveHarnesses).some((agent) => agent.includes("codex")),
+      detail: "harness",
+    },
+    {
+      label: "Group Work",
+      ok: activeSessions.length > 1,
+      detail: `${activeSessions.length} sessions`,
+    },
+  ];
+  const readyCount = readiness.filter((item) => item.ok).length;
+  const budgetPct = w ? Math.min(100, Math.round((w.used_chars / w.budget_chars) * 100)) : 0;
+  const inboxCount = inbox.data?.items.length ?? 0;
+  const staleCount = h?.pressure?.stale ?? 0;
+  const expiredCount = h?.pressure?.expired ?? 0;
 
   return (
-    <div className="p-8 max-w-6xl space-y-8">
-      {/* Page title */}
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">Status</h1>
-        <span
-          className={`w-2 h-2 rounded-full ${isConnected ? "bg-status-current" : "bg-status-expired"}`}
-        />
-        {isConnected && (
-          <span className="text-[11px] tracking-wide uppercase text-text-tertiary">
-            {h?.status}
-          </span>
-        )}
+    <div className="p-8 max-w-7xl space-y-8">
+      <div className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
+        <section className="rounded-lg border border-border-subtle bg-bg-surface p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-[11px] tracking-wide uppercase text-text-tertiary">
+                V20 Evidence Ops
+              </p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight">
+                memd control center
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-text-secondary">
+                Runtime cleanup is landed. The live bar is real evidence:
+                users, harness pairs, devices, auditor replay, and third-party
+                replay.
+              </p>
+            </div>
+            <div className="rounded-lg border border-border-subtle bg-bg-primary px-4 py-3 text-right">
+              <p className="text-[11px] tracking-wide uppercase text-text-tertiary">
+                readiness
+              </p>
+              <p className="mt-1 text-2xl font-semibold text-status-current">
+                {readyCount}/{readiness.length}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-3 md:grid-cols-4">
+            {readiness.map((item) => (
+              <div
+                key={item.label}
+                className={`rounded-lg border px-3 py-3 ${
+                  item.ok
+                    ? "border-emerald-500/25 bg-emerald-500/10"
+                    : "border-red-500/25 bg-red-500/10"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-text-secondary">
+                    {item.label}
+                  </span>
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      item.ok ? "bg-status-current" : "bg-status-expired"
+                    }`}
+                  />
+                </div>
+                <p className="mt-2 truncate font-mono text-xs text-text-tertiary">
+                  {item.detail}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <V20GateCard />
       </div>
 
       {/* Metrics row */}
@@ -55,10 +136,10 @@ function StatusDashboard() {
         <MetricCard
           label="Working Memory"
           value={w?.records.length ?? "—"}
-          color="text-accent-bright"
+          color={budgetPct > 90 ? "text-status-expired" : "text-accent-bright"}
           sub={
             w
-              ? `${w.used_chars}/${w.budget_chars} chars${w.truncated ? " (truncated)" : ""}`
+              ? `${budgetPct}% budget${w.truncated ? " (truncated)" : ""}`
               : undefined
           }
         />
@@ -71,6 +152,7 @@ function StatusDashboard() {
           label="Sessions"
           value={sessions.data?.sessions.length ?? "—"}
           color="text-status-current"
+          sub={activeSessions.length ? `${activeSessions.length} active` : undefined}
         />
       </div>
 
@@ -109,9 +191,64 @@ function StatusDashboard() {
       )}
 
       {/* Harness bootstrap health */}
-      {sessions.data?.sessions.length ? (
-        <HarnessHealthPanel sessions={sessions.data.sessions} />
-      ) : null}
+      <HarnessHealthPanel sessions={sessions.data?.sessions ?? []} />
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <GlassPanel>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-medium text-text-secondary">
+              Evidence Pressure
+            </h2>
+            <span className="text-[11px] tracking-wide uppercase text-text-tertiary">
+              live blockers
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <PressurePill label="Inbox" value={inboxCount} tone="blue" />
+            <PressurePill label="Stale" value={staleCount} tone="amber" />
+            <PressurePill label="Expired" value={expiredCount} tone="red" />
+          </div>
+          <div className="mt-5 space-y-2 text-xs text-text-secondary">
+            <p>Next evidence note: 2026-05-13.</p>
+            <p>No `1.0.0` tag until real-user, device, auditor, and third-party replay packets exist.</p>
+          </div>
+        </GlassPanel>
+
+        <GlassPanel>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-medium text-text-secondary">
+              Open Hive Work
+            </h2>
+            <span className="text-[11px] tracking-wide uppercase text-text-tertiary">
+              {openTasks.length} open
+            </span>
+          </div>
+          {openTasks.length > 0 ? (
+            <div className="space-y-0">
+              {openTasks.slice(0, 5).map((task) => (
+                <div
+                  key={task.id}
+                  className="flex items-center gap-3 border-b border-border-subtle py-2.5 text-sm last:border-0"
+                >
+                  <span className="min-w-16 rounded border border-border-subtle bg-bg-primary px-2 py-0.5 text-center text-[11px] uppercase text-text-tertiary">
+                    {task.status}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-text-primary">
+                    {task.title}
+                  </span>
+                  {task.assigned_to && (
+                    <span className="max-w-32 truncate font-mono text-xs text-text-tertiary">
+                      {task.assigned_to}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="No open hive tasks" />
+          )}
+        </GlassPanel>
+      </div>
 
       {/* Working memory */}
       {w && (
@@ -206,6 +343,64 @@ function StatusDashboard() {
           <EmptyState title="No active sessions" />
         )}
       </GlassPanel>
+    </div>
+  );
+}
+
+function V20GateCard() {
+  const gates = [
+    "3 real users",
+    "3 harness-user pairs",
+    "3 devices",
+    "V19 auditor",
+    "V20 third-party replay",
+    "weekly evidence notes",
+  ];
+
+  return (
+    <section className="rounded-lg border border-border-subtle bg-bg-surface p-6">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] tracking-wide uppercase text-text-tertiary">
+            1.0.0 gate
+          </p>
+          <h2 className="mt-2 text-lg font-semibold">Real proof only</h2>
+        </div>
+        <span className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] font-medium uppercase text-amber-300">
+          pending
+        </span>
+      </div>
+      <div className="mt-5 space-y-2">
+        {gates.map((gate) => (
+          <div key={gate} className="flex items-center gap-2 text-sm">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+            <span className="text-text-secondary">{gate}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PressurePill({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "blue" | "amber" | "red";
+}) {
+  const toneClass = {
+    blue: "border-blue-500/25 bg-blue-500/10 text-blue-300",
+    amber: "border-amber-500/25 bg-amber-500/10 text-amber-300",
+    red: "border-red-500/25 bg-red-500/10 text-red-300",
+  }[tone];
+
+  return (
+    <div className={`rounded-lg border px-3 py-3 ${toneClass}`}>
+      <p className="text-[11px] tracking-wide uppercase opacity-80">{label}</p>
+      <p className="mt-1 text-xl font-semibold">{value}</p>
     </div>
   );
 }

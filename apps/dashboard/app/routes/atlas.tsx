@@ -1,16 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useCallback, useRef, useEffect } from "react";
+import { lazy, Suspense, useState, useCallback, useRef, useEffect } from "react";
 import { useAtlasRegions, useAtlasExplore } from "../lib/queries";
 import { EmptyState } from "../components/ui/empty-state";
 import { GraphToggle } from "../components/graph/graph-toggle";
-import { ForceGraphWrapper } from "../components/graph/force-graph-wrapper";
 import { useGraphMode } from "../components/graph/use-graph-mode";
-import type { GraphNode, GraphLink } from "../components/graph/force-graph-wrapper";
+import type {
+  GraphNode,
+  GraphLink,
+} from "../components/graph/force-graph-wrapper";
 import type { AtlasRegion, AtlasNode, AtlasLink } from "../lib/types";
 
 export const Route = createFileRoute("/atlas")({
   component: AtlasPage,
 });
+
+const ForceGraphWrapper = lazy(() =>
+  import("../components/graph/force-graph-wrapper").then((module) => ({
+    default: module.ForceGraphWrapper,
+  })),
+);
 
 function AtlasPage() {
   const { mode, toggle } = useGraphMode();
@@ -93,14 +101,22 @@ function AtlasPage() {
           />
         )}
         {nodes.length > 0 && (
-          <ForceGraphWrapper
-            mode={mode}
-            nodes={nodes}
-            links={links}
-            width={dims.width}
-            height={dims.height}
-            onNodeClick={handleNodeClick}
-          />
+          <Suspense
+            fallback={
+              <div className="absolute inset-0 flex items-center justify-center text-sm text-text-tertiary">
+                Loading graph...
+              </div>
+            }
+          >
+            <ForceGraphWrapper
+              mode={mode}
+              nodes={nodes}
+              links={links}
+              width={dims.width}
+              height={dims.height}
+              onNodeClick={handleNodeClick}
+            />
+          </Suspense>
         )}
       </div>
 

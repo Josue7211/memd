@@ -2,6 +2,7 @@ import type { HiveSessionRecord } from "../../lib/types";
 import { GlassPanel } from "./glass-panel";
 
 const WAKE_TTL_SECONDS = 120;
+const EXPECTED_HARNESSES = ["codex", "claude-code", "openclaw"] as const;
 
 interface HarnessGroup {
   harness: string;
@@ -31,6 +32,10 @@ function groupByHarness(sessions: HiveSessionRecord[]): HarnessGroup[] {
     const h = deriveHarness(s);
     if (!map.has(h)) map.set(h, []);
     map.get(h)!.push(s);
+  }
+
+  for (const harness of EXPECTED_HARNESSES) {
+    if (!map.has(harness)) map.set(harness, []);
   }
 
   const now = Date.now();
@@ -93,8 +98,6 @@ export function HarnessHealthPanel({
 }) {
   const groups = groupByHarness(sessions);
 
-  if (groups.length === 0) return null;
-
   const totalBootstrapped = groups.filter((g) => g.isBootstrapped).length;
   const totalStale = groups.filter((g) => g.isStale).length;
   const totalUnbooted = groups.filter((g) => !g.isBootstrapped).length;
@@ -135,10 +138,16 @@ export function HarnessHealthPanel({
             <span className="font-mono text-xs text-accent-bright min-w-24">
               {group.harness}
             </span>
-            <span className="text-[11px] tracking-wide uppercase text-text-tertiary">
-              {group.sessions.length} session
-              {group.sessions.length !== 1 ? "s" : ""}
-            </span>
+            {group.sessions.length > 0 ? (
+              <span className="text-[11px] tracking-wide uppercase text-text-tertiary">
+                {group.sessions.length} session
+                {group.sessions.length !== 1 ? "s" : ""}
+              </span>
+            ) : (
+              <span className="text-[11px] tracking-wide uppercase text-red-300/80">
+                no session
+              </span>
+            )}
             <span className="flex-1" />
             {group.lastWakeAt ? (
               <span className="text-xs text-text-tertiary">

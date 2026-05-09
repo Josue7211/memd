@@ -28,5 +28,21 @@ export default defineConfig(({ mode }) => {
         "/hive": MEMD_API,
       },
     },
+    build: {
+      chunkSizeWarningLimit: 1500,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes("node_modules")) return undefined;
+            if (id.includes("react-force-graph") || id.includes("three")) {
+              return "graph";
+            }
+            if (id.includes("@tanstack")) return "tanstack";
+            if (id.includes("react")) return "react";
+            return undefined;
+          },
+        },
+      },
+    },
   };
 });
