@@ -44,6 +44,8 @@
 /apps/dashboard/dist/
 /apps/dashboard/app/routeTree.gen.ts
 /apps/dashboard/.env
+/integrations/mac-bridge/.env
+/integrations/mac-bridge/node_modules/
 .gstack/
 .codex
 

@@ -11,6 +11,49 @@ use uuid::Uuid;
 
 use crate::{SqliteStore, canonical_key, detect_content_lane, redundancy_key};
 
+pub(crate) fn expired_item_gc_enabled() -> bool {
+    match std::env::var("MEMD_GC_EXPIRED_ITEMS") {
+        Ok(value) => {
+            let value = value.trim().to_ascii_lowercase();
+            matches!(value.as_str(), "1" | "true" | "on" | "yes")
+        }
+        Err(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().expect("env lock")
+    }
+
+    #[test]
+    fn expired_item_gc_is_opt_in() {
+        let _guard = env_lock();
+        unsafe {
+            std::env::remove_var("MEMD_GC_EXPIRED_ITEMS");
+        }
+        assert!(!expired_item_gc_enabled());
+
+        unsafe {
+            std::env::set_var("MEMD_GC_EXPIRED_ITEMS", "true");
+        }
+        assert!(expired_item_gc_enabled());
+
+        unsafe {
+            std::env::set_var("MEMD_GC_EXPIRED_ITEMS", "0");
+        }
+        assert!(!expired_item_gc_enabled());
+        unsafe {
+            std::env::remove_var("MEMD_GC_EXPIRED_ITEMS");
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MaintainReportRecordPayload {
     request: MaintainReportRequest,
@@ -125,8 +168,9 @@ impl SqliteStore {
                 skipped
             ),
         ];
-        // GC pass: remove expired items past the grace period (1 hour).
-        let gc_removed = if request.apply {
+        // Optional GC pass. ClawControl surfaces expired/status rows as memory
+        // logs, so physical deletion is opt-in instead of a default side effect.
+        let gc_removed = if request.apply && expired_item_gc_enabled() {
             self.gc_expired_items(3600).unwrap_or(0)
         } else {
             0

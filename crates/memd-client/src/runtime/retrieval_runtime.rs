@@ -10,6 +10,20 @@ pub(crate) async fn lookup_with_fallbacks(
         return Ok(response);
     }
 
+    if should_use_unscoped_all_fallback(req) {
+        let unscoped_response = client
+            .search(&SearchMemoryRequest {
+                project: None,
+                namespace: None,
+                workspace: None,
+                ..req.clone()
+            })
+            .await?;
+        if !unscoped_response.items.is_empty() {
+            return Ok(unscoped_response);
+        }
+    }
+
     for candidate_query in supersede_query_candidates(query).into_iter().skip(1) {
         let fallback = client
             .search(&SearchMemoryRequest {
@@ -41,6 +55,11 @@ pub(crate) async fn lookup_with_fallbacks(
     }
 
     Ok(response)
+}
+
+fn should_use_unscoped_all_fallback(req: &SearchMemoryRequest) -> bool {
+    matches!(req.route, Some(RetrievalRoute::All))
+        && (req.project.is_some() || req.namespace.is_some() || req.workspace.is_some())
 }
 
 pub(crate) fn build_lookup_request(

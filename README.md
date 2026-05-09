@@ -127,6 +127,7 @@ flowchart LR
 - Hermes
 - OpenCode
 - Obsidian
+- bundled Mac Bridge on macOS
 - optional semantic recall backend
 
 ## Quickstart
@@ -170,6 +171,7 @@ between different projects.
 ## Integrations
 
 - Codex, Claude Code, OpenClaw, Hermes, OpenCode, and future harnesses
+- Mac Bridge — bundled macOS service bridge for Reminders, Contacts, Notes, Find My, and local Messages helpers
 - Obsidian
 - shared hook kit — normative handoff contract: [`docs/contracts/hook-handoff.md`](./docs/contracts/hook-handoff.md) · fire-order + budget contract: [`docs/contracts/hook-order.md`](./docs/contracts/hook-order.md)
 - progressive-depth recall — depth + telemetry contract: [`docs/contracts/recall-depth.md`](./docs/contracts/recall-depth.md)

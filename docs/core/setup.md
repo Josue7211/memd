@@ -9,6 +9,16 @@ minimal happy path.
 
 ## Minimal Bundle Flow
 
+For dogfood/new-machine setup from a checkout, prefer the all-in installer:
+
+```bash
+scripts/install-memd.sh
+```
+
+On macOS this also installs the bundled Mac Bridge LaunchAgent unless you set
+`MEMD_INSTALL_MAC_BRIDGE=0`. Mac Bridge is the local Apple-services bridge for
+Reminders, Contacts, Notes, Find My, and Messages helper endpoints.
+
 Run the server:
 
 ```bash

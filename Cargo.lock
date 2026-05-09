@@ -1537,7 +1537,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "memd-schema",
- "memd-sidecar",
+ "reqwest",
+ "serde",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -1557,7 +1560,6 @@ dependencies = [
  "anyhow",
  "axum",
  "chrono",
- "fastembed",
  "hex",
  "memd-rag",
  "memd-schema",

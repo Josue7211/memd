@@ -19,13 +19,15 @@
 ## What Is Platform-Specific
 
 - `deploy/systemd/` is Linux-only deployment glue
-- macOS should use `launchd` or a user agent wrapper
+- macOS uses the bundled `integrations/mac-bridge/` LaunchAgent for local Apple services
 - Windows should use a service wrapper or Task Scheduler
 
 ## Packaging Rule
 
 The core product must stay platform-neutral.
 Platform-specific helpers are allowed, but they live beside the core, not inside it.
+Mac Bridge follows this rule: it ships with memd under `integrations/`, while
+the Rust core stays portable.
 
 ## CI Rule
 

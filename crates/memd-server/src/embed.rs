@@ -1,8 +1,6 @@
 use std::path::Path;
-use std::sync::Mutex;
 
-use anyhow::{Context, anyhow};
-use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use anyhow::anyhow;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ConfiguredEmbeddingModel {
@@ -12,24 +10,14 @@ pub(crate) enum ConfiguredEmbeddingModel {
 }
 
 pub(crate) struct Embedder {
-    model: Mutex<TextEmbedding>,
     configured_model: ConfiguredEmbeddingModel,
 }
 
 impl Embedder {
-    pub(crate) fn try_new(cache_dir: &Path) -> anyhow::Result<Self> {
-        std::fs::create_dir_all(cache_dir).ok();
-        let configured_model = configured_embedding_model_from_env();
-        let model = TextEmbedding::try_new(
-            InitOptions::new(configured_model.fastembed_model())
-                .with_cache_dir(cache_dir.to_path_buf())
-                .with_show_download_progress(false),
-        )
-        .with_context(|| format!("initialize fastembed {}", configured_model.code()))?;
-        Ok(Self {
-            model: Mutex::new(model),
-            configured_model,
-        })
+    pub(crate) fn try_new(_cache_dir: &Path) -> anyhow::Result<Self> {
+        Err(anyhow!(
+            "intrinsic dense embedding is unavailable in this server build; use MEMD_RAG_URL sidecar retrieval"
+        ))
     }
 
     pub(crate) fn dim(&self) -> usize {
@@ -45,18 +33,9 @@ impl Embedder {
         if trimmed.is_empty() {
             return Ok(vec![0.0; self.dim()]);
         }
-        let mut model = self
-            .model
-            .lock()
-            .map_err(|_| anyhow!("fastembed mutex poisoned"))?;
-        let mut embeddings = model
-            .embed(vec![format!("query: {trimmed}")], None)
-            .context("fastembed embed call failed")?;
-        let mut vec = embeddings
-            .pop()
-            .ok_or_else(|| anyhow!("fastembed returned empty batch"))?;
-        l2_normalize(&mut vec);
-        Ok(vec)
+        Err(anyhow!(
+            "intrinsic dense embedding is unavailable in this server build"
+        ))
     }
 
     /// Embed a batch of texts in a single ort session call. Empty inputs
@@ -74,17 +53,9 @@ impl Embedder {
         if prepared.is_empty() {
             return Ok(Vec::new());
         }
-        let mut model = self
-            .model
-            .lock()
-            .map_err(|_| anyhow!("fastembed mutex poisoned"))?;
-        let mut embeddings = model
-            .embed(prepared, None)
-            .context("fastembed batch embed call failed")?;
-        for vec in embeddings.iter_mut() {
-            l2_normalize(vec);
-        }
-        Ok(embeddings)
+        Err(anyhow!(
+            "intrinsic dense embedding is unavailable in this server build"
+        ))
     }
 }
 
@@ -105,13 +76,6 @@ impl ConfiguredEmbeddingModel {
         }
     }
 
-    fn fastembed_model(self) -> EmbeddingModel {
-        match self {
-            Self::AllMiniLML6V2 => EmbeddingModel::AllMiniLML6V2,
-            Self::BGEBaseENV15 => EmbeddingModel::BGEBaseENV15,
-            Self::BGELargeENV15 => EmbeddingModel::BGELargeENV15,
-        }
-    }
 }
 
 pub(crate) fn configured_embedding_model_from_env() -> ConfiguredEmbeddingModel {
@@ -158,13 +122,7 @@ pub(crate) fn cosine_on_unit(a: &[f32], b: &[f32]) -> f32 {
 }
 
 pub(crate) fn intrinsic_dense_enabled() -> bool {
-    match std::env::var("MEMD_INTRINSIC_DENSE") {
-        Ok(v) => {
-            let v = v.trim().to_ascii_lowercase();
-            matches!(v.as_str(), "1" | "true" | "on" | "yes")
-        }
-        Err(_) => false,
-    }
+    false
 }
 
 /// Split text into overlapping character windows. Tuned for MiniLM's

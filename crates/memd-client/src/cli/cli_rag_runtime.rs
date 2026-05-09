@@ -74,7 +74,12 @@ pub(crate) async fn run_multimodal_mode(args: MultimodalArgs) -> anyhow::Result<
                 .map(parse_rag_retrieve_mode)
                 .transpose()?
             {
-                request.mode = mode;
+                request.mode = match mode {
+                    RagRetrieveMode::Auto => SidecarRetrieveMode::Auto,
+                    RagRetrieveMode::Text => SidecarRetrieveMode::Text,
+                    RagRetrieveMode::Multimodal => SidecarRetrieveMode::Multimodal,
+                    RagRetrieveMode::Graph => SidecarRetrieveMode::Graph,
+                };
             }
             print_json(&sidecar.retrieve(&request).await?)?;
         }

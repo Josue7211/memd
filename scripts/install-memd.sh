@@ -76,5 +76,15 @@ memd doctor --repair --summary
 say "registering this machine"
 memd device add --summary
 
+if [ "$(uname -s)" = "Darwin" ] && [ "${MEMD_INSTALL_MAC_BRIDGE:-1}" != "0" ]; then
+  REPO_ROOT="$(detect_repo_root)" || fail "run from a memd checkout or set MEMD_REPO=/path/to/memd"
+  if [ -x "$REPO_ROOT/integrations/mac-bridge/install.sh" ]; then
+    say "installing bundled Mac Bridge"
+    "$REPO_ROOT/integrations/mac-bridge/install.sh"
+  else
+    fail "bundled Mac Bridge installer missing"
+  fi
+fi
+
 say "ready"
 say "next: run 'memd dogfood enroll --user-id <your-name> --consent --summary' if this is a real dogfood machine"

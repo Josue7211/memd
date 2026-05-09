@@ -1,0 +1,14 @@
+{
+  "name": "@memd/mac-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bundled macOS services bridge for memd.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}

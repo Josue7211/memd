@@ -417,8 +417,9 @@ fn rerank_extract_name_tokens(content: &str) -> std::collections::BTreeSet<Strin
 pub(crate) async fn healthz(
     State(state): State<AppState>,
 ) -> Result<Json<HealthResponse>, (StatusCode, String)> {
-    // C2: opportunistic GC on health check — keeps expired count accurate.
-    let _ = state.store.gc_expired_items(3600);
+    if crate::store_runtime_maintenance::expired_item_gc_enabled() {
+        let _ = state.store.gc_expired_items(3600);
+    }
     let items = state.store.count().map_err(internal_error)?;
 
     // Compute pressure metrics from store
@@ -898,8 +899,9 @@ pub(crate) async fn get_compact_context(
     State(state): State<AppState>,
     Query(req): Query<ContextRequest>,
 ) -> Result<Json<CompactContextResponse>, (StatusCode, String)> {
-    // C2: opportunistic GC — remove expired items past 1h grace on every wake.
-    let _ = state.store.gc_expired_items(3600);
+    if crate::store_runtime_maintenance::expired_item_gc_enabled() {
+        let _ = state.store.gc_expired_items(3600);
+    }
     let policy = working::memory_policy_snapshot();
     let feedback_limit = policy.retrieval_feedback.max_items_per_request;
     let BuildContextResult {

@@ -177,7 +177,7 @@ use memd_schema::{
     SkillPolicyApplyRequest, SourceMemoryRequest, StoreMemoryRequest, VerifierRecord,
     VerifyMemoryRequest, WorkingMemoryRequest,
 };
-use memd_sidecar::SidecarClient;
+use memd_sidecar::{SidecarClient, SidecarRetrieveMode};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use obsidian::ObsidianImportPreview;
 use obsidian::commands::{
