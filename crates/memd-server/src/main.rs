@@ -916,6 +916,7 @@ async fn main() {
         .route("/memory/repair", post(repair_memory))
         .route("/memory/correct", post(correct_memory))
         .route("/memory/search", post(search_memory))
+        .route("/memory/authority/search", post(search_memory_authority))
         .route("/memory/context", get(get_context))
         .route("/memory/context/compact", get(get_compact_context))
         .route("/memory/working", get(get_working_memory))

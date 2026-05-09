@@ -262,6 +262,113 @@ pub(crate) fn filter_items(
     filtered.into_iter().map(|entry| entry.item).collect()
 }
 
+/// Authority inventory search intentionally bypasses the normal caller
+/// visibility gate. Use only from a route that has already performed its own
+/// authority check. This exists for admin dashboards/import repair flows that
+/// must inspect legacy private rows missing `source_agent`.
+pub(crate) fn filter_items_authority(
+    items: &[MemoryViewItem],
+    req: &SearchMemoryRequest,
+    plan: &RetrievalPlan,
+) -> Vec<MemoryItem> {
+    let query = req.query.as_ref().map(|q| q.to_ascii_lowercase());
+    let limit = req.limit.unwrap_or(10).min(100);
+    let max_chars = req.max_chars_per_item.unwrap_or(420).clamp(120, 4000);
+
+    let mut filtered: Vec<MemoryViewItem> = items
+        .iter()
+        .filter(|entry| req.scopes.is_empty() || req.scopes.contains(&entry.item.scope))
+        .filter(|entry| plan.allows(entry.item.scope))
+        .filter(|entry| req.kinds.is_empty() || req.kinds.contains(&entry.item.kind))
+        .filter(|entry| {
+            if req.statuses.is_empty() {
+                entry.item.status != MemoryStatus::Expired
+            } else {
+                req.statuses.contains(&entry.item.status)
+            }
+        })
+        .filter(|entry| req.stages.is_empty() || req.stages.contains(&entry.item.stage))
+        .filter(|entry| matches_requested_project(&req.project, &entry.item))
+        .filter(|entry| {
+            req.namespace
+                .as_ref()
+                .is_none_or(|namespace| entry.item.namespace.as_ref() == Some(namespace))
+        })
+        .filter(|entry| {
+            req.workspace
+                .as_ref()
+                .is_none_or(|workspace| entry.item.workspace.as_ref() == Some(workspace))
+        })
+        .filter(|entry| {
+            req.visibility
+                .is_none_or(|visibility| entry.item.visibility == visibility)
+        })
+        .filter(|entry| {
+            req.belief_branch
+                .as_ref()
+                .is_none_or(|branch| entry.item.belief_branch.as_ref() == Some(branch))
+        })
+        .filter(|entry| {
+            req.source_agent
+                .as_ref()
+                .is_none_or(|agent| entry.item.source_agent.as_ref() == Some(agent))
+        })
+        .filter(|entry| {
+            req.tags.is_empty()
+                || req
+                    .tags
+                    .iter()
+                    .all(|tag| entry.item.tags.iter().any(|item_tag| item_tag == tag))
+        })
+        .filter(|entry| {
+            query.as_ref().is_none_or(|query| {
+                entry.item.content.to_ascii_lowercase().contains(query)
+                    || entry
+                        .item
+                        .tags
+                        .iter()
+                        .any(|tag| tag.to_ascii_lowercase().contains(query))
+            })
+        })
+        .cloned()
+        .collect();
+
+    filtered.sort_by(|a, b| {
+        search_score(
+            &b.item,
+            b.entity.as_ref(),
+            b.source_trust_score,
+            &query,
+            req.project.as_ref(),
+            req.namespace.as_ref(),
+            plan,
+        )
+        .partial_cmp(&search_score(
+            &a.item,
+            a.entity.as_ref(),
+            a.source_trust_score,
+            &query,
+            req.project.as_ref(),
+            req.namespace.as_ref(),
+            plan,
+        ))
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| {
+            b.item
+                .confidence
+                .partial_cmp(&a.item.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
+    });
+
+    for item in &mut filtered {
+        item.item.content = compact_content(&item.item.content, max_chars);
+    }
+    filtered.truncate(limit);
+    filtered.into_iter().map(|entry| entry.item).collect()
+}
+
 /// Reciprocal Rank Fusion: merge metadata-based ranking (already applied as
 /// sort order on `items`) with FTS5 BM25 ranking. Each ranker contributes
 /// `1 / (k + rank)` per item; items appearing in both lists get combined
@@ -1388,6 +1495,40 @@ mod tests {
             ..sample_item("legacy workspace row", vec![], Some("memd"))
         };
         assert!(workspace_visibility_allows(&None, &legacy));
+    }
+
+    #[test]
+    fn authority_filter_can_inspect_ownerless_private_rows() {
+        let plan =
+            RetrievalPlan::resolve(Some(RetrievalRoute::All), Some(RetrievalIntent::General));
+        let ownerless_private = MemoryItem {
+            visibility: MemoryVisibility::Private,
+            source_agent: None,
+            workspace: None,
+            ..sample_item("ownerless private legacy row", vec!["legacy"], Some("memd"))
+        };
+        let view_items = vec![MemoryViewItem {
+            item: ownerless_private,
+            entity: None,
+            source_trust_score: 0.8,
+        }];
+        let req = SearchMemoryRequest {
+            query: Some("ownerless".to_string()),
+            route: Some(RetrievalRoute::All),
+            intent: Some(RetrievalIntent::General),
+            scopes: vec![MemoryScope::Project],
+            statuses: vec![MemoryStatus::Active],
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            stages: vec![MemoryStage::Canonical],
+            limit: Some(10),
+            ..SearchMemoryRequest::default()
+        };
+
+        assert!(filter_items(&view_items, &req, &plan, &[]).is_empty());
+        let authority = filter_items_authority(&view_items, &req, &plan);
+        assert_eq!(authority.len(), 1);
+        assert_eq!(authority[0].content, "ownerless private legacy row");
     }
 
     #[test]

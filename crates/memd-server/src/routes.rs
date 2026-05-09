@@ -869,6 +869,89 @@ pub(crate) async fn search_memory(
     }))
 }
 
+fn authority_search_enabled() -> bool {
+    match std::env::var("MEMD_AUTHORITY_SEARCH") {
+        Ok(value) => {
+            let value = value.trim().to_ascii_lowercase();
+            matches!(value.as_str(), "1" | "true" | "on" | "yes")
+        }
+        Err(_) => false,
+    }
+}
+
+fn authority_search_token() -> Option<String> {
+    std::env::var("MEMD_AUTHORITY_TOKEN")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn bearer_token(value: &str) -> Option<&str> {
+    value
+        .trim()
+        .strip_prefix("Bearer ")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn authority_header_allowed(headers: &axum::http::HeaderMap) -> bool {
+    let Some(expected) = authority_search_token() else {
+        return false;
+    };
+    let direct = headers
+        .get("x-memd-authority-token")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == expected);
+    let bearer = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(bearer_token)
+        .is_some_and(|value| value == expected);
+    direct || bearer
+}
+
+pub(crate) async fn search_memory_authority(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<SearchMemoryRequest>,
+) -> Result<Json<SearchMemoryResponse>, (StatusCode, String)> {
+    if !authority_search_enabled() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            "memd authority search is not enabled".to_string(),
+        ));
+    }
+    if !authority_header_allowed(&headers) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "memd authority token required".to_string(),
+        ));
+    }
+
+    let snapshot = state
+        .snapshot_for_scope(req.project.as_deref(), req.namespace.as_deref())
+        .map_err(internal_error)?;
+    let region_member_ids = resolve_region_member_filter(
+        &state,
+        req.region.as_deref(),
+        req.project.as_deref(),
+        req.namespace.as_deref(),
+    )
+    .map_err(internal_error)?;
+    let mut items = enrich_with_entities(&state, snapshot).map_err(internal_error)?;
+    if let Some(allowed_ids) = region_member_ids.as_ref() {
+        items.retain(|entry| allowed_ids.contains(&entry.item.id));
+    }
+    let plan = RetrievalPlan::resolve(req.route, req.intent);
+    let items = filter_items_authority(&items, &req, &plan);
+
+    Ok(Json(SearchMemoryResponse {
+        route: plan.route,
+        intent: plan.intent,
+        items,
+    }))
+}
+
 pub(crate) async fn get_context(
     State(state): State<AppState>,
     Query(req): Query<ContextRequest>,

@@ -4508,6 +4508,89 @@ async fn search_excludes_ttl_expired_items_by_default() {
     std::fs::remove_dir_all(dir).expect("cleanup");
 }
 
+#[tokio::test]
+async fn authority_search_is_opt_in_token_gated_and_reads_legacy_private_rows() {
+    let (dir, state) = temp_state("memd-authority-search");
+
+    let mut private_item = sample_memory_item(None);
+    private_item.content = "legacy private authority inventory row".to_string();
+    private_item.visibility = MemoryVisibility::Private;
+    private_item.source_agent = None;
+    private_item.tags = vec!["authority-inventory".to_string()];
+    let ck = super::keys::canonical_key(&private_item);
+    let rk = super::keys::redundancy_key(&private_item);
+    state
+        .store
+        .insert_or_get_duplicate(&private_item, &ck, &rk)
+        .expect("insert authority item");
+
+    let app = Router::new()
+        .route("/memory/search", post(search_memory))
+        .route("/memory/authority/search", post(search_memory_authority))
+        .with_state(state);
+    let req_body = serde_json::json!({
+        "project": "memd",
+        "namespace": "main",
+        "scopes": [],
+        "kinds": [],
+        "statuses": [],
+        "tags": ["authority-inventory"],
+        "stages": [],
+        "limit": 10,
+    });
+    let request = |path: &str, token: Option<&str>| {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("content-type", "application/json");
+        if let Some(token) = token {
+            builder = builder.header("x-memd-authority-token", token);
+        }
+        builder
+            .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+            .expect("build request")
+    };
+
+    let normal = app
+        .clone()
+        .oneshot(request("/memory/search", None))
+        .await
+        .expect("run normal search");
+    assert_eq!(normal.status(), StatusCode::OK);
+    let normal_body: SearchMemoryResponse = decode_json(normal).await;
+    assert!(normal_body.items.is_empty());
+
+    let disabled = app
+        .clone()
+        .oneshot(request("/memory/authority/search", None))
+        .await
+        .expect("run disabled authority search");
+    assert_eq!(disabled.status(), StatusCode::NOT_FOUND);
+
+    let _enabled = set_test_env("MEMD_AUTHORITY_SEARCH", "1");
+    let missing_token = app
+        .clone()
+        .oneshot(request("/memory/authority/search", None))
+        .await
+        .expect("run authority search without token");
+    assert_eq!(missing_token.status(), StatusCode::UNAUTHORIZED);
+
+    let _token = set_test_env("MEMD_AUTHORITY_TOKEN", "secret-authority-token");
+    let allowed = app
+        .oneshot(request(
+            "/memory/authority/search",
+            Some("secret-authority-token"),
+        ))
+        .await
+        .expect("run authority search");
+    assert_eq!(allowed.status(), StatusCode::OK);
+    let body: SearchMemoryResponse = decode_json(allowed).await;
+    assert_eq!(body.items.len(), 1);
+    assert_eq!(body.items[0].id, private_item.id);
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
 #[test]
 fn status_cap_eviction_tracked_in_working_memory() {
     let (dir, state) = temp_state("memd-status-cap-eviction");
