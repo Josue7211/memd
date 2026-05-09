@@ -6,6 +6,8 @@ services:
     environment:
       MEMD_DB_PATH: /data/memd.db
       MEMD_BIND_ADDR: 0.0.0.0:8787
+      MEMD_AUTHORITY_SEARCH: ${MEMD_AUTHORITY_SEARCH:-0}
+      MEMD_AUTHORITY_TOKEN: ${MEMD_AUTHORITY_TOKEN:-}
     ports:
       - "${MEMD_SERVER_PORT:-8787}:8787"
     volumes:

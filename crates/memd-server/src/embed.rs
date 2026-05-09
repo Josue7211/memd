@@ -75,7 +75,6 @@ impl ConfiguredEmbeddingModel {
             Self::BGELargeENV15 => 1024,
         }
     }
-
 }
 
 pub(crate) fn configured_embedding_model_from_env() -> ConfiguredEmbeddingModel {
