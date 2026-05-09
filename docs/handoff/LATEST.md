@@ -1,1 +1,1 @@
-2026-05-06-dogfood-installer-m0-m4-ready.md
+2026-05-09-runtime-authority-complete.md
