@@ -49,7 +49,22 @@ pub struct MemdClient {
 impl MemdClient {
     pub fn new(base_url: impl AsRef<str>) -> anyhow::Result<Self> {
         let base_url = normalize_base_url(base_url.as_ref())?;
+        // Default request timeouts. Without these, any backend hang (e.g. the
+        // /memory/context/compact path stalled on a misbehaving RAG sidecar)
+        // blocks `wake`/`resume` indefinitely instead of surfacing as an
+        // error. Override via `MEMD_HTTP_TIMEOUT_SECS` if a specific
+        // workflow needs longer.
+        let request_timeout = std::env::var("MEMD_HTTP_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(15);
+        let connect_timeout = std::env::var("MEMD_HTTP_CONNECT_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(10);
         let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(request_timeout))
+            .connect_timeout(std::time::Duration::from_secs(connect_timeout))
             .build()
             .context("build memd http client")?;
         Ok(Self { base_url, http })

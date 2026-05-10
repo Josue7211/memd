@@ -928,7 +928,7 @@ pub(crate) async fn search_memory_authority(
         ));
     }
 
-    let snapshot = state
+    let mut items = state
         .snapshot_for_scope(req.project.as_deref(), req.namespace.as_deref())
         .map_err(internal_error)?;
     let region_member_ids = resolve_region_member_filter(
@@ -938,12 +938,11 @@ pub(crate) async fn search_memory_authority(
         req.namespace.as_deref(),
     )
     .map_err(internal_error)?;
-    let mut items = enrich_with_entities(&state, snapshot).map_err(internal_error)?;
     if let Some(allowed_ids) = region_member_ids.as_ref() {
-        items.retain(|entry| allowed_ids.contains(&entry.item.id));
+        items.retain(|item| allowed_ids.contains(&item.id));
     }
     let plan = RetrievalPlan::resolve(req.route, req.intent);
-    let items = filter_items_authority(&items, &req, &plan);
+    let items = filter_raw_items_authority(&items, &req, &plan);
 
     Ok(Json(SearchMemoryResponse {
         route: plan.route,

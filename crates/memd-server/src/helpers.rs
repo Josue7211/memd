@@ -1,15 +1,57 @@
 use super::*;
-use std::collections::BTreeSet;
+use crate::store_entities::{SourceAggregate, SourceKey, source_trust_score};
+use std::collections::{BTreeMap, BTreeSet};
+
+fn source_key_of(item: &MemoryItem) -> SourceKey {
+    (
+        item.source_agent.clone(),
+        item.source_system.clone(),
+        item.project.clone(),
+        item.namespace.clone(),
+        item.workspace.clone(),
+        item.visibility,
+    )
+}
 
 pub(crate) fn enrich_with_entities(
     state: &AppState,
     items: Vec<MemoryItem>,
 ) -> anyhow::Result<Vec<MemoryViewItem>> {
+    // Build source aggregates ONCE for the entire batch. The previous
+    // implementation called `trust_score_for_item` per item, and that
+    // helper re-listed the full corpus on every call — turning enrich
+    // into an O(N²) pass with N JSON deserializations per item. With
+    // N=1.4k items that was ~1.9M deserializations and ~14s warm on
+    // every /memory/context/compact, /memory/inbox, /memory/search.
+    let mut sources: BTreeMap<SourceKey, SourceAggregate> = BTreeMap::new();
+    for item in &items {
+        sources.entry(source_key_of(item)).or_default().observe(item);
+    }
+
+    // Batch the entity lookup too: one SQL round-trip for the whole batch
+    // instead of one per item. With ~1.4k items and ~0.5ms per round-trip,
+    // that was another ~700ms on every wake/context/inbox call.
+    let item_ids: Vec<Uuid> = items.iter().map(|item| item.id).collect();
+    let entity_map = state.store.latest_entities_for_items(&item_ids)?;
+
     items
         .into_iter()
         .map(|item| {
-            let entity = state.store.entity_for_item(item.id)?;
-            let source_trust_score = state.store.trust_score_for_item(&item)?;
+            let entity = entity_map.get(&item.id).cloned();
+            let source_trust_score = sources
+                .get(&source_key_of(&item))
+                .map(|agg| {
+                    source_trust_score(
+                        agg.item_count,
+                        agg.active_count,
+                        agg.candidate_count,
+                        agg.derived_count,
+                        agg.synthetic_count,
+                        agg.contested_count,
+                        agg.avg_confidence(),
+                    )
+                })
+                .unwrap_or(0.5);
             Ok(MemoryViewItem {
                 item,
                 entity,
@@ -262,12 +304,13 @@ pub(crate) fn filter_items(
     filtered.into_iter().map(|entry| entry.item).collect()
 }
 
-/// Authority inventory search intentionally bypasses the normal caller
-/// visibility gate. Use only from a route that has already performed its own
-/// authority check. This exists for admin dashboards/import repair flows that
-/// must inspect legacy private rows missing `source_agent`.
-pub(crate) fn filter_items_authority(
-    items: &[MemoryViewItem],
+/// Fast authority inventory path for dashboards and repair tools.
+///
+/// Unlike normal search, this route has already passed an admin token check and
+/// intentionally bypasses caller visibility. It also avoids per-item entity and
+/// trust lookups so a simple inventory read does not turn into an N+1 scan.
+pub(crate) fn filter_raw_items_authority(
+    items: &[MemoryItem],
     req: &SearchMemoryRequest,
     plan: &RetrievalPlan,
 ) -> Vec<MemoryItem> {
@@ -275,56 +318,55 @@ pub(crate) fn filter_items_authority(
     let limit = req.limit.unwrap_or(10).min(100);
     let max_chars = req.max_chars_per_item.unwrap_or(420).clamp(120, 4000);
 
-    let mut filtered: Vec<MemoryViewItem> = items
+    let mut filtered: Vec<MemoryItem> = items
         .iter()
-        .filter(|entry| req.scopes.is_empty() || req.scopes.contains(&entry.item.scope))
-        .filter(|entry| plan.allows(entry.item.scope))
-        .filter(|entry| req.kinds.is_empty() || req.kinds.contains(&entry.item.kind))
-        .filter(|entry| {
+        .filter(|item| req.scopes.is_empty() || req.scopes.contains(&item.scope))
+        .filter(|item| plan.allows(item.scope))
+        .filter(|item| req.kinds.is_empty() || req.kinds.contains(&item.kind))
+        .filter(|item| {
             if req.statuses.is_empty() {
-                entry.item.status != MemoryStatus::Expired
+                item.status != MemoryStatus::Expired
             } else {
-                req.statuses.contains(&entry.item.status)
+                req.statuses.contains(&item.status)
             }
         })
-        .filter(|entry| req.stages.is_empty() || req.stages.contains(&entry.item.stage))
-        .filter(|entry| matches_requested_project(&req.project, &entry.item))
-        .filter(|entry| {
+        .filter(|item| req.stages.is_empty() || req.stages.contains(&item.stage))
+        .filter(|item| matches_requested_project(&req.project, item))
+        .filter(|item| {
             req.namespace
                 .as_ref()
-                .is_none_or(|namespace| entry.item.namespace.as_ref() == Some(namespace))
+                .is_none_or(|namespace| item.namespace.as_ref() == Some(namespace))
         })
-        .filter(|entry| {
+        .filter(|item| {
             req.workspace
                 .as_ref()
-                .is_none_or(|workspace| entry.item.workspace.as_ref() == Some(workspace))
+                .is_none_or(|workspace| item.workspace.as_ref() == Some(workspace))
         })
-        .filter(|entry| {
+        .filter(|item| {
             req.visibility
-                .is_none_or(|visibility| entry.item.visibility == visibility)
+                .is_none_or(|visibility| item.visibility == visibility)
         })
-        .filter(|entry| {
+        .filter(|item| {
             req.belief_branch
                 .as_ref()
-                .is_none_or(|branch| entry.item.belief_branch.as_ref() == Some(branch))
+                .is_none_or(|branch| item.belief_branch.as_ref() == Some(branch))
         })
-        .filter(|entry| {
+        .filter(|item| {
             req.source_agent
                 .as_ref()
-                .is_none_or(|agent| entry.item.source_agent.as_ref() == Some(agent))
+                .is_none_or(|agent| item.source_agent.as_ref() == Some(agent))
         })
-        .filter(|entry| {
+        .filter(|item| {
             req.tags.is_empty()
                 || req
                     .tags
                     .iter()
-                    .all(|tag| entry.item.tags.iter().any(|item_tag| item_tag == tag))
+                    .all(|tag| item.tags.iter().any(|item_tag| item_tag == tag))
         })
-        .filter(|entry| {
+        .filter(|item| {
             query.as_ref().is_none_or(|query| {
-                entry.item.content.to_ascii_lowercase().contains(query)
-                    || entry
-                        .item
+                item.content.to_ascii_lowercase().contains(query)
+                    || item
                         .tags
                         .iter()
                         .any(|tag| tag.to_ascii_lowercase().contains(query))
@@ -334,39 +376,18 @@ pub(crate) fn filter_items_authority(
         .collect();
 
     filtered.sort_by(|a, b| {
-        search_score(
-            &b.item,
-            b.entity.as_ref(),
-            b.source_trust_score,
-            &query,
-            req.project.as_ref(),
-            req.namespace.as_ref(),
-            plan,
-        )
-        .partial_cmp(&search_score(
-            &a.item,
-            a.entity.as_ref(),
-            a.source_trust_score,
-            &query,
-            req.project.as_ref(),
-            req.namespace.as_ref(),
-            plan,
-        ))
-        .unwrap_or(std::cmp::Ordering::Equal)
-        .then_with(|| {
-            b.item
-                .confidence
-                .partial_cmp(&a.item.confidence)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.updated_at.cmp(&a.updated_at))
+            .then_with(|| b.created_at.cmp(&a.created_at))
     });
 
     for item in &mut filtered {
-        item.item.content = compact_content(&item.item.content, max_chars);
+        item.content = compact_content(&item.content, max_chars);
     }
     filtered.truncate(limit);
-    filtered.into_iter().map(|entry| entry.item).collect()
+    filtered
 }
 
 /// Reciprocal Rank Fusion: merge metadata-based ranking (already applied as
@@ -1508,7 +1529,7 @@ mod tests {
             ..sample_item("ownerless private legacy row", vec!["legacy"], Some("memd"))
         };
         let view_items = vec![MemoryViewItem {
-            item: ownerless_private,
+            item: ownerless_private.clone(),
             entity: None,
             source_trust_score: 0.8,
         }];
@@ -1526,7 +1547,7 @@ mod tests {
         };
 
         assert!(filter_items(&view_items, &req, &plan, &[]).is_empty());
-        let authority = filter_items_authority(&view_items, &req, &plan);
+        let authority = filter_raw_items_authority(&[ownerless_private], &req, &plan);
         assert_eq!(authority.len(), 1);
         assert_eq!(authority[0].content, "ownerless private legacy row");
     }

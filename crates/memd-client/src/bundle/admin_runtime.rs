@@ -1,11 +1,105 @@
 use super::*;
 use memd_schema::IngestLanesRequest;
 
+/// If cwd is inside a git worktree (not the main worktree) and the main
+/// worktree already has a `.memd/` bundle, symlink instead of writing a
+/// fresh bundle. Keeps memory shared across worktrees so wake/lookup/etc
+/// resolve to the same store regardless of which worktree you invoke
+/// from. Returns Ok(true) if the symlink path was taken.
+fn maybe_symlink_worktree_bundle(output: &Path) -> anyhow::Result<bool> {
+    if output.is_symlink() {
+        return Ok(true);
+    }
+    if output.exists() {
+        return Ok(false);
+    }
+    let git_common = match std::process::Command::new("git")
+        .args(["rev-parse", "--git-common-dir"])
+        .output()
+    {
+        Ok(o) if o.status.success() => {
+            let raw = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if raw.is_empty() {
+                return Ok(false);
+            }
+            PathBuf::from(raw)
+        }
+        _ => return Ok(false),
+    };
+    let cwd = std::env::current_dir()?;
+    let git_common_abs = if git_common.is_absolute() {
+        git_common
+    } else {
+        cwd.join(&git_common)
+    };
+    let main_worktree = match git_common_abs.parent() {
+        Some(p) => p.canonicalize().unwrap_or_else(|_| p.to_path_buf()),
+        None => return Ok(false),
+    };
+    let cwd_canonical = cwd.canonicalize().unwrap_or(cwd.clone());
+    if cwd_canonical == main_worktree {
+        return Ok(false);
+    }
+    let main_bundle = main_worktree.join(".memd");
+    if !main_bundle.is_dir() {
+        return Ok(false);
+    }
+    let target = if output.is_absolute() {
+        output.to_path_buf()
+    } else {
+        cwd.join(output)
+    };
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&main_bundle, &target)
+            .with_context(|| format!("symlink {} -> {}", target.display(), main_bundle.display()))?;
+        eprintln!(
+            "memd: detected git worktree, linked {} -> {}",
+            target.display(),
+            main_bundle.display()
+        );
+        Ok(true)
+    }
+    #[cfg(not(unix))]
+    {
+        // Windows: try directory symlink, may need elevated privileges.
+        match std::os::windows::fs::symlink_dir(&main_bundle, &target) {
+            Ok(()) => {
+                eprintln!(
+                    "memd: detected git worktree, linked {} -> {}",
+                    target.display(),
+                    main_bundle.display()
+                );
+                Ok(true)
+            }
+            Err(error) => {
+                eprintln!(
+                    "memd: detected git worktree but could not symlink {} -> {} ({}). Falling back to fresh bundle. To share memory across worktrees, run: mklink /D {} {}",
+                    target.display(), main_bundle.display(), error,
+                    target.display(), main_bundle.display(),
+                );
+                Ok(false)
+            }
+        }
+    }
+}
+
 pub(crate) async fn run_bundle_setup_command(args: &SetupArgs) -> anyhow::Result<()> {
     let init_args = normalize_init_args(setup_args_to_init_args(args))?;
     let decision = resolve_bootstrap_authority(init_args).await?;
     let init_args = decision.init_args;
-    write_init_bundle(&init_args)?;
+
+    // W1: If we're in a git worktree and the main worktree already has a
+    // `.memd/` bundle, symlink it instead of forking a fresh per-worktree
+    // store. Memory must be continuous across worktrees of the same project.
+    let symlinked = maybe_symlink_worktree_bundle(&init_args.output).unwrap_or(false);
+
+    if !symlinked {
+        write_init_bundle(&init_args)?;
+    }
 
     // F2: Ingest lane source files into DB after setup.
     if let Ok(memd) = MemdClient::new(&init_args.base_url) {

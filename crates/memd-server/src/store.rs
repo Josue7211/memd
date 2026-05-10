@@ -1495,6 +1495,62 @@ impl SqliteStore {
         }
     }
 
+    /// Batch variant of [`entity_for_item`] — return the latest entity payload
+    /// for every item in `item_ids` in a single SQL query.
+    ///
+    /// Used by `enrich_with_entities` to avoid N sequential round-trips on the
+    /// hot read path. Items with no events map to an absent entry.
+    pub fn latest_entities_for_items(
+        &self,
+        item_ids: &[Uuid],
+    ) -> anyhow::Result<std::collections::HashMap<Uuid, MemoryEntityRecord>> {
+        let mut out = std::collections::HashMap::new();
+        if item_ids.is_empty() {
+            return Ok(out);
+        }
+        let conn = self.connect()?;
+        // One row per item_id: the most recent event's entity payload.
+        // The inner GROUP BY narrows to (item, latest_recorded_at) and the
+        // outer join picks the matching event row. Indexed by
+        // idx_memory_events_memory_item_id.
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT ev.memory_item_id, e.payload_json
+                FROM memory_events ev
+                JOIN memory_entities e ON e.id = ev.entity_id
+                JOIN (
+                    SELECT memory_item_id, MAX(recorded_at) AS max_t
+                    FROM memory_events
+                    GROUP BY memory_item_id
+                ) latest
+                  ON latest.memory_item_id = ev.memory_item_id
+                 AND latest.max_t = ev.recorded_at
+                "#,
+            )
+            .context("prepare latest_entities_for_items query")?;
+        let wanted: std::collections::HashSet<Uuid> = item_ids.iter().copied().collect();
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .context("query latest_entities_for_items")?;
+        for row in rows {
+            let (item_id_str, payload) = row.context("read latest_entities_for_items row")?;
+            let item_id = match Uuid::parse_str(&item_id_str) {
+                Ok(uuid) => uuid,
+                Err(_) => continue,
+            };
+            if !wanted.contains(&item_id) {
+                continue;
+            }
+            let entity: MemoryEntityRecord = serde_json::from_str(&payload)
+                .context("deserialize latest entity payload")?;
+            out.insert(item_id, entity);
+        }
+        Ok(out)
+    }
+
     /// Return all memory items linked to a given entity (via memory_events).
     pub fn items_for_entity(&self, entity_id: Uuid) -> anyhow::Result<Vec<MemoryItem>> {
         let conn = self.connect()?;

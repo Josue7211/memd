@@ -1,5 +1,80 @@
 use super::*;
 
+/// Render a bash snippet that resolves `MEMD_BUNDLE_ROOT` at runtime.
+///
+/// Resolution order:
+/// 1. Existing `MEMD_BUNDLE_ROOT` env var (if it points to a directory).
+/// 2. Walk up from `$PWD` looking for a `.memd/` directory (handles
+///    invocation from any subdirectory of the project).
+/// 3. `git rev-parse --git-common-dir` so worktrees fall back to the
+///    main worktree's `.memd/` (the shared memory bundle).
+/// 4. The absolute path baked at init time as a final fallback.
+fn bash_bundle_root_resolver(output: &Path) -> String {
+    let absolute = std::fs::canonicalize(output)
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| output.display().to_string());
+    let absolute_q = compact_bundle_value(&absolute);
+    format!(
+        "_memd_default_root=\"{absolute_q}\"\n\
+         _memd_resolve_root() {{\n\
+           if [[ -n \"${{MEMD_BUNDLE_ROOT:-}}\" && -d \"$MEMD_BUNDLE_ROOT\" ]]; then\n\
+             printf '%s\\n' \"$MEMD_BUNDLE_ROOT\"; return 0\n\
+           fi\n\
+           local d=\"$PWD\"\n\
+           while [[ \"$d\" != \"/\" && -n \"$d\" ]]; do\n\
+             if [[ -d \"$d/.memd\" ]]; then printf '%s\\n' \"$d/.memd\"; return 0; fi\n\
+             d=\"$(dirname \"$d\")\"\n\
+           done\n\
+           local gcd\n\
+           if gcd=\"$(git rev-parse --git-common-dir 2>/dev/null)\"; then\n\
+             [[ \"$gcd\" != /* ]] && gcd=\"$PWD/$gcd\"\n\
+             local main_root\n\
+             if main_root=\"$(cd \"$(dirname \"$gcd\")\" 2>/dev/null && pwd)\" && [[ -n \"$main_root\" && -d \"$main_root/.memd\" ]]; then\n\
+               printf '%s\\n' \"$main_root/.memd\"; return 0\n\
+             fi\n\
+           fi\n\
+           printf '%s\\n' \"$_memd_default_root\"\n\
+         }}\n\
+         export MEMD_BUNDLE_ROOT=\"$(_memd_resolve_root)\"\n",
+        absolute_q = absolute_q
+    )
+}
+
+/// PowerShell equivalent of [`bash_bundle_root_resolver`].
+fn ps1_bundle_root_resolver(output: &Path) -> String {
+    let absolute = std::fs::canonicalize(output)
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| output.display().to_string());
+    let absolute_q = escape_ps1(&absolute);
+    format!(
+        "$_memdDefaultRoot = \"{absolute_q}\"\n\
+         function _Memd-ResolveRoot {{\n\
+           if ($env:MEMD_BUNDLE_ROOT -and (Test-Path $env:MEMD_BUNDLE_ROOT)) {{ return $env:MEMD_BUNDLE_ROOT }}\n\
+           $d = (Get-Location).Path\n\
+           while ($d) {{\n\
+             $candidate = Join-Path $d '.memd'\n\
+             if (Test-Path $candidate) {{ return $candidate }}\n\
+             $parent = Split-Path -Parent $d\n\
+             if (-not $parent -or $parent -eq $d) {{ break }}\n\
+             $d = $parent\n\
+           }}\n\
+           try {{\n\
+             $gcd = (git rev-parse --git-common-dir 2>$null) | Out-String\n\
+             $gcd = $gcd.Trim()\n\
+             if ($gcd) {{\n\
+               if (-not [System.IO.Path]::IsPathRooted($gcd)) {{ $gcd = Join-Path (Get-Location).Path $gcd }}\n\
+               $mainRoot = Split-Path -Parent $gcd\n\
+               $candidate = Join-Path $mainRoot '.memd'\n\
+               if (Test-Path $candidate) {{ return $candidate }}\n\
+             }}\n\
+           }} catch {{ }}\n\
+           return $_memdDefaultRoot\n\
+         }}\n\
+         $env:MEMD_BUNDLE_ROOT = (_Memd-ResolveRoot)\n",
+        absolute_q = absolute_q
+    )
+}
+
 pub(crate) fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String {
     let (startup_route, startup_intent) = bundle_startup_route_intent(output);
     let project_hive_enabled = read_bundle_runtime_config(output)
@@ -13,8 +88,8 @@ pub(crate) fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>)
         .map(|runtime| authority_warning_lines(Some(&runtime)))
         .unwrap_or_default();
     let mut script = format!(
-        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nset -a\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\nset +a\n",
-        compact_bundle_value(output.to_string_lossy().as_ref()),
+        "#!/usr/bin/env bash\nset -euo pipefail\n\n{}set -a\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\nset +a\n",
+        bash_bundle_root_resolver(output),
     );
     let bundle_config = read_bundle_config_file(output)
         .ok()
@@ -108,8 +183,8 @@ pub(crate) fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -
         .map(|runtime| authority_warning_lines(Some(&runtime)))
         .unwrap_or_default();
     let mut script = format!(
-        "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n",
-        escape_ps1(output.to_string_lossy().as_ref()),
+        "{}$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n",
+        ps1_bundle_root_resolver(output),
     );
     let bundle_config = read_bundle_config_file(output)
         .ok()
@@ -192,8 +267,8 @@ pub(crate) fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -
 
 pub(crate) fn render_lookup_shell_profile(output: &Path, kinds: &[&str], tags: &[&str]) -> String {
     let mut script = format!(
-        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n\nargs=(lookup --output \"$MEMD_BUNDLE_ROOT\" --route project_first --intent general)\n",
-        compact_bundle_value(output.to_string_lossy().as_ref()),
+        "#!/usr/bin/env bash\nset -euo pipefail\n\n{}source \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n\nargs=(lookup --output \"$MEMD_BUNDLE_ROOT\" --route project_first --intent general)\n",
+        bash_bundle_root_resolver(output),
     );
     for kind in kinds {
         script.push_str(&format!(
@@ -213,8 +288,8 @@ pub(crate) fn render_lookup_shell_profile(output: &Path, kinds: &[&str], tags: &
 
 pub(crate) fn render_lookup_ps1_profile(output: &Path, kinds: &[&str], tags: &[&str]) -> String {
     let mut script = format!(
-        "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n$args = @(\"lookup\", \"--output\", $env:MEMD_BUNDLE_ROOT, \"--route\", \"project_first\", \"--intent\", \"general\")\n",
-        escape_ps1(output.to_string_lossy().as_ref()),
+        "{}$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n$args = @(\"lookup\", \"--output\", $env:MEMD_BUNDLE_ROOT, \"--route\", \"project_first\", \"--intent\", \"general\")\n",
+        ps1_bundle_root_resolver(output),
     );
     for kind in kinds {
         script.push_str(&format!(
@@ -231,8 +306,8 @@ pub(crate) fn render_lookup_ps1_profile(output: &Path, kinds: &[&str], tags: &[&
 
 pub(crate) fn render_remember_shell_profile(output: &Path, kind: &str, tags: &[&str]) -> String {
     let mut script = format!(
-        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n\nargs=(remember --output \"$MEMD_BUNDLE_ROOT\" --kind \"{}\" --scope project)\n",
-        compact_bundle_value(output.to_string_lossy().as_ref()),
+        "#!/usr/bin/env bash\nset -euo pipefail\n\n{}source \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n\nargs=(remember --output \"$MEMD_BUNDLE_ROOT\" --kind \"{}\" --scope project)\n",
+        bash_bundle_root_resolver(output),
         compact_bundle_value(kind),
     );
     for tag in tags {
@@ -247,8 +322,8 @@ pub(crate) fn render_remember_shell_profile(output: &Path, kind: &str, tags: &[&
 
 pub(crate) fn render_remember_ps1_profile(output: &Path, kind: &str, tags: &[&str]) -> String {
     let mut script = format!(
-        "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n$args = @(\"remember\", \"--output\", $env:MEMD_BUNDLE_ROOT, \"--kind\", \"{}\", \"--scope\", \"project\")\n",
-        escape_ps1(output.to_string_lossy().as_ref()),
+        "{}$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n$args = @(\"remember\", \"--output\", $env:MEMD_BUNDLE_ROOT, \"--kind\", \"{}\", \"--scope\", \"project\")\n",
+        ps1_bundle_root_resolver(output),
         escape_ps1(kind),
     );
     for tag in tags {
@@ -260,8 +335,8 @@ pub(crate) fn render_remember_ps1_profile(output: &Path, kind: &str, tags: &[&st
 
 pub(crate) fn render_capture_shell_profile(output: &Path, mode: &str) -> String {
     let mut script = format!(
-        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n\nargs=(hook capture --output \"$MEMD_BUNDLE_ROOT\" --summary)\n",
-        compact_bundle_value(output.to_string_lossy().as_ref()),
+        "#!/usr/bin/env bash\nset -euo pipefail\n\n{}source \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n\nargs=(hook capture --output \"$MEMD_BUNDLE_ROOT\" --summary)\n",
+        bash_bundle_root_resolver(output),
     );
     if mode == "capture-live" {
         script
@@ -275,8 +350,8 @@ pub(crate) fn render_capture_shell_profile(output: &Path, mode: &str) -> String 
 
 pub(crate) fn render_capture_ps1_profile(output: &Path, mode: &str) -> String {
     let mut script = format!(
-        "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n$args = @(\"hook\", \"capture\", \"--output\", $env:MEMD_BUNDLE_ROOT, \"--summary\")\n",
-        escape_ps1(output.to_string_lossy().as_ref()),
+        "{}$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n$args = @(\"hook\", \"capture\", \"--output\", $env:MEMD_BUNDLE_ROOT, \"--summary\")\n",
+        ps1_bundle_root_resolver(output),
     );
     if mode == "capture-live" {
         script.push_str("$args += @(\"--tag\", \"basic-memory\", \"--tag\", \"live-capture\", \"--promote-kind\", \"live_truth\")\n");
@@ -289,42 +364,42 @@ pub(crate) fn render_capture_ps1_profile(output: &Path, mode: &str) -> String {
 
 pub(crate) fn render_checkpoint_shell_profile(output: &Path) -> String {
     format!(
-        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n\nargs=(checkpoint --output \"$MEMD_BUNDLE_ROOT\" --tag basic-memory --tag short-term)\nexec memd \"${{args[@]}}\" \"$@\"\n",
-        compact_bundle_value(output.to_string_lossy().as_ref()),
+        "#!/usr/bin/env bash\nset -euo pipefail\n\n{}source \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n\nargs=(checkpoint --output \"$MEMD_BUNDLE_ROOT\" --tag basic-memory --tag short-term)\nexec memd \"${{args[@]}}\" \"$@\"\n",
+        bash_bundle_root_resolver(output),
     )
 }
 
 pub(crate) fn render_checkpoint_ps1_profile(output: &Path) -> String {
     format!(
-        "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n$args = @(\"checkpoint\", \"--output\", $env:MEMD_BUNDLE_ROOT, \"--tag\", \"basic-memory\", \"--tag\", \"short-term\")\nmemd @args @Args\n",
-        escape_ps1(output.to_string_lossy().as_ref()),
+        "{}$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n$args = @(\"checkpoint\", \"--output\", $env:MEMD_BUNDLE_ROOT, \"--tag\", \"basic-memory\", \"--tag\", \"short-term\")\nmemd @args @Args\n",
+        ps1_bundle_root_resolver(output),
     )
 }
 
 pub(crate) fn render_rag_sync_shell_profile(output: &Path) -> String {
     format!(
-        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n\nargs=(rag sync)\n[[ -n \"${{MEMD_PROJECT:-}}\" ]] && args+=(--project \"$MEMD_PROJECT\")\n[[ -n \"${{MEMD_NAMESPACE:-}}\" ]] && args+=(--namespace \"$MEMD_NAMESPACE\")\nexec memd \"${{args[@]}}\" \"$@\"\n",
-        compact_bundle_value(output.to_string_lossy().as_ref()),
+        "#!/usr/bin/env bash\nset -euo pipefail\n\n{}source \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n\nargs=(rag sync)\n[[ -n \"${{MEMD_PROJECT:-}}\" ]] && args+=(--project \"$MEMD_PROJECT\")\n[[ -n \"${{MEMD_NAMESPACE:-}}\" ]] && args+=(--namespace \"$MEMD_NAMESPACE\")\nexec memd \"${{args[@]}}\" \"$@\"\n",
+        bash_bundle_root_resolver(output),
     )
 }
 
 pub(crate) fn render_rag_sync_ps1_profile(output: &Path) -> String {
     format!(
-        "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n$args = @(\"rag\", \"sync\")\nif ($env:MEMD_PROJECT) {{ $args += @(\"--project\", $env:MEMD_PROJECT) }}\nif ($env:MEMD_NAMESPACE) {{ $args += @(\"--namespace\", $env:MEMD_NAMESPACE) }}\nmemd @args @Args\n",
-        escape_ps1(output.to_string_lossy().as_ref()),
+        "{}$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n$args = @(\"rag\", \"sync\")\nif ($env:MEMD_PROJECT) {{ $args += @(\"--project\", $env:MEMD_PROJECT) }}\nif ($env:MEMD_NAMESPACE) {{ $args += @(\"--namespace\", $env:MEMD_NAMESPACE) }}\nmemd @args @Args\n",
+        ps1_bundle_root_resolver(output),
     )
 }
 
 pub(crate) fn render_watch_shell_profile(output: &Path) -> String {
     format!(
-        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\nproject_root=\"$(cd \"$MEMD_BUNDLE_ROOT/..\" && pwd)\"\nexec memd watch --root \"$project_root\" --output \"$MEMD_BUNDLE_ROOT\" \"$@\"\n",
-        compact_bundle_value(output.to_string_lossy().as_ref()),
+        "#!/usr/bin/env bash\nset -euo pipefail\n\n{}source \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\nproject_root=\"$(cd \"$MEMD_BUNDLE_ROOT/..\" && pwd)\"\nexec memd watch --root \"$project_root\" --output \"$MEMD_BUNDLE_ROOT\" \"$@\"\n",
+        bash_bundle_root_resolver(output),
     )
 }
 
 pub(crate) fn render_watch_ps1_profile(output: &Path) -> String {
     format!(
-        "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n$projectRoot = Split-Path -Parent $env:MEMD_BUNDLE_ROOT\nmemd watch --root $projectRoot --output $env:MEMD_BUNDLE_ROOT @Args\n",
-        escape_ps1(output.to_string_lossy().as_ref()),
+        "{}$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n$projectRoot = Split-Path -Parent $env:MEMD_BUNDLE_ROOT\nmemd watch --root $projectRoot --output $env:MEMD_BUNDLE_ROOT @Args\n",
+        ps1_bundle_root_resolver(output),
     )
 }
