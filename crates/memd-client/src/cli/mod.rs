@@ -12,6 +12,9 @@ pub(crate) use commands::*;
 mod cli_memory_runtime;
 pub(crate) use cli_memory_runtime::*;
 
+mod cli_features_runtime;
+pub(crate) use cli_features_runtime::*;
+
 mod cli_awareness_runtime;
 pub(crate) use cli_awareness_runtime::*;
 
@@ -178,6 +181,14 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                 } else {
                     print_json(&response)?;
                 }
+            }
+        }
+        Commands::Features(args) => {
+            let report = run_p0_features_command(&args)?;
+            if args.json {
+                print_json(&report)?;
+            } else {
+                println!("{}", render_p0_feature_summary(&report));
             }
         }
         Commands::Claims(args) => {

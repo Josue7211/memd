@@ -1,0 +1,380 @@
+use super::*;
+use serde::Serialize;
+use std::process::Command;
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct P0FeatureReport {
+    pub(crate) generated_at: DateTime<Utc>,
+    pub(crate) bundle_root: String,
+    pub(crate) status: String,
+    pub(crate) features: Vec<P0Feature>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct P0Feature {
+    pub(crate) id: String,
+    pub(crate) status: String,
+    pub(crate) evidence: Vec<String>,
+    pub(crate) gaps: Vec<String>,
+}
+
+pub(crate) fn run_p0_features_command(args: &FeaturesArgs) -> anyhow::Result<P0FeatureReport> {
+    Ok(build_p0_feature_report(&args.output))
+}
+
+pub(crate) fn render_p0_feature_summary(report: &P0FeatureReport) -> String {
+    let mut counts = BTreeMap::<String, usize>::new();
+    for feature in &report.features {
+        *counts.entry(feature.status.clone()).or_default() += 1;
+    }
+    format!(
+        "features status={} working={} partial={} broken={} bundle={}",
+        report.status,
+        counts.get("working").copied().unwrap_or(0),
+        counts.get("partial").copied().unwrap_or(0),
+        counts.get("broken").copied().unwrap_or(0),
+        report.bundle_root
+    )
+}
+
+fn build_p0_feature_report(output: &Path) -> P0FeatureReport {
+    let features = vec![
+        native_handoff_feature(output),
+        voice_mode_feature(output),
+        repo_hygiene_feature(output),
+        capability_sync_feature(output),
+        token_efficiency_feature(output),
+    ];
+    let status = if features.iter().any(|feature| feature.status == "broken") {
+        "broken"
+    } else if features.iter().all(|feature| feature.status == "working") {
+        "working"
+    } else {
+        "partial"
+    };
+    P0FeatureReport {
+        generated_at: Utc::now(),
+        bundle_root: output.display().to_string(),
+        status: status.to_string(),
+        features,
+    }
+}
+
+fn native_handoff_feature(output: &Path) -> P0Feature {
+    let wake_path = output.join("wake.md");
+    let mem_path = output.join("mem.md");
+    let wake = fs::read_to_string(&wake_path).unwrap_or_default();
+    let mem = fs::read_to_string(&mem_path).unwrap_or_default();
+    let recovery_line = wake.contains("- recovery voice=");
+    let quality_ready = wake.contains("quality=ready:") || mem.contains("quality=ready:");
+    let continuity = wake.contains("next=") && wake.contains("blocker=") && wake.contains("dirty=");
+    let status = if recovery_line && quality_ready && continuity {
+        "working"
+    } else if recovery_line || quality_ready || continuity {
+        "partial"
+    } else {
+        "broken"
+    };
+    let mut gaps = Vec::new();
+    if !recovery_line {
+        gaps.push("wake does not expose native recovery line".to_string());
+    }
+    if !quality_ready {
+        gaps.push("handoff quality is not ready in wake/mem surfaces".to_string());
+    }
+    if !continuity {
+        gaps.push("wake does not expose next/blocker/dirty recovery facts".to_string());
+    }
+    feature(
+        "native_handoff_recovery",
+        status,
+        vec![
+            path_evidence("wake", &wake_path),
+            path_evidence("mem", &mem_path),
+            format!("wake_recovery_line={recovery_line}"),
+            format!("handoff_quality_ready={quality_ready}"),
+            format!("native_continuity={continuity}"),
+        ],
+        gaps,
+    )
+}
+
+fn voice_mode_feature(output: &Path) -> P0Feature {
+    let config_path = output.join("config.json");
+    let voice = read_bundle_voice_mode(output).unwrap_or_else(default_voice_mode);
+    let valid = normalize_voice_mode_value(&voice).is_ok();
+    let config_present = config_path.is_file();
+    feature(
+        "voice_mode",
+        if valid && config_present {
+            "working"
+        } else {
+            "partial"
+        },
+        vec![
+            path_evidence("config", &config_path),
+            format!("voice_mode={voice}"),
+            format!("valid_voice_mode={valid}"),
+            "source_of_truth=.memd/config.json".to_string(),
+        ],
+        if config_present && valid {
+            Vec::new()
+        } else {
+            vec!["voice mode source of truth is missing or invalid".to_string()]
+        },
+    )
+}
+
+fn repo_hygiene_feature(output: &Path) -> P0Feature {
+    let repo_root = infer_bundle_project_root(output)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let (tracked_dirty, untracked) =
+        git_dirty_counts(&repo_root).unwrap_or((usize::MAX, usize::MAX));
+    let raw_cache_paths = raw_benchmark_cache_paths(&repo_root);
+    let mut gaps = Vec::new();
+    if tracked_dirty > 5 {
+        gaps.push(format!(
+            "broad dirty tree: {tracked_dirty} tracked files exceed auto-commit limit 5"
+        ));
+    }
+    if untracked > 50 {
+        gaps.push(format!(
+            "large untracked surface: {untracked} paths need triage"
+        ));
+    }
+    for path in &raw_cache_paths {
+        if path.exists() {
+            gaps.push(format!(
+                "raw benchmark cache is present in repo-visible path: {}",
+                path.display()
+            ));
+        }
+    }
+    let mut evidence = vec![
+        format!("repo_root={}", repo_root.display()),
+        format!("dirty_tracked_files={tracked_dirty}"),
+        format!("untracked_paths={untracked}"),
+        "auto_commit_max_tracked_files=5".to_string(),
+        "implementation work must not run broad benchmarks".to_string(),
+    ];
+    for path in raw_cache_paths {
+        evidence.push(format!(
+            "raw_benchmark_cache_path={}:{}",
+            if path.exists() { "present" } else { "absent" },
+            path.display()
+        ));
+    }
+    feature(
+        "repo_hygiene",
+        if gaps.is_empty() {
+            "working"
+        } else {
+            "partial"
+        },
+        evidence,
+        gaps,
+    )
+}
+
+fn capability_sync_feature(output: &Path) -> P0Feature {
+    let registry_path = output.join("state").join("capability-registry.json");
+    let (count, non_universal) = read_capability_registry_counts(&registry_path).unwrap_or((0, 0));
+    let mut gaps = Vec::new();
+    if count == 0 {
+        gaps.push("capability inventory is missing or empty".to_string());
+    }
+    gaps.push("fresh-machine materializer is unproven".to_string());
+    gaps.push("host-local CLI availability cannot be restored by memd sync alone".to_string());
+    feature(
+        "capability_sync",
+        if count == 0 { "broken" } else { "partial" },
+        vec![
+            path_evidence("capability_registry", &registry_path),
+            format!("discovered_capabilities={count}"),
+            format!("non_universal_capabilities={non_universal}"),
+            "server-backed inventory is not the same as installing plugins/skills/CLIs".to_string(),
+        ],
+        gaps,
+    )
+}
+
+fn token_efficiency_feature(output: &Path) -> P0Feature {
+    let source_registry = output.join("state").join("source-registry.json");
+    let raw_spine = output.join("state").join("raw-spine.jsonl");
+    let ledger = output.join("state").join("token-savings-ledger.ndjson");
+    let present = source_registry.is_file() || raw_spine.is_file() || ledger.is_file();
+    feature(
+        "token_efficiency",
+        if present { "working" } else { "partial" },
+        vec![
+            path_evidence("source_registry", &source_registry),
+            path_evidence("raw_spine", &raw_spine),
+            path_evidence("token_savings_ledger", &ledger),
+            "raw benchmark caches must stay outside repo-visible paths".to_string(),
+        ],
+        if present {
+            Vec::new()
+        } else {
+            vec!["no token-efficiency state files found".to_string()]
+        },
+    )
+}
+
+fn feature(id: &str, status: &str, evidence: Vec<String>, gaps: Vec<String>) -> P0Feature {
+    P0Feature {
+        id: id.to_string(),
+        status: status.to_string(),
+        evidence,
+        gaps,
+    }
+}
+
+fn path_evidence(label: &str, path: &Path) -> String {
+    format!(
+        "{label}:{}:{}",
+        if path.exists() { "present" } else { "absent" },
+        path.display()
+    )
+}
+
+fn git_dirty_counts(repo_root: &Path) -> anyhow::Result<(usize, usize)> {
+    let output = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(repo_root)
+        .output()
+        .with_context(|| format!("git status in {}", repo_root.display()))?;
+    if !output.status.success() {
+        anyhow::bail!("git status failed in {}", repo_root.display());
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut tracked = 0;
+    let mut untracked = 0;
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        if line.starts_with("??") {
+            untracked += 1;
+        } else {
+            tracked += 1;
+        }
+    }
+    Ok((tracked, untracked))
+}
+
+fn raw_benchmark_cache_paths(repo_root: &Path) -> Vec<PathBuf> {
+    vec![
+        repo_root.join("external-public-cache"),
+        repo_root
+            .join("docs")
+            .join("verification")
+            .join("25-5-memory-os-runs")
+            .join("external-public-cache"),
+    ]
+}
+
+fn read_capability_registry_counts(path: &Path) -> anyhow::Result<(usize, usize)> {
+    let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let value: serde_json::Value =
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
+    let Some(records) = value.get("capabilities").and_then(|value| value.as_array()) else {
+        return Ok((0, 0));
+    };
+    let non_universal = records
+        .iter()
+        .filter(|record| {
+            record
+                .get("portability_class")
+                .and_then(|value| value.as_str())
+                .is_some_and(|value| value != "universal")
+        })
+        .count();
+    Ok((records.len(), non_universal))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repo_hygiene_marks_broad_dirty_tree_partial() {
+        let repo =
+            std::env::temp_dir().join(format!("memd-p0-feature-repo-{}", uuid::Uuid::new_v4()));
+        let bundle = repo.join(".memd");
+        fs::create_dir_all(&bundle).expect("create bundle");
+        assert!(Command::new("git")
+            .arg("init")
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success());
+        assert!(Command::new("git")
+            .args(["config", "user.email", "memd@example.invalid"])
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success());
+        assert!(Command::new("git")
+            .args(["config", "user.name", "memd"])
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success());
+        for index in 0..6 {
+            fs::write(repo.join(format!("file-{index}.txt")), "before\n").unwrap();
+        }
+        assert!(Command::new("git")
+            .args(["add", "."])
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success());
+        assert!(Command::new("git")
+            .args(["commit", "-m", "seed"])
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success());
+        for index in 0..6 {
+            fs::write(repo.join(format!("file-{index}.txt")), "after\n").unwrap();
+        }
+
+        let report = build_p0_feature_report(&bundle);
+        let repo_feature = report
+            .features
+            .iter()
+            .find(|feature| feature.id == "repo_hygiene")
+            .expect("repo hygiene");
+        assert_eq!(repo_feature.status, "partial");
+        assert!(repo_feature
+            .gaps
+            .iter()
+            .any(|gap| gap.contains("broad dirty tree")));
+
+        fs::remove_dir_all(repo).ok();
+    }
+
+    #[test]
+    fn capability_sync_stays_partial_without_materializer() {
+        let bundle = std::env::temp_dir().join(format!(
+            "memd-p0-feature-capability-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let state = bundle.join("state");
+        fs::create_dir_all(&state).expect("create state");
+        fs::write(
+            state.join("capability-registry.json"),
+            r#"{"capabilities":[{"portability_class":"harness-native"}]}"#,
+        )
+        .expect("write registry");
+
+        let report = build_p0_feature_report(&bundle);
+        let feature = report
+            .features
+            .iter()
+            .find(|feature| feature.id == "capability_sync")
+            .expect("capability sync");
+        assert_eq!(feature.status, "partial");
+        assert!(feature.gaps.iter().any(|gap| gap.contains("materializer")));
+
+        fs::remove_dir_all(bundle).ok();
+    }
+}

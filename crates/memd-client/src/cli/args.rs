@@ -23,6 +23,7 @@ pub(crate) enum Commands {
     Wake(WakeArgs),
     Awareness(AwarenessArgs),
     Heartbeat(HeartbeatArgs),
+    Features(FeaturesArgs),
     Claims(ClaimsArgs),
     Messages(MessagesArgs),
     Tasks(TasksArgs),
@@ -520,6 +521,15 @@ pub(crate) struct ContextArgs {
 
     #[arg(long)]
     pub(crate) stdin: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct FeaturesArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Clone, Args)]
