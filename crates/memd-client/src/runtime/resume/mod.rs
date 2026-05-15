@@ -193,7 +193,17 @@ pub(crate) async fn read_bundle_resume(
     );
     let resume_cache_key = build_resume_snapshot_cache_key(args, runtime.as_ref(), &base_url);
 
-    if let Some(snapshot) = cache::read_resume_snapshot_cache(&args.output, &resume_cache_key, 3)? {
+    if let Some(mut snapshot) =
+        cache::read_resume_snapshot_cache(&args.output, &resume_cache_key, 3)?
+    {
+        if let Some(raw_next) = latest_raw_spine_next_action(&args.output)
+            && !snapshot
+                .preferences
+                .iter()
+                .any(|record| record == &raw_next)
+        {
+            snapshot.preferences.push(raw_next);
+        }
         return Ok(snapshot);
     }
 
@@ -377,7 +387,7 @@ pub(crate) async fn read_bundle_resume(
     // so we may get Decisions leaked in; this is acceptable (they're high-signal durable memory).
     let pref_intent = parse_retrieval_intent(Some("preference".to_string()))
         .unwrap_or(Some(memd_schema::RetrievalIntent::CurrentTask));
-    let preferences = match client
+    let mut preferences = match client
         .context_compact(&memd_schema::ContextRequest {
             project: project.clone(),
             agent: agent.clone(),
@@ -393,6 +403,11 @@ pub(crate) async fn read_bundle_resume(
         Ok(resp) => resp.records.into_iter().take(3).map(|r| r.record).collect(),
         Err(_) => Vec::new(), // fail-soft: no preferences = empty block
     };
+    if let Some(raw_next) = latest_raw_spine_next_action(&args.output)
+        && !preferences.iter().any(|record| record == &raw_next)
+    {
+        preferences.push(raw_next);
+    }
     if let Some(score) = &mut handoff_quality {
         score.include_decision_signals(count_recoverable_decision_records(
             &context,
@@ -1077,6 +1092,30 @@ mod tests {
             .get_or_init(|| Mutex::new(()))
             .lock()
             .expect("cwd mutation lock poisoned")
+    }
+
+    #[test]
+    fn latest_raw_spine_next_action_beats_stale_cached_next_action() {
+        let root = std::env::temp_dir().join(format!("memd-raw-next-{}", uuid::Uuid::new_v4()));
+        let bundle = root.join(".memd");
+        let state = bundle.join("state");
+        std::fs::create_dir_all(&state).expect("create state");
+        std::fs::write(
+            state.join("raw-spine.jsonl"),
+            r#"{"id":"raw-new","tags":["next-agent","capability-sync"],"content_preview":"CURRENT NEXT ACTION: finish host-local CLI installer after 642b5a3","recorded_at":"2026-05-15T20:10:49Z"}
+{"id":"raw-old","tags":["next-agent"],"content_preview":"CURRENT NEXT ACTION: old payload proof","recorded_at":"2026-05-15T19:10:49Z"}"#,
+        )
+        .expect("write raw spine");
+
+        let raw_next = latest_raw_spine_next_action(&bundle).expect("raw next action");
+        let best = best_next_action_record(vec![
+            "id=old | kind=decision | tags=next-agent | upd=1778874974 | c=CURRENT NEXT ACTION: old fresh-machine payload proof".to_string(),
+            raw_next,
+        ])
+        .expect("best next action");
+
+        assert!(best.contains("finish host-local CLI installer"));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2593,6 +2632,50 @@ fn best_next_action_record(records: Vec<String>) -> Option<String> {
         .max_by_key(|record| record_updated_at(record).unwrap_or(0))
 }
 
+fn latest_raw_spine_next_action(output: &Path) -> Option<String> {
+    let path = output.join("state").join("raw-spine.jsonl");
+    let raw = std::fs::read_to_string(path).ok()?;
+    raw.lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find_map(|value| {
+            let content = value
+                .get("content_preview")
+                .and_then(|value| value.as_str())
+                .or_else(|| value.get("content").and_then(|value| value.as_str()))?;
+            let tags = value
+                .get("tags")
+                .and_then(|value| value.as_array())
+                .map(|tags| {
+                    tags.iter()
+                        .filter_map(|tag| tag.as_str())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let looks_like_next = content.to_ascii_lowercase().contains("current next action")
+                || tags.iter().any(|tag| *tag == "next-agent");
+            if !looks_like_next {
+                return None;
+            }
+            let id = value
+                .get("id")
+                .and_then(|value| value.as_str())
+                .unwrap_or("raw-next-action");
+            let upd = value
+                .get("recorded_at")
+                .and_then(|value| value.as_str())
+                .and_then(parse_record_timestamp)
+                .unwrap_or(0);
+            let tag_text = if tags.is_empty() {
+                "next-agent".to_string()
+            } else {
+                tags.join(",")
+            };
+            Some(format!(
+                "id={id} | stage=raw | kind=decision | status=active | tags={tag_text} | upd={upd} | c={content}"
+            ))
+        })
+}
+
 fn record_updated_at(record: &str) -> Option<i64> {
     let (_, tail) = record.split_once("| upd=")?;
     let value = tail
@@ -2600,6 +2683,12 @@ fn record_updated_at(record: &str) -> Option<i64> {
         .next()
         .unwrap_or_default();
     value.parse::<i64>().ok()
+}
+
+fn parse_record_timestamp(value: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|timestamp| timestamp.timestamp())
 }
 
 pub(crate) fn truth_status_label(snapshot: &ResumeSnapshot) -> String {
