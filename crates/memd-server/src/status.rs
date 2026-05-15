@@ -43,7 +43,7 @@ pub(crate) async fn get_harness_status(
     let latency_p95_ms = state.latency.p95_ms();
     let benchmark_gate = benchmark_gate_for_latency(latency_p95_ms);
     let schema_version = state.store.schema_version().map_err(internal_error)?;
-    let atlas = atlas_health_surface(&state, items.len()).map_err(internal_error)?;
+    let atlas = atlas_health_surface(&state, breakdown.active).map_err(internal_error)?;
 
     Ok(Json(HarnessStatus {
         git_branch: deployment_identity_value("MEMD_GIT_BRANCH", env!("MEMD_GIT_BRANCH")),
@@ -79,21 +79,21 @@ fn deployment_identity_value_from(runtime: Option<String>, compiled: &str) -> St
 
 pub(crate) fn atlas_health_surface(
     state: &AppState,
-    item_count: usize,
+    active_item_count: usize,
 ) -> anyhow::Result<AtlasHealthStatus> {
     let links = state.store.list_entity_links()?;
     let region_count = state.store.atlas_region_count()?;
     let edges_total = links.len();
     let edges_active = links.iter().filter(|link| link.valid_to.is_none()).count();
     let edges_dormant = edges_total.saturating_sub(edges_active);
-    let edge_item_ratio = if item_count == 0 {
+    let edge_item_ratio = if active_item_count == 0 {
         0.0
     } else {
-        edges_active as f64 / item_count as f64
+        edges_active as f64 / active_item_count as f64
     };
-    let dormant = item_count > 0 && edge_item_ratio < 0.5;
+    let dormant = atlas_dormant_for_ratio(edges_active, active_item_count);
     let warning = dormant.then_some(format!(
-        "atlas dormant: active_edges/items ratio {:.2} below 0.50",
+        "atlas dormant: active_edges/active_items ratio {:.2} below 0.50",
         edge_item_ratio
     ));
 
@@ -106,6 +106,10 @@ pub(crate) fn atlas_health_surface(
         dormant,
         warning,
     })
+}
+
+fn atlas_dormant_for_ratio(edges_active: usize, active_item_count: usize) -> bool {
+    active_item_count > 0 && (edges_active as f64 / active_item_count as f64) < 0.5
 }
 
 // K2.6: histogram snapshot for the working-memory retrieval surface.
@@ -126,7 +130,14 @@ pub(crate) async fn verify_spine(
 
 #[cfg(test)]
 mod tests {
-    use super::{benchmark_gate_for_latency, deployment_identity_value_from};
+    use super::{atlas_dormant_for_ratio, benchmark_gate_for_latency, deployment_identity_value_from};
+
+    #[test]
+    fn atlas_dormancy_uses_active_items_not_total_rows() {
+        assert!(!atlas_dormant_for_ratio(699, 213));
+        assert!(atlas_dormant_for_ratio(10, 100));
+        assert!(!atlas_dormant_for_ratio(0, 0));
+    }
 
     #[test]
     fn benchmark_gate_reports_acceptable_for_measured_smoke_band() {
