@@ -1342,16 +1342,30 @@ fn build_capability_materialization_report(
         .iter()
         .filter(|action| action.status == "present" || action.status == "installable")
         .count();
+    let host_local = actions
+        .iter()
+        .filter(|action| {
+            matches!(
+                action.action.as_str(),
+                "host-cli-on-path" | "write-host-cli-install-plan" | "install-host-cli"
+            )
+        })
+        .count();
+    let fresh_machine_ready = missing == 0 && host_local == 0;
     Ok(CapabilityMaterializationReport {
-        status: if missing == 0 {
+        status: if fresh_machine_ready {
             "ready".to_string()
         } else if apply && applied > 0 {
             "partial-applied".to_string()
+        } else if host_local > 0 {
+            "partial-host-local".to_string()
         } else {
             "partial".to_string()
         },
         installable,
         missing,
+        host_local,
+        fresh_machine_ready,
         applied,
         skipped,
         actions,
@@ -1373,7 +1387,7 @@ fn materialization_action_for_record(
                 source_path: record.source_path.clone(),
                 target_path: None,
                 payload_text: None,
-                reason: "host-local CLI is already available on this machine".to_string(),
+                reason: "host-local CLI is available on this machine, but fresh machines still need machine-specific install proof".to_string(),
             };
         }
         let target = host_cli_install_plan_target_path(output, record);
@@ -1876,6 +1890,66 @@ mod capability_materialization_tests {
     }
 
     #[test]
+    fn host_cli_on_path_keeps_fresh_machine_materialization_partial() {
+        if !host_cli_available_on_path("sh") {
+            return;
+        }
+        let bundle =
+            std::env::temp_dir().join(format!("memd-host-cli-on-path-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(bundle.join("state")).expect("create bundle state");
+        let mut record = capability("local", "cli", "sh", "host-local", "/bin/sh");
+        record.notes = vec![
+            "PATH inventory; executable availability is host-local".to_string(),
+            "memd:host-cli-install-plan:#!/bin/sh\necho install sh\n".to_string(),
+        ];
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: None,
+            capabilities: vec![record],
+        };
+        write_bundle_capability_registry(&bundle, &registry).expect("write registry");
+
+        let report = build_capabilities_response_from_registry(
+            &CapabilitiesArgs {
+                command: None,
+                output: bundle.clone(),
+                harness: None,
+                kind: None,
+                portability: None,
+                query: None,
+                limit: 12,
+                summary: false,
+                json: false,
+                materialize_plan: true,
+                materialize: false,
+            },
+            &bundle,
+            &registry,
+            &CapabilityBridgeRegistry {
+                generated_at: Utc::now(),
+                actions: Vec::new(),
+            },
+            "status",
+            false,
+            12,
+        )
+        .expect("capability report")
+        .materialization
+        .expect("materialization report");
+
+        assert_eq!(report.status, "partial-host-local");
+        assert_eq!(report.missing, 0);
+        assert_eq!(report.host_local, 1);
+        assert!(!report.fresh_machine_ready);
+        let action = report.actions.first().expect("host CLI action");
+        assert_eq!(action.status, "present");
+        assert_eq!(action.action, "host-cli-on-path");
+        assert!(action.reason.contains("fresh machines still need"));
+
+        fs::remove_dir_all(bundle).ok();
+    }
+
+    #[test]
     fn materialize_restores_bundle_relative_assets() {
         let root =
             std::env::temp_dir().join(format!("memd-materialize-apply-{}", uuid::Uuid::new_v4()));
@@ -2094,8 +2168,14 @@ pub(crate) fn render_capabilities_runtime_summary(response: &CapabilitiesRespons
         .as_ref()
         .map(|report| {
             format!(
-                " materialize={} installable={} missing={} applied={} skipped={}",
-                report.status, report.installable, report.missing, report.applied, report.skipped
+                " materialize={} installable={} missing={} host_local={} fresh_machine_ready={} applied={} skipped={}",
+                report.status,
+                report.installable,
+                report.missing,
+                report.host_local,
+                report.fresh_machine_ready,
+                report.applied,
+                report.skipped
             )
         })
         .unwrap_or_default();
