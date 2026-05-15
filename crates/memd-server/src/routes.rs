@@ -441,8 +441,12 @@ pub(crate) async fn healthz(
         .iter()
         .filter(|i| i.status == MemoryStatus::Expired)
         .count();
+    let active = all_items
+        .iter()
+        .filter(|i| i.status == MemoryStatus::Active)
+        .count();
     let rag = state.rag_health_surface().await;
-    let atlas = crate::status::atlas_health_surface(&state, items).map_err(internal_error)?;
+    let atlas = crate::status::atlas_health_surface(&state, active).map_err(internal_error)?;
 
     Ok(Json(HealthResponse {
         status: "ok".to_string(),
