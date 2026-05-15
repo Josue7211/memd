@@ -1643,6 +1643,7 @@ fn run_capabilities_command_filters_records() {
     fs::create_dir_all(&output).expect("create output");
 
     let response = run_capabilities_command(&CapabilitiesArgs {
+        command: None,
         output: output.clone(),
         harness: Some("codex".to_string()),
         kind: None,

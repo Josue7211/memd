@@ -39,6 +39,22 @@ pub(crate) use cli_rag_runtime::*;
 mod cli_utility_runtime;
 pub(crate) use cli_utility_runtime::*;
 
+fn capabilities_wants_json(args: &CapabilitiesArgs) -> bool {
+    args.json
+        || matches!(
+            &args.command,
+            Some(CapabilitiesSubcommand::Pull(pull)) if pull.json
+        )
+        || matches!(
+            &args.command,
+            Some(CapabilitiesSubcommand::Status(status)) if status.json
+        )
+        || matches!(
+            &args.command,
+            Some(CapabilitiesSubcommand::Sync(sync)) if sync.json
+        )
+}
+
 mod cli_inspection_runtime;
 pub(crate) use cli_inspection_runtime::*;
 
@@ -142,7 +158,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         }
         Commands::Capabilities(args) => {
             let response = run_capabilities_command(&args)?;
-            if args.json {
+            if capabilities_wants_json(&args) {
                 print_json(&response)?;
             } else {
                 println!("{}", render_capabilities_runtime_summary(&response));

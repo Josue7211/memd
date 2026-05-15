@@ -2771,6 +2771,9 @@ pub(crate) fn build_bundle_capability_registry_with_home(
             }
         }
     }
+    if let Some(project_root) = project_root {
+        capabilities.extend(collect_project_harness_pack_capabilities(project_root));
+    }
 
     let Some(home) = home else {
         return CapabilityRegistry {
@@ -2785,11 +2788,18 @@ pub(crate) fn build_bundle_capability_registry_with_home(
         "codex",
         &home.join(".codex").join("skills"),
     );
+    capabilities.extend(collect_codex_plugin_cache_skill_capabilities(
+        &home.join(".codex").join("plugins").join("cache"),
+    ));
+    capabilities.extend(collect_codex_plugin_manifest_capabilities(
+        &home.join(".codex").join("plugins").join("cache"),
+    ));
     collect_skill_capabilities(
         &mut capabilities,
         "claude",
         &home.join(".claude").join("skills"),
     );
+    capabilities.extend(collect_path_cli_capabilities());
 
     let codex_agents_superpowers = home.join(".agents").join("skills").join("superpowers");
     if codex_agents_superpowers.exists() {
@@ -2883,23 +2893,16 @@ pub(crate) fn collect_skill_capabilities(
     harness: &str,
     root: &Path,
 ) {
-    let Ok(entries) = fs::read_dir(root) else {
-        return;
-    };
+    let mut skill_files = Vec::new();
+    collect_any_skill_files_recursive(root, 0, &mut skill_files);
+    skill_files.sort();
 
-    let mut skills = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir() && path.join("SKILL.md").is_file())
-        .collect::<Vec<_>>();
-    skills.sort();
-
-    for skill_dir in skills {
+    for skill_file in skill_files {
+        let skill_dir = skill_file.parent().unwrap_or(root);
         let skill_name = skill_dir
             .file_name()
             .and_then(|value| value.to_str())
             .unwrap_or("unknown");
-        let skill_file = skill_dir.join("SKILL.md");
         records.push(CapabilityRecord {
             harness: harness.to_string(),
             kind: "skill".to_string(),
@@ -2911,6 +2914,282 @@ pub(crate) fn collect_skill_capabilities(
             hash: file_sha256(&skill_file),
             notes: notes_with_text_payload(Vec::new(), &skill_file),
         });
+    }
+}
+
+pub(crate) fn collect_project_harness_pack_capabilities(
+    project_root: &Path,
+) -> Vec<CapabilityRecord> {
+    let bundle_root = project_root.join(".memd");
+    let project = project_root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("project");
+    let index =
+        crate::harness::index::build_harness_pack_index(&bundle_root, Some(project), Some("main"));
+    index
+        .packs
+        .into_iter()
+        .map(|pack| {
+            let harness = harness_pack_slug(&pack.name);
+            let profile = bundle_root.join("agents").join(format!("{harness}.sh"));
+            let source_path = if profile.is_file() {
+                display_bootstrap_source_path(&profile, Some(project_root))
+            } else {
+                display_bootstrap_source_path(&bundle_root, Some(project_root))
+            };
+            let notes = vec![
+                pack.role,
+                format!("commands={}", pack.commands.len()),
+                format!("files={}", pack.files.len()),
+            ];
+            let notes = if profile.is_file() {
+                notes_with_text_payload(notes, &profile)
+            } else {
+                notes
+            };
+            CapabilityRecord {
+                harness,
+                kind: "harness-pack".to_string(),
+                name: pack.name,
+                status: if profile.is_file() {
+                    "wired".to_string()
+                } else {
+                    "available".to_string()
+                },
+                portability_class: "universal".to_string(),
+                source_path,
+                bridge_hint: Some(
+                    "server-syncable harness pack; pull on new machines before agent boot"
+                        .to_string(),
+                ),
+                hash: None,
+                notes,
+            }
+        })
+        .collect()
+}
+
+fn harness_pack_slug(name: &str) -> String {
+    match name {
+        "Claude Code" => "claude-code".to_string(),
+        "Agent Zero" => "agent-zero".to_string(),
+        "OpenClaw" => "openclaw".to_string(),
+        _ => name
+            .trim()
+            .to_ascii_lowercase()
+            .chars()
+            .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+            .collect::<String>()
+            .trim_matches('-')
+            .to_string(),
+    }
+}
+
+fn collect_any_skill_files_recursive(root: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+    if depth > 5 || out.len() >= 500 || !root.is_dir() {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_file()
+            && path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value == "SKILL.md")
+        {
+            out.push(path);
+            if out.len() >= 500 {
+                return;
+            }
+        } else if path.is_dir() {
+            collect_any_skill_files_recursive(&path, depth + 1, out);
+            if out.len() >= 500 {
+                return;
+            }
+        }
+    }
+}
+
+pub(crate) fn collect_codex_plugin_cache_skill_capabilities(
+    cache_root: &Path,
+) -> Vec<CapabilityRecord> {
+    let mut skill_files = Vec::new();
+    collect_skill_files_recursive(cache_root, 0, &mut skill_files);
+    skill_files.sort();
+    skill_files
+        .into_iter()
+        .take(500)
+        .map(|skill_file| {
+            let skill_dir = skill_file.parent().unwrap_or(cache_root);
+            let skill_name = skill_dir
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("unknown");
+            let plugin_name = skill_dir
+                .parent()
+                .and_then(|path| path.parent())
+                .and_then(|path| path.file_name())
+                .and_then(|value| value.to_str())
+                .unwrap_or("plugin");
+            CapabilityRecord {
+                harness: "codex".to_string(),
+                kind: "plugin-skill".to_string(),
+                name: format!("{plugin_name}:{skill_name}"),
+                status: "installed".to_string(),
+                portability_class: "harness-native".to_string(),
+                source_path: skill_file.display().to_string(),
+                bridge_hint: Some(
+                    "loaded from Codex plugin cache; expose in Active Capabilities".to_string(),
+                ),
+                hash: file_sha256(&skill_file),
+                notes: notes_with_text_payload(
+                    vec!["discovered from ~/.codex/plugins/cache/**/skills/*/SKILL.md".to_string()],
+                    &skill_file,
+                ),
+            }
+        })
+        .collect()
+}
+
+pub(crate) fn collect_codex_plugin_manifest_capabilities(
+    cache_root: &Path,
+) -> Vec<CapabilityRecord> {
+    let mut plugin_manifests = Vec::new();
+    collect_plugin_manifests_recursive(cache_root, 0, &mut plugin_manifests);
+    plugin_manifests.sort();
+    plugin_manifests
+        .into_iter()
+        .take(200)
+        .map(|manifest| {
+            let version_dir = manifest
+                .parent()
+                .and_then(|path| path.parent())
+                .unwrap_or(cache_root);
+            let version = version_dir
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("unknown");
+            let plugin = version_dir
+                .parent()
+                .and_then(|path| path.file_name())
+                .and_then(|value| value.to_str())
+                .unwrap_or("plugin");
+            CapabilityRecord {
+                harness: "codex".to_string(),
+                kind: "plugin".to_string(),
+                name: format!("{plugin}:{version}"),
+                status: "installed".to_string(),
+                portability_class: "harness-native".to_string(),
+                source_path: manifest.display().to_string(),
+                bridge_hint: Some("loaded from Codex plugin cache manifest".to_string()),
+                hash: file_sha256(&manifest),
+                notes: notes_with_text_payload(
+                    vec![
+                        "discovered from ~/.codex/plugins/cache/**/.codex-plugin/plugin.json"
+                            .to_string(),
+                    ],
+                    &manifest,
+                ),
+            }
+        })
+        .collect()
+}
+
+fn collect_plugin_manifests_recursive(root: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+    if depth > 8 || out.len() >= 200 || !root.is_dir() {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_file()
+            && path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value == "plugin.json")
+            && path
+                .parent()
+                .and_then(|parent| parent.file_name())
+                .and_then(|value| value.to_str())
+                == Some(".codex-plugin")
+        {
+            out.push(path);
+            if out.len() >= 200 {
+                return;
+            }
+        } else if path.is_dir() {
+            collect_plugin_manifests_recursive(&path, depth + 1, out);
+            if out.len() >= 200 {
+                return;
+            }
+        }
+    }
+}
+
+pub(crate) fn collect_path_cli_capabilities() -> Vec<CapabilityRecord> {
+    let mut records = Vec::new();
+    for cli in ["codex", "gh", "opencode", "claude", "wrangler", "supabase"] {
+        if let Some(path) = find_cli_on_path(cli) {
+            records.push(CapabilityRecord {
+                harness: "local".to_string(),
+                kind: "cli".to_string(),
+                name: cli.to_string(),
+                status: "installed".to_string(),
+                portability_class: "host-local".to_string(),
+                source_path: path.display().to_string(),
+                bridge_hint: Some("discovered from PATH; sync as host capability".to_string()),
+                hash: None,
+                notes: vec!["PATH inventory; executable availability is host-local".to_string()],
+            });
+        }
+    }
+    records
+}
+
+fn find_cli_on_path(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(name))
+        .find(|candidate| candidate.is_file())
+}
+
+fn collect_skill_files_recursive(root: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+    if depth > 8 || out.len() >= 500 || !root.is_dir() {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_file()
+            && path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value == "SKILL.md")
+            && path
+                .parent()
+                .and_then(|parent| parent.parent())
+                .and_then(|parent| parent.file_name())
+                .and_then(|value| value.to_str())
+                == Some("skills")
+        {
+            out.push(path);
+            if out.len() >= 500 {
+                return;
+            }
+        } else if path.is_dir() {
+            collect_skill_files_recursive(&path, depth + 1, out);
+            if out.len() >= 500 {
+                return;
+            }
+        }
     }
 }
 
@@ -2937,6 +3216,7 @@ pub(crate) fn collect_claude_family_capabilities(
                 "TOOLS.md",
                 "BOOTSTRAP.md",
                 "HEARTBEAT.md",
+                "settings.json",
             ],
         )
         .into_iter()

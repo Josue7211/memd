@@ -1023,23 +1023,41 @@ pub(crate) fn render_bundle_heartbeat_summary(state: &BundleHeartbeatState) -> S
 pub(crate) fn run_capabilities_command(
     args: &CapabilitiesArgs,
 ) -> anyhow::Result<CapabilitiesResponse> {
-    let project_root = infer_bundle_project_root(&args.output);
-    let local_registry = build_bundle_capability_registry(project_root.as_deref());
-    let registry = if args.materialize_plan || args.materialize {
-        merge_capability_registries(
-            local_registry,
-            read_persisted_capability_registry(&args.output)?.unwrap_or_else(|| {
-                CapabilityRegistry {
-                    generated_at: Utc::now(),
-                    project_root: project_root.as_ref().map(|path| path.display().to_string()),
-                    capabilities: Vec::new(),
-                }
-            }),
-        )
-    } else {
-        local_registry
-    };
+    let output = capabilities_output(args);
+    let project_root = infer_bundle_project_root(output);
+    let mut registry = build_bundle_capability_registry(project_root.as_deref());
     let bridges = detect_capability_bridges();
+    if matches!(&args.command, Some(CapabilitiesSubcommand::Sync(_))) {
+        write_bundle_capability_registry(output, &registry)?;
+        write_bundle_capability_bridges(output, &bridges)?;
+    } else if let Some(persisted) = read_persisted_capability_registry(output)? {
+        registry = merge_capability_registries(registry, persisted);
+    }
+    let record_limit = if matches!(&args.command, Some(CapabilitiesSubcommand::Sync(_))) {
+        usize::MAX
+    } else {
+        args.limit
+    };
+    build_capabilities_response_from_registry(
+        args,
+        output,
+        &registry,
+        &bridges,
+        capabilities_command_label(args),
+        matches!(&args.command, Some(CapabilitiesSubcommand::Sync(_))),
+        record_limit,
+    )
+}
+
+pub(crate) fn build_capabilities_response_from_registry(
+    args: &CapabilitiesArgs,
+    output: &Path,
+    registry: &CapabilityRegistry,
+    bridges: &CapabilityBridgeRegistry,
+    command_label: &'static str,
+    synced: bool,
+    record_limit: usize,
+) -> anyhow::Result<CapabilitiesResponse> {
     let query = args.query.as_deref().map(str::to_ascii_lowercase);
     let mut filtered = registry
         .capabilities
@@ -1125,7 +1143,7 @@ pub(crate) fn run_capabilities_command(
     }
 
     Ok(CapabilitiesResponse {
-        bundle_root: args.output.display().to_string(),
+        bundle_root: output.display().to_string(),
         generated_at: registry.generated_at,
         discovered: filtered.len(),
         universal: filtered
@@ -1143,21 +1161,27 @@ pub(crate) fn run_capabilities_command(
         bridge_actions: bridges.actions.len(),
         wired_harnesses: bridge_harnesses.len(),
         filters: serde_json::json!({
+            "command": command_label,
             "harness": args.harness,
             "kind": args.kind,
             "portability": args.portability,
             "query": args.query,
             "limit": args.limit,
-            "materialize_plan": args.materialize_plan,
-            "materialize": args.materialize,
+            "materialize_plan": capabilities_materialize_plan(args),
+            "materialize": capabilities_materialize(args),
+            "synced": synced,
         }),
-        materialization: (args.materialize_plan || args.materialize)
+        materialization: (capabilities_materialize_plan(args) || capabilities_materialize(args))
             .then(|| {
-                build_capability_materialization_report(&args.output, &registry, args.materialize)
+                build_capability_materialization_report(
+                    output,
+                    registry,
+                    capabilities_materialize(args),
+                )
             })
             .transpose()?,
         harnesses: harnesses.into_values().collect(),
-        records: filtered.into_iter().take(args.limit).collect(),
+        records: filtered.into_iter().take(record_limit).collect(),
     })
 }
 
@@ -1181,7 +1205,13 @@ fn merge_capability_registries(
         by_identity.insert(capability_identity_key(&capability), capability);
     }
     for capability in local.capabilities {
-        by_identity.insert(capability_identity_key(&capability), capability);
+        let key = capability_identity_key(&capability);
+        let keep_persisted = by_identity
+            .get(&key)
+            .is_some_and(|persisted| persisted_capability_is_stronger(persisted, &capability));
+        if !keep_persisted {
+            by_identity.insert(key, capability);
+        }
     }
     CapabilityRegistry {
         generated_at: Utc::now(),
@@ -1192,6 +1222,95 @@ fn merge_capability_registries(
 
 fn capability_identity_key(record: &CapabilityRecord) -> String {
     format!("{}\0{}\0{}", record.harness, record.kind, record.name)
+}
+
+fn persisted_capability_is_stronger(
+    persisted: &CapabilityRecord,
+    local: &CapabilityRecord,
+) -> bool {
+    local.status == "available"
+        && persisted.status != "available"
+        && capability_payload_text(persisted).is_some()
+        && capability_payload_text(local).is_none()
+}
+
+#[cfg(test)]
+mod capability_merge_tests {
+    use super::*;
+
+    fn capability(harness: &str, kind: &str, name: &str, status: &str) -> CapabilityRecord {
+        CapabilityRecord {
+            harness: harness.to_string(),
+            kind: kind.to_string(),
+            name: name.to_string(),
+            status: status.to_string(),
+            portability_class: "harness-native".to_string(),
+            source_path: format!("/{harness}/{kind}/{name}"),
+            bridge_hint: None,
+            hash: None,
+            notes: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn capability_merge_keeps_server_shadow_and_prefers_local_state() {
+        let persisted = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: Some("/server-shadow".to_string()),
+            capabilities: vec![
+                capability("codex", "skill", "remote-only", "available-server"),
+                capability("codex", "skill", "shared", "available-server"),
+            ],
+        };
+        let local = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: Some("/local".to_string()),
+            capabilities: vec![capability("codex", "skill", "shared", "installed")],
+        };
+
+        let merged = merge_capability_registries(local, persisted);
+
+        assert_eq!(merged.capabilities.len(), 2);
+        assert!(
+            merged.capabilities.iter().any(|record| {
+                record.name == "remote-only" && record.status == "available-server"
+            })
+        );
+        assert!(
+            merged
+                .capabilities
+                .iter()
+                .any(|record| { record.name == "shared" && record.status == "installed" })
+        );
+    }
+
+    #[test]
+    fn capability_merge_keeps_server_payload_over_unwired_local_stub() {
+        let mut persisted = capability("hermes", "harness-pack", "Hermes", "wired");
+        persisted.notes = vec!["memd:payload-text:#!/bin/sh\n".to_string()];
+        let local = capability("hermes", "harness-pack", "Hermes", "available");
+
+        let merged = merge_capability_registries(
+            CapabilityRegistry {
+                generated_at: Utc::now(),
+                project_root: Some("/fresh".to_string()),
+                capabilities: vec![local],
+            },
+            CapabilityRegistry {
+                generated_at: Utc::now(),
+                project_root: Some("/server".to_string()),
+                capabilities: vec![persisted],
+            },
+        );
+
+        let record = merged
+            .capabilities
+            .iter()
+            .find(|record| record.harness == "hermes")
+            .expect("merged hermes capability");
+        assert_eq!(record.status, "wired");
+        assert!(capability_payload_text(record).is_some());
+    }
 }
 
 fn build_capability_materialization_report(
@@ -1449,6 +1568,40 @@ fn is_bundle_relative_capability(record: &CapabilityRecord) -> bool {
         || (record.harness == "project" && is_universal_class(&record.portability_class))
 }
 
+fn capabilities_output(args: &CapabilitiesArgs) -> &Path {
+    match &args.command {
+        Some(CapabilitiesSubcommand::Pull(args)) => &args.output,
+        Some(CapabilitiesSubcommand::Status(args)) => &args.output,
+        Some(CapabilitiesSubcommand::Sync(args)) => &args.output,
+        None => &args.output,
+    }
+}
+
+fn capabilities_command_label(args: &CapabilitiesArgs) -> &'static str {
+    match &args.command {
+        Some(CapabilitiesSubcommand::Pull(_)) => "pull",
+        Some(CapabilitiesSubcommand::Status(_)) => "status",
+        Some(CapabilitiesSubcommand::Sync(_)) => "sync",
+        None => "list",
+    }
+}
+
+fn capabilities_materialize_plan(args: &CapabilitiesArgs) -> bool {
+    args.materialize_plan
+        || matches!(
+            &args.command,
+            Some(CapabilitiesSubcommand::Pull(pull)) if pull.materialize_plan
+        )
+}
+
+fn capabilities_materialize(args: &CapabilitiesArgs) -> bool {
+    args.materialize
+        || matches!(
+            &args.command,
+            Some(CapabilitiesSubcommand::Pull(pull)) if pull.materialize
+        )
+}
+
 #[cfg(test)]
 mod capability_materialization_tests {
     use super::*;
@@ -1506,6 +1659,7 @@ mod capability_materialization_tests {
         fs::write(&local_plugin, "present").expect("write local plugin");
 
         let report = run_capabilities_command(&CapabilitiesArgs {
+            command: None,
             output: bundle.clone(),
             harness: None,
             kind: None,
@@ -1559,22 +1713,23 @@ mod capability_materialization_tests {
             std::env::temp_dir().join(format!("memd-materialize-apply-{}", uuid::Uuid::new_v4()));
         let bundle = root.join(".memd");
         fs::create_dir_all(bundle.join("agents")).expect("create bundle agents");
-        fs::write(bundle.join("agents").join("hermes.sh"), "#!/bin/sh\n").expect("write source");
-        let target = root.join("agents").join("hermes.sh");
+        fs::write(bundle.join("agents").join("mercury.sh"), "#!/bin/sh\n").expect("write source");
+        let target = root.join("agents").join("mercury.sh");
         let registry = CapabilityRegistry {
             generated_at: Utc::now(),
             project_root: Some(root.display().to_string()),
             capabilities: vec![capability(
                 "hermes",
                 "harness-pack",
-                "Hermes",
+                "Mercury",
                 "universal",
-                "agents/hermes.sh",
+                "agents/mercury.sh",
             )],
         };
         write_bundle_capability_registry(&bundle, &registry).expect("write registry");
 
         let report = run_capabilities_command(&CapabilitiesArgs {
+            command: None,
             output: bundle.clone(),
             harness: None,
             kind: None,
@@ -1623,6 +1778,7 @@ mod capability_materialization_tests {
         write_bundle_capability_registry(&bundle, &registry).expect("write registry");
 
         let report = run_capabilities_command(&CapabilitiesArgs {
+            command: None,
             output: bundle.clone(),
             harness: None,
             kind: None,
@@ -1668,6 +1824,7 @@ mod capability_materialization_tests {
         write_bundle_capability_registry(&bundle, &registry).expect("write registry");
 
         let report = run_capabilities_command(&CapabilitiesArgs {
+            command: None,
             output: bundle.clone(),
             harness: None,
             kind: None,
@@ -1684,6 +1841,68 @@ mod capability_materialization_tests {
 
         assert!(json.contains("restore-from-payload"));
         assert!(!json.contains("Secret-ish payload"));
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn pull_mode_materialize_flag_restores_payload_assets() {
+        let root = std::env::temp_dir().join(format!("memd-payload-pull-{}", uuid::Uuid::new_v4()));
+        let bundle = root.join(".memd");
+        fs::create_dir_all(bundle.join("state")).expect("create bundle state");
+        let target = root.join("skills").join("demo").join("SKILL.md");
+        let mut record = capability(
+            "codex",
+            "skill",
+            "demo",
+            "harness-native",
+            "skills/demo/SKILL.md",
+        );
+        record.notes = vec!["memd:payload-text:# Pull Demo\n".to_string()];
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: Some(root.display().to_string()),
+            capabilities: vec![record],
+        };
+
+        let report = build_capabilities_response_from_registry(
+            &CapabilitiesArgs {
+                command: Some(CapabilitiesSubcommand::Pull(CapabilitiesPullArgs {
+                    output: bundle.clone(),
+                    json: false,
+                    materialize_plan: false,
+                    materialize: true,
+                })),
+                output: PathBuf::from("ignored-by-pull"),
+                harness: None,
+                kind: None,
+                portability: None,
+                query: None,
+                limit: 12,
+                summary: false,
+                json: false,
+                materialize_plan: false,
+                materialize: false,
+            },
+            &bundle,
+            &registry,
+            &CapabilityBridgeRegistry {
+                generated_at: Utc::now(),
+                actions: Vec::new(),
+            },
+            "pull",
+            true,
+            12,
+        )
+        .expect("capability response")
+        .materialization
+        .expect("materialization report");
+
+        assert_eq!(report.applied, 1);
+        assert_eq!(
+            fs::read_to_string(&target).expect("read payload"),
+            "# Pull Demo\n"
+        );
 
         fs::remove_dir_all(root).ok();
     }

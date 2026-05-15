@@ -2814,6 +2814,9 @@ pub(crate) struct StateArgs {
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct CapabilitiesArgs {
+    #[command(subcommand)]
+    pub(crate) command: Option<CapabilitiesSubcommand>,
+
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     pub(crate) output: PathBuf,
 
@@ -2843,6 +2846,46 @@ pub(crate) struct CapabilitiesArgs {
 
     #[arg(long)]
     pub(crate) materialize: bool,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum CapabilitiesSubcommand {
+    Pull(CapabilitiesPullArgs),
+    Status(CapabilitiesStatusArgs),
+    Sync(CapabilitiesSyncArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct CapabilitiesPullArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+
+    #[arg(long)]
+    pub(crate) materialize_plan: bool,
+
+    #[arg(long)]
+    pub(crate) materialize: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct CapabilitiesStatusArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct CapabilitiesSyncArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Clone, Args)]
