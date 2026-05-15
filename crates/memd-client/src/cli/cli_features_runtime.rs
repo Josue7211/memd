@@ -215,15 +215,8 @@ fn capability_sync_feature(output: &Path) -> P0Feature {
             counts.host_cli_assets - counts.host_cli_install_plans
         ));
     }
-    if counts.materialization_installable == 0 {
-        gaps.push("fresh-machine materializer is unproven".to_string());
-    }
+    gaps.push("fresh-machine materializer is unproven".to_string());
     gaps.push("host-local CLI availability cannot be restored by memd sync alone".to_string());
-    let materializer_status = if counts.materialization_installable > 0 {
-        "partial"
-    } else {
-        "unproven"
-    };
     feature(
         "capability_sync",
         if counts.total == 0 {
@@ -240,8 +233,6 @@ fn capability_sync_feature(output: &Path) -> P0Feature {
                 "materialization_installable={}",
                 counts.materialization_installable
             ),
-            format!("fresh_machine_materializer={materializer_status}"),
-            "server-synced text payloads can be materialized for small harness assets".to_string(),
             format!("codex_plugin_assets={}", counts.codex_plugin_assets),
             format!("codex_skill_assets={}", counts.codex_skill_assets),
             format!("claude_code_assets={}", counts.claude_code_assets),
@@ -637,6 +628,7 @@ mod tests {
             .find(|feature| feature.id == "capability_sync")
             .expect("capability sync");
         assert_eq!(feature.status, "partial");
+        assert!(feature.gaps.iter().any(|gap| gap.contains("materializer")));
         assert!(
             feature
                 .gaps
@@ -654,12 +646,6 @@ mod tests {
                 .evidence
                 .iter()
                 .any(|line| line == "materialization_installable=1")
-        );
-        assert!(
-            feature
-                .evidence
-                .iter()
-                .any(|line| line == "fresh_machine_materializer=partial")
         );
 
         fs::remove_dir_all(bundle).ok();
