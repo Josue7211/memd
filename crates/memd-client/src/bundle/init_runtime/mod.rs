@@ -3001,6 +3001,38 @@ mod capability_payload_tests {
 
         fs::remove_dir_all(root).ok();
     }
+
+    #[test]
+    fn host_cli_capabilities_include_expected_missing_install_plans() {
+        let records = collect_host_cli_capabilities(|_| None);
+
+        for expected in EXPECTED_HOST_CLIS {
+            let record = records
+                .iter()
+                .find(|record| record.name == *expected)
+                .unwrap_or_else(|| panic!("missing host CLI capability for {expected}"));
+            assert_eq!(record.harness, "local");
+            assert_eq!(record.kind, "cli");
+            assert_eq!(record.portability_class, "host-local");
+            assert!(record.notes.iter().any(|note| {
+                note.starts_with(HOST_CLI_INSTALL_PLAN_PREFIX)
+                    && note.contains("memd does not copy host-local binaries")
+            }));
+        }
+
+        assert!(records.iter().all(|record| record.status == "missing"));
+        assert!(
+            records
+                .iter()
+                .all(|record| record.source_path.starts_with("host-cli:"))
+        );
+        assert!(records.iter().all(|record| {
+            record
+                .notes
+                .iter()
+                .any(|note| note == "expected host CLI missing on this machine")
+        }));
+    }
 }
 
 pub(crate) fn collect_skill_capabilities(
@@ -3257,36 +3289,58 @@ fn collect_plugin_manifests_recursive(root: &Path, depth: usize, out: &mut Vec<P
 }
 
 pub(crate) fn collect_path_cli_capabilities() -> Vec<CapabilityRecord> {
+    collect_host_cli_capabilities(find_cli_on_path)
+}
+
+fn collect_host_cli_capabilities(
+    mut find_cli: impl FnMut(&str) -> Option<PathBuf>,
+) -> Vec<CapabilityRecord> {
     let mut records = Vec::new();
-    for cli in ["codex", "gh", "opencode", "claude", "wrangler", "supabase"] {
-        if let Some(path) = find_cli_on_path(cli) {
-            let mut notes =
-                vec!["PATH inventory; executable availability is host-local".to_string()];
-            notes.push(host_cli_install_plan_note(cli, &path));
-            records.push(CapabilityRecord {
-                harness: "local".to_string(),
-                kind: "cli".to_string(),
-                name: cli.to_string(),
-                status: "installed".to_string(),
-                portability_class: "host-local".to_string(),
-                source_path: path.display().to_string(),
-                bridge_hint: Some("discovered from PATH; sync as host capability".to_string()),
-                hash: None,
-                notes,
-            });
-        }
+    for cli in EXPECTED_HOST_CLIS {
+        let path = find_cli(cli);
+        let mut notes = vec![
+            "PATH inventory; executable availability is host-local".to_string(),
+            host_cli_install_plan_note(cli, path.as_deref()),
+        ];
+        let (status, source_path, bridge_hint) = if let Some(path) = path {
+            (
+                "installed",
+                path.display().to_string(),
+                "discovered from PATH; sync as host capability",
+            )
+        } else {
+            notes.push("expected host CLI missing on this machine".to_string());
+            (
+                "missing",
+                format!("host-cli:{cli}"),
+                "expected host CLI; sync install guidance as host capability",
+            )
+        };
+        records.push(CapabilityRecord {
+            harness: "local".to_string(),
+            kind: "cli".to_string(),
+            name: cli.to_string(),
+            status: status.to_string(),
+            portability_class: "host-local".to_string(),
+            source_path,
+            bridge_hint: Some(bridge_hint.to_string()),
+            hash: None,
+            notes,
+        });
     }
     records
 }
 
-fn host_cli_install_plan_note(name: &str, source_path: &Path) -> String {
+const EXPECTED_HOST_CLIS: &[&str] = &["codex", "gh", "opencode", "claude", "wrangler", "supabase"];
+
+fn host_cli_install_plan_note(name: &str, source_path: Option<&Path>) -> String {
     format!(
         "{HOST_CLI_INSTALL_PLAN_PREFIX}{}",
         render_host_cli_install_plan(name, source_path)
     )
 }
 
-fn render_host_cli_install_plan(name: &str, source_path: &Path) -> String {
+fn render_host_cli_install_plan(name: &str, source_path: Option<&Path>) -> String {
     let hint = match name {
         "codex" => "Install Codex desktop/CLI for this machine, then expose codex on PATH.",
         "gh" => {
@@ -3300,10 +3354,12 @@ fn render_host_cli_install_plan(name: &str, source_path: &Path) -> String {
         "supabase" => "Install Supabase CLI for this machine, then authenticate if needed.",
         _ => "Install this CLI with this machine approved package manager, then expose it on PATH.",
     };
+    let source = source_path
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "not observed on source machine PATH".to_string());
     format!(
         "#!/bin/sh\nset -eu\n\necho 'memd host CLI install plan: {name}'\necho 'source machine path: {}'\necho '{}'\necho 'memd does not copy host-local binaries across machines.'\necho 'After install, run: memd capabilities sync --output .memd'\nif command -v {name} >/dev/null 2>&1; then\n  echo '{name} already available on PATH'\n  exit 0\nfi\nexit 2\n",
-        source_path.display(),
-        hint
+        source, hint
     )
 }
 

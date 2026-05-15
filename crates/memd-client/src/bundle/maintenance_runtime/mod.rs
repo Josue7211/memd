@@ -1967,8 +1967,8 @@ mod capability_materialization_tests {
         .expect("materialization report");
 
         assert_eq!(report.status, "partial-applied");
-        assert_eq!(report.applied, 1);
-        assert_eq!(report.missing, 1);
+        assert!(report.applied >= 1);
+        assert!(report.missing >= 1);
         let action = report
             .actions
             .iter()
