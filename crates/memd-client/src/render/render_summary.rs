@@ -4,6 +4,28 @@ use super::*;
 mod render_memory_summary;
 pub(crate) use render_memory_summary::*;
 
+fn compact_next_action(next_action: &str) -> String {
+    let body = next_action
+        .split_once(" | c=")
+        .map(|(_, content)| content.trim())
+        .unwrap_or_else(|| next_action.trim());
+    if let Some(id) = extract_compact_record_id(next_action) {
+        format!("{id}: {}", compact_inline(body, 160))
+    } else {
+        compact_inline(body, 180)
+    }
+}
+
+fn extract_compact_record_id(line: &str) -> Option<String> {
+    let start = line.find("id=")?;
+    let rest = &line[start + 3..];
+    let end = rest
+        .find(|ch: char| ch.is_whitespace() || ch == '|')
+        .unwrap_or(rest.len());
+    let id = rest[..end].trim();
+    (!id.is_empty()).then(|| id.to_string())
+}
+
 pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
     let mut output = String::new();
     let continuity = snapshot.continuity_capsule();
@@ -71,7 +93,7 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
             output.push_str(&format!("- changed={}\n", compact_inline(changed, 180)));
         }
         if let Some(next_action) = continuity.next_action.as_deref() {
-            output.push_str(&format!("- next={}\n", compact_inline(next_action, 180)));
+            output.push_str(&format!("- next={}\n", compact_next_action(next_action)));
         }
         if let Some(blocker) = continuity.blocker.as_deref() {
             output.push_str(&format!("- blocker={}\n", compact_inline(blocker, 180)));
@@ -229,7 +251,7 @@ fn render_current_task_snapshot(snapshot: &crate::ResumeSnapshot) -> String {
             output.push_str(&format!("- changed={}\n", compact_inline(changed, 180)));
         }
         if let Some(next_action) = continuity.next_action.as_deref() {
-            output.push_str(&format!("- next={}\n", compact_inline(next_action, 180)));
+            output.push_str(&format!("- next={}\n", compact_next_action(next_action)));
         }
         if let Some(blocker) = continuity.blocker.as_deref() {
             output.push_str(&format!("- blocker={}\n", compact_inline(blocker, 180)));
@@ -334,7 +356,7 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
             output.push_str(&format!("- changed={}\n", compact_inline(changed, 180)));
         }
         if let Some(next_action) = continuity.next_action.as_deref() {
-            output.push_str(&format!("- next={}\n", compact_inline(next_action, 180)));
+            output.push_str(&format!("- next={}\n", compact_next_action(next_action)));
         }
         if let Some(blocker) = continuity.blocker.as_deref() {
             output.push_str(&format!("- blocker={}\n", compact_inline(blocker, 180)));
@@ -586,7 +608,9 @@ mod tests {
             handoff_quality: None,
             files_touched: Vec::new(),
             un_read_paths: Vec::new(),
-            preferences: Vec::new(),
+            preferences: vec![
+                "id=57c5a501-001c-49ec-9934-8a97826bf462 | kind=decision | tags=next-agent,materializer | upd=1778869065 | c=CURRENT NEXT ACTION: implement server-backed fresh-machine materializer before claiming capability sync works".to_string(),
+            ],
         }
     }
 
@@ -624,6 +648,10 @@ mod tests {
         assert!(prompt.contains("- left_off="));
         assert!(prompt.contains("- changed="));
         assert!(prompt.contains("- next="));
+        assert!(
+            prompt.contains("server-backed fresh-machine materializer"),
+            "{prompt}"
+        );
         assert!(prompt.contains("- blocker=One review item is still open"));
     }
 }
