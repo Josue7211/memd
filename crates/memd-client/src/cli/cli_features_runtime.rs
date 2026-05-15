@@ -208,6 +208,7 @@ fn capability_sync_feature(output: &Path) -> P0Feature {
             counts.materialization_missing
         ));
     }
+    gaps.extend(capability_surface_gaps(&counts));
     gaps.push("fresh-machine materializer is unproven".to_string());
     gaps.push("host-local CLI availability cannot be restored by memd sync alone".to_string());
     feature(
@@ -226,6 +227,13 @@ fn capability_sync_feature(output: &Path) -> P0Feature {
                 "materialization_installable={}",
                 counts.materialization_installable
             ),
+            format!("codex_plugin_assets={}", counts.codex_plugin_assets),
+            format!("codex_skill_assets={}", counts.codex_skill_assets),
+            format!("claude_code_assets={}", counts.claude_code_assets),
+            format!("hermes_assets={}", counts.hermes_assets),
+            format!("opencode_assets={}", counts.opencode_assets),
+            format!("project_policy_assets={}", counts.project_policy_assets),
+            format!("host_cli_assets={}", counts.host_cli_assets),
             "server-backed inventory is not the same as installing plugins/skills/CLIs".to_string(),
         ],
         gaps,
@@ -319,6 +327,13 @@ struct CapabilityAuditCounts {
     non_universal: usize,
     materialization_installable: usize,
     materialization_missing: usize,
+    codex_plugin_assets: usize,
+    codex_skill_assets: usize,
+    claude_code_assets: usize,
+    hermes_assets: usize,
+    opencode_assets: usize,
+    project_policy_assets: usize,
+    host_cli_assets: usize,
 }
 
 #[derive(Debug, Default)]
@@ -373,6 +388,16 @@ fn read_capability_registry_counts(path: &Path) -> anyhow::Result<CapabilityAudi
         if portability != "universal" {
             counts.non_universal += 1;
         }
+        match (harness, kind) {
+            ("codex", value) if value.contains("plugin") => counts.codex_plugin_assets += 1,
+            ("codex", "skill") => counts.codex_skill_assets += 1,
+            (value, _) if value.contains("claude") => counts.claude_code_assets += 1,
+            ("hermes", _) => counts.hermes_assets += 1,
+            ("opencode", _) => counts.opencode_assets += 1,
+            ("project", "policy") => counts.project_policy_assets += 1,
+            ("local", "cli") | (_, "cli") => counts.host_cli_assets += 1,
+            _ => {}
+        }
         if capability_has_fresh_machine_payload(harness, kind, portability, source_path) {
             counts.materialization_installable += 1;
         } else {
@@ -396,6 +421,32 @@ fn capability_has_fresh_machine_payload(
         && kind != "cli"
         && !(harness == "codex" && kind.contains("plugin"))
         && !harness.contains("claude")
+}
+
+fn capability_surface_gaps(counts: &CapabilityAuditCounts) -> Vec<String> {
+    let mut gaps = Vec::new();
+    if counts.codex_plugin_assets == 0 {
+        gaps.push("missing Codex plugin/skill capability records".to_string());
+    }
+    if counts.codex_skill_assets == 0 {
+        gaps.push("missing Codex skill capability records".to_string());
+    }
+    if counts.claude_code_assets == 0 {
+        gaps.push("missing Claude Code capability records".to_string());
+    }
+    if counts.hermes_assets == 0 {
+        gaps.push("missing Hermes capability records".to_string());
+    }
+    if counts.opencode_assets == 0 {
+        gaps.push("missing OpenCode capability records".to_string());
+    }
+    if counts.project_policy_assets == 0 {
+        gaps.push("missing project policy capability records".to_string());
+    }
+    if counts.host_cli_assets == 0 {
+        gaps.push("missing host CLI capability records".to_string());
+    }
+    gaps
 }
 
 #[cfg(test)]
@@ -562,6 +613,57 @@ mod tests {
                 .evidence
                 .iter()
                 .any(|line| line == "materialization_installable=1")
+        );
+
+        fs::remove_dir_all(bundle).ok();
+    }
+
+    #[test]
+    fn capability_sync_requires_all_cross_machine_surfaces() {
+        let bundle = std::env::temp_dir().join(format!(
+            "memd-p0-feature-surfaces-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let state = bundle.join("state");
+        fs::create_dir_all(&state).expect("create state");
+        fs::write(
+            state.join("capability-registry.json"),
+            r#"{"capabilities":[
+                {
+                    "harness":"codex",
+                    "kind":"plugin",
+                    "portability_class":"harness-native",
+                    "source_path":"/tmp/missing-plugin"
+                }
+            ]}"#,
+        )
+        .expect("write sparse registry");
+
+        let feature = capability_sync_feature(&bundle);
+        for expected in [
+            "missing Codex skill capability records",
+            "missing Claude Code capability records",
+            "missing Hermes capability records",
+            "missing OpenCode capability records",
+            "missing project policy capability records",
+            "missing host CLI capability records",
+        ] {
+            assert!(
+                feature.gaps.iter().any(|gap| gap == expected),
+                "missing expected gap: {expected}"
+            );
+        }
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|line| line == "codex_plugin_assets=1")
+        );
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|line| line == "claude_code_assets=0")
         );
 
         fs::remove_dir_all(bundle).ok();
