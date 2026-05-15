@@ -196,6 +196,7 @@ pub(crate) async fn read_bundle_resume(
     if let Some(mut snapshot) =
         cache::read_resume_snapshot_cache(&args.output, &resume_cache_key, 3)?
     {
+        refresh_resume_local_recovery_state(project_root.as_deref(), &mut snapshot);
         if let Some(raw_next) = latest_raw_spine_next_action(&args.output)
             && !snapshot
                 .preferences
@@ -967,8 +968,10 @@ pub(crate) async fn read_bundle_handoff(
             "resume_key={resume_cache_key}|source_limit={source_limit}|target_session={target_session_key}|target_bundle={target_bundle_key}"
         ),
     );
-    if let Some(handoff) = cache::read_handoff_snapshot_cache(&args.output, &handoff_cache_key, 3)?
+    if let Some(mut handoff) =
+        cache::read_handoff_snapshot_cache(&args.output, &handoff_cache_key, 3)?
     {
+        refresh_handoff_local_recovery_state(&target_bundle, &mut handoff);
         return Ok(handoff);
     }
 
@@ -1001,6 +1004,18 @@ pub(crate) async fn read_bundle_handoff(
     };
     let _ = cache::write_handoff_snapshot_cache(&args.output, &handoff_cache_key, &handoff);
     Ok(handoff)
+}
+
+fn refresh_resume_local_recovery_state(project_root: Option<&Path>, snapshot: &mut ResumeSnapshot) {
+    if let Some(project_root) = project_root {
+        snapshot.recent_repo_changes = collect_recent_repo_changes(project_root);
+    }
+}
+
+fn refresh_handoff_local_recovery_state(target_bundle: &Path, handoff: &mut HandoffSnapshot) {
+    let project_root = infer_bundle_project_root(target_bundle);
+    refresh_resume_local_recovery_state(project_root.as_deref(), &mut handoff.resume);
+    handoff.voice_mode = read_bundle_voice_mode(target_bundle).unwrap_or_else(default_voice_mode);
 }
 
 pub(crate) fn read_bundle_resume_state(output: &Path) -> anyhow::Result<Option<BundleResumeState>> {
@@ -1092,6 +1107,117 @@ mod tests {
             .get_or_init(|| Mutex::new(()))
             .lock()
             .expect("cwd mutation lock poisoned")
+    }
+
+    #[test]
+    fn cached_handoff_refreshes_live_repo_dirty_state() {
+        let root = std::env::temp_dir().join(format!("memd-handoff-live-{}", uuid::Uuid::new_v4()));
+        let bundle = root.join(".memd");
+        fs::create_dir_all(bundle.join("state")).expect("create bundle state");
+        let git = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("init")
+            .output()
+            .expect("run git init");
+        assert!(git.status.success());
+        fs::write(
+            bundle.join("config.json"),
+            r#"{
+  "voice_mode": "caveman-ultra"
+}
+"#,
+        )
+        .expect("write config");
+        fs::write(root.join("notes.txt"), "live dirty state\n").expect("write dirty file");
+
+        let resume = ResumeSnapshot {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: None,
+            visibility: Some("all".to_string()),
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: RetrievalRoute::Auto,
+                intent: RetrievalIntent::CurrentTask,
+                retrieval_order: Vec::new(),
+                records: Vec::new(),
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: RetrievalRoute::Auto,
+                intent: RetrievalIntent::CurrentTask,
+                retrieval_order: Vec::new(),
+                budget_chars: 0,
+                used_chars: 0,
+                remaining_chars: 0,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 0,
+                    max_chars_per_item: 0,
+                    budget_chars: 0,
+                    rehydration_limit: 0,
+                },
+                records: Vec::new(),
+                evicted: Vec::new(),
+                rehydration_queue: Vec::new(),
+                traces: Vec::new(),
+                semantic_consolidation: None,
+                procedures: Vec::new(),
+                compaction_quality: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: RetrievalRoute::Auto,
+                intent: RetrievalIntent::CurrentTask,
+                items: Vec::new(),
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: Vec::new(),
+            },
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            semantic: None,
+            claims: SessionClaimsState::default(),
+            recent_repo_changes: vec!["repo_dirty_total=999 tracked=999 untracked=0".to_string()],
+            change_summary: Vec::new(),
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+            handoff_quality: None,
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
+        };
+        let mut handoff = HandoffSnapshot {
+            generated_at: Utc::now(),
+            resume,
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            voice_mode: "normal".to_string(),
+            target_session: None,
+            target_bundle: Some(bundle.display().to_string()),
+        };
+
+        refresh_handoff_local_recovery_state(&bundle, &mut handoff);
+
+        assert_eq!(handoff.voice_mode, "caveman-ultra");
+        assert!(handoff.resume.recent_repo_changes[0].starts_with("repo_dirty_total="));
+        assert_ne!(
+            handoff.resume.recent_repo_changes[0],
+            "repo_dirty_total=999 tracked=999 untracked=0"
+        );
+        assert!(
+            handoff
+                .resume
+                .recent_repo_changes
+                .iter()
+                .any(|change| change.contains("notes.txt"))
+        );
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
