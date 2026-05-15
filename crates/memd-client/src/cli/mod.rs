@@ -1391,7 +1391,7 @@ async fn push_capabilities_to_server(
         queue_offline_sync_payload(output, OfflineSyncPayload::Capabilities(req), &error)?;
         anyhow::bail!(error);
     }
-    match tokio::time::timeout(Duration::from_secs(2), client.capabilities_sync(&req)).await {
+    match tokio::time::timeout(capability_sync_timeout(), client.capabilities_sync(&req)).await {
         Ok(Ok(_)) => return Ok(()),
         Ok(Err(error)) => {
             let error = format!("{error:#}");
@@ -1404,6 +1404,15 @@ async fn push_capabilities_to_server(
             anyhow::bail!(error);
         }
     }
+}
+
+fn capability_sync_timeout() -> Duration {
+    std::env::var("MEMD_CAPABILITY_SYNC_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| *seconds >= 2)
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(10))
 }
 
 async fn pull_capabilities_from_server(
