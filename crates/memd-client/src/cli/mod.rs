@@ -601,6 +601,24 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             if args.prompt {
                 println!("{}", render_resume_prompt(&snapshot));
             } else if args.summary {
+                let voice_mode =
+                    read_bundle_voice_mode(&args.output).unwrap_or_else(default_voice_mode);
+                let dirty = snapshot
+                    .recent_repo_changes
+                    .iter()
+                    .filter(|change| !change.eq_ignore_ascii_case("repo clean"))
+                    .count();
+                let handoff_quality = snapshot
+                    .handoff_quality
+                    .as_ref()
+                    .map(|score| {
+                        if score.is_acceptable() {
+                            format!("ready:{:.2}", score.composite)
+                        } else {
+                            format!("partial:{:.2}", score.composite)
+                        }
+                    })
+                    .unwrap_or_else(|| "unknown".to_string());
                 let focus = snapshot
                     .working
                     .records
@@ -614,10 +632,13 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                     .map(|item| compact_inline(&item.item.content, 72))
                     .unwrap_or_else(|| "none".to_string());
                 println!(
-                    "resume project={} namespace={} agent={} workspace={} visibility={} context={} working={} inbox={} workspaces={} changes={} est_tokens={} context_pressure={} redundant_items={} refresh_recommended={} focus=\"{}\" pressure=\"{}\"",
+                    "resume project={} namespace={} agent={} voice={} handoff_quality={} dirty={} workspace={} visibility={} context={} working={} inbox={} workspaces={} changes={} est_tokens={} context_pressure={} redundant_items={} refresh_recommended={} focus=\"{}\" pressure=\"{}\"",
                     snapshot.project.as_deref().unwrap_or("none"),
                     snapshot.namespace.as_deref().unwrap_or("none"),
                     snapshot.agent.as_deref().unwrap_or("none"),
+                    voice_mode,
+                    handoff_quality,
+                    dirty,
                     snapshot.workspace.as_deref().unwrap_or("none"),
                     snapshot.visibility.as_deref().unwrap_or("all"),
                     snapshot.context.records.len(),
@@ -633,7 +654,17 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                     pressure,
                 );
             } else {
-                print_json(&snapshot)?;
+                let voice_mode =
+                    read_bundle_voice_mode(&args.output).unwrap_or_else(default_voice_mode);
+                let mut value =
+                    serde_json::to_value(&snapshot).context("serialize resume snapshot")?;
+                if let serde_json::Value::Object(map) = &mut value {
+                    map.insert(
+                        "voice_mode".to_string(),
+                        serde_json::Value::String(voice_mode),
+                    );
+                }
+                print_json(&value)?;
             }
         }
         Commands::Refresh(args) => {
@@ -697,11 +728,32 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             if args.prompt {
                 println!("{}", render_handoff_prompt(&snapshot));
             } else if args.summary {
+                let dirty = snapshot
+                    .resume
+                    .recent_repo_changes
+                    .iter()
+                    .filter(|change| !change.eq_ignore_ascii_case("repo clean"))
+                    .count();
+                let quality = snapshot
+                    .resume
+                    .handoff_quality
+                    .as_ref()
+                    .map(|score| {
+                        if score.is_acceptable() {
+                            "ready"
+                        } else {
+                            "partial"
+                        }
+                    })
+                    .unwrap_or("unknown");
                 println!(
-                    "handoff project={} namespace={} agent={} workspace={} visibility={} working={} inbox={} workspaces={} sources={} rehydration={} target_session={} target_bundle={}",
+                    "handoff project={} namespace={} agent={} voice={} quality={} dirty={} workspace={} visibility={} working={} inbox={} workspaces={} sources={} rehydration={} target_session={} target_bundle={}",
                     snapshot.resume.project.as_deref().unwrap_or("none"),
                     snapshot.resume.namespace.as_deref().unwrap_or("none"),
                     snapshot.resume.agent.as_deref().unwrap_or("none"),
+                    snapshot.voice_mode,
+                    quality,
+                    dirty,
                     snapshot.resume.workspace.as_deref().unwrap_or("none"),
                     snapshot.resume.visibility.as_deref().unwrap_or("all"),
                     snapshot.resume.working.records.len(),
