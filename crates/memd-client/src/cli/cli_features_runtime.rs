@@ -218,21 +218,30 @@ fn token_efficiency_feature(output: &Path) -> P0Feature {
     let source_registry = output.join("state").join("source-registry.json");
     let raw_spine = output.join("state").join("raw-spine.jsonl");
     let ledger = output.join("state").join("token-savings-ledger.ndjson");
-    let present = source_registry.is_file() || raw_spine.is_file() || ledger.is_file();
+    let counts = read_token_savings_counts(&ledger).unwrap_or_default();
+    let state_present = source_registry.is_file() || raw_spine.is_file() || ledger.is_file();
+    let measured = counts.events > 0 && counts.tokens_saved > 0;
+    let mut gaps = Vec::new();
+    if !state_present {
+        gaps.push("no token-efficiency state files found".to_string());
+    }
+    if counts.events == 0 {
+        gaps.push("no token-savings ledger events found".to_string());
+    } else if counts.tokens_saved == 0 {
+        gaps.push("token-savings ledger has no positive measured savings".to_string());
+    }
     feature(
         "token_efficiency",
-        if present { "working" } else { "partial" },
+        if measured { "working" } else { "partial" },
         vec![
             path_evidence("source_registry", &source_registry),
             path_evidence("raw_spine", &raw_spine),
             path_evidence("token_savings_ledger", &ledger),
+            format!("token_savings_events={}", counts.events),
+            format!("measured_tokens_saved={}", counts.tokens_saved),
             "raw benchmark caches must stay outside repo-visible paths".to_string(),
         ],
-        if present {
-            Vec::new()
-        } else {
-            vec!["no token-efficiency state files found".to_string()]
-        },
+        gaps,
     )
 }
 
@@ -292,6 +301,27 @@ struct CapabilityAuditCounts {
     non_universal: usize,
     materialization_installable: usize,
     materialization_missing: usize,
+}
+
+#[derive(Debug, Default)]
+struct TokenSavingsCounts {
+    events: usize,
+    tokens_saved: u64,
+}
+
+fn read_token_savings_counts(path: &Path) -> anyhow::Result<TokenSavingsCounts> {
+    let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let mut counts = TokenSavingsCounts::default();
+    for line in raw.lines().filter(|line| !line.trim().is_empty()) {
+        let value = serde_json::from_str::<serde_json::Value>(line)
+            .with_context(|| format!("parse token savings ledger {}", path.display()))?;
+        counts.events += 1;
+        counts.tokens_saved += value
+            .get("tokens_saved")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0);
+    }
+    Ok(counts)
 }
 
 fn read_capability_registry_counts(path: &Path) -> anyhow::Result<CapabilityAuditCounts> {
@@ -476,6 +506,55 @@ mod tests {
                 .evidence
                 .iter()
                 .any(|line| line == "materialization_installable=1")
+        );
+
+        fs::remove_dir_all(bundle).ok();
+    }
+
+    #[test]
+    fn token_efficiency_requires_measured_savings() {
+        let bundle =
+            std::env::temp_dir().join(format!("memd-p0-feature-token-{}", uuid::Uuid::new_v4()));
+        let state = bundle.join("state");
+        fs::create_dir_all(&state).expect("create state");
+        fs::write(
+            state.join("token-savings-ledger.ndjson"),
+            r#"{"operation":"context_packet","tokens_saved":0}"#,
+        )
+        .expect("write ledger");
+
+        let report = build_p0_feature_report(&bundle);
+        let feature = report
+            .features
+            .iter()
+            .find(|feature| feature.id == "token_efficiency")
+            .expect("token efficiency");
+        assert_eq!(feature.status, "partial");
+        assert!(
+            feature
+                .gaps
+                .iter()
+                .any(|gap| gap.contains("no positive measured savings"))
+        );
+
+        fs::write(
+            state.join("token-savings-ledger.ndjson"),
+            r#"{"operation":"context_packet","tokens_saved":12}"#,
+        )
+        .expect("write positive ledger");
+
+        let report = build_p0_feature_report(&bundle);
+        let feature = report
+            .features
+            .iter()
+            .find(|feature| feature.id == "token_efficiency")
+            .expect("token efficiency");
+        assert_eq!(feature.status, "working");
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|line| line == "measured_tokens_saved=12")
         );
 
         fs::remove_dir_all(bundle).ok();
