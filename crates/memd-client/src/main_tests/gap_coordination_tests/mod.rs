@@ -1652,6 +1652,7 @@ fn run_capabilities_command_filters_records() {
         summary: true,
         json: false,
         materialize_plan: false,
+        materialize: false,
     })
     .expect("capabilities response");
 

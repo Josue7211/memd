@@ -1025,7 +1025,7 @@ pub(crate) fn run_capabilities_command(
 ) -> anyhow::Result<CapabilitiesResponse> {
     let project_root = infer_bundle_project_root(&args.output);
     let local_registry = build_bundle_capability_registry(project_root.as_deref());
-    let registry = if args.materialize_plan {
+    let registry = if args.materialize_plan || args.materialize {
         merge_capability_registries(
             local_registry,
             read_persisted_capability_registry(&args.output)?.unwrap_or_else(|| {
@@ -1149,10 +1149,13 @@ pub(crate) fn run_capabilities_command(
             "query": args.query,
             "limit": args.limit,
             "materialize_plan": args.materialize_plan,
+            "materialize": args.materialize,
         }),
-        materialization: args
-            .materialize_plan
-            .then(|| build_capability_materialization_report(&args.output, &registry)),
+        materialization: (args.materialize_plan || args.materialize)
+            .then(|| {
+                build_capability_materialization_report(&args.output, &registry, args.materialize)
+            })
+            .transpose()?,
         harnesses: harnesses.into_values().collect(),
         records: filtered.into_iter().take(args.limit).collect(),
     })
@@ -1194,12 +1197,24 @@ fn capability_identity_key(record: &CapabilityRecord) -> String {
 fn build_capability_materialization_report(
     output: &Path,
     registry: &CapabilityRegistry,
-) -> CapabilityMaterializationReport {
-    let actions = registry
+    apply: bool,
+) -> anyhow::Result<CapabilityMaterializationReport> {
+    let mut actions = registry
         .capabilities
         .iter()
         .map(|record| materialization_action_for_record(output, record))
         .collect::<Vec<_>>();
+    let mut applied = 0;
+    let mut skipped = 0;
+    if apply {
+        for action in &mut actions {
+            if apply_capability_materialization(action)? {
+                applied += 1;
+            } else {
+                skipped += 1;
+            }
+        }
+    }
     let missing = actions
         .iter()
         .filter(|action| action.status == "missing")
@@ -1208,24 +1223,28 @@ fn build_capability_materialization_report(
         .iter()
         .filter(|action| action.status == "present" || action.status == "installable")
         .count();
-    CapabilityMaterializationReport {
+    Ok(CapabilityMaterializationReport {
         status: if missing == 0 {
             "ready".to_string()
+        } else if apply && applied > 0 {
+            "partial-applied".to_string()
         } else {
             "partial".to_string()
         },
         installable,
         missing,
+        applied,
+        skipped,
         actions,
-    }
+    })
 }
 
 fn materialization_action_for_record(
     output: &Path,
     record: &CapabilityRecord,
 ) -> CapabilityMaterializationAction {
-    let source = capability_source_path(output, record);
     if is_bundle_relative_capability(record) {
+        let (source, target) = capability_materialization_paths(output, record);
         let status = if source.exists() {
             "present"
         } else {
@@ -1237,8 +1256,8 @@ fn materialization_action_for_record(
             name: record.name.clone(),
             status: status.to_string(),
             action: "restore-from-bundle".to_string(),
-            source_path: record.source_path.clone(),
-            target_path: Some(output.join(&record.source_path).display().to_string()),
+            source_path: source.display().to_string(),
+            target_path: Some(target.display().to_string()),
             reason: "portable bundle asset can be restored from memd bundle state".to_string(),
         };
     }
@@ -1287,13 +1306,58 @@ fn materialization_action_for_record(
     }
 }
 
-fn capability_source_path(output: &Path, record: &CapabilityRecord) -> PathBuf {
+fn capability_materialization_paths(
+    output: &Path,
+    record: &CapabilityRecord,
+) -> (PathBuf, PathBuf) {
+    let project_root =
+        infer_bundle_project_root(output).or_else(|| output.parent().map(Path::to_path_buf));
     let path = PathBuf::from(&record.source_path);
-    if path.is_absolute() {
+    let target = if path.is_absolute() {
+        path.clone()
+    } else if let Some(root) = project_root.as_ref() {
+        root.join(&path)
+    } else {
+        output.join(&path)
+    };
+    let source = if let Ok(stripped) = path.strip_prefix(".memd") {
+        output.join(stripped)
+    } else if path.is_absolute() {
         path
     } else {
-        output.join(path)
+        output.join(&path)
+    };
+    (source, target)
+}
+
+fn apply_capability_materialization(
+    action: &mut CapabilityMaterializationAction,
+) -> anyhow::Result<bool> {
+    if action.action != "restore-from-bundle" {
+        return Ok(false);
     }
+    let Some(target) = action.target_path.as_ref().map(PathBuf::from) else {
+        return Ok(false);
+    };
+    let source = PathBuf::from(&action.source_path);
+    if !source.is_file() {
+        action.status = "missing".to_string();
+        action.reason = "bundle source asset is missing".to_string();
+        return Ok(false);
+    }
+    if target.is_file() && fs::read(&source)? == fs::read(&target)? {
+        action.status = "present".to_string();
+        action.reason = "asset already materialized".to_string();
+        return Ok(false);
+    }
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::copy(&source, &target)
+        .with_context(|| format!("restore {} to {}", source.display(), target.display()))?;
+    action.status = "present".to_string();
+    action.reason = "restored from memd bundle state".to_string();
+    Ok(true)
 }
 
 fn is_bundle_relative_capability(record: &CapabilityRecord) -> bool {
@@ -1368,6 +1432,7 @@ mod capability_materialization_tests {
             summary: false,
             json: false,
             materialize_plan: true,
+            materialize: false,
         })
         .expect("capability report")
         .materialization
@@ -1404,6 +1469,53 @@ mod capability_materialization_tests {
 
         fs::remove_dir_all(bundle).ok();
     }
+
+    #[test]
+    fn materialize_restores_bundle_relative_assets() {
+        let root =
+            std::env::temp_dir().join(format!("memd-materialize-apply-{}", uuid::Uuid::new_v4()));
+        let bundle = root.join(".memd");
+        fs::create_dir_all(bundle.join("agents")).expect("create bundle agents");
+        fs::write(bundle.join("agents").join("hermes.sh"), "#!/bin/sh\n").expect("write source");
+        let target = root.join("agents").join("hermes.sh");
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: Some(root.display().to_string()),
+            capabilities: vec![capability(
+                "hermes",
+                "harness-pack",
+                "Hermes",
+                "universal",
+                "agents/hermes.sh",
+            )],
+        };
+        write_bundle_capability_registry(&bundle, &registry).expect("write registry");
+
+        let report = run_capabilities_command(&CapabilitiesArgs {
+            output: bundle.clone(),
+            harness: None,
+            kind: None,
+            portability: None,
+            query: None,
+            limit: 12,
+            summary: false,
+            json: false,
+            materialize_plan: false,
+            materialize: true,
+        })
+        .expect("capability report")
+        .materialization
+        .expect("materialization report");
+
+        assert_eq!(report.applied, 1);
+        assert!(target.is_file());
+        assert_eq!(
+            fs::read_to_string(&target).expect("read restored"),
+            "#!/bin/sh\n"
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
 }
 
 pub(crate) fn render_capabilities_runtime_summary(response: &CapabilitiesResponse) -> String {
@@ -1424,8 +1536,8 @@ pub(crate) fn render_capabilities_runtime_summary(response: &CapabilitiesRespons
         .as_ref()
         .map(|report| {
             format!(
-                " materialize={} installable={} missing={}",
-                report.status, report.installable, report.missing
+                " materialize={} installable={} missing={} applied={} skipped={}",
+                report.status, report.installable, report.missing, report.applied, report.skipped
             )
         })
         .unwrap_or_default();

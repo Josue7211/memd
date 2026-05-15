@@ -2840,6 +2840,9 @@ pub(crate) struct CapabilitiesArgs {
 
     #[arg(long)]
     pub(crate) materialize_plan: bool,
+
+    #[arg(long)]
+    pub(crate) materialize: bool,
 }
 
 #[derive(Debug, Clone, Args)]
