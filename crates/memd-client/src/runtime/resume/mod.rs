@@ -1518,6 +1518,29 @@ mod tests {
                 .as_deref()
                 .is_some_and(|next| next.contains("kind=decision"))
         );
+        let mut preference_next = snapshot.clone();
+        preference_next.preferences = vec![
+            "id=old | kind=decision | tags=repo-hygiene | upd=1 | c=background".to_string(),
+            "id=new | kind=decision | tags=next-agent,capability-sync | upd=2 | c=implement capability materializer".to_string(),
+        ];
+        preference_next.working.rehydration_queue = vec![memd_schema::MemoryRehydrationRecord {
+            id: Some(uuid::Uuid::new_v4()),
+            kind: "working_memory_record".to_string(),
+            label: "fact".to_string(),
+            summary: "id=stale | kind=fact | c=old docs plan".to_string(),
+            recorded_at: None,
+            source_agent: Some("codex".to_string()),
+            source_system: Some("memd".to_string()),
+            source_path: None,
+            reason: Some("evicted_by_budget".to_string()),
+            source_quality: None,
+        }];
+        assert!(
+            preference_next
+                .continuity_next()
+                .as_deref()
+                .is_some_and(|next| next.contains("capability materializer"))
+        );
 
         let mut partial = snapshot.clone();
         partial.handoff_quality = Some(HandoffQualityScore {
@@ -1995,10 +2018,12 @@ impl ResumeSnapshot {
             );
         }
         let rehydration = self.compact_rehydration_summaries();
-        rehydration
-            .iter()
-            .find(|item| is_next_action_record(item))
-            .cloned()
+        let mut next_candidates = Vec::new();
+        next_candidates.extend(self.preferences.iter().cloned());
+        next_candidates.extend(rehydration.iter().cloned());
+        next_candidates.extend(self.compact_context_records());
+        next_candidates.extend(self.compact_working_records());
+        best_next_action_record(next_candidates)
             .or_else(|| rehydration.first().cloned())
             .or_else(|| self.compact_inbox_items().first().cloned())
             .or_else(|| self.compact_working_records().first().cloned())
@@ -2559,6 +2584,22 @@ fn is_next_action_record(record: &str) -> bool {
         || normalized.contains("next-agent")
         || normalized.contains("next action")
         || normalized.contains("next_action")
+}
+
+fn best_next_action_record(records: Vec<String>) -> Option<String> {
+    records
+        .into_iter()
+        .filter(|record| is_next_action_record(record))
+        .max_by_key(|record| record_updated_at(record).unwrap_or(0))
+}
+
+fn record_updated_at(record: &str) -> Option<i64> {
+    let (_, tail) = record.split_once("| upd=")?;
+    let value = tail
+        .split(|ch: char| !ch.is_ascii_digit())
+        .next()
+        .unwrap_or_default();
+    value.parse::<i64>().ok()
 }
 
 pub(crate) fn truth_status_label(snapshot: &ResumeSnapshot) -> String {
