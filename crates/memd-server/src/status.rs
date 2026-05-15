@@ -50,15 +50,26 @@ pub(crate) async fn get_harness_status(
     let atlas = atlas_health_surface(&state, items.len()).map_err(internal_error)?;
 
     Ok(Json(HarnessStatus {
-        git_branch: env!("MEMD_GIT_BRANCH").to_string(),
-        git_commit: env!("MEMD_GIT_COMMIT").to_string(),
-        git_dirty: env!("MEMD_GIT_DIRTY").to_string(),
+        git_branch: deployment_identity_value("MEMD_GIT_BRANCH", env!("MEMD_GIT_BRANCH")),
+        git_commit: deployment_identity_value("MEMD_GIT_COMMIT", env!("MEMD_GIT_COMMIT")),
+        git_dirty: deployment_identity_value("MEMD_GIT_DIRTY", env!("MEMD_GIT_DIRTY")),
         memory: breakdown,
         latency_p95_ms,
         benchmark_gate: benchmark_gate.to_string(),
         schema_version,
         atlas: Some(atlas),
     }))
+}
+
+fn deployment_identity_value(var: &str, compiled: &str) -> String {
+    deployment_identity_value_from(std::env::var(var).ok(), compiled)
+}
+
+fn deployment_identity_value_from(runtime: Option<String>, compiled: &str) -> String {
+    runtime
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty() && value != "unknown")
+        .unwrap_or_else(|| compiled.to_string())
 }
 
 pub(crate) fn atlas_health_surface(
@@ -106,4 +117,25 @@ pub(crate) async fn verify_spine(
 ) -> Result<Json<SpineVerifyResponse>, (StatusCode, String)> {
     let report = state.store.verify_spine().map_err(internal_error)?;
     Ok(Json(report))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::deployment_identity_value_from;
+
+    #[test]
+    fn deployment_identity_prefers_runtime_env_over_unknown_compiled_value() {
+        assert_eq!(
+            deployment_identity_value_from(Some("abc123".to_string()), "unknown"),
+            "abc123"
+        );
+        assert_eq!(
+            deployment_identity_value_from(Some("unknown".to_string()), "compiled123"),
+            "compiled123"
+        );
+        assert_eq!(
+            deployment_identity_value_from(Some("   ".to_string()), "compiled123"),
+            "compiled123"
+        );
+    }
 }
