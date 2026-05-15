@@ -233,6 +233,11 @@ fn capability_sync_feature(output: &Path) -> P0Feature {
                 "materialization_installable={}",
                 counts.materialization_installable
             ),
+            format!("payload_text_records={}", counts.payload_text_records),
+            format!(
+                "payload_file_set_records={}",
+                counts.payload_file_set_records
+            ),
             format!("codex_plugin_assets={}", counts.codex_plugin_assets),
             format!("codex_skill_assets={}", counts.codex_skill_assets),
             format!("claude_code_assets={}", counts.claude_code_assets),
@@ -334,6 +339,8 @@ struct CapabilityAuditCounts {
     non_universal: usize,
     materialization_installable: usize,
     materialization_missing: usize,
+    payload_text_records: usize,
+    payload_file_set_records: usize,
     codex_plugin_assets: usize,
     codex_skill_assets: usize,
     claude_code_assets: usize,
@@ -402,6 +409,15 @@ fn read_capability_registry_counts(path: &Path) -> anyhow::Result<CapabilityAudi
                         .is_some_and(|text| text.starts_with("memd:payload-text:"))
                 })
             });
+        let has_payload_file_set = record
+            .get("notes")
+            .and_then(|value| value.as_array())
+            .is_some_and(|notes| {
+                notes.iter().any(|note| {
+                    note.as_str()
+                        .is_some_and(|text| text.starts_with("memd:payload-file-json:"))
+                })
+            });
         let has_host_cli_install_plan = record
             .get("notes")
             .and_then(|value| value.as_array())
@@ -413,6 +429,12 @@ fn read_capability_registry_counts(path: &Path) -> anyhow::Result<CapabilityAudi
             });
         if portability != "universal" {
             counts.non_universal += 1;
+        }
+        if has_payload {
+            counts.payload_text_records += 1;
+        }
+        if has_payload_file_set {
+            counts.payload_file_set_records += 1;
         }
         match (harness, kind) {
             ("codex", value) if value.contains("plugin") => counts.codex_plugin_assets += 1,
@@ -430,6 +452,7 @@ fn read_capability_registry_counts(path: &Path) -> anyhow::Result<CapabilityAudi
             _ => {}
         }
         if has_payload
+            || has_payload_file_set
             || capability_has_fresh_machine_payload(harness, kind, portability, source_path)
         {
             counts.materialization_installable += 1;
@@ -615,7 +638,8 @@ mod tests {
                     "harness":"hermes",
                     "kind":"harness-pack",
                     "portability_class":"universal",
-                    "source_path":".memd/agents/hermes.sh"
+                    "source_path":".memd/agents/hermes.sh",
+                    "notes":["memd:payload-file-json:{\"path\":\"SKILL.md\",\"content\":\"# Hermes\\n\"}"]
                 }
             ]}"#,
         )
@@ -646,6 +670,12 @@ mod tests {
                 .evidence
                 .iter()
                 .any(|line| line == "materialization_installable=1")
+        );
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|line| line == "payload_file_set_records=1")
         );
 
         fs::remove_dir_all(bundle).ok();

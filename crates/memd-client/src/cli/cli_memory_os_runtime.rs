@@ -814,6 +814,16 @@ fn capability_sync_feature(
 fn capability_materializer_audit(registry: &CapabilityRegistry) -> CapabilityInventoryAudit {
     let (materialization_installable, materialization_missing) =
         capability_materialization_counts(registry);
+    let payload_text_records = registry
+        .capabilities
+        .iter()
+        .filter(|record| capability_has_payload_text(record))
+        .count();
+    let payload_file_set_records = registry
+        .capabilities
+        .iter()
+        .filter(|record| capability_has_payload_file_set(record))
+        .count();
     let host_cli_install_plans = registry
         .capabilities
         .iter()
@@ -829,6 +839,9 @@ fn capability_materializer_audit(registry: &CapabilityRegistry) -> CapabilityInv
         "server_backed_inventory=present".to_string(),
         "fresh_machine_materializer=partial".to_string(),
         "server-synced text payloads can be materialized for small harness assets".to_string(),
+        "server-synced payload sets can restore bounded skill/plugin text files".to_string(),
+        format!("payload_text_records={payload_text_records}"),
+        format!("payload_file_set_records={payload_file_set_records}"),
         format!("materialization_installable={materialization_installable}"),
         format!("materialization_missing={materialization_missing}"),
         format!("host_cli_install_plans={host_cli_install_plans}"),
@@ -903,11 +916,7 @@ fn capability_materialization_counts(registry: &CapabilityRegistry) -> (usize, u
 }
 
 fn capability_has_fresh_machine_payload(record: &CapabilityRecord) -> bool {
-    if record
-        .notes
-        .iter()
-        .any(|note| note.starts_with("memd:payload-text:"))
-    {
+    if capability_has_payload_text(record) || capability_has_payload_file_set(record) {
         return record.portability_class != "host-local" && record.kind != "cli";
     }
     let bundle_relative = record.source_path.starts_with(".memd/")
@@ -919,6 +928,20 @@ fn capability_has_fresh_machine_payload(record: &CapabilityRecord) -> bool {
         && record.portability_class != "host-local"
         && record.kind != "cli"
         && !(record.harness == "codex" && record.kind.contains("plugin"))
+}
+
+fn capability_has_payload_text(record: &CapabilityRecord) -> bool {
+    record
+        .notes
+        .iter()
+        .any(|note| note.starts_with("memd:payload-text:"))
+}
+
+fn capability_has_payload_file_set(record: &CapabilityRecord) -> bool {
+    record
+        .notes
+        .iter()
+        .any(|note| note.starts_with("memd:payload-file-json:"))
 }
 
 fn capability_inventory_audit(registry: &CapabilityRegistry) -> CapabilityInventoryAudit {
@@ -2557,7 +2580,14 @@ mod tests {
                 source_path: format!(".memd/agents/{harness}.sh"),
                 bridge_hint: None,
                 hash: None,
-                notes: Vec::new(),
+                notes: if harness == "hermes" {
+                    vec![
+                        r##"memd:payload-file-json:{"path":"SKILL.md","content":"# Hermes\n"}"##
+                            .to_string(),
+                    ]
+                } else {
+                    Vec::new()
+                },
             });
         }
         capabilities.push(CapabilityRecord {
@@ -2584,6 +2614,15 @@ mod tests {
         assert!(feature.evidence.iter().any(|item| {
             item == "server-synced text payloads can be materialized for small harness assets"
         }));
+        assert!(feature.evidence.iter().any(|item| {
+            item == "server-synced payload sets can restore bounded skill/plugin text files"
+        }));
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|item| item == "payload_file_set_records=1")
+        );
         assert!(
             feature
                 .evidence
