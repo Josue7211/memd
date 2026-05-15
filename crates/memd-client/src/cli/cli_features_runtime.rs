@@ -215,6 +215,12 @@ fn capability_sync_feature(output: &Path) -> P0Feature {
             counts.host_cli_assets - counts.host_cli_install_plans
         ));
     }
+    if !counts.missing_expected_host_cli_names.is_empty() {
+        gaps.push(format!(
+            "missing expected host CLI capability records: {}",
+            counts.missing_expected_host_cli_names.join(",")
+        ));
+    }
     gaps.push("fresh-machine materializer is unproven".to_string());
     gaps.push("host-local CLI availability cannot be restored by memd sync alone".to_string());
     feature(
@@ -246,6 +252,11 @@ fn capability_sync_feature(output: &Path) -> P0Feature {
             format!("project_policy_assets={}", counts.project_policy_assets),
             format!("host_cli_assets={}", counts.host_cli_assets),
             format!("host_cli_install_plans={}", counts.host_cli_install_plans),
+            format!(
+                "expected_host_cli_records={}/{}",
+                counts.expected_host_cli_records,
+                EXPECTED_HOST_CLIS.len()
+            ),
             "server-backed inventory is not the same as installing plugins/skills/CLIs".to_string(),
         ],
         gaps,
@@ -349,6 +360,8 @@ struct CapabilityAuditCounts {
     project_policy_assets: usize,
     host_cli_assets: usize,
     host_cli_install_plans: usize,
+    expected_host_cli_records: usize,
+    missing_expected_host_cli_names: Vec<String>,
 }
 
 #[derive(Debug, Default)]
@@ -383,6 +396,7 @@ fn read_capability_registry_counts(path: &Path) -> anyhow::Result<CapabilityAudi
         total: records.len(),
         ..CapabilityAuditCounts::default()
     };
+    let mut host_cli_names = std::collections::BTreeSet::<String>::new();
     for record in records {
         let portability = record
             .get("portability_class")
@@ -445,6 +459,13 @@ fn read_capability_registry_counts(path: &Path) -> anyhow::Result<CapabilityAudi
             ("project", "policy") => counts.project_policy_assets += 1,
             ("local", "cli") | (_, "cli") => {
                 counts.host_cli_assets += 1;
+                host_cli_names.insert(
+                    record
+                        .get("name")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                );
                 if has_host_cli_install_plan {
                     counts.host_cli_install_plans += 1;
                 }
@@ -460,8 +481,18 @@ fn read_capability_registry_counts(path: &Path) -> anyhow::Result<CapabilityAudi
             counts.materialization_missing += 1;
         }
     }
+    counts.missing_expected_host_cli_names = EXPECTED_HOST_CLIS
+        .iter()
+        .copied()
+        .filter(|name| !host_cli_names.contains(*name))
+        .map(str::to_string)
+        .collect();
+    counts.expected_host_cli_records =
+        EXPECTED_HOST_CLIS.len() - counts.missing_expected_host_cli_names.len();
     Ok(counts)
 }
+
+const EXPECTED_HOST_CLIS: &[&str] = &["codex", "gh", "opencode", "claude", "wrangler", "supabase"];
 
 fn capability_has_fresh_machine_payload(
     harness: &str,
@@ -772,6 +803,12 @@ mod tests {
             feature
                 .evidence
                 .iter()
+                .any(|line| line == "expected_host_cli_records=1/6")
+        );
+        assert!(
+            feature
+                .evidence
+                .iter()
                 .any(|line| line == "materialization_missing=1")
         );
         assert!(
@@ -781,6 +818,9 @@ mod tests {
                 .any(|gap| gap
                     == "host-local CLI availability cannot be restored by memd sync alone")
         );
+        assert!(feature.gaps.iter().any(|gap| {
+            gap == "missing expected host CLI capability records: codex,opencode,claude,wrangler,supabase"
+        }));
         assert!(
             !feature
                 .gaps

@@ -835,6 +835,8 @@ fn capability_materializer_audit(registry: &CapabilityRegistry) -> CapabilityInv
                 .any(|note| note.starts_with("memd:host-cli-install-plan:"))
         })
         .count();
+    let (expected_host_cli_records, missing_expected_host_clis) =
+        expected_host_cli_inventory(registry);
     let mut evidence = vec![
         "server_backed_inventory=present".to_string(),
         "fresh_machine_materializer=partial".to_string(),
@@ -845,6 +847,10 @@ fn capability_materializer_audit(registry: &CapabilityRegistry) -> CapabilityInv
         format!("materialization_installable={materialization_installable}"),
         format!("materialization_missing={materialization_missing}"),
         format!("host_cli_install_plans={host_cli_install_plans}"),
+        format!(
+            "expected_host_cli_records={expected_host_cli_records}/{}",
+            EXPECTED_HOST_CLIS.len()
+        ),
     ];
     let missing_records = registry
         .capabilities
@@ -877,6 +883,12 @@ fn capability_materializer_audit(registry: &CapabilityRegistry) -> CapabilityInv
     if host_cli_without_install_plan > 0 {
         gaps.push(format!(
             "{host_cli_without_install_plan} host CLI records lack server-synced install plans"
+        ));
+    }
+    if !missing_expected_host_clis.is_empty() {
+        gaps.push(format!(
+            "missing expected host CLI capability records: {}",
+            missing_expected_host_clis.join(",")
         ));
     }
     let missing_assets = missing_records
@@ -942,6 +954,24 @@ fn capability_has_payload_file_set(record: &CapabilityRecord) -> bool {
         .notes
         .iter()
         .any(|note| note.starts_with("memd:payload-file-json:"))
+}
+
+const EXPECTED_HOST_CLIS: &[&str] = &["codex", "gh", "opencode", "claude", "wrangler", "supabase"];
+
+fn expected_host_cli_inventory(registry: &CapabilityRegistry) -> (usize, Vec<String>) {
+    let present = registry
+        .capabilities
+        .iter()
+        .filter(|record| record.kind == "cli" || record.portability_class == "host-local")
+        .map(|record| record.name.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let missing = EXPECTED_HOST_CLIS
+        .iter()
+        .copied()
+        .filter(|name| !present.contains(*name))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    (EXPECTED_HOST_CLIS.len() - missing.len(), missing)
 }
 
 fn capability_inventory_audit(registry: &CapabilityRegistry) -> CapabilityInventoryAudit {
@@ -2664,10 +2694,10 @@ mod tests {
             capabilities: vec![CapabilityRecord {
                 harness: "local".to_string(),
                 kind: "cli".to_string(),
-                name: "memd-test-gh".to_string(),
+                name: "gh".to_string(),
                 status: "available-server".to_string(),
                 portability_class: "host-local".to_string(),
-                source_path: "/source/bin/memd-test-gh".to_string(),
+                source_path: "/source/bin/gh".to_string(),
                 bridge_hint: Some("server inventory only".to_string()),
                 hash: None,
                 notes: vec![
@@ -2690,6 +2720,12 @@ mod tests {
             feature
                 .evidence
                 .iter()
+                .any(|item| item == "expected_host_cli_records=1/6")
+        );
+        assert!(
+            feature
+                .evidence
+                .iter()
                 .any(|item| item == "materialization_missing=1")
         );
         assert!(
@@ -2699,6 +2735,9 @@ mod tests {
                 .any(|gap| gap
                     == "host-local CLI availability cannot be restored by memd sync alone")
         );
+        assert!(feature.gaps.iter().any(|gap| {
+            gap == "missing expected host CLI capability records: codex,opencode,claude,wrangler,supabase"
+        }));
         assert!(
             !feature
                 .gaps
