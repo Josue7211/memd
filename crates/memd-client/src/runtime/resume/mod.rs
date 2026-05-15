@@ -362,7 +362,7 @@ pub(crate) async fn read_bundle_resume(
         })
         .unwrap_or_default();
 
-    let handoff_quality = working
+    let mut handoff_quality = working
         .compaction_quality
         .as_ref()
         .map(HandoffQualityScore::from_report);
@@ -393,6 +393,13 @@ pub(crate) async fn read_bundle_resume(
         Ok(resp) => resp.records.into_iter().take(3).map(|r| r.record).collect(),
         Err(_) => Vec::new(), // fail-soft: no preferences = empty block
     };
+    if let Some(score) = &mut handoff_quality {
+        score.include_decision_signals(count_recoverable_decision_records(
+            &context,
+            &working,
+            &preferences,
+        ));
+    }
 
     let snapshot = ResumeSnapshot {
         project,
@@ -1474,6 +1481,59 @@ mod tests {
             snapshot.continuity_next().as_deref(),
             Some("resume next step")
         );
+        let mut prioritized = snapshot.clone();
+        prioritized.working.rehydration_queue.insert(
+            0,
+            memd_schema::MemoryRehydrationRecord {
+                id: Some(uuid::Uuid::new_v4()),
+                kind: "working_memory_record".to_string(),
+                label: "fact".to_string(),
+                summary: "id=fact | kind=fact | c=background".to_string(),
+                recorded_at: None,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("memd".to_string()),
+                source_path: None,
+                reason: Some("evicted_by_budget".to_string()),
+                source_quality: None,
+            },
+        );
+        prioritized
+            .working
+            .rehydration_queue
+            .push(memd_schema::MemoryRehydrationRecord {
+                id: Some(uuid::Uuid::new_v4()),
+                kind: "working_memory_record".to_string(),
+                label: "decision".to_string(),
+                summary: "id=decision | kind=decision | tags=next-agent,p0-handoff | c=deploy patched server next".to_string(),
+                recorded_at: None,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("memd".to_string()),
+                source_path: None,
+                reason: Some("evicted_by_budget".to_string()),
+                source_quality: None,
+            });
+        assert!(
+            prioritized
+                .continuity_next()
+                .as_deref()
+                .is_some_and(|next| next.contains("kind=decision"))
+        );
+
+        let mut partial = snapshot.clone();
+        partial.handoff_quality = Some(HandoffQualityScore {
+            fill_rate: 0.5,
+            budget_utilization: 0.9,
+            dominant_kind: Some("fact".to_string()),
+            eviction_pressure: 0.5,
+            fact_coverage: 1.0,
+            decision_coverage: 0.0,
+            working_depth: 0.8,
+            composite: 0.5,
+        });
+        assert_eq!(
+            partial.continuity_next().as_deref(),
+            Some("fix partial handoff quality before claiming native recovery ready")
+        );
     }
 }
 
@@ -1548,23 +1608,12 @@ impl HandoffQualityScore {
         // starvation (utilization < 0.25) and truncation (utilization ~= 1.0
         // plus high eviction). For handoff purposes, we want the packet
         // *rich* but not *overstuffed*, so anything in [0.5, 0.95] scores 1.0.
-        let trust_score = if budget_utilization >= 0.5 && budget_utilization <= 0.95 {
-            1.0
-        } else if budget_utilization < 0.5 {
-            budget_utilization / 0.5
-        } else {
-            // utilization in (0.95, 1.0]: mild penalty proportional to how
-            // close we are to truncation.
-            1.0 - (budget_utilization - 0.95) * 4.0
-        }
-        .clamp(0.0, 1.0);
+        let trust_score = Self::trust_score_for_budget_utilization(budget_utilization);
 
         // Weighted composite: coverage of the substantive kinds matters
         // most, working-depth second, trust third.
-        let composite = 0.30 * fact_coverage
-            + 0.30 * decision_coverage
-            + 0.25 * working_depth
-            + 0.15 * trust_score;
+        let composite =
+            Self::composite_score(fact_coverage, decision_coverage, working_depth, trust_score);
 
         HandoffQualityScore {
             fill_rate,
@@ -1576,6 +1625,45 @@ impl HandoffQualityScore {
             working_depth,
             composite,
         }
+    }
+
+    fn trust_score_for_budget_utilization(budget_utilization: f64) -> f64 {
+        if budget_utilization >= 0.5 && budget_utilization <= 0.95 {
+            1.0
+        } else if budget_utilization < 0.5 {
+            budget_utilization / 0.5
+        } else {
+            // utilization in (0.95, 1.0]: mild penalty proportional to how
+            // close we are to truncation.
+            1.0 - (budget_utilization - 0.95) * 4.0
+        }
+        .clamp(0.0, 1.0)
+    }
+
+    fn composite_score(
+        fact_coverage: f64,
+        decision_coverage: f64,
+        working_depth: f64,
+        trust_score: f64,
+    ) -> f64 {
+        // Weighted composite: coverage of the substantive kinds matters
+        // most, working-depth second, trust third.
+        0.30 * fact_coverage + 0.30 * decision_coverage + 0.25 * working_depth + 0.15 * trust_score
+    }
+
+    pub(crate) fn include_decision_signals(&mut self, decision_count: usize) {
+        let decision_coverage = (decision_count as f64 / Self::TARGET_DECISIONS).min(1.0);
+        if decision_coverage <= self.decision_coverage {
+            return;
+        }
+        self.decision_coverage = decision_coverage;
+        let trust_score = Self::trust_score_for_budget_utilization(self.budget_utilization);
+        self.composite = Self::composite_score(
+            self.fact_coverage,
+            self.decision_coverage,
+            self.working_depth,
+            trust_score,
+        );
     }
 
     /// L2.9: true iff the handoff meets the shipping threshold.
@@ -1639,6 +1727,51 @@ mod handoff_quality_tests {
         );
         assert!(score.fact_coverage < 0.5);
         assert_eq!(score.decision_coverage, 0.0);
+    }
+
+    #[test]
+    fn preference_retrieval_decisions_raise_handoff_quality() {
+        let mut score = HandoffQualityScore::from_report(&report(3, 0, 4, 3000));
+        assert_eq!(score.decision_coverage, 0.0);
+        assert!(!score.is_acceptable());
+
+        score.include_decision_signals(count_decision_records(&[
+            "id=a | kind=decision | c=first".to_string(),
+            "decision: second".to_string(),
+        ]));
+
+        assert!(score.decision_coverage >= 0.99);
+        assert!(score.is_acceptable());
+    }
+
+    #[test]
+    fn recoverable_rehydration_decisions_raise_handoff_quality() {
+        let mut snapshot = ResumeSnapshot::empty();
+        snapshot
+            .working
+            .rehydration_queue
+            .push(memd_schema::MemoryRehydrationRecord {
+                id: None,
+                kind: "working_memory_record".to_string(),
+                label: "decision".to_string(),
+                summary: "id=handoff | kind=decision | c=fix native recovery next".to_string(),
+                reason: Some("evicted_by_budget".to_string()),
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                recorded_at: None,
+            });
+        let preferences = Vec::new();
+        let decision_count =
+            count_recoverable_decision_records(&snapshot.context, &snapshot.working, &preferences);
+
+        let mut score = HandoffQualityScore::from_report(&report(3, 0, 4, 3000));
+        score.include_decision_signals(decision_count);
+
+        assert_eq!(decision_count, 1);
+        assert!(score.decision_coverage >= 0.49);
+        assert!(score.is_acceptable());
     }
 
     #[test]
@@ -1852,9 +1985,21 @@ impl ResumeSnapshot {
     }
 
     pub(crate) fn continuity_next(&self) -> Option<String> {
-        self.compact_rehydration_summaries()
-            .first()
+        if self
+            .handoff_quality
+            .as_ref()
+            .is_some_and(|score| !score.is_acceptable())
+        {
+            return Some(
+                "fix partial handoff quality before claiming native recovery ready".to_string(),
+            );
+        }
+        let rehydration = self.compact_rehydration_summaries();
+        rehydration
+            .iter()
+            .find(|item| is_next_action_record(item))
             .cloned()
+            .or_else(|| rehydration.first().cloned())
             .or_else(|| self.compact_inbox_items().first().cloned())
             .or_else(|| self.compact_working_records().first().cloned())
     }
@@ -2362,6 +2507,58 @@ pub(crate) fn truth_freshness_label(snapshot: &ResumeSnapshot) -> String {
         _ if snapshot.refresh_recommended => "stale".to_string(),
         _ => "fresh".to_string(),
     }
+}
+
+fn count_recoverable_decision_records(
+    context: &memd_schema::CompactContextResponse,
+    working: &memd_schema::WorkingMemoryResponse,
+    preferences: &[String],
+) -> usize {
+    count_decision_record_texts(
+        preferences
+            .iter()
+            .map(|record| record.as_str())
+            .chain(context.records.iter().map(|record| record.record.as_str()))
+            .chain(working.records.iter().map(|record| record.record.as_str()))
+            .chain(
+                working
+                    .rehydration_queue
+                    .iter()
+                    .map(|record| record.summary.as_str()),
+            ),
+    )
+}
+
+pub(crate) fn count_decision_records(records: &[String]) -> usize {
+    count_decision_record_texts(records.iter().map(|record| record.as_str()))
+}
+
+fn count_decision_record_texts<'a, I>(records: I) -> usize
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let mut seen = std::collections::HashSet::new();
+    records
+        .into_iter()
+        .filter(|record| is_decision_record_text(record))
+        .filter(|record| seen.insert(normalize_resume_record(record)))
+        .count()
+}
+
+fn is_decision_record_text(record: &str) -> bool {
+    let normalized = record.to_ascii_lowercase();
+    normalized.contains("| kind=decision |")
+        || normalized.contains(" kind=decision ")
+        || normalized.starts_with("decision:")
+        || normalized.contains("decision: ")
+}
+
+fn is_next_action_record(record: &str) -> bool {
+    let normalized = record.to_ascii_lowercase();
+    is_decision_record_text(record)
+        || normalized.contains("next-agent")
+        || normalized.contains("next action")
+        || normalized.contains("next_action")
 }
 
 pub(crate) fn truth_status_label(snapshot: &ResumeSnapshot) -> String {
