@@ -179,20 +179,35 @@ fn repo_hygiene_feature(output: &Path) -> P0Feature {
 
 fn capability_sync_feature(output: &Path) -> P0Feature {
     let registry_path = output.join("state").join("capability-registry.json");
-    let (count, non_universal) = read_capability_registry_counts(&registry_path).unwrap_or((0, 0));
+    let counts = read_capability_registry_counts(&registry_path).unwrap_or_default();
     let mut gaps = Vec::new();
-    if count == 0 {
+    if counts.total == 0 {
         gaps.push("capability inventory is missing or empty".to_string());
+    }
+    if counts.materialization_missing > 0 {
+        gaps.push(format!(
+            "{} capabilities lack fresh-machine materialization payloads",
+            counts.materialization_missing
+        ));
     }
     gaps.push("fresh-machine materializer is unproven".to_string());
     gaps.push("host-local CLI availability cannot be restored by memd sync alone".to_string());
     feature(
         "capability_sync",
-        if count == 0 { "broken" } else { "partial" },
+        if counts.total == 0 {
+            "broken"
+        } else {
+            "partial"
+        },
         vec![
             path_evidence("capability_registry", &registry_path),
-            format!("discovered_capabilities={count}"),
-            format!("non_universal_capabilities={non_universal}"),
+            format!("discovered_capabilities={}", counts.total),
+            format!("non_universal_capabilities={}", counts.non_universal),
+            format!("materialization_missing={}", counts.materialization_missing),
+            format!(
+                "materialization_installable={}",
+                counts.materialization_installable
+            ),
             "server-backed inventory is not the same as installing plugins/skills/CLIs".to_string(),
         ],
         gaps,
@@ -271,23 +286,68 @@ fn raw_benchmark_cache_paths(repo_root: &Path) -> Vec<PathBuf> {
     ]
 }
 
-fn read_capability_registry_counts(path: &Path) -> anyhow::Result<(usize, usize)> {
+#[derive(Debug, Default)]
+struct CapabilityAuditCounts {
+    total: usize,
+    non_universal: usize,
+    materialization_installable: usize,
+    materialization_missing: usize,
+}
+
+fn read_capability_registry_counts(path: &Path) -> anyhow::Result<CapabilityAuditCounts> {
     let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
     let value: serde_json::Value =
         serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
     let Some(records) = value.get("capabilities").and_then(|value| value.as_array()) else {
-        return Ok((0, 0));
+        return Ok(CapabilityAuditCounts::default());
     };
-    let non_universal = records
-        .iter()
-        .filter(|record| {
-            record
-                .get("portability_class")
-                .and_then(|value| value.as_str())
-                .is_some_and(|value| value != "universal")
-        })
-        .count();
-    Ok((records.len(), non_universal))
+    let mut counts = CapabilityAuditCounts {
+        total: records.len(),
+        ..CapabilityAuditCounts::default()
+    };
+    for record in records {
+        let portability = record
+            .get("portability_class")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        let harness = record
+            .get("harness")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        let kind = record
+            .get("kind")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        let source_path = record
+            .get("source_path")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        if portability != "universal" {
+            counts.non_universal += 1;
+        }
+        if capability_has_fresh_machine_payload(harness, kind, portability, source_path) {
+            counts.materialization_installable += 1;
+        } else {
+            counts.materialization_missing += 1;
+        }
+    }
+    Ok(counts)
+}
+
+fn capability_has_fresh_machine_payload(
+    harness: &str,
+    kind: &str,
+    portability: &str,
+    source_path: &str,
+) -> bool {
+    let bundle_relative = source_path.starts_with(".memd/")
+        || source_path.starts_with("agents/")
+        || (harness == "project" && portability == "universal" && !source_path.starts_with('/'));
+    bundle_relative
+        && portability != "host-local"
+        && kind != "cli"
+        && !(harness == "codex" && kind.contains("plugin"))
+        && !harness.contains("claude")
 }
 
 #[cfg(test)]
@@ -300,39 +360,49 @@ mod tests {
             std::env::temp_dir().join(format!("memd-p0-feature-repo-{}", uuid::Uuid::new_v4()));
         let bundle = repo.join(".memd");
         fs::create_dir_all(&bundle).expect("create bundle");
-        assert!(Command::new("git")
-            .arg("init")
-            .current_dir(&repo)
-            .status()
-            .unwrap()
-            .success());
-        assert!(Command::new("git")
-            .args(["config", "user.email", "memd@example.invalid"])
-            .current_dir(&repo)
-            .status()
-            .unwrap()
-            .success());
-        assert!(Command::new("git")
-            .args(["config", "user.name", "memd"])
-            .current_dir(&repo)
-            .status()
-            .unwrap()
-            .success());
+        assert!(
+            Command::new("git")
+                .arg("init")
+                .current_dir(&repo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            Command::new("git")
+                .args(["config", "user.email", "memd@example.invalid"])
+                .current_dir(&repo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            Command::new("git")
+                .args(["config", "user.name", "memd"])
+                .current_dir(&repo)
+                .status()
+                .unwrap()
+                .success()
+        );
         for index in 0..6 {
             fs::write(repo.join(format!("file-{index}.txt")), "before\n").unwrap();
         }
-        assert!(Command::new("git")
-            .args(["add", "."])
-            .current_dir(&repo)
-            .status()
-            .unwrap()
-            .success());
-        assert!(Command::new("git")
-            .args(["commit", "-m", "seed"])
-            .current_dir(&repo)
-            .status()
-            .unwrap()
-            .success());
+        assert!(
+            Command::new("git")
+                .args(["add", "."])
+                .current_dir(&repo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            Command::new("git")
+                .args(["commit", "-m", "seed"])
+                .current_dir(&repo)
+                .status()
+                .unwrap()
+                .success()
+        );
         for index in 0..6 {
             fs::write(repo.join(format!("file-{index}.txt")), "after\n").unwrap();
         }
@@ -344,10 +414,12 @@ mod tests {
             .find(|feature| feature.id == "repo_hygiene")
             .expect("repo hygiene");
         assert_eq!(repo_feature.status, "partial");
-        assert!(repo_feature
-            .gaps
-            .iter()
-            .any(|gap| gap.contains("broad dirty tree")));
+        assert!(
+            repo_feature
+                .gaps
+                .iter()
+                .any(|gap| gap.contains("broad dirty tree"))
+        );
 
         fs::remove_dir_all(repo).ok();
     }
@@ -362,7 +434,20 @@ mod tests {
         fs::create_dir_all(&state).expect("create state");
         fs::write(
             state.join("capability-registry.json"),
-            r#"{"capabilities":[{"portability_class":"harness-native"}]}"#,
+            r#"{"capabilities":[
+                {
+                    "harness":"codex",
+                    "kind":"plugin-skill",
+                    "portability_class":"harness-native",
+                    "source_path":"/tmp/existing-but-not-fresh-machine-payload"
+                },
+                {
+                    "harness":"hermes",
+                    "kind":"harness-pack",
+                    "portability_class":"universal",
+                    "source_path":".memd/agents/hermes.sh"
+                }
+            ]}"#,
         )
         .expect("write registry");
 
@@ -374,6 +459,24 @@ mod tests {
             .expect("capability sync");
         assert_eq!(feature.status, "partial");
         assert!(feature.gaps.iter().any(|gap| gap.contains("materializer")));
+        assert!(
+            feature
+                .gaps
+                .iter()
+                .any(|gap| gap.contains("lack fresh-machine materialization payloads"))
+        );
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|line| line == "materialization_missing=1")
+        );
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|line| line == "materialization_installable=1")
+        );
 
         fs::remove_dir_all(bundle).ok();
     }
