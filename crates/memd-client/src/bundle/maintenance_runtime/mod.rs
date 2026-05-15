@@ -1024,7 +1024,21 @@ pub(crate) fn run_capabilities_command(
     args: &CapabilitiesArgs,
 ) -> anyhow::Result<CapabilitiesResponse> {
     let project_root = infer_bundle_project_root(&args.output);
-    let registry = build_bundle_capability_registry(project_root.as_deref());
+    let local_registry = build_bundle_capability_registry(project_root.as_deref());
+    let registry = if args.materialize_plan {
+        merge_capability_registries(
+            local_registry,
+            read_persisted_capability_registry(&args.output)?.unwrap_or_else(|| {
+                CapabilityRegistry {
+                    generated_at: Utc::now(),
+                    project_root: project_root.as_ref().map(|path| path.display().to_string()),
+                    capabilities: Vec::new(),
+                }
+            }),
+        )
+    } else {
+        local_registry
+    };
     let bridges = detect_capability_bridges();
     let query = args.query.as_deref().map(str::to_ascii_lowercase);
     let mut filtered = registry
@@ -1134,10 +1148,262 @@ pub(crate) fn run_capabilities_command(
             "portability": args.portability,
             "query": args.query,
             "limit": args.limit,
+            "materialize_plan": args.materialize_plan,
         }),
+        materialization: args
+            .materialize_plan
+            .then(|| build_capability_materialization_report(&args.output, &registry)),
         harnesses: harnesses.into_values().collect(),
         records: filtered.into_iter().take(args.limit).collect(),
     })
+}
+
+fn read_persisted_capability_registry(output: &Path) -> anyhow::Result<Option<CapabilityRegistry>> {
+    let path = bundle_capability_registry_path(output);
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let registry = serde_json::from_str::<CapabilityRegistry>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(registry))
+}
+
+fn merge_capability_registries(
+    local: CapabilityRegistry,
+    persisted: CapabilityRegistry,
+) -> CapabilityRegistry {
+    let mut by_identity = BTreeMap::<String, CapabilityRecord>::new();
+    for capability in persisted.capabilities {
+        by_identity.insert(capability_identity_key(&capability), capability);
+    }
+    for capability in local.capabilities {
+        by_identity.insert(capability_identity_key(&capability), capability);
+    }
+    CapabilityRegistry {
+        generated_at: Utc::now(),
+        project_root: local.project_root.or(persisted.project_root),
+        capabilities: by_identity.into_values().collect(),
+    }
+}
+
+fn capability_identity_key(record: &CapabilityRecord) -> String {
+    format!("{}\0{}\0{}", record.harness, record.kind, record.name)
+}
+
+fn build_capability_materialization_report(
+    output: &Path,
+    registry: &CapabilityRegistry,
+) -> CapabilityMaterializationReport {
+    let actions = registry
+        .capabilities
+        .iter()
+        .map(|record| materialization_action_for_record(output, record))
+        .collect::<Vec<_>>();
+    let missing = actions
+        .iter()
+        .filter(|action| action.status == "missing")
+        .count();
+    let installable = actions
+        .iter()
+        .filter(|action| action.status == "present" || action.status == "installable")
+        .count();
+    CapabilityMaterializationReport {
+        status: if missing == 0 {
+            "ready".to_string()
+        } else {
+            "partial".to_string()
+        },
+        installable,
+        missing,
+        actions,
+    }
+}
+
+fn materialization_action_for_record(
+    output: &Path,
+    record: &CapabilityRecord,
+) -> CapabilityMaterializationAction {
+    let source = capability_source_path(output, record);
+    if is_bundle_relative_capability(record) {
+        let status = if source.exists() {
+            "present"
+        } else {
+            "installable"
+        };
+        return CapabilityMaterializationAction {
+            harness: record.harness.clone(),
+            kind: record.kind.clone(),
+            name: record.name.clone(),
+            status: status.to_string(),
+            action: "restore-from-bundle".to_string(),
+            source_path: record.source_path.clone(),
+            target_path: Some(output.join(&record.source_path).display().to_string()),
+            reason: "portable bundle asset can be restored from memd bundle state".to_string(),
+        };
+    }
+
+    let (action, reason) = if record.portability_class == "host-local" || record.kind == "cli" {
+        (
+            "install-host-cli",
+            "host-local CLI needs machine-specific install or PATH guidance",
+        )
+    } else if record.harness == "codex" && record.kind.contains("plugin") {
+        (
+            "install-codex-plugin",
+            "Codex plugin/skill cache is harness-native and needs plugin installer payload",
+        )
+    } else if record.harness.contains("claude") {
+        (
+            "install-claude-code-asset",
+            "Claude Code config/plugin asset is not materialized from server inventory",
+        )
+    } else if record.harness == "hermes" {
+        (
+            "install-hermes-asset",
+            "Hermes harness asset is not materialized from server inventory",
+        )
+    } else if record.harness == "opencode" {
+        (
+            "install-opencode-asset",
+            "OpenCode command/plugin is not materialized from server inventory",
+        )
+    } else {
+        (
+            "needs-materializer",
+            "capability record has no local source and no proven installer",
+        )
+    };
+
+    CapabilityMaterializationAction {
+        harness: record.harness.clone(),
+        kind: record.kind.clone(),
+        name: record.name.clone(),
+        status: "missing".to_string(),
+        action: action.to_string(),
+        source_path: record.source_path.clone(),
+        target_path: None,
+        reason: reason.to_string(),
+    }
+}
+
+fn capability_source_path(output: &Path, record: &CapabilityRecord) -> PathBuf {
+    let path = PathBuf::from(&record.source_path);
+    if path.is_absolute() {
+        path
+    } else {
+        output.join(path)
+    }
+}
+
+fn is_bundle_relative_capability(record: &CapabilityRecord) -> bool {
+    record.source_path.starts_with(".memd/")
+        || record.source_path.starts_with("agents/")
+        || (record.harness == "project" && is_universal_class(&record.portability_class))
+}
+
+#[cfg(test)]
+mod capability_materialization_tests {
+    use super::*;
+
+    fn capability(
+        harness: &str,
+        kind: &str,
+        name: &str,
+        portability_class: &str,
+        source_path: &str,
+    ) -> CapabilityRecord {
+        CapabilityRecord {
+            harness: harness.to_string(),
+            kind: kind.to_string(),
+            name: name.to_string(),
+            status: "available-server".to_string(),
+            portability_class: portability_class.to_string(),
+            source_path: source_path.to_string(),
+            bridge_hint: None,
+            hash: None,
+            notes: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn materialization_plan_marks_harness_native_assets_missing() {
+        let bundle =
+            std::env::temp_dir().join(format!("memd-materialize-plan-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(bundle.join("state")).expect("create bundle state");
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: None,
+            capabilities: vec![
+                capability(
+                    "codex",
+                    "plugin-skill",
+                    "browser-use:browser",
+                    "harness-native",
+                    "/missing/.codex/plugins/cache/browser/SKILL.md",
+                ),
+                capability(
+                    "hermes",
+                    "harness-pack",
+                    "Hermes",
+                    "universal",
+                    ".memd/agents/hermes.sh",
+                ),
+                capability("local", "cli", "gh", "host-local", "/missing/bin/gh"),
+            ],
+        };
+        write_bundle_capability_registry(&bundle, &registry).expect("write registry");
+        let local_plugin = bundle.join("local-plugin").join("SKILL.md");
+        fs::create_dir_all(local_plugin.parent().expect("local plugin parent"))
+            .expect("create local plugin parent");
+        fs::write(&local_plugin, "present").expect("write local plugin");
+
+        let report = run_capabilities_command(&CapabilitiesArgs {
+            output: bundle.clone(),
+            harness: None,
+            kind: None,
+            portability: None,
+            query: None,
+            limit: 12,
+            summary: false,
+            json: false,
+            materialize_plan: true,
+        })
+        .expect("capability report")
+        .materialization
+        .expect("materialization report");
+
+        assert_eq!(report.status, "partial");
+        assert!(report.actions.iter().any(|action| {
+            action.harness == "codex"
+                && action.status == "missing"
+                && action.action == "install-codex-plugin"
+        }));
+        assert!(report.actions.iter().any(|action| {
+            action.harness == "local"
+                && action.status == "missing"
+                && action.action == "install-host-cli"
+        }));
+        assert!(report.actions.iter().any(|action| {
+            action.harness == "hermes"
+                && action.status == "installable"
+                && action.action == "restore-from-bundle"
+        }));
+        let local_action = materialization_action_for_record(
+            &bundle,
+            &capability(
+                "codex",
+                "plugin-skill",
+                "local",
+                "harness-native",
+                &local_plugin.display().to_string(),
+            ),
+        );
+        assert_eq!(local_action.status, "missing");
+        assert_eq!(local_action.action, "install-codex-plugin");
+
+        fs::remove_dir_all(bundle).ok();
+    }
 }
 
 pub(crate) fn render_capabilities_runtime_summary(response: &CapabilitiesResponse) -> String {
@@ -1153,9 +1419,19 @@ pub(crate) fn render_capabilities_runtime_summary(response: &CapabilitiesRespons
         })
         .collect::<Vec<_>>()
         .join(",");
+    let materialization = response
+        .materialization
+        .as_ref()
+        .map(|report| {
+            format!(
+                " materialize={} installable={} missing={}",
+                report.status, report.installable, report.missing
+            )
+        })
+        .unwrap_or_default();
     if harnesses.is_empty() {
         format!(
-            "capabilities bundle={} discovered={} universal={} bridgeable={} harness_native={} bridge_actions={} wired_harnesses={} shown={} harnesses=none",
+            "capabilities bundle={} discovered={} universal={} bridgeable={} harness_native={} bridge_actions={} wired_harnesses={} shown={} harnesses=none{}",
             response.bundle_root,
             response.discovered,
             response.universal,
@@ -1164,10 +1440,11 @@ pub(crate) fn render_capabilities_runtime_summary(response: &CapabilitiesRespons
             response.bridge_actions,
             response.wired_harnesses,
             response.records.len(),
+            materialization,
         )
     } else {
         format!(
-            "capabilities bundle={} discovered={} universal={} bridgeable={} harness_native={} bridge_actions={} wired_harnesses={} shown={} harnesses={}",
+            "capabilities bundle={} discovered={} universal={} bridgeable={} harness_native={} bridge_actions={} wired_harnesses={} shown={} harnesses={}{}",
             response.bundle_root,
             response.discovered,
             response.universal,
@@ -1176,7 +1453,8 @@ pub(crate) fn render_capabilities_runtime_summary(response: &CapabilitiesRespons
             response.bridge_actions,
             response.wired_harnesses,
             response.records.len(),
-            harnesses
+            harnesses,
+            materialization,
         )
     }
 }

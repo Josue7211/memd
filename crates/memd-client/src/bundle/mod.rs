@@ -574,6 +574,7 @@ pub(crate) struct CapabilitiesResponse {
     pub(crate) filters: serde_json::Value,
     pub(crate) harnesses: Vec<CapabilityHarnessSummary>,
     pub(crate) records: Vec<CapabilityRecord>,
+    pub(crate) materialization: Option<CapabilityMaterializationReport>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -582,6 +583,26 @@ pub(crate) struct CapabilityHarnessSummary {
     pub(crate) capabilities: usize,
     pub(crate) installed: usize,
     pub(crate) bridge_actions: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct CapabilityMaterializationReport {
+    pub(crate) status: String,
+    pub(crate) installable: usize,
+    pub(crate) missing: usize,
+    pub(crate) actions: Vec<CapabilityMaterializationAction>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct CapabilityMaterializationAction {
+    pub(crate) harness: String,
+    pub(crate) kind: String,
+    pub(crate) name: String,
+    pub(crate) status: String,
+    pub(crate) action: String,
+    pub(crate) source_path: String,
+    pub(crate) target_path: Option<String>,
+    pub(crate) reason: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

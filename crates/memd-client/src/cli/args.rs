@@ -2837,6 +2837,9 @@ pub(crate) struct CapabilitiesArgs {
 
     #[arg(long)]
     pub(crate) json: bool,
+
+    #[arg(long)]
+    pub(crate) materialize_plan: bool,
 }
 
 #[derive(Debug, Clone, Args)]

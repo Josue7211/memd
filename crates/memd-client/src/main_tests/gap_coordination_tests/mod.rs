@@ -1530,6 +1530,7 @@ fn render_capabilities_runtime_summary_surfaces_harness_breakdown() {
             },
         ],
         records: Vec::new(),
+        materialization: None,
     });
 
     assert!(summary.contains("discovered=7"));
@@ -1650,6 +1651,7 @@ fn run_capabilities_command_filters_records() {
         limit: 8,
         summary: true,
         json: false,
+        materialize_plan: false,
     })
     .expect("capabilities response");
 
