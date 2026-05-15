@@ -217,7 +217,7 @@ async fn lookup_depth_lookup_zero_hit_emits_escalation_hint_when_specifier() {
         baseline_lookup_args(bundle, "the migration plan we shelved", RecallDepth::Lookup);
     args.tag = vec!["resume_state".to_string()];
 
-    let outcome = run_lookup_arm_inner(&client, args)
+    let outcome = run_lookup_arm_inner(&client, &base_url, args)
         .await
         .expect("dispatch lookup inner");
 
@@ -242,7 +242,7 @@ async fn lookup_depth_lookup_zero_hit_no_hint_on_neutral_query() {
     let mut args = baseline_lookup_args(bundle, "configuration files", RecallDepth::Lookup);
     args.tag = vec!["resume_state".to_string()];
 
-    let outcome = run_lookup_arm_inner(&client, args)
+    let outcome = run_lookup_arm_inner(&client, &base_url, args)
         .await
         .expect("dispatch lookup inner");
 
