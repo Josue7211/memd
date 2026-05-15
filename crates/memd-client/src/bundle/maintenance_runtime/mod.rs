@@ -1681,7 +1681,11 @@ fn apply_capability_materialization(
         }
         set_host_cli_install_plan_executable(&target)?;
         action.status = "missing".to_string();
-        action.reason = "wrote machine-approved host CLI install plan; run it with MEMD_HOST_CLI_INSTALL_APPROVED=1 to install on this machine, then authenticate and rerun capability sync".to_string();
+        action.reason = if changed {
+            "wrote machine-approved host CLI install plan; run it with MEMD_HOST_CLI_INSTALL_APPROVED=1 to install on this machine, then authenticate and rerun capability sync".to_string()
+        } else {
+            "host CLI install plan already materialized; run it with MEMD_HOST_CLI_INSTALL_APPROVED=1 to install on this machine, then authenticate and rerun capability sync".to_string()
+        };
         return Ok(changed);
     }
     if action.action == "restore-from-payload" {
@@ -2013,6 +2017,30 @@ mod capability_materialization_tests {
                 & 0o777;
             assert_eq!(mode, 0o755);
         }
+
+        let second_report = run_capabilities_command(&CapabilitiesArgs {
+            command: None,
+            output: bundle.clone(),
+            harness: None,
+            kind: None,
+            portability: None,
+            query: None,
+            limit: 12,
+            summary: false,
+            json: false,
+            materialize_plan: false,
+            materialize: true,
+        })
+        .expect("second capability report")
+        .materialization
+        .expect("second materialization report");
+        let second_action = second_report
+            .actions
+            .iter()
+            .find(|action| action.name == "memd-test-gh")
+            .expect("second memd-test-gh action");
+        assert!(second_action.reason.contains("already materialized"));
+        assert_eq!(second_report.applied, 0);
 
         fs::remove_dir_all(bundle).ok();
     }
