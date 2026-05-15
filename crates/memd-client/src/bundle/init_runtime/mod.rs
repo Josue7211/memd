@@ -2872,8 +2872,11 @@ pub(crate) fn build_bundle_capability_registry_with_home(
 }
 
 const CAPABILITY_PAYLOAD_TEXT_PREFIX: &str = "memd:payload-text:";
+const CAPABILITY_PAYLOAD_FILE_JSON_PREFIX: &str = "memd:payload-file-json:";
 const HOST_CLI_INSTALL_PLAN_PREFIX: &str = "memd:host-cli-install-plan:";
 const CAPABILITY_PAYLOAD_MAX_BYTES: u64 = 64 * 1024;
+const CAPABILITY_PAYLOAD_SET_MAX_FILES: usize = 32;
+const CAPABILITY_PAYLOAD_SET_MAX_TOTAL_BYTES: u64 = 256 * 1024;
 
 fn notes_with_text_payload(mut notes: Vec<String>, path: &Path) -> Vec<String> {
     let Ok(meta) = fs::metadata(path) else {
@@ -2887,6 +2890,117 @@ fn notes_with_text_payload(mut notes: Vec<String>, path: &Path) -> Vec<String> {
     };
     notes.push(format!("{CAPABILITY_PAYLOAD_TEXT_PREFIX}{content}"));
     notes
+}
+
+fn notes_with_directory_text_payloads(mut notes: Vec<String>, root: &Path) -> Vec<String> {
+    if !root.is_dir() {
+        return notes;
+    }
+    let mut files = Vec::new();
+    collect_text_payload_files_recursive(root, root, 0, &mut files, &mut 0);
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+    for (relative_path, content) in files {
+        let payload = serde_json::json!({
+            "path": relative_path,
+            "content": content,
+        });
+        notes.push(format!("{CAPABILITY_PAYLOAD_FILE_JSON_PREFIX}{payload}"));
+    }
+    notes
+}
+
+fn collect_text_payload_files_recursive(
+    root: &Path,
+    dir: &Path,
+    depth: usize,
+    out: &mut Vec<(String, String)>,
+    total_bytes: &mut u64,
+) {
+    if depth > 6 || out.len() >= CAPABILITY_PAYLOAD_SET_MAX_FILES {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut paths = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    paths.sort();
+    for path in paths {
+        if out.len() >= CAPABILITY_PAYLOAD_SET_MAX_FILES {
+            return;
+        }
+        if path.is_dir() {
+            collect_text_payload_files_recursive(root, &path, depth + 1, out, total_bytes);
+            continue;
+        }
+        let Ok(meta) = fs::metadata(&path) else {
+            continue;
+        };
+        if !meta.is_file() || meta.len() > CAPABILITY_PAYLOAD_MAX_BYTES {
+            continue;
+        }
+        if *total_bytes + meta.len() > CAPABILITY_PAYLOAD_SET_MAX_TOTAL_BYTES {
+            return;
+        }
+        let Ok(content) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(relative) = path.strip_prefix(root) else {
+            continue;
+        };
+        let relative = relative
+            .components()
+            .map(|component| component.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
+        if relative.is_empty() {
+            continue;
+        }
+        *total_bytes += meta.len();
+        out.push((relative, content));
+    }
+}
+
+#[cfg(test)]
+mod capability_payload_tests {
+    use super::*;
+
+    #[test]
+    fn skill_capability_notes_include_directory_payload_files() {
+        let root =
+            std::env::temp_dir().join(format!("memd-skill-payload-notes-{}", uuid::Uuid::new_v4()));
+        let skill_dir = root.join("demo");
+        fs::create_dir_all(skill_dir.join("scripts")).expect("create skill dir");
+        fs::write(skill_dir.join("SKILL.md"), "# Demo\n").expect("write skill");
+        fs::write(skill_dir.join("scripts/run.sh"), "#!/bin/sh\necho demo\n")
+            .expect("write script");
+
+        let mut records = Vec::new();
+        collect_skill_capabilities(&mut records, "codex", &root);
+
+        let record = records
+            .iter()
+            .find(|record| record.name == "demo")
+            .expect("demo skill record");
+        assert!(
+            record
+                .notes
+                .iter()
+                .any(|note| note.starts_with(CAPABILITY_PAYLOAD_TEXT_PREFIX))
+        );
+        assert!(record.notes.iter().any(|note| {
+            note.strip_prefix(CAPABILITY_PAYLOAD_FILE_JSON_PREFIX)
+                .and_then(|payload| serde_json::from_str::<serde_json::Value>(payload).ok())
+                .and_then(|payload| payload.get("path").cloned())
+                .and_then(|path| path.as_str().map(str::to_string))
+                .as_deref()
+                == Some("scripts/run.sh")
+        }));
+
+        fs::remove_dir_all(root).ok();
+    }
 }
 
 pub(crate) fn collect_skill_capabilities(
@@ -2913,7 +3027,10 @@ pub(crate) fn collect_skill_capabilities(
             source_path: skill_file.display().to_string(),
             bridge_hint: None,
             hash: file_sha256(&skill_file),
-            notes: notes_with_text_payload(Vec::new(), &skill_file),
+            notes: notes_with_directory_text_payloads(
+                notes_with_text_payload(Vec::new(), &skill_file),
+                skill_dir,
+            ),
         });
     }
 }
@@ -3047,9 +3164,15 @@ pub(crate) fn collect_codex_plugin_cache_skill_capabilities(
                     "loaded from Codex plugin cache; expose in Active Capabilities".to_string(),
                 ),
                 hash: file_sha256(&skill_file),
-                notes: notes_with_text_payload(
-                    vec!["discovered from ~/.codex/plugins/cache/**/skills/*/SKILL.md".to_string()],
-                    &skill_file,
+                notes: notes_with_directory_text_payloads(
+                    notes_with_text_payload(
+                        vec![
+                            "discovered from ~/.codex/plugins/cache/**/skills/*/SKILL.md"
+                                .to_string(),
+                        ],
+                        &skill_file,
+                    ),
+                    skill_dir,
                 ),
             }
         })
