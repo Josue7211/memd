@@ -24,6 +24,12 @@ pub(crate) enum Commands {
     Awareness(AwarenessArgs),
     Heartbeat(HeartbeatArgs),
     Features(FeaturesArgs),
+    Health(HealthArgs),
+    Access(AccessArgs),
+    Secrets(SecretsArgs),
+    Tokens(TokensArgs),
+    #[command(name = "dev-server")]
+    DevServer(DevServerArgs),
     Claims(ClaimsArgs),
     Messages(MessagesArgs),
     Tasks(TasksArgs),
@@ -50,7 +56,11 @@ pub(crate) enum Commands {
     Handoff(HandoffArgs),
     Checkpoint(CheckpointArgs),
     Remember(RememberArgs),
+    Teach(TeachArgs),
+    Embed(EmbedArgs),
     Rag(RagArgs),
+    Offline(OfflineArgs),
+    Sync(OfflineArgs),
     Multimodal(MultimodalArgs),
     Ingest(IngestArgs),
     #[command(name = "ingest-sources")]
@@ -209,6 +219,24 @@ pub(crate) enum PreferenceSubcommand {
     /// Per-turn drift tick. Invoked from PostToolUse hook; rate-limited by
     /// MEMD_F4_DRIFT_N_TURNS (default 10). Prints `fire=true` every Nth turn.
     Tick(PreferenceTickArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct OfflineArgs {
+    #[command(subcommand)]
+    pub(crate) command: OfflineSubcommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum OfflineSubcommand {
+    Status(OfflineQueueArgs),
+    Replay(OfflineQueueArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct OfflineQueueArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -511,6 +539,24 @@ pub(crate) struct ContextArgs {
     pub(crate) intent: Option<String>,
 
     #[arg(long)]
+    pub(crate) model_tier: Option<String>,
+
+    #[arg(long)]
+    pub(crate) include_capabilities: bool,
+
+    #[arg(long)]
+    pub(crate) include_access: bool,
+
+    #[arg(long)]
+    pub(crate) include_hive: bool,
+
+    #[arg(long)]
+    pub(crate) format: Option<String>,
+
+    #[arg(long, default_value = "strict")]
+    pub(crate) safety: String,
+
+    #[arg(long)]
     pub(crate) compact: bool,
 
     #[arg(long)]
@@ -527,6 +573,112 @@ pub(crate) struct ContextArgs {
 pub(crate) struct FeaturesArgs {
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct HealthArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AccessArgs {
+    #[command(subcommand)]
+    pub(crate) command: AccessSubcommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum AccessSubcommand {
+    Status(AccessStatusArgs),
+    Route(AccessRouteArgs),
+    Sync(AccessSyncArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AccessStatusArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AccessRouteArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) resource: Option<String>,
+
+    #[arg(long)]
+    pub(crate) purpose: Option<String>,
+
+    #[arg(long)]
+    pub(crate) provider: Option<String>,
+
+    #[arg(long)]
+    pub(crate) agent: Option<String>,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AccessSyncArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct SecretsArgs {
+    #[command(subcommand)]
+    pub(crate) command: SecretsSubcommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum SecretsSubcommand {
+    Status(SecretsStatusArgs),
+    Providers(SecretsStatusArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct SecretsStatusArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct TokensArgs {
+    #[command(subcommand)]
+    pub(crate) command: TokensSubcommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum TokensSubcommand {
+    Saved(TokensSavedArgs),
+    Sync(TokensSavedArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct TokensSavedArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) since: Option<String>,
 
     #[arg(long)]
     pub(crate) json: bool,
@@ -1659,6 +1811,9 @@ pub(crate) struct SearchArgs {
 
     #[arg(long)]
     pub(crate) intent: Option<String>,
+
+    #[arg(long)]
+    pub(crate) trace: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -2958,6 +3113,67 @@ pub(crate) struct ClaimsArgs {
 
     #[arg(long, default_value_t = 900)]
     pub(crate) ttl_secs: u64,
+
+    #[arg(long)]
+    pub(crate) summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DevServerArgs {
+    #[command(subcommand)]
+    pub(crate) command: DevServerSubcommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum DevServerSubcommand {
+    Guard(DevServerGuardArgs),
+    List(DevServerListArgs),
+    Release(DevServerReleaseArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DevServerGuardArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long, default_value = "127.0.0.1")]
+    pub(crate) host: String,
+
+    #[arg(long)]
+    pub(crate) port: u16,
+
+    #[arg(long, default_value_t = 21600)]
+    pub(crate) ttl_secs: u64,
+
+    #[arg(long, default_value_t = 120)]
+    pub(crate) stale_after_secs: u64,
+
+    #[arg(long)]
+    pub(crate) summary: bool,
+
+    #[arg(trailing_var_arg = true)]
+    pub(crate) command: Vec<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DevServerListArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DevServerReleaseArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long, default_value = "127.0.0.1")]
+    pub(crate) host: String,
+
+    #[arg(long)]
+    pub(crate) port: u16,
 
     #[arg(long)]
     pub(crate) summary: bool,
@@ -4284,6 +4500,48 @@ pub(crate) struct RememberArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub(crate) struct TeachArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) workspace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) visibility: Option<String>,
+
+    #[arg(long, default_value = "fact")]
+    pub(crate) kind: String,
+
+    #[arg(long)]
+    pub(crate) source_agent: Option<String>,
+
+    #[arg(long)]
+    pub(crate) confidence: Option<f32>,
+
+    #[arg(long, value_name = "TEXT")]
+    pub(crate) tag: Vec<String>,
+
+    #[arg(long, value_name = "UUID")]
+    pub(crate) supersede: Vec<String>,
+
+    #[arg(long)]
+    pub(crate) content: Option<String>,
+
+    #[arg(long)]
+    pub(crate) input: Option<PathBuf>,
+
+    #[arg(long)]
+    pub(crate) stdin: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 pub(crate) struct CheckpointArgs {
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     pub(crate) output: PathBuf,
@@ -4321,8 +4579,8 @@ pub(crate) struct CheckpointArgs {
     #[arg(long)]
     pub(crate) stdin: bool,
 
-    /// Auto-commit tracked dirty files before checkpointing.
-    /// Ensures uncommitted work is saved as part of the handoff.
+    /// Auto-commit a small tracked dirty set before checkpointing.
+    /// Refuses broad dirty trees so handoffs do not sweep unrelated work.
     #[arg(long)]
     pub(crate) auto_commit: bool,
 
@@ -4342,9 +4600,62 @@ pub(crate) struct RagArgs {
     pub(crate) mode: RagMode,
 }
 
+#[derive(Debug, Clone, Args)]
+pub(crate) struct EmbedArgs {
+    #[command(subcommand)]
+    pub(crate) mode: EmbedMode,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum EmbedMode {
+    Models(EmbedModelsArgs),
+    Bench(EmbedBenchArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct EmbedModelsArgs {
+    #[arg(long)]
+    pub(crate) target: Option<String>,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct EmbedBenchArgs {
+    /// JSON bench file with qrels/model scores.
+    #[arg(long)]
+    pub(crate) input: PathBuf,
+
+    /// Optional target bucket: cloud, local, or hybrid.
+    #[arg(long)]
+    pub(crate) target: Option<String>,
+
+    /// Optional sidecar URL for live retrieve/rerank scoring.
+    #[arg(long)]
+    pub(crate) rag_url: Option<String>,
+
+    /// Default project for live sidecar retrieve qrels.
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    /// Default namespace for live sidecar retrieve qrels.
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    /// Live retrieve limit when --rag-url is set.
+    #[arg(long, default_value_t = 10)]
+    pub(crate) limit: usize,
+
+    /// Print full JSON report.
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
 #[derive(Debug, Clone, Subcommand)]
 pub(crate) enum RagMode {
     Healthz,
+    Status,
     Sync(RagSyncArgs),
     Search(RagSearchArgs),
 }
@@ -4379,6 +4690,9 @@ pub(crate) struct RagSyncArgs {
 
     #[arg(long)]
     pub(crate) dry_run: bool,
+
+    #[arg(long)]
+    pub(crate) prove: bool,
 }
 
 #[derive(Debug, Clone, Args)]

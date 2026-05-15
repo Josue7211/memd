@@ -1,5 +1,6 @@
 use super::*;
 use crate::runtime::*;
+use std::net::ToSocketAddrs;
 
 pub(crate) mod args;
 pub(crate) use args::*;
@@ -12,11 +13,14 @@ pub(crate) use commands::*;
 mod cli_memory_runtime;
 pub(crate) use cli_memory_runtime::*;
 
-mod cli_features_runtime;
-pub(crate) use cli_features_runtime::*;
+mod cli_memory_os_runtime;
+pub(crate) use cli_memory_os_runtime::*;
 
 mod cli_awareness_runtime;
 pub(crate) use cli_awareness_runtime::*;
+
+mod cli_dev_server_runtime;
+pub(crate) use cli_dev_server_runtime::*;
 
 mod cli_analysis_runtime;
 pub(crate) use cli_analysis_runtime::*;
@@ -36,24 +40,11 @@ pub(crate) use cli_gate_runtime::*;
 mod cli_rag_runtime;
 pub(crate) use cli_rag_runtime::*;
 
+mod cli_embed_runtime;
+pub(crate) use cli_embed_runtime::*;
+
 mod cli_utility_runtime;
 pub(crate) use cli_utility_runtime::*;
-
-fn capabilities_wants_json(args: &CapabilitiesArgs) -> bool {
-    args.json
-        || matches!(
-            &args.command,
-            Some(CapabilitiesSubcommand::Pull(pull)) if pull.json
-        )
-        || matches!(
-            &args.command,
-            Some(CapabilitiesSubcommand::Status(status)) if status.json
-        )
-        || matches!(
-            &args.command,
-            Some(CapabilitiesSubcommand::Sync(sync)) if sync.json
-        )
-}
 
 mod cli_inspection_runtime;
 pub(crate) use cli_inspection_runtime::*;
@@ -90,6 +81,36 @@ fn bundle_auto_commit_enabled_for(output: &Path) -> bool {
         .unwrap_or(true)
 }
 
+pub(crate) fn teach_args_as_remember_args(args: &TeachArgs) -> RememberArgs {
+    let mut tags = args.tag.clone();
+    if !tags.iter().any(|tag| tag == "user-taught") {
+        tags.push("user-taught".to_string());
+    }
+    if !tags.iter().any(|tag| tag == "teach") {
+        tags.push("teach".to_string());
+    }
+    RememberArgs {
+        output: args.output.clone(),
+        project: args.project.clone(),
+        namespace: args.namespace.clone(),
+        workspace: args.workspace.clone(),
+        visibility: args.visibility.clone(),
+        kind: Some(args.kind.clone()),
+        scope: None,
+        source_agent: args.source_agent.clone(),
+        source_system: Some("user-teach".to_string()),
+        source_path: None,
+        source_quality: Some("canonical".to_string()),
+        confidence: Some(args.confidence.unwrap_or(0.8)),
+        ttl_seconds: None,
+        tag: tags,
+        supersede: args.supersede.clone(),
+        content: args.content.clone(),
+        input: args.input.clone(),
+        stdin: args.stdin,
+    }
+}
+
 fn maybe_auto_commit_before_write(
     output: Option<&Path>,
     label: &str,
@@ -114,7 +135,13 @@ fn maybe_auto_commit_before_write(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| label.to_string());
     let commit_msg = format!("memd auto-commit: {suffix}");
-    if let Some(hash) = crate::runtime::git_auto_commit_if_dirty(&commit_msg)? {
+    let repo_root = output.and_then(infer_bundle_project_root);
+    let hash = if let Some(repo_root) = repo_root.as_deref() {
+        crate::runtime::git_auto_commit_if_dirty_in(&commit_msg, Some(repo_root))?
+    } else {
+        crate::runtime::git_auto_commit_if_dirty(&commit_msg)?
+    };
+    if let Some(hash) = hash {
         eprintln!("memd: auto-committed dirty tree before {label} ({hash})");
     }
     Ok(())
@@ -157,8 +184,29 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             }
         }
         Commands::Capabilities(args) => {
-            let response = run_capabilities_command(&args)?;
-            if capabilities_wants_json(&args) {
+            let json = match &args.command {
+                Some(CapabilitiesSubcommand::Pull(args)) => args.json,
+                Some(CapabilitiesSubcommand::Status(args)) => args.json,
+                Some(CapabilitiesSubcommand::Sync(args)) => args.json,
+                None => args.json,
+            };
+            let sync_output = match &args.command {
+                Some(CapabilitiesSubcommand::Sync(args)) => Some(args.output.clone()),
+                _ => None,
+            };
+            let response = if matches!(&args.command, Some(CapabilitiesSubcommand::Pull(_))) {
+                pull_capabilities_from_server(&client, &base_url, &args).await?
+            } else {
+                let response = run_capabilities_command(&args)?;
+                if let Some(output) = sync_output.as_deref()
+                    && let Err(error) =
+                        push_capabilities_to_server(&client, &base_url, output, &response).await
+                {
+                    eprintln!("memd: capability server sync skipped ({error})");
+                }
+                response
+            };
+            if json {
                 print_json(&response)?;
             } else {
                 println!("{}", render_capabilities_runtime_summary(&response));
@@ -200,11 +248,93 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             }
         }
         Commands::Features(args) => {
-            let report = run_p0_features_command(&args)?;
+            let response = run_features_command(&args)?;
             if args.json {
-                print_json(&report)?;
+                print_json(&response)?;
             } else {
-                println!("{}", render_p0_feature_summary(&report));
+                println!("{}", render_feature_summary(&response));
+            }
+        }
+        Commands::Health(args) => {
+            let mut response = run_health_command(&args)?;
+            if base_url_reachable(&base_url, Duration::from_millis(250))
+                && let Ok(server) = fetch_server_token_savings(&client, &args.output, None).await
+            {
+                response = merge_health_server_token_savings(response, server);
+            }
+            if args.json {
+                print_json(&response)?;
+            } else {
+                println!("{}", render_health_summary(&response));
+            }
+        }
+        Commands::Access(args) => {
+            let json = match &args.command {
+                AccessSubcommand::Status(args) => args.json,
+                AccessSubcommand::Route(args) => args.json,
+                AccessSubcommand::Sync(args) => args.json,
+            };
+            let sync_output = match &args.command {
+                AccessSubcommand::Sync(args) => Some(args.output.clone()),
+                _ => None,
+            };
+            let response = run_access_command(&args)?;
+            if let Some(output) = sync_output.as_deref()
+                && let Err(error) =
+                    push_access_routes_to_server(&client, &base_url, output, &response).await
+            {
+                eprintln!("memd: access-route server sync skipped ({error})");
+            }
+            if json {
+                print_json(&response)?;
+            } else {
+                println!("{}", render_access_summary(&response));
+            }
+        }
+        Commands::Secrets(args) => {
+            let json = match &args.command {
+                SecretsSubcommand::Status(args) | SecretsSubcommand::Providers(args) => args.json,
+            };
+            let response = run_secrets_command(&args)?;
+            if json {
+                print_json(&response)?;
+            } else {
+                println!("{}", render_secrets_summary(&response));
+            }
+        }
+        Commands::Tokens(args) => {
+            let json = match &args.command {
+                TokensSubcommand::Saved(args) => args.json,
+                TokensSubcommand::Sync(args) => args.json,
+            };
+            let sync_output = match &args.command {
+                TokensSubcommand::Sync(args) => Some(args.output.clone()),
+                _ => None,
+            };
+            let mut response = run_tokens_command(&args)?;
+            if let Some((output, since)) = tokens_report_scope(&args)
+                && base_url_reachable(&base_url, Duration::from_millis(250))
+                && let Ok(server) = fetch_server_token_savings(&client, output, since).await
+            {
+                response = merge_server_token_savings_report(response, server);
+            }
+            if let Some(output) = sync_output.as_deref()
+                && let Err(error) = push_token_savings_to_server(&client, &base_url, output).await
+            {
+                eprintln!("memd: token-savings server sync skipped ({error})");
+            }
+            if json {
+                print_json(&response)?;
+            } else {
+                println!("{}", render_tokens_summary(&response));
+            }
+        }
+        Commands::DevServer(args) => {
+            let response = run_dev_server_command(&args, &base_url).await?;
+            if response.summary_mode {
+                println!("{}", render_dev_server_summary(&response));
+            } else {
+                print_json(&response)?;
             }
         }
         Commands::Claims(args) => {
@@ -840,6 +970,10 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                     return Err(err);
                 }
             };
+            if is_offline_queued_response(&response) {
+                print_json(&response)?;
+                return Ok(());
+            }
             let snapshot = crate::runtime::read_bundle_resume(
                 &ResumeArgs {
                     output: args.output.clone(),
@@ -879,6 +1013,10 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             )?;
             let (default_project, default_namespace) = infer_bundle_identity_defaults(&args.output);
             let response = remember_with_bundle_defaults(&args, &base_url).await?;
+            if is_offline_queued_response(&response) {
+                print_json(&response)?;
+                return Ok(());
+            }
             let snapshot = crate::runtime::read_bundle_resume(
                 &ResumeArgs {
                     output: args.output.clone(),
@@ -902,9 +1040,60 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             auto_checkpoint_live_snapshot(&args.output, &base_url, &snapshot, "remember").await?;
             print_json(&response)?;
         }
+        Commands::Teach(args) => {
+            let remember_args = teach_args_as_remember_args(&args);
+            maybe_auto_commit_before_write(
+                Some(&remember_args.output),
+                "teach",
+                remember_args.content.as_deref(),
+            )?;
+            let (default_project, default_namespace) =
+                infer_bundle_identity_defaults(&remember_args.output);
+            let response = remember_with_bundle_defaults(&remember_args, &base_url).await?;
+            if is_offline_queued_response(&response) {
+                print_json(&response)?;
+                return Ok(());
+            }
+            let snapshot = crate::runtime::read_bundle_resume(
+                &ResumeArgs {
+                    output: remember_args.output.clone(),
+                    project: remember_args.project.clone().or(default_project),
+                    namespace: remember_args.namespace.clone().or(default_namespace),
+                    agent: None,
+                    workspace: remember_args.workspace.clone(),
+                    visibility: remember_args.visibility.clone(),
+                    route: None,
+                    intent: Some("current_task".to_string()),
+                    limit: Some(8),
+                    rehydration_limit: Some(4),
+                    semantic: false,
+                    prompt: false,
+                    summary: false,
+                },
+                &base_url,
+            )
+            .await?;
+            write_bundle_memory_files(&remember_args.output, &snapshot, None, false).await?;
+            auto_checkpoint_live_snapshot(&remember_args.output, &base_url, &snapshot, "teach")
+                .await?;
+            print_json(&response)?;
+        }
+        Commands::Embed(args) => {
+            run_embed_mode(args).await?;
+        }
         Commands::Rag(args) => {
             run_rag_mode(&client, args).await?;
         }
+        Commands::Offline(args) | Commands::Sync(args) => match args.command {
+            OfflineSubcommand::Status(queue_args) => {
+                print_json(&offline_queue_status(&queue_args.output)?)?;
+            }
+            OfflineSubcommand::Replay(queue_args) => {
+                let client = MemdClient::new(&base_url)?;
+                let report = replay_offline_queue(&queue_args.output, &client).await?;
+                print_json(&report)?;
+            }
+        },
         Commands::Multimodal(args) => {
             run_multimodal_mode(args).await?;
         }
@@ -1156,6 +1345,319 @@ pub(crate) fn run_prime_reads(args: &PrimeReadsArgs) -> anyhow::Result<()> {
         println!("{p}");
     }
     Ok(())
+}
+
+async fn push_capabilities_to_server(
+    client: &MemdClient,
+    base_url: &str,
+    output: &Path,
+    response: &CapabilitiesResponse,
+) -> anyhow::Result<()> {
+    if response.records.is_empty() {
+        return Ok(());
+    }
+    let config = read_memory_os_bundle_config(output).ok();
+    let records = response
+        .records
+        .iter()
+        .map(|record| memd_schema::CapabilityRecord {
+            harness: record.harness.clone(),
+            kind: record.kind.clone(),
+            name: record.name.clone(),
+            status: record.status.clone(),
+            portability_class: record.portability_class.clone(),
+            source_path: record.source_path.clone(),
+            bridge_hint: record.bridge_hint.clone(),
+            hash: record.hash.clone(),
+            notes: record.notes.clone(),
+            project: config.as_ref().and_then(|config| config.project.clone()),
+            namespace: config.as_ref().and_then(|config| config.namespace.clone()),
+            workspace: config.as_ref().and_then(|config| config.workspace.clone()),
+            user_id: None,
+            agent: config.as_ref().and_then(|config| config.agent.clone()),
+            updated_at: None,
+        })
+        .collect::<Vec<_>>();
+    let req = memd_schema::CapabilitySyncRequest {
+        project: config.as_ref().and_then(|config| config.project.clone()),
+        namespace: config.as_ref().and_then(|config| config.namespace.clone()),
+        workspace: config.as_ref().and_then(|config| config.workspace.clone()),
+        user_id: None,
+        agent: config.as_ref().and_then(|config| config.agent.clone()),
+        records,
+    };
+    if !base_url_reachable(base_url, Duration::from_millis(250)) {
+        let error = format!("server not reachable at {base_url}");
+        queue_offline_sync_payload(output, OfflineSyncPayload::Capabilities(req), &error)?;
+        anyhow::bail!(error);
+    }
+    match tokio::time::timeout(Duration::from_secs(2), client.capabilities_sync(&req)).await {
+        Ok(Ok(_)) => return Ok(()),
+        Ok(Err(error)) => {
+            let error = format!("{error:#}");
+            queue_offline_sync_payload(output, OfflineSyncPayload::Capabilities(req), &error)?;
+            anyhow::bail!(error);
+        }
+        Err(error) => {
+            let error = format!("capability sync timed out: {error}");
+            queue_offline_sync_payload(output, OfflineSyncPayload::Capabilities(req), &error)?;
+            anyhow::bail!(error);
+        }
+    }
+}
+
+async fn pull_capabilities_from_server(
+    client: &MemdClient,
+    base_url: &str,
+    args: &CapabilitiesArgs,
+) -> anyhow::Result<CapabilitiesResponse> {
+    let output = match &args.command {
+        Some(CapabilitiesSubcommand::Pull(args)) => &args.output,
+        _ => &args.output,
+    };
+    let config = read_memory_os_bundle_config(output).ok();
+    let req = memd_schema::CapabilityListRequest {
+        project: config.as_ref().and_then(|config| config.project.clone()),
+        namespace: config.as_ref().and_then(|config| config.namespace.clone()),
+        workspace: config.as_ref().and_then(|config| config.workspace.clone()),
+        user_id: None,
+        harness: args.harness.clone(),
+        kind: args.kind.clone(),
+        query: args.query.clone(),
+        limit: None,
+    };
+    if !base_url_reachable(base_url, Duration::from_millis(250)) {
+        anyhow::bail!("server not reachable at {base_url}");
+    }
+    let pulled =
+        match tokio::time::timeout(Duration::from_secs(2), client.capabilities_list(&req)).await {
+            Ok(Ok(response)) => response,
+            Ok(Err(error)) => anyhow::bail!("{error:#}"),
+            Err(error) => anyhow::bail!("capability pull timed out: {error}"),
+        };
+    let project_root = infer_bundle_project_root(output);
+    let local_registry = build_bundle_capability_registry(project_root.as_deref());
+    let local_keys = local_registry
+        .capabilities
+        .iter()
+        .map(capability_identity)
+        .collect::<std::collections::BTreeSet<_>>();
+    let registry = CapabilityRegistry {
+        generated_at: Utc::now(),
+        project_root: project_root.as_ref().map(|path| path.display().to_string()),
+        capabilities: pulled
+            .records
+            .into_iter()
+            .map(|record| localize_pulled_capability(record, &local_keys))
+            .collect(),
+    };
+    let bridges = detect_capability_bridges();
+    write_bundle_capability_registry(output, &registry)?;
+    write_bundle_capability_bridges(output, &bridges)?;
+    build_capabilities_response_from_registry(
+        args, output, &registry, &bridges, "pull", true, args.limit,
+    )
+}
+
+fn capability_identity(record: &CapabilityRecord) -> String {
+    format!("{}\0{}\0{}", record.harness, record.kind, record.name)
+}
+
+fn localize_pulled_capability(
+    record: memd_schema::CapabilityRecord,
+    local_keys: &std::collections::BTreeSet<String>,
+) -> CapabilityRecord {
+    let candidate = CapabilityRecord {
+        harness: record.harness,
+        kind: record.kind,
+        name: record.name,
+        status: record.status,
+        portability_class: record.portability_class,
+        source_path: record.source_path,
+        bridge_hint: record.bridge_hint,
+        hash: record.hash,
+        notes: record.notes,
+    };
+    if local_keys.contains(&capability_identity(&candidate)) {
+        return candidate;
+    }
+    let mut notes = candidate.notes.clone();
+    if !notes.iter().any(|note| note == "synced_from_server") {
+        notes.push("synced_from_server".to_string());
+    }
+    CapabilityRecord {
+        status: "available-server".to_string(),
+        notes,
+        ..candidate
+    }
+}
+
+async fn push_access_routes_to_server(
+    client: &MemdClient,
+    base_url: &str,
+    output: &Path,
+    response: &AccessReport,
+) -> anyhow::Result<()> {
+    if response.routes.is_empty() {
+        return Ok(());
+    }
+    let config = read_memory_os_bundle_config(output).ok();
+    let routes = response
+        .routes
+        .iter()
+        .map(|route| memd_schema::AccessRouteRecord {
+            id: route.id.clone(),
+            provider: route.provider.clone(),
+            status: route.status.clone(),
+            scope: route.scope.clone(),
+            secret_values_stored: route.secret_values_stored,
+            guidance: route.guidance.clone(),
+            source: route.source.clone(),
+            project: config.as_ref().and_then(|config| config.project.clone()),
+            namespace: config.as_ref().and_then(|config| config.namespace.clone()),
+            workspace: config.as_ref().and_then(|config| config.workspace.clone()),
+            user_id: None,
+            agent: config.as_ref().and_then(|config| config.agent.clone()),
+            updated_at: None,
+        })
+        .collect::<Vec<_>>();
+    let req = memd_schema::AccessRouteSyncRequest {
+        project: config.as_ref().and_then(|config| config.project.clone()),
+        namespace: config.as_ref().and_then(|config| config.namespace.clone()),
+        workspace: config.as_ref().and_then(|config| config.workspace.clone()),
+        user_id: None,
+        agent: config.as_ref().and_then(|config| config.agent.clone()),
+        routes,
+    };
+    if !base_url_reachable(base_url, Duration::from_millis(250)) {
+        let error = format!("server not reachable at {base_url}");
+        queue_offline_sync_payload(output, OfflineSyncPayload::AccessRoutes(req), &error)?;
+        anyhow::bail!(error);
+    }
+    match tokio::time::timeout(Duration::from_secs(2), client.access_routes_sync(&req)).await {
+        Ok(Ok(_)) => return Ok(()),
+        Ok(Err(error)) => {
+            let error = format!("{error:#}");
+            queue_offline_sync_payload(output, OfflineSyncPayload::AccessRoutes(req), &error)?;
+            anyhow::bail!(error);
+        }
+        Err(error) => {
+            let error = format!("access-route sync timed out: {error}");
+            queue_offline_sync_payload(output, OfflineSyncPayload::AccessRoutes(req), &error)?;
+            anyhow::bail!(error);
+        }
+    }
+}
+
+async fn push_token_savings_to_server(
+    client: &MemdClient,
+    base_url: &str,
+    output: &Path,
+) -> anyhow::Result<()> {
+    let records = build_token_savings_sync_records(output)?;
+    if records.is_empty() {
+        return Ok(());
+    }
+    let config = read_memory_os_bundle_config(output).ok();
+    let req = memd_schema::TokenSavingsSyncRequest {
+        project: config.as_ref().and_then(|config| config.project.clone()),
+        namespace: config.as_ref().and_then(|config| config.namespace.clone()),
+        workspace: config.as_ref().and_then(|config| config.workspace.clone()),
+        user_id: None,
+        agent: config.as_ref().and_then(|config| config.agent.clone()),
+        records,
+    };
+    if !base_url_reachable(base_url, Duration::from_millis(250)) {
+        let error = format!("server not reachable at {base_url}");
+        queue_offline_sync_payload(output, OfflineSyncPayload::TokenSavings(req), &error)?;
+        anyhow::bail!(error);
+    }
+    match tokio::time::timeout(Duration::from_secs(2), client.token_savings_sync(&req)).await {
+        Ok(Ok(_)) => return Ok(()),
+        Ok(Err(error)) => {
+            let error = format!("{error:#}");
+            queue_offline_sync_payload(output, OfflineSyncPayload::TokenSavings(req), &error)?;
+            anyhow::bail!(error);
+        }
+        Err(error) => {
+            let error = format!("token-savings sync timed out: {error}");
+            queue_offline_sync_payload(output, OfflineSyncPayload::TokenSavings(req), &error)?;
+            anyhow::bail!(error);
+        }
+    }
+}
+
+fn tokens_report_scope(args: &TokensArgs) -> Option<(&Path, Option<&str>)> {
+    match &args.command {
+        TokensSubcommand::Saved(args) => Some((args.output.as_path(), args.since.as_deref())),
+        TokensSubcommand::Sync(args) => Some((args.output.as_path(), args.since.as_deref())),
+    }
+}
+
+async fn fetch_server_token_savings(
+    client: &MemdClient,
+    output: &Path,
+    since: Option<&str>,
+) -> anyhow::Result<memd_schema::TokenSavingsListResponse> {
+    let config = read_memory_os_bundle_config(output).ok();
+    let since = since
+        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&chrono::Utc));
+    let req = memd_schema::TokenSavingsListRequest {
+        project: config.as_ref().and_then(|config| config.project.clone()),
+        namespace: config.as_ref().and_then(|config| config.namespace.clone()),
+        workspace: config.as_ref().and_then(|config| config.workspace.clone()),
+        user_id: None,
+        agent: None,
+        since,
+        limit: Some(1000),
+    };
+    tokio::time::timeout(Duration::from_secs(2), client.token_savings_list(&req))
+        .await
+        .context("token-savings list timed out")?
+}
+
+fn base_url_reachable(base_url: &str, timeout: Duration) -> bool {
+    let Some((host, port)) = parse_base_url_host_port(base_url) else {
+        return true;
+    };
+    let Ok(addrs) = (host.as_str(), port).to_socket_addrs() else {
+        return false;
+    };
+    addrs
+        .into_iter()
+        .any(|addr| std::net::TcpStream::connect_timeout(&addr, timeout).is_ok())
+}
+
+fn parse_base_url_host_port(base_url: &str) -> Option<(String, u16)> {
+    let trimmed = base_url.trim();
+    let (scheme, rest) = trimmed.split_once("://")?;
+    let authority = rest.split('/').next().unwrap_or(rest);
+    if authority.starts_with('[') {
+        return None;
+    }
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) => (
+            host.to_string(),
+            port.parse::<u16>()
+                .ok()
+                .unwrap_or_else(|| default_port(scheme)),
+        ),
+        None => (authority.to_string(), default_port(scheme)),
+    };
+    if host.trim().is_empty() {
+        None
+    } else {
+        Some((host, port))
+    }
+}
+
+fn default_port(scheme: &str) -> u16 {
+    if scheme.eq_ignore_ascii_case("https") {
+        443
+    } else {
+        80
+    }
 }
 
 async fn run_diagnostics_command(args: DiagnosticsArgs) -> anyhow::Result<()> {
