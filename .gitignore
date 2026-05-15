@@ -44,6 +44,7 @@
 /apps/dashboard/dist/
 /apps/dashboard/app/routeTree.gen.ts
 /apps/dashboard/.env
+/docs/verification/25-5-memory-os-runs/external-public-cache/
 /integrations/mac-bridge/.env
 /integrations/mac-bridge/node_modules/
 .gstack/
