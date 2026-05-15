@@ -24,6 +24,172 @@ pub enum MemoryKind {
     Skill,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CapabilityRecord {
+    pub harness: String,
+    pub kind: String,
+    pub name: String,
+    pub status: String,
+    pub portability_class: String,
+    pub source_path: String,
+    pub bridge_hint: Option<String>,
+    pub hash: Option<String>,
+    #[serde(default)]
+    pub notes: Vec<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub user_id: Option<String>,
+    pub agent: Option<String>,
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CapabilitySyncRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub user_id: Option<String>,
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub records: Vec<CapabilityRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CapabilityListRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub user_id: Option<String>,
+    pub harness: Option<String>,
+    pub kind: Option<String>,
+    pub query: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapabilitySyncResponse {
+    pub upserted: usize,
+    pub total: usize,
+    pub records: Vec<CapabilityRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapabilityListResponse {
+    pub total: usize,
+    pub records: Vec<CapabilityRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AccessRouteRecord {
+    pub id: String,
+    pub provider: String,
+    pub status: String,
+    pub scope: String,
+    pub secret_values_stored: bool,
+    pub guidance: String,
+    pub source: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub user_id: Option<String>,
+    pub agent: Option<String>,
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AccessRouteSyncRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub user_id: Option<String>,
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub routes: Vec<AccessRouteRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AccessRouteListRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub user_id: Option<String>,
+    pub provider: Option<String>,
+    pub query: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccessRouteSyncResponse {
+    pub upserted: usize,
+    pub total: usize,
+    pub routes: Vec<AccessRouteRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccessRouteListResponse {
+    pub total: usize,
+    pub routes: Vec<AccessRouteRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TokenSavingsRecord {
+    pub id: Uuid,
+    pub operation: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub user_id: Option<String>,
+    pub agent: Option<String>,
+    pub model_tier: Option<String>,
+    pub intent: Option<String>,
+    pub source_records: usize,
+    pub baseline_input_tokens: usize,
+    pub output_tokens: usize,
+    pub tokens_saved: usize,
+    pub reason: String,
+    pub ts: DateTime<Utc>,
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TokenSavingsSyncRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub user_id: Option<String>,
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub records: Vec<TokenSavingsRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TokenSavingsListRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub user_id: Option<String>,
+    pub agent: Option<String>,
+    pub since: Option<DateTime<Utc>>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenSavingsSyncResponse {
+    pub upserted: usize,
+    pub total: usize,
+    pub records: Vec<TokenSavingsRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenSavingsListResponse {
+    pub total: usize,
+    pub measured_input_tokens: usize,
+    pub measured_output_tokens: usize,
+    pub measured_tokens_saved: usize,
+    pub records: Vec<TokenSavingsRecord>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CaptureSource {
@@ -498,6 +664,45 @@ pub struct CompactContextResponse {
     pub intent: RetrievalIntent,
     pub retrieval_order: Vec<MemoryScope>,
     pub records: Vec<CompactMemoryRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ContextPacketRequest {
+    pub project: Option<String>,
+    pub agent: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: Option<MemoryVisibility>,
+    pub route: Option<RetrievalRoute>,
+    pub intent: Option<RetrievalIntent>,
+    pub limit: Option<usize>,
+    pub max_chars_per_item: Option<usize>,
+    pub model_tier: Option<String>,
+    pub safety: Option<String>,
+    #[serde(default)]
+    pub include_capabilities: bool,
+    #[serde(default)]
+    pub include_access: bool,
+    #[serde(default)]
+    pub include_hive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextPacketSection {
+    pub name: String,
+    pub lines: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextPacketResponse {
+    pub route: RetrievalRoute,
+    pub intent: RetrievalIntent,
+    pub retrieval_order: Vec<MemoryScope>,
+    pub model_tier: String,
+    pub safety_mode: String,
+    pub packet: String,
+    pub sections: Vec<ContextPacketSection>,
+    pub source_ids: Vec<Uuid>,
+    pub compact: CompactContextResponse,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1415,6 +1620,74 @@ pub struct HiveCoordinationReceiptsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HiveCoordinationReceiptsResponse {
     pub receipts: Vec<HiveCoordinationReceiptRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevServerLeaseRecord {
+    pub scope: String,
+    pub host: String,
+    pub port: u16,
+    pub url: String,
+    pub repo_root: String,
+    pub repo_hash: String,
+    pub command: Vec<String>,
+    pub session: String,
+    pub tab_id: Option<String>,
+    pub agent: Option<String>,
+    pub effective_agent: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub host_name: Option<String>,
+    pub pid: Option<u32>,
+    pub acquired_at: DateTime<Utc>,
+    pub last_heartbeat_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevServerLeaseAcquireRequest {
+    pub scope: String,
+    pub host: String,
+    pub port: u16,
+    pub url: String,
+    pub repo_root: String,
+    pub repo_hash: String,
+    pub command: Vec<String>,
+    pub session: String,
+    pub tab_id: Option<String>,
+    pub agent: Option<String>,
+    pub effective_agent: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub host_name: Option<String>,
+    pub pid: Option<u32>,
+    pub ttl_seconds: u64,
+    pub recover_stale: bool,
+    pub stale_after_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevServerLeaseReleaseRequest {
+    pub scope: String,
+    pub session: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DevServerLeasesRequest {
+    pub session: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub repo_hash: Option<String>,
+    pub active_only: Option<bool>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevServerLeasesResponse {
+    pub leases: Vec<DevServerLeaseRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2588,6 +2861,14 @@ pub struct RagHealthStatus {
     pub reachable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub indexed_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_sync_status: Option<String>,
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub recent_failures: u64,
 }
@@ -4083,7 +4364,7 @@ mod tests {
         assert_eq!(decoded_response.evicted.len(), 1);
         assert_eq!(decoded_response.rehydration_queue.len(), 1);
         assert_eq!(decoded_response.traces.len(), 1);
-        assert_eq!(decoded_response.semantic_consolidation.is_some(), true);
+        assert!(decoded_response.semantic_consolidation.is_some());
     }
 
     #[test]

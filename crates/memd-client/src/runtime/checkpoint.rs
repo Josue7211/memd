@@ -1,4 +1,5 @@
 use super::*;
+use uuid::Uuid;
 
 pub(crate) fn append_raw_spine_record(
     output: &Path,
@@ -42,6 +43,512 @@ pub(crate) fn infer_bundle_identity_defaults(output: &Path) -> (Option<String>, 
         .map(str::to_string);
     let namespace = project.as_ref().map(|_| "main".to_string());
     (project, namespace)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct OfflineStoreQueueEntry {
+    pub(crate) id: Uuid,
+    pub(crate) dedup_key: String,
+    pub(crate) queued_at: chrono::DateTime<chrono::Utc>,
+    pub(crate) attempts: u32,
+    pub(crate) status: String,
+    pub(crate) last_error: Option<String>,
+    pub(crate) request: memd_schema::StoreMemoryRequest,
+    pub(crate) synced_item_id: Option<Uuid>,
+    pub(crate) synced_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct OfflineStoreQueueStatus {
+    pub(crate) path: PathBuf,
+    pub(crate) total: usize,
+    pub(crate) pending: usize,
+    pub(crate) synced: usize,
+    pub(crate) failed: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct OfflineStoreReplayReport {
+    pub(crate) path: PathBuf,
+    pub(crate) attempted: usize,
+    pub(crate) synced: usize,
+    pub(crate) failed: usize,
+    pub(crate) pending: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", content = "request")]
+pub(crate) enum OfflineSyncPayload {
+    Capabilities(memd_schema::CapabilitySyncRequest),
+    AccessRoutes(memd_schema::AccessRouteSyncRequest),
+    TokenSavings(memd_schema::TokenSavingsSyncRequest),
+    Candidates(Vec<memd_schema::CandidateMemoryRequest>),
+}
+
+impl OfflineSyncPayload {
+    pub(crate) fn kind_label(&self) -> &'static str {
+        match self {
+            OfflineSyncPayload::Capabilities(_) => "capabilities",
+            OfflineSyncPayload::AccessRoutes(_) => "access_routes",
+            OfflineSyncPayload::TokenSavings(_) => "token_savings",
+            OfflineSyncPayload::Candidates(_) => "candidates",
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct OfflineSyncQueueEntry {
+    pub(crate) id: Uuid,
+    pub(crate) dedup_key: String,
+    pub(crate) queued_at: chrono::DateTime<chrono::Utc>,
+    pub(crate) attempts: u32,
+    pub(crate) status: String,
+    pub(crate) last_error: Option<String>,
+    pub(crate) payload: OfflineSyncPayload,
+    pub(crate) synced_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct OfflineSyncQueueStatus {
+    pub(crate) path: PathBuf,
+    pub(crate) total: usize,
+    pub(crate) pending: usize,
+    pub(crate) synced: usize,
+    pub(crate) failed: usize,
+    pub(crate) by_kind: std::collections::BTreeMap<String, OfflineSyncKindStatus>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub(crate) struct OfflineSyncKindStatus {
+    pub(crate) total: usize,
+    pub(crate) pending: usize,
+    pub(crate) synced: usize,
+    pub(crate) failed: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct OfflineQueueStatus {
+    pub(crate) store: OfflineStoreQueueStatus,
+    pub(crate) sync: OfflineSyncQueueStatus,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct OfflineQueueReplayReport {
+    pub(crate) store: OfflineStoreReplayReport,
+    pub(crate) sync: OfflineSyncReplayReport,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct OfflineSyncReplayReport {
+    pub(crate) path: PathBuf,
+    pub(crate) attempted: usize,
+    pub(crate) synced: usize,
+    pub(crate) failed: usize,
+    pub(crate) pending: usize,
+}
+
+pub(crate) fn offline_store_queue_path(output: &Path) -> PathBuf {
+    output.join("state").join("offline-store-queue.jsonl")
+}
+
+pub(crate) fn offline_sync_queue_path(output: &Path) -> PathBuf {
+    output.join("state").join("offline-sync-queue.jsonl")
+}
+
+pub(crate) fn offline_queue_status(output: &Path) -> anyhow::Result<OfflineQueueStatus> {
+    Ok(OfflineQueueStatus {
+        store: offline_store_queue_status(output)?,
+        sync: offline_sync_queue_status(output)?,
+    })
+}
+
+pub(crate) fn offline_store_queue_status(output: &Path) -> anyhow::Result<OfflineStoreQueueStatus> {
+    let path = offline_store_queue_path(output);
+    let entries = read_offline_store_queue(output)?;
+    let pending = entries
+        .iter()
+        .filter(|entry| entry.status == "pending")
+        .count();
+    let synced = entries
+        .iter()
+        .filter(|entry| entry.status == "synced")
+        .count();
+    let failed = entries
+        .iter()
+        .filter(|entry| entry.status == "failed")
+        .count();
+    Ok(OfflineStoreQueueStatus {
+        path,
+        total: entries.len(),
+        pending,
+        synced,
+        failed,
+    })
+}
+
+pub(crate) fn read_offline_store_queue(
+    output: &Path,
+) -> anyhow::Result<Vec<OfflineStoreQueueEntry>> {
+    let path = offline_store_queue_path(output);
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let raw = fs::read_to_string(&path)
+        .with_context(|| format!("read offline store queue {}", path.display()))?;
+    raw.lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty())
+        .map(|(index, line)| {
+            serde_json::from_str::<OfflineStoreQueueEntry>(line).with_context(|| {
+                format!(
+                    "parse offline store queue {} line {}",
+                    path.display(),
+                    index + 1
+                )
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn offline_sync_queue_status(output: &Path) -> anyhow::Result<OfflineSyncQueueStatus> {
+    let path = offline_sync_queue_path(output);
+    let entries = read_offline_sync_queue(output)?;
+    let pending = entries
+        .iter()
+        .filter(|entry| entry.status == "pending")
+        .count();
+    let synced = entries
+        .iter()
+        .filter(|entry| entry.status == "synced")
+        .count();
+    let failed = entries
+        .iter()
+        .filter(|entry| entry.status == "failed")
+        .count();
+    let mut by_kind = std::collections::BTreeMap::<String, OfflineSyncKindStatus>::new();
+    for entry in &entries {
+        let status = by_kind
+            .entry(entry.payload.kind_label().to_string())
+            .or_default();
+        status.total += 1;
+        match entry.status.as_str() {
+            "pending" => status.pending += 1,
+            "synced" => status.synced += 1,
+            "failed" => status.failed += 1,
+            _ => {}
+        }
+    }
+    Ok(OfflineSyncQueueStatus {
+        path,
+        total: entries.len(),
+        pending,
+        synced,
+        failed,
+        by_kind,
+    })
+}
+
+pub(crate) fn read_offline_sync_queue(output: &Path) -> anyhow::Result<Vec<OfflineSyncQueueEntry>> {
+    let path = offline_sync_queue_path(output);
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let raw = fs::read_to_string(&path)
+        .with_context(|| format!("read offline sync queue {}", path.display()))?;
+    raw.lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty())
+        .map(|(index, line)| {
+            serde_json::from_str::<OfflineSyncQueueEntry>(line).with_context(|| {
+                format!(
+                    "parse offline sync queue {} line {}",
+                    path.display(),
+                    index + 1
+                )
+            })
+        })
+        .collect()
+}
+
+fn write_offline_sync_queue(
+    output: &Path,
+    entries: &[OfflineSyncQueueEntry],
+) -> anyhow::Result<()> {
+    let path = offline_sync_queue_path(output);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create offline sync queue dir {}", parent.display()))?;
+    }
+    let body = entries
+        .iter()
+        .map(serde_json::to_string)
+        .collect::<Result<Vec<_>, _>>()?
+        .join("\n");
+    fs::write(&path, format!("{body}\n"))
+        .with_context(|| format!("write offline sync queue {}", path.display()))
+}
+
+fn write_offline_store_queue(
+    output: &Path,
+    entries: &[OfflineStoreQueueEntry],
+) -> anyhow::Result<()> {
+    let path = offline_store_queue_path(output);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create offline queue dir {}", parent.display()))?;
+    }
+    let body = entries
+        .iter()
+        .map(serde_json::to_string)
+        .collect::<Result<Vec<_>, _>>()?
+        .join("\n");
+    fs::write(&path, format!("{body}\n"))
+        .with_context(|| format!("write offline store queue {}", path.display()))
+}
+
+fn offline_store_dedup_key(req: &memd_schema::StoreMemoryRequest) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    let tags = {
+        let mut tags = req.tags.clone();
+        tags.sort();
+        tags.dedup();
+        tags
+    };
+    let normalized = serde_json::json!({
+        "content": req.content.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase(),
+        "kind": req.kind,
+        "scope": req.scope,
+        "project": req.project,
+        "namespace": req.namespace,
+        "workspace": req.workspace,
+        "visibility": req.visibility,
+        "source_agent": req.source_agent,
+        "source_system": req.source_system,
+        "source_path": req.source_path,
+        "tags": tags,
+    });
+    hasher.update(normalized.to_string().as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+pub(crate) fn queue_offline_store_request(
+    output: &Path,
+    req: &memd_schema::StoreMemoryRequest,
+    error: &str,
+) -> anyhow::Result<OfflineStoreQueueEntry> {
+    let mut entries = read_offline_store_queue(output)?;
+    let dedup_key = offline_store_dedup_key(req);
+    if let Some(existing) = entries
+        .iter()
+        .find(|entry| entry.status != "synced" && entry.dedup_key == dedup_key)
+    {
+        return Ok(existing.clone());
+    }
+    let entry = OfflineStoreQueueEntry {
+        id: Uuid::new_v4(),
+        dedup_key,
+        queued_at: chrono::Utc::now(),
+        attempts: 0,
+        status: "pending".to_string(),
+        last_error: Some(error.to_string()),
+        request: req.clone(),
+        synced_item_id: None,
+        synced_at: None,
+    };
+    entries.push(entry.clone());
+    write_offline_store_queue(output, &entries)?;
+    Ok(entry)
+}
+
+fn offline_sync_dedup_key(payload: &OfflineSyncPayload) -> anyhow::Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(serde_json::to_vec(payload)?);
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+pub(crate) fn queue_offline_sync_payload(
+    output: &Path,
+    payload: OfflineSyncPayload,
+    error: &str,
+) -> anyhow::Result<OfflineSyncQueueEntry> {
+    let mut entries = read_offline_sync_queue(output)?;
+    let dedup_key = offline_sync_dedup_key(&payload)?;
+    if let Some(existing) = entries
+        .iter()
+        .find(|entry| entry.status != "synced" && entry.dedup_key == dedup_key)
+    {
+        return Ok(existing.clone());
+    }
+    let entry = OfflineSyncQueueEntry {
+        id: Uuid::new_v4(),
+        dedup_key,
+        queued_at: chrono::Utc::now(),
+        attempts: 0,
+        status: "pending".to_string(),
+        last_error: Some(error.to_string()),
+        payload,
+        synced_at: None,
+    };
+    entries.push(entry.clone());
+    write_offline_sync_queue(output, &entries)?;
+    Ok(entry)
+}
+
+pub(crate) async fn replay_offline_store_queue(
+    output: &Path,
+    client: &MemdClient,
+) -> anyhow::Result<OfflineStoreReplayReport> {
+    let mut entries = read_offline_store_queue(output)?;
+    let mut attempted = 0usize;
+    let mut synced = 0usize;
+    let mut failed = 0usize;
+    for entry in entries.iter_mut().filter(|entry| entry.status != "synced") {
+        attempted += 1;
+        entry.attempts = entry.attempts.saturating_add(1);
+        match client.store(&entry.request).await {
+            Ok(response) => {
+                entry.status = "synced".to_string();
+                entry.synced_item_id = Some(response.item.id);
+                entry.synced_at = Some(chrono::Utc::now());
+                entry.last_error = None;
+                synced += 1;
+            }
+            Err(error) => {
+                entry.status = "failed".to_string();
+                entry.last_error = Some(format!("{error:#}"));
+                failed += 1;
+            }
+        }
+    }
+    write_offline_store_queue(output, &entries)?;
+    let pending = entries
+        .iter()
+        .filter(|entry| entry.status != "synced")
+        .count();
+    Ok(OfflineStoreReplayReport {
+        path: offline_store_queue_path(output),
+        attempted,
+        synced,
+        failed,
+        pending,
+    })
+}
+
+pub(crate) async fn replay_offline_sync_queue(
+    output: &Path,
+    client: &MemdClient,
+) -> anyhow::Result<OfflineSyncReplayReport> {
+    let mut entries = read_offline_sync_queue(output)?;
+    let mut attempted = 0usize;
+    let mut synced = 0usize;
+    let mut failed = 0usize;
+    for entry in entries.iter_mut().filter(|entry| entry.status != "synced") {
+        attempted += 1;
+        entry.attempts = entry.attempts.saturating_add(1);
+        let result = match &entry.payload {
+            OfflineSyncPayload::Capabilities(req) => {
+                client.capabilities_sync(req).await.map(|_| ())
+            }
+            OfflineSyncPayload::AccessRoutes(req) => {
+                client.access_routes_sync(req).await.map(|_| ())
+            }
+            OfflineSyncPayload::TokenSavings(req) => {
+                client.token_savings_sync(req).await.map(|_| ())
+            }
+            OfflineSyncPayload::Candidates(reqs) => client.candidate_batch(reqs).await.map(|_| ()),
+        };
+        match result {
+            Ok(()) => {
+                entry.status = "synced".to_string();
+                entry.synced_at = Some(chrono::Utc::now());
+                entry.last_error = None;
+                synced += 1;
+            }
+            Err(error) => {
+                entry.status = "failed".to_string();
+                entry.last_error = Some(format!("{error:#}"));
+                failed += 1;
+            }
+        }
+    }
+    write_offline_sync_queue(output, &entries)?;
+    let pending = entries
+        .iter()
+        .filter(|entry| entry.status != "synced")
+        .count();
+    Ok(OfflineSyncReplayReport {
+        path: offline_sync_queue_path(output),
+        attempted,
+        synced,
+        failed,
+        pending,
+    })
+}
+
+pub(crate) async fn replay_offline_queue(
+    output: &Path,
+    client: &MemdClient,
+) -> anyhow::Result<OfflineQueueReplayReport> {
+    Ok(OfflineQueueReplayReport {
+        store: replay_offline_store_queue(output, client).await?,
+        sync: replay_offline_sync_queue(output, client).await?,
+    })
+}
+
+pub(crate) fn offline_queued_response(
+    req: &memd_schema::StoreMemoryRequest,
+    queue_id: Uuid,
+) -> memd_schema::StoreMemoryResponse {
+    let now = chrono::Utc::now();
+    let mut tags = req.tags.clone();
+    if !tags.iter().any(|tag| tag == "offline:queued") {
+        tags.push("offline:queued".to_string());
+    }
+    memd_schema::StoreMemoryResponse {
+        item: memd_schema::MemoryItem {
+            id: queue_id,
+            content: req.content.clone(),
+            redundancy_key: None,
+            belief_branch: req.belief_branch.clone(),
+            preferred: false,
+            kind: req.kind,
+            scope: req.scope,
+            project: req.project.clone(),
+            namespace: req.namespace.clone(),
+            workspace: req.workspace.clone(),
+            visibility: req.visibility.unwrap_or_default(),
+            source_agent: req.source_agent.clone(),
+            source_system: req.source_system.clone(),
+            source_path: req.source_path.clone(),
+            source_quality: req.source_quality,
+            confidence: req.confidence.unwrap_or(0.5).min(0.5),
+            ttl_seconds: req.ttl_seconds,
+            created_at: now,
+            updated_at: now,
+            last_verified_at: req.last_verified_at,
+            supersedes: req.supersedes.clone(),
+            tags,
+            status: req.status.unwrap_or(MemoryStatus::Active),
+            stage: memd_schema::MemoryStage::Candidate,
+            lane: req.lane.clone(),
+            version: 1,
+            correction_meta: None,
+        },
+    }
+}
+
+pub(crate) fn is_offline_queued_response(response: &memd_schema::StoreMemoryResponse) -> bool {
+    response.item.tags.iter().any(|tag| tag == "offline:queued")
+}
+
+pub(crate) fn should_queue_offline_store_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<reqwest::Error>()
+            .is_some_and(|err| err.is_connect() || err.is_timeout() || err.is_request())
+    })
 }
 
 pub(crate) async fn remember_with_bundle_defaults(
@@ -128,34 +635,49 @@ pub(crate) async fn remember_with_bundle_defaults(
     let supersedes = parse_uuid_list(&args.supersede)?;
 
     let client = MemdClient::new(&base_url)?;
-    let response = client
-        .store(&memd_schema::StoreMemoryRequest {
-            content,
-            kind,
-            scope,
-            project,
-            namespace,
-            workspace,
-            visibility,
-            belief_branch: None,
-            source_agent,
-            source_system: args.source_system.clone().or(Some("memd".to_string())),
-            source_path: args.source_path.clone(),
-            source_quality,
-            confidence: args.confidence,
-            ttl_seconds: args.ttl_seconds,
-            last_verified_at: None,
-            supersedes,
-            tags: args.tag.clone(),
-            status: Some(MemoryStatus::Active),
-            lane: None,
-        })
-        .await?;
+    let store_req = memd_schema::StoreMemoryRequest {
+        content,
+        kind,
+        scope,
+        project,
+        namespace,
+        workspace,
+        visibility,
+        belief_branch: None,
+        source_agent,
+        source_system: args.source_system.clone().or(Some("memd".to_string())),
+        source_path: args.source_path.clone(),
+        source_quality,
+        confidence: args.confidence,
+        ttl_seconds: args.ttl_seconds,
+        last_verified_at: None,
+        supersedes,
+        tags: args.tag.clone(),
+        status: Some(MemoryStatus::Active),
+        lane: None,
+    };
+    let response = match client.store(&store_req).await {
+        Ok(response) => response,
+        Err(error) if should_queue_offline_store_error(&error) => {
+            let entry =
+                queue_offline_store_request(&args.output, &store_req, &format!("{error:#}"))?;
+            offline_queued_response(&store_req, entry.id)
+        }
+        Err(error) => return Err(error),
+    };
 
     append_raw_spine_record(
         &args.output,
-        "remember",
-        "canonical",
+        if is_offline_queued_response(&response) {
+            "remember_offline_queued"
+        } else {
+            "remember"
+        },
+        if is_offline_queued_response(&response) {
+            "candidate"
+        } else {
+            "canonical"
+        },
         response.item.project.as_deref(),
         response.item.namespace.as_deref(),
         response.item.workspace.as_deref(),
@@ -173,6 +695,20 @@ pub(crate) async fn checkpoint_with_bundle_defaults(
     args: &CheckpointArgs,
     base_url: &str,
 ) -> anyhow::Result<memd_schema::StoreMemoryResponse> {
+    if args.auto_commit {
+        let suffix = args
+            .content
+            .as_deref()
+            .map(|value| value.chars().take(72).collect::<String>())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "checkpoint".to_string());
+        let commit_msg = format!("memd auto-commit: {suffix}");
+        if let Some(repo_root) = infer_bundle_project_root(&args.output) {
+            git_auto_commit_if_dirty_in(&commit_msg, Some(&repo_root))?;
+        } else {
+            git_auto_commit_if_dirty(&commit_msg)?;
+        }
+    }
     let translated = checkpoint_as_remember_args(args);
     let response = remember_with_bundle_defaults(&translated, base_url).await?;
     append_raw_spine_record(
@@ -1170,6 +1706,8 @@ pub(crate) fn update_roadmap_state(updates: &[(String, String)]) -> anyhow::Resu
 /// If `repo_root` is Some, uses that as the git repo. Otherwise detects via CWD.
 /// Returns `Ok(Some(hash))` if a commit was made, `Ok(None)` if the tree was clean.
 /// Uses `git add -u` (tracked files only) to avoid staging secrets or binaries.
+/// Refuses broad dirty trees by default; override with
+/// `MEMD_AUTO_COMMIT_MAX_TRACKED_FILES` when a wider scoped commit is intentional.
 pub(crate) fn git_auto_commit_if_dirty_in(
     message: &str,
     repo_root: Option<&std::path::Path>,
@@ -1198,6 +1736,16 @@ pub(crate) fn git_auto_commit_if_dirty_in(
     let status_text = String::from_utf8_lossy(&status.stdout);
     if status_text.trim().is_empty() {
         return Ok(None); // clean tree
+    }
+    let tracked_dirty_count = count_tracked_dirty_status_lines(&status_text);
+    if tracked_dirty_count == 0 {
+        return Ok(None); // only untracked files exist
+    }
+    let max_tracked_files = auto_commit_max_tracked_files();
+    if tracked_dirty_count > max_tracked_files {
+        anyhow::bail!(
+            "refusing memd auto-commit: {tracked_dirty_count} tracked file(s) dirty exceeds limit {max_tracked_files}; make an atomic commit manually or raise MEMD_AUTO_COMMIT_MAX_TRACKED_FILES"
+        );
     }
 
     // Stage tracked files only (git add -u avoids untracked/secrets)
@@ -1255,9 +1803,508 @@ pub(crate) fn git_auto_commit_if_dirty(message: &str) -> anyhow::Result<Option<S
     git_auto_commit_if_dirty_in(message, None)
 }
 
+fn auto_commit_max_tracked_files() -> usize {
+    std::env::var("MEMD_AUTO_COMMIT_MAX_TRACKED_FILES")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(5)
+}
+
+fn count_tracked_dirty_status_lines(status_text: &str) -> usize {
+    status_text
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !trimmed.is_empty() && !trimmed.starts_with("??")
+        })
+        .count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn offline_test_request(content: &str) -> memd_schema::StoreMemoryRequest {
+        memd_schema::StoreMemoryRequest {
+            content: content.to_string(),
+            kind: MemoryKind::Fact,
+            scope: MemoryScope::Project,
+            project: Some("memd-offline-proof".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            visibility: Some(memd_schema::MemoryVisibility::Workspace),
+            belief_branch: None,
+            source_agent: Some("codex@test".to_string()),
+            source_system: Some("offline-test".to_string()),
+            source_path: None,
+            source_quality: Some(memd_schema::SourceQuality::Canonical),
+            confidence: Some(0.9),
+            ttl_seconds: None,
+            last_verified_at: None,
+            supersedes: Vec::new(),
+            tags: vec!["offline".to_string()],
+            status: Some(MemoryStatus::Active),
+            lane: None,
+        }
+    }
+
+    fn offline_candidate_request(content: &str) -> memd_schema::CandidateMemoryRequest {
+        memd_schema::CandidateMemoryRequest {
+            content: content.to_string(),
+            kind: MemoryKind::Status,
+            scope: MemoryScope::Project,
+            project: Some("memd-offline-proof".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            visibility: Some(memd_schema::MemoryVisibility::Workspace),
+            belief_branch: None,
+            source_agent: Some("codex@test".to_string()),
+            source_system: Some("hook-spill".to_string()),
+            source_path: Some("compaction-packet".to_string()),
+            source_quality: Some(memd_schema::SourceQuality::Derived),
+            confidence: Some(0.6),
+            ttl_seconds: Some(86_400),
+            last_verified_at: None,
+            supersedes: Vec::new(),
+            tags: vec!["hook-spill".to_string(), "offline".to_string()],
+            lane: None,
+        }
+    }
+
+    fn offline_remember_args(output: PathBuf, content: &str) -> RememberArgs {
+        RememberArgs {
+            output,
+            project: Some("memd-offline-proof".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            kind: Some("fact".to_string()),
+            scope: Some("project".to_string()),
+            source_agent: Some("codex@test".to_string()),
+            source_system: Some("offline-test".to_string()),
+            source_path: None,
+            source_quality: Some("canonical".to_string()),
+            confidence: Some(0.9),
+            ttl_seconds: None,
+            tag: vec!["offline".to_string()],
+            supersede: Vec::new(),
+            content: Some(content.to_string()),
+            input: None,
+            stdin: false,
+        }
+    }
+
+    async fn spawn_offline_store_server() -> String {
+        use axum::{Json, Router, routing::post};
+
+        async fn store(
+            Json(req): Json<memd_schema::StoreMemoryRequest>,
+        ) -> Json<memd_schema::StoreMemoryResponse> {
+            let now = chrono::Utc::now();
+            Json(memd_schema::StoreMemoryResponse {
+                item: memd_schema::MemoryItem {
+                    id: Uuid::new_v4(),
+                    content: req.content,
+                    redundancy_key: None,
+                    belief_branch: req.belief_branch,
+                    preferred: false,
+                    kind: req.kind,
+                    scope: req.scope,
+                    project: req.project,
+                    namespace: req.namespace,
+                    workspace: req.workspace,
+                    visibility: req.visibility.unwrap_or_default(),
+                    source_agent: req.source_agent,
+                    source_system: req.source_system,
+                    source_path: req.source_path,
+                    source_quality: req.source_quality,
+                    confidence: req.confidence.unwrap_or(0.8),
+                    ttl_seconds: req.ttl_seconds,
+                    created_at: now,
+                    updated_at: now,
+                    last_verified_at: req.last_verified_at,
+                    supersedes: req.supersedes,
+                    tags: req.tags,
+                    status: req.status.unwrap_or(MemoryStatus::Active),
+                    stage: memd_schema::MemoryStage::Canonical,
+                    lane: req.lane,
+                    version: 1,
+                    correction_meta: None,
+                },
+            })
+        }
+
+        let app = Router::new().route("/memory/store", post(store));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind offline store server");
+        let addr = listener.local_addr().expect("offline store addr");
+        tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("serve offline store server");
+        });
+        format!("http://{}", addr)
+    }
+
+    async fn spawn_offline_sync_server(
+        seen: std::sync::Arc<std::sync::Mutex<Vec<&'static str>>>,
+    ) -> String {
+        use axum::{Json, Router, extract::State, routing::post};
+
+        #[derive(Clone)]
+        struct SyncState {
+            seen: std::sync::Arc<std::sync::Mutex<Vec<&'static str>>>,
+        }
+
+        async fn capabilities(
+            State(state): State<SyncState>,
+            Json(req): Json<memd_schema::CapabilitySyncRequest>,
+        ) -> Json<memd_schema::CapabilitySyncResponse> {
+            state.seen.lock().expect("seen lock").push("capabilities");
+            Json(memd_schema::CapabilitySyncResponse {
+                upserted: req.records.len(),
+                total: req.records.len(),
+                records: req.records,
+            })
+        }
+
+        async fn access_routes(
+            State(state): State<SyncState>,
+            Json(req): Json<memd_schema::AccessRouteSyncRequest>,
+        ) -> Json<memd_schema::AccessRouteSyncResponse> {
+            state.seen.lock().expect("seen lock").push("access_routes");
+            Json(memd_schema::AccessRouteSyncResponse {
+                upserted: req.routes.len(),
+                total: req.routes.len(),
+                routes: req.routes,
+            })
+        }
+
+        async fn token_savings(
+            State(state): State<SyncState>,
+            Json(req): Json<memd_schema::TokenSavingsSyncRequest>,
+        ) -> Json<memd_schema::TokenSavingsSyncResponse> {
+            state.seen.lock().expect("seen lock").push("token_savings");
+            Json(memd_schema::TokenSavingsSyncResponse {
+                upserted: req.records.len(),
+                total: req.records.len(),
+                records: req.records,
+            })
+        }
+
+        async fn candidate(
+            State(state): State<SyncState>,
+            Json(req): Json<memd_schema::CandidateMemoryRequest>,
+        ) -> Json<memd_schema::CandidateMemoryResponse> {
+            let now = chrono::Utc::now();
+            state.seen.lock().expect("seen lock").push("candidates");
+            Json(memd_schema::CandidateMemoryResponse {
+                item: memd_schema::MemoryItem {
+                    id: Uuid::new_v4(),
+                    content: req.content,
+                    redundancy_key: Some("candidate".to_string()),
+                    belief_branch: req.belief_branch,
+                    preferred: false,
+                    kind: req.kind,
+                    scope: req.scope,
+                    project: req.project,
+                    namespace: req.namespace,
+                    workspace: req.workspace,
+                    visibility: req.visibility.unwrap_or_default(),
+                    source_agent: req.source_agent,
+                    source_system: req.source_system,
+                    source_path: req.source_path,
+                    source_quality: req.source_quality,
+                    confidence: req.confidence.unwrap_or(0.6),
+                    ttl_seconds: req.ttl_seconds,
+                    created_at: now,
+                    updated_at: now,
+                    last_verified_at: req.last_verified_at,
+                    supersedes: req.supersedes,
+                    tags: req.tags,
+                    status: MemoryStatus::Active,
+                    stage: memd_schema::MemoryStage::Candidate,
+                    lane: req.lane,
+                    version: 1,
+                    correction_meta: None,
+                },
+                duplicate_of: None,
+            })
+        }
+
+        let app = Router::new()
+            .route("/capabilities/sync", post(capabilities))
+            .route("/access/routes/sync", post(access_routes))
+            .route("/tokens/savings/sync", post(token_savings))
+            .route("/memory/candidates", post(candidate))
+            .with_state(SyncState { seen });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind offline sync server");
+        let addr = listener.local_addr().expect("offline sync addr");
+        tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("serve offline sync server");
+        });
+        format!("http://{}", addr)
+    }
+
+    #[tokio::test]
+    async fn remember_queues_offline_store_when_backend_down_and_dedupes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let bundle = temp.path().join(".memd");
+        fs::create_dir_all(&bundle).expect("create bundle");
+        let args = offline_remember_args(
+            bundle.clone(),
+            "Offline queued memory survives backend outage.",
+        );
+
+        let first = remember_with_bundle_defaults(&args, "http://127.0.0.1:1")
+            .await
+            .expect("queue offline remember");
+        let second = remember_with_bundle_defaults(&args, "http://127.0.0.1:1")
+            .await
+            .expect("dedupe offline remember");
+        let entries = read_offline_store_queue(&bundle).expect("read offline queue");
+
+        assert!(is_offline_queued_response(&first));
+        assert!(is_offline_queued_response(&second));
+        assert_eq!(first.item.id, second.item.id);
+        assert_eq!(entries.len(), 1, "same offline write should dedupe");
+        assert_eq!(entries[0].status, "pending");
+    }
+
+    #[tokio::test]
+    async fn replay_offline_store_queue_syncs_pending_and_skips_synced() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let bundle = temp.path().join(".memd");
+        fs::create_dir_all(&bundle).expect("create bundle");
+        let req = offline_test_request("Replay this offline memory once.");
+        let queued =
+            queue_offline_store_request(&bundle, &req, "backend unavailable").expect("queue");
+        let base_url = spawn_offline_store_server().await;
+        let client = MemdClient::new(&base_url).expect("client");
+
+        let report = replay_offline_store_queue(&bundle, &client)
+            .await
+            .expect("replay queue");
+        let entries = read_offline_store_queue(&bundle).expect("read replayed queue");
+        let second = replay_offline_store_queue(&bundle, &client)
+            .await
+            .expect("second replay");
+
+        assert_eq!(report.attempted, 1);
+        assert_eq!(report.synced, 1);
+        assert_eq!(report.failed, 0);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, queued.id);
+        assert_eq!(entries[0].status, "synced");
+        assert!(entries[0].synced_item_id.is_some());
+        assert_eq!(
+            second.attempted, 0,
+            "synced entries should not replay twice"
+        );
+    }
+
+    #[tokio::test]
+    async fn replay_offline_sync_queue_replays_candidate_spill_payloads() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let bundle = temp.path().join(".memd");
+        fs::create_dir_all(&bundle).expect("create bundle");
+        let req = offline_candidate_request("Replay this offline hook spill candidate once.");
+        queue_offline_sync_payload(
+            &bundle,
+            OfflineSyncPayload::Candidates(vec![req.clone()]),
+            "backend unavailable",
+        )
+        .expect("queue candidate spill");
+        let status = offline_queue_status(&bundle).expect("offline status");
+        assert_eq!(status.sync.total, 1);
+        assert_eq!(status.sync.by_kind["candidates"].pending, 1);
+
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let base_url = spawn_offline_sync_server(seen.clone()).await;
+        let client = MemdClient::new(&base_url).expect("client");
+        let report = replay_offline_sync_queue(&bundle, &client)
+            .await
+            .expect("replay candidate queue");
+        let replayed = read_offline_sync_queue(&bundle).expect("read replayed candidate queue");
+        let second = replay_offline_sync_queue(&bundle, &client)
+            .await
+            .expect("second candidate replay");
+
+        assert_eq!(report.attempted, 1);
+        assert_eq!(report.synced, 1);
+        assert_eq!(report.failed, 0);
+        assert_eq!(replayed.len(), 1);
+        assert_eq!(replayed[0].status, "synced");
+        assert_eq!(second.attempted, 0);
+        assert_eq!(seen.lock().expect("seen lock").as_slice(), &["candidates"]);
+    }
+
+    #[test]
+    fn offline_sync_queue_dedupes_and_reports_status() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let bundle = temp.path().join(".memd");
+        fs::create_dir_all(&bundle).expect("create bundle");
+        let payload = OfflineSyncPayload::Capabilities(memd_schema::CapabilitySyncRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            user_id: None,
+            agent: Some("codex".to_string()),
+            records: vec![memd_schema::CapabilityRecord {
+                harness: "codex".to_string(),
+                kind: "skill".to_string(),
+                name: "browser".to_string(),
+                status: "installed".to_string(),
+                portability_class: "harness-native".to_string(),
+                source_path: "/tmp/SKILL.md".to_string(),
+                bridge_hint: None,
+                hash: None,
+                notes: Vec::new(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                user_id: None,
+                agent: Some("codex".to_string()),
+                updated_at: None,
+            }],
+        });
+
+        let first = queue_offline_sync_payload(&bundle, payload.clone(), "server down")
+            .expect("queue sync payload");
+        let second = queue_offline_sync_payload(&bundle, payload, "still down")
+            .expect("dedupe sync payload");
+        let status = offline_queue_status(&bundle).expect("offline status");
+
+        assert_eq!(first.id, second.id);
+        assert_eq!(status.store.total, 0);
+        assert_eq!(status.sync.total, 1);
+        assert_eq!(status.sync.pending, 1);
+    }
+
+    #[tokio::test]
+    async fn replay_offline_sync_queue_reconciles_payloads_with_server_authority() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let bundle = temp.path().join(".memd");
+        fs::create_dir_all(&bundle).expect("create bundle");
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let base_url = spawn_offline_sync_server(seen.clone()).await;
+        let client = MemdClient::new(&base_url).expect("client");
+
+        queue_offline_sync_payload(
+            &bundle,
+            OfflineSyncPayload::Capabilities(memd_schema::CapabilitySyncRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                user_id: None,
+                agent: Some("codex@pc-a".to_string()),
+                records: vec![memd_schema::CapabilityRecord {
+                    harness: "codex".to_string(),
+                    kind: "skill".to_string(),
+                    name: "browser-use:browser".to_string(),
+                    status: "installed".to_string(),
+                    portability_class: "harness-native".to_string(),
+                    source_path: "/Users/test/.codex/skills/browser/SKILL.md".to_string(),
+                    bridge_hint: Some("PC-B can use this through target equivalent".to_string()),
+                    hash: Some("sha256:cap".to_string()),
+                    notes: vec!["queued while backend down".to_string()],
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    user_id: None,
+                    agent: Some("codex@pc-a".to_string()),
+                    updated_at: None,
+                }],
+            }),
+            "backend down",
+        )
+        .expect("queue capability sync");
+        queue_offline_sync_payload(
+            &bundle,
+            OfflineSyncPayload::AccessRoutes(memd_schema::AccessRouteSyncRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                user_id: None,
+                agent: Some("codex@pc-a".to_string()),
+                routes: vec![memd_schema::AccessRouteRecord {
+                    id: "bitwarden-login".to_string(),
+                    provider: "bitwarden".to_string(),
+                    status: "locked".to_string(),
+                    scope: "user/project".to_string(),
+                    secret_values_stored: false,
+                    guidance: "Ask user to unlock Bitwarden; store refs only.".to_string(),
+                    source: "bw status".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    user_id: None,
+                    agent: Some("codex@pc-a".to_string()),
+                    updated_at: None,
+                }],
+            }),
+            "backend down",
+        )
+        .expect("queue access route sync");
+        queue_offline_sync_payload(
+            &bundle,
+            OfflineSyncPayload::TokenSavings(memd_schema::TokenSavingsSyncRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                user_id: None,
+                agent: Some("codex@pc-a".to_string()),
+                records: vec![memd_schema::TokenSavingsRecord {
+                    id: uuid::Uuid::new_v4(),
+                    operation: "context_packet".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    user_id: None,
+                    agent: Some("codex@pc-a".to_string()),
+                    model_tier: Some("tiny".to_string()),
+                    intent: Some("CurrentTask".to_string()),
+                    source_records: 3,
+                    baseline_input_tokens: 1200,
+                    output_tokens: 280,
+                    tokens_saved: 920,
+                    reason: "offline packet compile avoided reread".to_string(),
+                    ts: chrono::Utc::now(),
+                    updated_at: None,
+                }],
+            }),
+            "backend down",
+        )
+        .expect("queue token savings sync");
+
+        let report = replay_offline_sync_queue(&bundle, &client)
+            .await
+            .expect("replay sync queue");
+        let second = replay_offline_sync_queue(&bundle, &client)
+            .await
+            .expect("second replay skips synced");
+        let status = offline_queue_status(&bundle).expect("offline status after sync");
+        let seen = seen.lock().expect("seen lock").clone();
+
+        assert_eq!(report.attempted, 3);
+        assert_eq!(report.synced, 3);
+        assert_eq!(report.failed, 0);
+        assert_eq!(report.pending, 0);
+        assert_eq!(second.attempted, 0);
+        assert_eq!(status.sync.pending, 0);
+        assert_eq!(status.sync.by_kind["capabilities"].synced, 1);
+        assert_eq!(status.sync.by_kind["access_routes"].synced, 1);
+        assert_eq!(status.sync.by_kind["token_savings"].synced, 1);
+        assert!(seen.contains(&"capabilities"));
+        assert!(seen.contains(&"access_routes"));
+        assert!(seen.contains(&"token_savings"));
+    }
 
     #[test]
     fn infer_bundle_identity_defaults_bind_repo_without_runtime_config() {
@@ -1367,6 +2414,68 @@ mod tests {
         let hash = result.unwrap();
         assert!(hash.is_some(), "should have committed and returned a hash");
         assert!(!hash.unwrap().is_empty(), "hash should not be empty");
+
+        fs::remove_dir_all(temp_root).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn git_auto_commit_refuses_broad_dirty_tree() {
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-auto-commit-broad-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&temp_root).expect("create temp dir");
+
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git init");
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git config email");
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git config name");
+
+        for index in 0..6 {
+            fs::write(temp_root.join(format!("tracked-{index}.txt")), "initial")
+                .expect("write initial file");
+        }
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git add");
+        std::process::Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git commit initial");
+
+        for index in 0..6 {
+            fs::write(temp_root.join(format!("tracked-{index}.txt")), "modified")
+                .expect("modify tracked file");
+        }
+
+        let err = git_auto_commit_if_dirty_in("test: should refuse", Some(&temp_root))
+            .expect_err("broad dirty tree should be rejected");
+        assert!(
+            err.to_string().contains("refusing memd auto-commit"),
+            "unexpected error: {err}"
+        );
+
+        let staged = std::process::Command::new("git")
+            .args(["diff", "--cached", "--quiet"])
+            .current_dir(&temp_root)
+            .status()
+            .expect("git diff cached");
+        assert!(
+            staged.success(),
+            "broad auto-commit guard should not stage files"
+        );
 
         fs::remove_dir_all(temp_root).expect("cleanup temp root");
     }

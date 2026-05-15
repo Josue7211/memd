@@ -318,15 +318,30 @@ pub(crate) async fn run_hook_mode(
             };
 
             if args.apply {
-                let responses = client.candidate_batch(&spill.items).await?;
+                let responses = match client.candidate_batch(&spill.items).await {
+                    Ok(responses) => responses,
+                    Err(error) if should_queue_offline_store_error(&error) => {
+                        queue_offline_sync_payload(
+                            &output,
+                            OfflineSyncPayload::Candidates(spill.items.clone()),
+                            &format!("{error:#}"),
+                        )?;
+                        Vec::new()
+                    }
+                    Err(error) => return Err(error),
+                };
                 let duplicates = responses
                     .iter()
                     .filter(|response| response.duplicate_of.is_some())
                     .count();
-                if let Some(rag) = maybe_rag_client_from_bundle_or_env()? {
+                if !responses.is_empty()
+                    && let Some(rag) = maybe_rag_client_from_bundle_or_env()?
+                {
                     sync_candidate_responses_to_rag(&rag, &responses).await?;
                 }
-                auto_checkpoint_compaction_packet(&packet, base_url).await?;
+                if !responses.is_empty() {
+                    auto_checkpoint_compaction_packet(&packet, base_url).await?;
+                }
                 append_raw_spine_record(
                     &output,
                     "hook_spill",
@@ -1092,5 +1107,75 @@ mod c4_hook_tests {
         let cap = correction_capture_args_from_hook(&args, "scratch that, host is beta".into());
         assert_eq!(cap.captured_by, "hook_auto");
         unsafe { std::env::remove_var("MEMD_C4_CORRECTION_DETECT") };
+    }
+
+    #[tokio::test]
+    async fn hook_spill_apply_queues_candidates_when_backend_down() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = TempDir::new().unwrap();
+        let bundle = tmp.path().join(".memd");
+        std::fs::create_dir_all(&bundle).unwrap();
+        std::fs::write(bundle.join("config.json"), "{}").unwrap();
+        // SAFETY: serialized via ENV_LOCK.
+        unsafe { std::env::set_var("MEMD_BUNDLE_ROOT", &bundle) };
+
+        let packet = CompactionPacket {
+            session: CompactionSession {
+                project: Some("memd".to_string()),
+                agent: Some("codex@test".to_string()),
+                task: "prove offline hook spill".to_string(),
+            },
+            goal: "keep compaction spill when backend is down".to_string(),
+            hard_constraints: vec!["offline hook spill must queue locally".to_string()],
+            active_work: Vec::new(),
+            decisions: vec![CompactionDecision {
+                id: "d1".to_string(),
+                text: "candidate spill replays through sync queue".to_string(),
+            }],
+            open_loops: Vec::new(),
+            exact_refs: Vec::new(),
+            next_actions: Vec::new(),
+            do_not_drop: Vec::new(),
+            memory: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                records: Vec::new(),
+            },
+        };
+        let client = MemdClient::new("http://127.0.0.1:1").unwrap();
+        let args = HookArgs {
+            mode: HookMode::Spill(HookSpillArgs {
+                input: RequestInput {
+                    json: Some(serde_json::to_string(&packet).unwrap()),
+                    input: None,
+                    stdin: false,
+                },
+                apply: true,
+                spill_transient: false,
+            }),
+        };
+
+        run_hook_mode(&client, "http://127.0.0.1:1", args)
+            .await
+            .expect("offline hook spill should queue");
+        let entries = read_offline_sync_queue(&bundle).expect("read queued hook spill");
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].status, "pending");
+        assert_eq!(entries[0].payload.kind_label(), "candidates");
+        match &entries[0].payload {
+            OfflineSyncPayload::Candidates(items) => {
+                assert!(!items.is_empty());
+                assert!(
+                    items
+                        .iter()
+                        .any(|item| item.tags.iter().any(|tag| tag == "compaction"))
+                );
+            }
+            other => panic!("expected candidate spill payload, got {other:?}"),
+        }
+
+        unsafe { std::env::remove_var("MEMD_BUNDLE_ROOT") };
     }
 }

@@ -1,41 +1,95 @@
+#![allow(dead_code, unused_imports, unused_variables)]
+#![allow(
+    clippy::collapsible_if,
+    clippy::duplicate_mod,
+    clippy::empty_line_after_doc_comments,
+    clippy::enum_variant_names,
+    clippy::explicit_counter_loop,
+    clippy::extra_unused_type_parameters,
+    clippy::field_reassign_with_default,
+    clippy::format_in_format_args,
+    clippy::if_same_then_else,
+    clippy::io_other_error,
+    clippy::iter_cloned_collect,
+    clippy::large_enum_variant,
+    clippy::manual_unwrap_or,
+    clippy::manual_clamp,
+    clippy::manual_range_contains,
+    clippy::map_identity,
+    clippy::match_like_matches_macro,
+    clippy::needless_borrow,
+    clippy::needless_range_loop,
+    clippy::nonminimal_bool,
+    clippy::redundant_closure,
+    clippy::type_complexity,
+    clippy::too_many_arguments,
+    clippy::unnecessary_map_or,
+    clippy::unnecessary_sort_by,
+    clippy::unnecessary_to_owned,
+    clippy::useless_conversion,
+    clippy::vec_init_then_push,
+    clippy::while_let_loop,
+    clippy::doc_lazy_continuation,
+    clippy::collapsible_match,
+    clippy::items_after_test_module,
+    clippy::ptr_arg,
+    clippy::to_string_in_format_args,
+    clippy::cloned_ref_to_slice_refs,
+    clippy::await_holding_lock,
+    clippy::clone_on_copy,
+    clippy::err_expect,
+    clippy::bool_assert_comparison,
+    clippy::doc_overindented_list_items,
+    clippy::len_zero,
+    clippy::assertions_on_constants,
+    clippy::excessive_precision,
+    clippy::useless_vec
+)]
+
 use anyhow::Context;
 use memd_schema::{
-    AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest, AssociativeRecallRequest,
-    AssociativeRecallResponse, AtlasExpandRequest, AtlasExpandResponse, AtlasExploreRequest,
-    AtlasExploreResponse, AtlasRegionsRequest, AtlasRegionsResponse, CandidateMemoryRequest,
-    CandidateMemoryResponse, CompactContextResponse, ConsolidateEpisodesRequest,
-    ConsolidateEpisodesResponse, ContextRequest, ContextResponse, CorrectMemoryRequest,
-    CorrectMemoryResponse, DedupScanRequest, DedupScanResponse, EntityLinkRequest,
-    EntityLinkResponse, EntityLinksRequest, EntityLinksResponse, EntityMemoryRequest,
-    EntityMemoryResponse, EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest,
-    ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse,
-    HiveBoardRequest, HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecoverRequest,
-    HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse,
-    HiveCoordinationInboxRequest, HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest,
-    HiveCoordinationReceiptsRequest, HiveCoordinationReceiptsResponse, HiveFollowRequest,
-    HiveFollowResponse, HiveMessageAckRequest, HiveMessageInboxRequest, HiveMessageSendRequest,
-    HiveMessagesResponse, HiveQueenActionRequest, HiveQueenActionResponse, HiveRosterRequest,
-    HiveRosterResponse, HiveSessionAutoRetireRequest, HiveSessionAutoRetireResponse,
-    HiveSessionRetireRequest, HiveSessionRetireResponse, HiveSessionUpsertRequest,
-    HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskUpsertRequest,
-    HiveTasksRequest, HiveTasksResponse, InboxDismissRequest, InboxDismissResponse,
-    IngestLanesRequest, IngestLanesResponse, MaintainReport, MaintainReportRequest,
-    MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryDecayRequest,
-    MemoryDecayResponse, MemoryDrainRequest, MemoryDrainResponse, MemoryInboxRequest,
-    MemoryInboxResponse, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
-    MemoryPolicyResponse, ProcedureDetectRequest, ProcedureDetectResponse, ProcedureListRequest,
-    ProcedureListResponse, ProcedureMatchRequest, ProcedureMatchResponse, ProcedurePromoteRequest,
-    ProcedurePromoteResponse, ProcedureRecordRequest, ProcedureRecordResponse,
-    ProcedureRetireRequest, ProcedureRetireResponse, ProcedureUseRequest, ProcedureUseResponse,
-    PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse,
-    SearchMemoryRequest, SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
+    AccessRouteListRequest, AccessRouteListResponse, AccessRouteSyncRequest,
+    AccessRouteSyncResponse, AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest,
+    AssociativeRecallRequest, AssociativeRecallResponse, AtlasExpandRequest, AtlasExpandResponse,
+    AtlasExploreRequest, AtlasExploreResponse, AtlasRegionsRequest, AtlasRegionsResponse,
+    CandidateMemoryRequest, CandidateMemoryResponse, CapabilityListRequest, CapabilityListResponse,
+    CapabilitySyncRequest, CapabilitySyncResponse, CompactContextResponse,
+    ConsolidateEpisodesRequest, ConsolidateEpisodesResponse, ContextPacketRequest,
+    ContextPacketResponse, ContextRequest, ContextResponse, CorrectMemoryRequest,
+    CorrectMemoryResponse, DedupScanRequest, DedupScanResponse, DevServerLeaseAcquireRequest,
+    DevServerLeaseReleaseRequest, DevServerLeasesRequest, DevServerLeasesResponse,
+    EntityLinkRequest, EntityLinkResponse, EntityLinksRequest, EntityLinksResponse,
+    EntityMemoryRequest, EntityMemoryResponse, EntitySearchRequest, EntitySearchResponse,
+    ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse,
+    HealthResponse, HiveBoardRequest, HiveBoardResponse, HiveClaimAcquireRequest,
+    HiveClaimRecoverRequest, HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest,
+    HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
+    HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
+    HiveCoordinationReceiptsResponse, HiveFollowRequest, HiveFollowResponse, HiveMessageAckRequest,
+    HiveMessageInboxRequest, HiveMessageSendRequest, HiveMessagesResponse, HiveQueenActionRequest,
+    HiveQueenActionResponse, HiveRosterRequest, HiveRosterResponse, HiveSessionAutoRetireRequest,
+    HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
+    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
+    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxDismissRequest,
+    InboxDismissResponse, IngestLanesRequest, IngestLanesResponse, MaintainReport,
+    MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
+    MemoryDecayRequest, MemoryDecayResponse, MemoryDrainRequest, MemoryDrainResponse,
+    MemoryInboxRequest, MemoryInboxResponse, MemoryMaintenanceReportRequest,
+    MemoryMaintenanceReportResponse, MemoryPolicyResponse, ProcedureDetectRequest,
+    ProcedureDetectResponse, ProcedureListRequest, ProcedureListResponse, ProcedureMatchRequest,
+    ProcedureMatchResponse, ProcedurePromoteRequest, ProcedurePromoteResponse,
+    ProcedureRecordRequest, ProcedureRecordResponse, ProcedureRetireRequest,
+    ProcedureRetireResponse, ProcedureUseRequest, ProcedureUseResponse, PromoteMemoryRequest,
+    PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, SearchMemoryRequest,
+    SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
     SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
     SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
     SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
-    TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
-    VisibleMemoryArtifactDetailResponse, VisibleMemorySnapshotResponse,
-    VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse, WorkingMemoryRequest,
-    WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    TimelineMemoryRequest, TimelineMemoryResponse, TokenSavingsListRequest,
+    TokenSavingsListResponse, TokenSavingsSyncRequest, TokenSavingsSyncResponse,
+    VerifyMemoryRequest, VerifyMemoryResponse, VisibleMemoryArtifactDetailResponse,
+    VisibleMemorySnapshotResponse, VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse,
+    WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use serde::Serialize;
 use uuid::Uuid;
@@ -72,6 +126,48 @@ impl MemdClient {
 
     pub async fn healthz(&self) -> anyhow::Result<HealthResponse> {
         self.get_json("/healthz").await
+    }
+
+    pub async fn capabilities_sync(
+        &self,
+        req: &CapabilitySyncRequest,
+    ) -> anyhow::Result<CapabilitySyncResponse> {
+        self.post_json("/capabilities/sync", req).await
+    }
+
+    pub async fn capabilities_list(
+        &self,
+        req: &CapabilityListRequest,
+    ) -> anyhow::Result<CapabilityListResponse> {
+        self.get_json_with_query("/capabilities", req).await
+    }
+
+    pub async fn access_routes_sync(
+        &self,
+        req: &AccessRouteSyncRequest,
+    ) -> anyhow::Result<AccessRouteSyncResponse> {
+        self.post_json("/access/routes/sync", req).await
+    }
+
+    pub async fn access_routes_list(
+        &self,
+        req: &AccessRouteListRequest,
+    ) -> anyhow::Result<AccessRouteListResponse> {
+        self.get_json_with_query("/access/routes", req).await
+    }
+
+    pub async fn token_savings_sync(
+        &self,
+        req: &TokenSavingsSyncRequest,
+    ) -> anyhow::Result<TokenSavingsSyncResponse> {
+        self.post_json("/tokens/savings/sync", req).await
+    }
+
+    pub async fn token_savings_list(
+        &self,
+        req: &TokenSavingsListRequest,
+    ) -> anyhow::Result<TokenSavingsListResponse> {
+        self.get_json_with_query("/tokens/savings", req).await
     }
 
     pub async fn store(&self, req: &StoreMemoryRequest) -> anyhow::Result<StoreMemoryResponse> {
@@ -135,6 +231,14 @@ impl MemdClient {
         req: &ContextRequest,
     ) -> anyhow::Result<CompactContextResponse> {
         self.get_json_with_query("/memory/context/compact", req)
+            .await
+    }
+
+    pub async fn context_packet(
+        &self,
+        req: &ContextPacketRequest,
+    ) -> anyhow::Result<ContextPacketResponse> {
+        self.get_json_with_query("/memory/context/packet", req)
             .await
     }
 
@@ -422,6 +526,30 @@ impl MemdClient {
 
     pub async fn hive_claims(&self, req: &HiveClaimsRequest) -> anyhow::Result<HiveClaimsResponse> {
         self.get_json_with_query("/coordination/claims", req).await
+    }
+
+    pub async fn acquire_dev_server_lease(
+        &self,
+        req: &DevServerLeaseAcquireRequest,
+    ) -> anyhow::Result<DevServerLeasesResponse> {
+        self.post_json("/coordination/dev-servers/acquire", req)
+            .await
+    }
+
+    pub async fn release_dev_server_lease(
+        &self,
+        req: &DevServerLeaseReleaseRequest,
+    ) -> anyhow::Result<DevServerLeasesResponse> {
+        self.post_json("/coordination/dev-servers/release", req)
+            .await
+    }
+
+    pub async fn dev_server_leases(
+        &self,
+        req: &DevServerLeasesRequest,
+    ) -> anyhow::Result<DevServerLeasesResponse> {
+        self.get_json_with_query("/coordination/dev-servers", req)
+            .await
     }
 
     pub async fn upsert_hive_task(

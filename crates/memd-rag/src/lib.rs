@@ -22,6 +22,8 @@ pub struct RagBackendHealth {
     pub multimodal: bool,
     #[serde(default)]
     pub profile: Option<String>,
+    #[serde(default)]
+    pub indexed_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,12 +145,7 @@ impl RagClient {
         T: serde::de::DeserializeOwned,
     {
         let url = format!("{}{}", self.base_url, path);
-        let response = self
-            .http
-            .get(url)
-            .send()
-            .await
-            .context("send rag get")?;
+        let response = self.http.get(url).send().await.context("send rag get")?;
         decode_response(response).await
     }
 
