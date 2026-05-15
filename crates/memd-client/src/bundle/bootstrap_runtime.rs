@@ -13,7 +13,7 @@ pub(crate) fn default_authority_mode() -> String {
 }
 
 pub(crate) fn hardcoded_default_voice_mode() -> String {
-    "caveman-lite".to_string()
+    "caveman-ultra".to_string()
 }
 
 /// The four caveman voice modes, from most verbose to most compressed:
