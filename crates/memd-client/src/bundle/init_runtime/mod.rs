@@ -3033,6 +3033,16 @@ mod capability_payload_tests {
                 .any(|note| note == "expected host CLI missing on this machine")
         }));
     }
+
+    #[test]
+    fn host_cli_install_plan_is_machine_approved_runner() {
+        let plan = render_host_cli_install_plan("wrangler", None);
+
+        assert!(plan.contains("MEMD_HOST_CLI_INSTALL_APPROVED=1"));
+        assert!(plan.contains("npm install -g wrangler"));
+        assert!(plan.contains("dry-run only; no host changes made"));
+        assert!(plan.contains("memd does not copy host-local binaries across machines"));
+    }
 }
 
 pub(crate) fn collect_skill_capabilities(
@@ -3357,10 +3367,69 @@ fn render_host_cli_install_plan(name: &str, source_path: Option<&Path>) -> Strin
     let source = source_path
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "not observed on source machine PATH".to_string());
+    let install_body = host_cli_install_body(name);
     format!(
-        "#!/bin/sh\nset -eu\n\necho 'memd host CLI install plan: {name}'\necho 'source machine path: {}'\necho '{}'\necho 'memd does not copy host-local binaries across machines.'\necho 'After install, run: memd capabilities sync --output .memd'\nif command -v {name} >/dev/null 2>&1; then\n  echo '{name} already available on PATH'\n  exit 0\nfi\nexit 2\n",
-        source, hint
+        r#"#!/bin/sh
+set -eu
+
+name='{name}'
+echo "memd host CLI install plan: $name"
+cat <<'MEMD_HOST_CLI_INFO'
+source machine path: {source}
+{hint}
+memd does not copy host-local binaries across machines.
+Default mode is dry-run only; no host changes made.
+Set MEMD_HOST_CLI_INSTALL_APPROVED=1 to let this script run package-manager commands on this machine.
+MEMD_HOST_CLI_INFO
+
+if command -v "$name" >/dev/null 2>&1; then
+  echo "$name already available on PATH"
+  exit 0
+fi
+
+if [ "${{MEMD_HOST_CLI_INSTALL_APPROVED:-0}}" != "1" ]; then
+  echo "dry-run only; no host changes made"
+  exit 2
+fi
+
+{install_body}
+
+if command -v "$name" >/dev/null 2>&1; then
+  echo "$name now available on PATH"
+  echo "After install/auth, run: memd capabilities sync --output .memd"
+  exit 0
+fi
+
+echo "$name still missing after install attempt"
+exit 2
+"#
     )
+}
+
+fn host_cli_install_body(name: &str) -> &'static str {
+    match name {
+        "gh" => {
+            "if command -v brew >/dev/null 2>&1; then\n  brew install gh\nelif command -v apt-get >/dev/null 2>&1; then\n  sudo apt-get update\n  sudo apt-get install -y gh\nelse\n  echo 'No supported package manager found for gh; install GitHub CLI manually.'\nfi"
+        }
+        "claude" => {
+            "if command -v npm >/dev/null 2>&1; then\n  npm install -g @anthropic-ai/claude-code\nelse\n  echo 'npm missing; install Claude Code manually for this machine.'\nfi"
+        }
+        "opencode" => {
+            "if command -v npm >/dev/null 2>&1; then\n  npm install -g opencode-ai\nelse\n  echo 'npm missing; install OpenCode manually for this machine.'\nfi"
+        }
+        "wrangler" => {
+            "if command -v npm >/dev/null 2>&1; then\n  npm install -g wrangler\nelse\n  echo 'npm missing; install Wrangler manually for this machine.'\nfi"
+        }
+        "supabase" => {
+            "if command -v brew >/dev/null 2>&1; then\n  brew install supabase/tap/supabase\nelif command -v npm >/dev/null 2>&1; then\n  npm install -g supabase\nelse\n  echo 'No supported package manager found for supabase; install Supabase CLI manually.'\nfi"
+        }
+        "codex" => {
+            "echo 'Install Codex desktop/CLI manually for this machine, then expose codex on PATH.'"
+        }
+        _ => {
+            "echo 'No approved installer is known for this CLI; install it manually for this machine.'"
+        }
+    }
 }
 
 fn find_cli_on_path(name: &str) -> Option<PathBuf> {

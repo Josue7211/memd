@@ -1679,8 +1679,9 @@ fn apply_capability_materialization(
             fs::write(&target, payload)
                 .with_context(|| format!("write host CLI install plan {}", target.display()))?;
         }
+        set_host_cli_install_plan_executable(&target)?;
         action.status = "missing".to_string();
-        action.reason = "wrote host CLI install plan; install the CLI on this machine and rerun capability sync".to_string();
+        action.reason = "wrote machine-approved host CLI install plan; run it with MEMD_HOST_CLI_INSTALL_APPROVED=1 to install on this machine, then authenticate and rerun capability sync".to_string();
         return Ok(changed);
     }
     if action.action == "restore-from-payload" {
@@ -1771,6 +1772,23 @@ fn apply_capability_materialization(
     action.status = "present".to_string();
     action.reason = "restored from memd bundle state".to_string();
     Ok(true)
+}
+
+#[cfg(unix)]
+fn set_host_cli_install_plan_executable(path: &Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut permissions = fs::metadata(path)
+        .with_context(|| format!("stat host CLI install plan {}", path.display()))?
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions)
+        .with_context(|| format!("chmod host CLI install plan {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn set_host_cli_install_plan_executable(_path: &Path) -> anyhow::Result<()> {
+    Ok(())
 }
 
 fn is_bundle_relative_capability(record: &CapabilityRecord) -> bool {
@@ -1976,15 +1994,25 @@ mod capability_materialization_tests {
             .expect("memd-test-gh action");
         assert_eq!(action.status, "missing");
         assert_eq!(action.action, "write-host-cli-install-plan");
-        assert!(action.reason.contains("install the CLI on this machine"));
+        assert!(action.reason.contains("MEMD_HOST_CLI_INSTALL_APPROVED=1"));
         let plan_path = bundle
             .join("install")
             .join("host-cli")
             .join("memd-test-gh.sh");
         assert_eq!(
-            fs::read_to_string(plan_path).expect("read install plan"),
+            fs::read_to_string(&plan_path).expect("read install plan"),
             "#!/bin/sh\necho install gh\nexit 2\n"
         );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&plan_path)
+                .expect("install plan metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o755);
+        }
 
         fs::remove_dir_all(bundle).ok();
     }
