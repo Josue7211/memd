@@ -188,7 +188,7 @@ fn render_recovery_identity_line(output: &Path, snapshot: &ResumeSnapshot) -> St
         dirty_change_count(snapshot)
     )];
     if let Some(next_action) = continuity.next_action.as_deref() {
-        parts.push(format!("next={}", compact_inline(next_action, 96)));
+        parts.push(format!("next={}", compact_inline(next_action, 180)));
     }
     if let Some(blocker) = continuity.blocker.as_deref() {
         parts.push(format!("blocker={}", compact_inline(blocker, 96)));
@@ -1100,6 +1100,37 @@ mod tests {
         assert!(markdown.contains("quality=partial:0.55"));
         assert!(markdown.contains("dirty=1"));
         assert!(markdown.contains("next=fix partial handoff quality"));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn wakeup_recovery_line_keeps_current_next_action_preview() {
+        let dir = std::env::temp_dir().join(format!("memd-wakeup-next-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+
+        let mut snapshot = sample_snapshot();
+        snapshot.handoff_quality = Some(HandoffQualityScore {
+            fill_rate: 1.0,
+            budget_utilization: 0.5,
+            dominant_kind: Some("decision".to_string()),
+            eviction_pressure: 0.0,
+            fact_coverage: 1.0,
+            decision_coverage: 1.0,
+            working_depth: 1.0,
+            composite: 0.96,
+        });
+        snapshot.preferences = vec![
+            "id=next | kind=decision | tags=next-agent,materializer | upd=1778869065 | c=CURRENT NEXT ACTION: implement server-backed fresh-machine materializer for Codex plugins and Claude Code assets before claiming capability sync works".to_string(),
+        ];
+
+        let markdown = render_bundle_wakeup_markdown(&dir, &snapshot, false);
+
+        assert!(markdown.contains("- recovery voice="));
+        assert!(
+            markdown.contains("server-backed fresh-machine materializer"),
+            "recovery line must carry useful next-action text: {markdown}"
+        );
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
