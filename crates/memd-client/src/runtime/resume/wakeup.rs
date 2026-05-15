@@ -152,6 +152,50 @@ pub(crate) fn render_preferences_block(
     s
 }
 
+fn handoff_quality_label(snapshot: &ResumeSnapshot) -> String {
+    snapshot
+        .handoff_quality
+        .as_ref()
+        .map(|score| {
+            if score.is_acceptable() {
+                format!("ready:{:.2}", score.composite)
+            } else {
+                format!("partial:{:.2}", score.composite)
+            }
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn dirty_change_count(snapshot: &ResumeSnapshot) -> usize {
+    snapshot
+        .recent_repo_changes
+        .iter()
+        .filter(|change| !change.eq_ignore_ascii_case("repo clean"))
+        .count()
+}
+
+fn render_recovery_identity_line(output: &Path, snapshot: &ResumeSnapshot) -> String {
+    if snapshot.handoff_quality.is_none() {
+        return String::new();
+    }
+
+    let continuity = snapshot.continuity_capsule();
+    let active_voice = read_bundle_voice_mode(output).unwrap_or_else(default_voice_mode);
+    let mut parts = vec![format!(
+        "voice={} | quality={} | dirty={}",
+        active_voice,
+        handoff_quality_label(snapshot),
+        dirty_change_count(snapshot)
+    )];
+    if let Some(next_action) = continuity.next_action.as_deref() {
+        parts.push(format!("next={}", compact_inline(next_action, 96)));
+    }
+    if let Some(blocker) = continuity.blocker.as_deref() {
+        parts.push(format!("blocker={}", compact_inline(blocker, 96)));
+    }
+    format!("- recovery {}\n\n", parts.join(" | "))
+}
+
 fn enforce_wake_char_budget(prefix: &str, protocol: &str, max_chars: usize) -> String {
     let full = format!("{prefix}{protocol}");
     if full.chars().count() <= max_chars {
@@ -223,6 +267,8 @@ pub(crate) fn render_bundle_wakeup_markdown(
         snapshot.route,
         snapshot.intent,
     ));
+
+    prefix.push_str(&render_recovery_identity_line(output, snapshot));
 
     let instructions = collect_wakeup_instruction_sources(output);
     if !instructions.is_empty() && !claude_strict {
@@ -1009,6 +1055,42 @@ mod tests {
         assert!(markdown.contains("Durable truth beats transcript recall."));
         assert!(markdown.contains("Reply in `caveman-lite`"));
         assert!(markdown.contains("If your draft is not in `caveman-lite`"));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn wakeup_markdown_keeps_native_recovery_state_under_budget() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-wakeup-recovery-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+
+        let mut snapshot = sample_snapshot();
+        snapshot.handoff_quality = Some(HandoffQualityScore {
+            fill_rate: 1.0,
+            budget_utilization: 0.5,
+            dominant_kind: Some("fact".to_string()),
+            eviction_pressure: 0.0,
+            fact_coverage: 1.0,
+            decision_coverage: 0.0,
+            working_depth: 1.0,
+            composite: 0.55,
+        });
+        snapshot.recent_repo_changes = vec![
+            "repo change: crates/memd-client/src/runtime/resume/wakeup.rs".to_string(),
+            "repo clean".to_string(),
+        ];
+
+        let markdown = render_bundle_wakeup_markdown(&dir, &snapshot, false);
+        let recovery_index = markdown.find("- recovery voice=").expect("recovery state");
+        let durable_index = markdown.find("## Durable Truth").expect("durable truth");
+        assert!(
+            recovery_index < durable_index,
+            "recovery state must precede bulky context: {markdown}"
+        );
+        assert!(markdown.contains("quality=partial:0.55"));
+        assert!(markdown.contains("dirty=1"));
+        assert!(markdown.contains("next=fix partial handoff quality"));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
