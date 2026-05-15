@@ -196,6 +196,54 @@ fn render_recovery_identity_line(output: &Path, snapshot: &ResumeSnapshot) -> St
     format!("- recovery {}\n\n", parts.join(" | "))
 }
 
+fn render_continuity_block(snapshot: &ResumeSnapshot, claude_strict: bool) -> String {
+    let continuity = snapshot.continuity_capsule();
+    if continuity.current_task.is_none()
+        && continuity.resume_point.is_none()
+        && continuity.changed.is_none()
+        && continuity.next_action.is_none()
+        && continuity.blocker.is_none()
+    {
+        return String::new();
+    }
+
+    let mut s = String::new();
+    s.push_str(&format!("## Continuity{}\n\n", layer_suffix("L3 — Deep")));
+    let continuity_limit = if claude_strict { 72 } else { 84 };
+    if let Some(current_task) = continuity.current_task.as_deref() {
+        s.push_str(&format!(
+            "- doing={}\n",
+            compact_inline(current_task, continuity_limit)
+        ));
+    }
+    if let Some(resume_point) = continuity.resume_point.as_deref() {
+        s.push_str(&format!(
+            "- left_off={}\n",
+            compact_inline(resume_point, continuity_limit)
+        ));
+    }
+    if let Some(changed) = continuity.changed.as_deref() {
+        s.push_str(&format!(
+            "- changed={}\n",
+            compact_inline(changed, continuity_limit)
+        ));
+    }
+    if let Some(next_action) = continuity.next_action.as_deref() {
+        s.push_str(&format!(
+            "- next={}\n",
+            compact_inline(next_action, continuity_limit)
+        ));
+    }
+    if let Some(blocker) = continuity.blocker.as_deref() {
+        s.push_str(&format!(
+            "- blocker={}\n",
+            compact_inline(blocker, continuity_limit)
+        ));
+    }
+    s.push('\n');
+    s
+}
+
 fn enforce_wake_char_budget(prefix: &str, protocol: &str, max_chars: usize) -> String {
     let full = format!("{prefix}{protocol}");
     if full.chars().count() <= max_chars {
@@ -270,6 +318,9 @@ pub(crate) fn render_bundle_wakeup_markdown(
 
     prefix.push_str(&render_recovery_identity_line(output, snapshot));
 
+    let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let dedup = priority_dedup_enabled();
+
     let instructions = collect_wakeup_instruction_sources(output);
     if !instructions.is_empty() && !claude_strict {
         prefix.push_str("## Instructions\n\n");
@@ -289,9 +340,6 @@ pub(crate) fn render_bundle_wakeup_markdown(
         }
         prefix.push('\n');
     }
-
-    let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let dedup = priority_dedup_enabled();
 
     prefix.push_str(&format!(
         "## Durable Truth{}\n\n",
@@ -383,6 +431,7 @@ pub(crate) fn render_bundle_wakeup_markdown(
         }
     }
     prefix.push('\n');
+    prefix.push_str(&render_continuity_block(snapshot, claude_strict));
 
     // A3 Part 2 Task 11: Surface preference memories in wake packet.
     prefix.push_str(&render_preferences_block(
@@ -443,48 +492,6 @@ pub(crate) fn render_bundle_wakeup_markdown(
         ));
     }
 
-    let continuity = snapshot.continuity_capsule();
-    if continuity.current_task.is_some()
-        || continuity.resume_point.is_some()
-        || continuity.changed.is_some()
-        || continuity.next_action.is_some()
-        || continuity.blocker.is_some()
-    {
-        prefix.push_str(&format!("## Continuity{}\n\n", layer_suffix("L3 — Deep")));
-        let continuity_limit = if claude_strict { 96 } else { 140 };
-        if let Some(current_task) = continuity.current_task.as_deref() {
-            prefix.push_str(&format!(
-                "- doing={}\n",
-                compact_inline(current_task, continuity_limit)
-            ));
-        }
-        if let Some(resume_point) = continuity.resume_point.as_deref() {
-            prefix.push_str(&format!(
-                "- left_off={}\n",
-                compact_inline(resume_point, continuity_limit)
-            ));
-        }
-        if let Some(changed) = continuity.changed.as_deref() {
-            prefix.push_str(&format!(
-                "- changed={}\n",
-                compact_inline(changed, continuity_limit)
-            ));
-        }
-        if let Some(next_action) = continuity.next_action.as_deref() {
-            prefix.push_str(&format!(
-                "- next={}\n",
-                compact_inline(next_action, continuity_limit)
-            ));
-        }
-        if let Some(blocker) = continuity.blocker.as_deref() {
-            prefix.push_str(&format!(
-                "- blocker={}\n",
-                compact_inline(blocker, continuity_limit)
-            ));
-        }
-        prefix.push('\n');
-    }
-
     if !snapshot.working.procedures.is_empty() && !claude_strict {
         prefix.push_str("## Procedures\n\n");
         let proc_limit = if verbose { 3 } else { 2 };
@@ -537,26 +544,26 @@ pub(crate) fn render_bundle_wakeup_markdown(
         protocol.push_str(&format!("## Voice\n\n- {}\n", active_voice));
     } else {
         protocol.push_str("## Protocol\n\n");
-        protocol.push_str("- Read first.\n");
-        protocol.push_str("- Durable truth beats transcript recall.\n");
+        protocol.push_str(
+            "- Read first. Durable truth beats transcript recall. Promote stable truths.\n",
+        );
         protocol.push_str(
             "- Lookup before answers on decisions, preferences, history, or prior user corrections.\n",
         );
+        protocol.push_str("- If a required fact is absent or unknown, ask a clarifying question or run lookup before acting.\n");
         protocol.push_str("- Recall: `memd lookup --output .memd --query \"...\"`.\n");
         protocol.push_str("- If the user corrects you, write the correction back instead of trusting the transcript.\n");
-        protocol.push_str("- Writes: `memd remember --kind fact` (long-term), `memd remember --kind decision`, `memd remember --kind preference`, `memd checkpoint` (short-term), `memd hook capture --summary` (live/correction).\n");
-        protocol.push_str("- Handoff: `memd checkpoint --auto-commit --content \"...\"` commits dirty tracked files before saving state.\n");
-        protocol.push_str("- Roadmap: `memd checkpoint --roadmap-set current_phase=X --roadmap-set phase_status=Y` patches ROADMAP_STATE before commit.\n");
+        protocol.push_str("- Writes: user-taught facts -> `memd teach --output .memd --content \"...\"`; decisions/preferences -> `memd remember`; short-term -> `memd checkpoint`; live/correction spill -> `memd hook capture --summary`.\n");
         if verbose {
+            protocol.push_str("- Handoff: `memd checkpoint --auto-commit --content \"...\"` commits only small tracked dirty sets before saving state.\n");
+            protocol.push_str("- Roadmap: `memd checkpoint --roadmap-set current_phase=X --roadmap-set phase_status=Y` patches ROADMAP_STATE before commit.\n");
             protocol.push_str(
                 "- Wake/resume/refresh/handoff/hook capture auto-write short-term status.\n",
             );
         }
-        protocol.push_str("- Promote stable truths; do not rely on transcript recall.\n");
-        protocol.push_str(&format!("- Default voice: {}\n", active_voice));
         protocol.push_str(&format!(
-            "- Reply in `{}` unless `.memd/config.json` changes it.\n",
-            active_voice
+            "- Default voice: {}. Reply in `{}` unless `.memd/config.json` changes it.\n",
+            active_voice, active_voice
         ));
         protocol.push_str(&format!(
             "- If your draft is not in `{}`, stop and rewrite it before sending.\n",
@@ -1050,11 +1057,13 @@ mod tests {
         assert!(markdown.contains("## Durable Truth"));
         assert!(markdown.contains("## Continuity"));
         assert!(markdown.contains("- doing="));
-        assert!(markdown.contains("- left_off="));
+        assert!(markdown.contains("- left_off="), "{markdown}");
         assert!(markdown.contains("memd must preserve important user corrections"));
         assert!(markdown.contains("Durable truth beats transcript recall."));
-        assert!(markdown.contains("Reply in `caveman-lite`"));
-        assert!(markdown.contains("If your draft is not in `caveman-lite`"));
+        assert!(markdown.contains("If a required fact is absent or unknown"));
+        assert!(markdown.contains("user-taught facts -> `memd teach"));
+        assert!(markdown.contains("Reply in `caveman-ultra`"));
+        assert!(markdown.contains("If your draft is not in `caveman-ultra`"));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
@@ -1179,7 +1188,7 @@ mod tests {
         assert!(markdown.contains("## Focus"));
         assert!(markdown.contains("## Continuity"));
         assert!(markdown.contains("- doing="));
-        assert!(markdown.contains("- left_off="));
+        assert!(markdown.contains("- left_off="), "markdown:\n{markdown}");
         assert!(markdown.contains("- changed="));
         assert!(markdown.contains("- next="));
         assert!(!markdown.contains("artifact-3"));
