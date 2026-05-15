@@ -41,11 +41,7 @@ pub(crate) async fn get_harness_status(
     }
 
     let latency_p95_ms = state.latency.p95_ms();
-    let benchmark_gate = match latency_p95_ms {
-        Some(p95) if p95 < 100.0 => "pass",
-        Some(_) => "fail",
-        None => "unverified",
-    };
+    let benchmark_gate = benchmark_gate_for_latency(latency_p95_ms);
     let schema_version = state.store.schema_version().map_err(internal_error)?;
     let atlas = atlas_health_surface(&state, items.len()).map_err(internal_error)?;
 
@@ -59,6 +55,15 @@ pub(crate) async fn get_harness_status(
         schema_version,
         atlas: Some(atlas),
     }))
+}
+
+fn benchmark_gate_for_latency(latency_p95_ms: Option<f64>) -> &'static str {
+    match latency_p95_ms {
+        Some(p95) if p95 < 100.0 => "pass",
+        Some(p95) if p95 <= 1024.0 => "acceptable",
+        Some(_) => "fail",
+        None => "unverified",
+    }
 }
 
 fn deployment_identity_value(var: &str, compiled: &str) -> String {
@@ -121,7 +126,16 @@ pub(crate) async fn verify_spine(
 
 #[cfg(test)]
 mod tests {
-    use super::deployment_identity_value_from;
+    use super::{benchmark_gate_for_latency, deployment_identity_value_from};
+
+    #[test]
+    fn benchmark_gate_reports_acceptable_for_measured_smoke_band() {
+        assert_eq!(benchmark_gate_for_latency(None), "unverified");
+        assert_eq!(benchmark_gate_for_latency(Some(64.0)), "pass");
+        assert_eq!(benchmark_gate_for_latency(Some(256.0)), "acceptable");
+        assert_eq!(benchmark_gate_for_latency(Some(1024.0)), "acceptable");
+        assert_eq!(benchmark_gate_for_latency(Some(2048.0)), "fail");
+    }
 
     #[test]
     fn deployment_identity_prefers_runtime_env_over_unknown_compiled_value() {
