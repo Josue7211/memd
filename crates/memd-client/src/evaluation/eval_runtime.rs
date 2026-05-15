@@ -449,6 +449,7 @@ pub(crate) async fn read_bundle_handoff(
         generated_at: Utc::now(),
         resume,
         sources,
+        voice_mode: read_bundle_voice_mode(&target_bundle).unwrap_or_else(default_voice_mode),
         target_session: target.and_then(|entry| entry.session),
         target_bundle: Some(target_bundle_key),
     };

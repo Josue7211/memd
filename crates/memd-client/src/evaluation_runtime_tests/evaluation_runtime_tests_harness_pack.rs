@@ -665,6 +665,7 @@
             sources: memd_schema::SourceMemoryResponse {
                 sources: Vec::new(),
             },
+            voice_mode: "caveman-ultra".to_string(),
             target_session: None,
             target_bundle: Some(output.display().to_string()),
         };

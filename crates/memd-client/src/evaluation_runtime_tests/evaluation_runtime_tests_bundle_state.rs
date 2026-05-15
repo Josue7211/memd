@@ -1245,6 +1245,7 @@
             generated_at: chrono::Utc::now(),
             resume,
             sources: memd_schema::SourceMemoryResponse { sources: Vec::new() },
+            voice_mode: "caveman-ultra".to_string(),
             target_session: Some("fresh-codex".to_string()),
             target_bundle: Some(".memd".to_string()),
         };
@@ -1380,6 +1381,7 @@
             generated_at: chrono::Utc::now(),
             resume: snapshot.clone(),
             sources: memd_schema::SourceMemoryResponse { sources: Vec::new() },
+            voice_mode: "caveman-ultra".to_string(),
             target_session: Some("fresh-codex".to_string()),
             target_bundle: Some(".memd".to_string()),
         };

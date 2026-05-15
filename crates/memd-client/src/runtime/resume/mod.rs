@@ -973,6 +973,7 @@ pub(crate) async fn read_bundle_handoff(
         generated_at: Utc::now(),
         resume,
         sources,
+        voice_mode: read_bundle_voice_mode(&target_bundle).unwrap_or_else(default_voice_mode),
         target_session: target.and_then(|entry| entry.session),
         target_bundle: Some(target_bundle_key),
     };
@@ -2564,6 +2565,8 @@ pub(crate) struct HandoffSnapshot {
     pub(crate) generated_at: DateTime<Utc>,
     pub(crate) resume: ResumeSnapshot,
     pub(crate) sources: memd_schema::SourceMemoryResponse,
+    #[serde(default = "default_voice_mode")]
+    pub(crate) voice_mode: String,
     pub(crate) target_session: Option<String>,
     pub(crate) target_bundle: Option<String>,
 }

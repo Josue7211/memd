@@ -255,15 +255,41 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
     let continuity = snapshot.resume.continuity_capsule();
     output.push_str("# h\n\n");
     output.push_str(&format!(
-        "- at={} | p={} | n={} | a={} | w={} | v={} | r={} | i={}\n",
+        "- at={} | p={} | n={} | a={} | voice={} | w={} | v={} | r={} | i={}\n",
         snapshot.generated_at.to_rfc3339(),
         snapshot.resume.project.as_deref().unwrap_or("none"),
         snapshot.resume.namespace.as_deref().unwrap_or("none"),
         snapshot.resume.agent.as_deref().unwrap_or("none"),
+        snapshot.voice_mode,
         snapshot.resume.workspace.as_deref().unwrap_or("none"),
         snapshot.resume.visibility.as_deref().unwrap_or("all"),
         snapshot.resume.route,
         snapshot.resume.intent,
+    ));
+    let dirty_count = snapshot
+        .resume
+        .recent_repo_changes
+        .iter()
+        .filter(|change| !change.eq_ignore_ascii_case("repo clean"))
+        .count();
+    let quality = snapshot
+        .resume
+        .handoff_quality
+        .as_ref()
+        .map(|score| {
+            if score.is_acceptable() {
+                format!("ready:{:.2}", score.composite)
+            } else {
+                format!("partial:{:.2}", score.composite)
+            }
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+    output.push_str(&format!(
+        "- native_handoff=true | target_session={} | target_bundle={} | dirty={} | quality={}\n",
+        snapshot.target_session.as_deref().unwrap_or("none"),
+        snapshot.target_bundle.as_deref().unwrap_or("none"),
+        dirty_count,
+        quality
     ));
 
     output.push_str("\n## W\n\n");
@@ -584,11 +610,15 @@ mod tests {
             sources: memd_schema::SourceMemoryResponse {
                 sources: Vec::new(),
             },
+            voice_mode: "caveman-ultra".to_string(),
             target_session: Some("session-noether".to_string()),
             target_bundle: Some(".memd".to_string()),
         };
 
         let prompt = render_handoff_prompt(&handoff);
+        assert!(prompt.contains("voice=caveman-ultra"));
+        assert!(prompt.contains("native_handoff=true"));
+        assert!(prompt.contains("target_session=session-noether"));
         assert!(prompt.contains("## C"));
         assert!(prompt.contains("- doing="));
         assert!(prompt.contains("- left_off="));
