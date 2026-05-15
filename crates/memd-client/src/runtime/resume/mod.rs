@@ -2242,7 +2242,7 @@ impl ResumeSnapshot {
             .map(|value| compact_inline(value.trim(), 180));
         let next_action = self
             .continuity_next()
-            .map(|value| compact_inline(value.trim(), 180));
+            .map(|value| compact_inline(value.trim(), 512));
         let blocker = self.compact_inbox_items().first().cloned().or_else(|| {
             self.refresh_recommended
                 .then(|| "refresh recommended due to context pressure".to_string())

@@ -174,6 +174,18 @@ fn dirty_change_count(snapshot: &ResumeSnapshot) -> usize {
         .count()
 }
 
+fn recovery_next_action_preview(next_action: &str) -> String {
+    let body = next_action
+        .split_once(" | c=")
+        .map(|(_, content)| content.trim())
+        .unwrap_or_else(|| next_action.trim());
+    if let Some(id) = extract_record_id(next_action) {
+        format!("{id}: {}", compact_inline(body, 160))
+    } else {
+        compact_inline(body, 180)
+    }
+}
+
 fn render_recovery_identity_line(output: &Path, snapshot: &ResumeSnapshot) -> String {
     if snapshot.handoff_quality.is_none() {
         return String::new();
@@ -188,7 +200,10 @@ fn render_recovery_identity_line(output: &Path, snapshot: &ResumeSnapshot) -> St
         dirty_change_count(snapshot)
     )];
     if let Some(next_action) = continuity.next_action.as_deref() {
-        parts.push(format!("next={}", compact_inline(next_action, 180)));
+        parts.push(format!(
+            "next={}",
+            recovery_next_action_preview(next_action)
+        ));
     }
     if let Some(blocker) = continuity.blocker.as_deref() {
         parts.push(format!("blocker={}", compact_inline(blocker, 96)));
@@ -1121,12 +1136,13 @@ mod tests {
             composite: 0.96,
         });
         snapshot.preferences = vec![
-            "id=next | kind=decision | tags=next-agent,materializer | upd=1778869065 | c=CURRENT NEXT ACTION: implement server-backed fresh-machine materializer for Codex plugins and Claude Code assets before claiming capability sync works".to_string(),
+            "id=57c5a501-001c-49ec-9934-8a97826bf462 | stage=canonical | scope=project | kind=decision | status=active | project=memd | ns=main | vis=private | agent=codex@test | tags=next-agent,materializer | upd=1778869065 | c=CURRENT NEXT ACTION: implement server-backed fresh-machine materializer for Codex plugins and Claude Code assets before claiming capability sync works".to_string(),
         ];
 
         let markdown = render_bundle_wakeup_markdown(&dir, &snapshot, false);
 
         assert!(markdown.contains("- recovery voice="));
+        assert!(markdown.contains("next=57c5a501-001c-49ec-9934-8a97826bf462:"));
         assert!(
             markdown.contains("server-backed fresh-machine materializer"),
             "recovery line must carry useful next-action text: {markdown}"
