@@ -68,9 +68,10 @@ fn native_handoff_feature(output: &Path) -> P0Feature {
     let recovery_line = wake.contains("- recovery voice=");
     let quality_ready = wake.contains("quality=ready:") || mem.contains("quality=ready:");
     let continuity = wake.contains("next=") && wake.contains("blocker=") && wake.contains("dirty=");
-    let status = if recovery_line && quality_ready && continuity {
+    let next_action_content = wake_recovery_next_has_action_content(&wake);
+    let status = if recovery_line && quality_ready && continuity && next_action_content {
         "working"
-    } else if recovery_line || quality_ready || continuity {
+    } else if recovery_line || quality_ready || continuity || next_action_content {
         "partial"
     } else {
         "broken"
@@ -85,6 +86,9 @@ fn native_handoff_feature(output: &Path) -> P0Feature {
     if !continuity {
         gaps.push("wake does not expose next/blocker/dirty recovery facts".to_string());
     }
+    if !next_action_content {
+        gaps.push("wake next recovery fact does not expose action content".to_string());
+    }
     feature(
         "native_handoff_recovery",
         status,
@@ -94,9 +98,23 @@ fn native_handoff_feature(output: &Path) -> P0Feature {
             format!("wake_recovery_line={recovery_line}"),
             format!("handoff_quality_ready={quality_ready}"),
             format!("native_continuity={continuity}"),
+            format!("next_action_content={next_action_content}"),
         ],
         gaps,
     )
+}
+
+fn wake_recovery_next_has_action_content(wake: &str) -> bool {
+    wake.lines()
+        .find(|line| line.starts_with("- recovery "))
+        .and_then(|line| line.split("next=").nth(1))
+        .is_some_and(|next| {
+            let next = next.split(" | blocker=").next().unwrap_or(next).trim();
+            next.contains("CURRENT NEXT ACTION")
+                || next.contains(": implement ")
+                || next.contains(": fix ")
+                || next.contains(": triage ")
+        })
 }
 
 fn voice_mode_feature(output: &Path) -> P0Feature {
@@ -452,6 +470,44 @@ mod tests {
         );
 
         fs::remove_dir_all(repo).ok();
+    }
+
+    #[test]
+    fn native_handoff_requires_next_action_content() {
+        let bundle =
+            std::env::temp_dir().join(format!("memd-p0-feature-handoff-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&bundle).expect("create bundle");
+        fs::write(
+            bundle.join("wake.md"),
+            "- recovery voice=caveman-ultra | quality=ready:0.96 | dirty=1 | next=id=abc | blocker=none\n",
+        )
+        .expect("write metadata-only wake");
+        fs::write(bundle.join("mem.md"), "quality=ready:0.96").expect("write mem");
+
+        let feature = native_handoff_feature(&bundle);
+        assert_eq!(feature.status, "partial");
+        assert!(
+            feature
+                .gaps
+                .iter()
+                .any(|gap| gap.contains("does not expose action content"))
+        );
+
+        fs::write(
+            bundle.join("wake.md"),
+            "- recovery voice=caveman-ultra | quality=ready:0.96 | dirty=1 | next=abc: CURRENT NEXT ACTION: implement materializer | blocker=none\n",
+        )
+        .expect("write content wake");
+        let feature = native_handoff_feature(&bundle);
+        assert_eq!(feature.status, "working");
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|line| line == "next_action_content=true")
+        );
+
+        fs::remove_dir_all(bundle).ok();
     }
 
     #[test]
