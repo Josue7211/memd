@@ -288,12 +288,8 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
         snapshot.resume.route,
         snapshot.resume.intent,
     ));
-    let dirty_count = snapshot
-        .resume
-        .recent_repo_changes
-        .iter()
-        .filter(|change| !change.eq_ignore_ascii_case("repo clean"))
-        .count();
+    let dirty_count =
+        crate::workflow::repo_dirty_count_from_changes(&snapshot.resume.recent_repo_changes);
     let quality = snapshot
         .resume
         .handoff_quality

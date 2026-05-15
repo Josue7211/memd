@@ -176,7 +176,7 @@ pub(crate) fn collect_gap_repo_evidence(project_root: &Path) -> Vec<String> {
 pub(crate) fn collect_recent_repo_changes(project_root: &Path) -> Vec<String> {
     let mut changes = Vec::new();
 
-    let status_entries = Command::new("git")
+    let status_lines = Command::new("git")
         .arg("-C")
         .arg(project_root)
         .arg("status")
@@ -188,19 +188,20 @@ pub(crate) fn collect_recent_repo_changes(project_root: &Path) -> Vec<String> {
         .map(|output| {
             String::from_utf8_lossy(&output.stdout)
                 .lines()
-                .take(8)
                 .map(|line| line.trim().to_string())
                 .filter(|line| !line.is_empty())
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
 
-    if status_entries.is_empty() {
+    if status_lines.is_empty() {
         changes.push("repo clean".to_string());
     } else {
+        changes.push(format_repo_dirty_total_line(&status_lines));
         changes.extend(
-            status_entries
+            status_lines
                 .into_iter()
+                .take(8)
                 .map(|entry| format!("status {entry}")),
         );
     }
@@ -228,6 +229,42 @@ pub(crate) fn collect_recent_repo_changes(project_root: &Path) -> Vec<String> {
     changes
 }
 
+const REPO_DIRTY_TOTAL_PREFIX: &str = "repo_dirty_total=";
+
+fn format_repo_dirty_total_line(status_lines: &[String]) -> String {
+    let tracked = status_lines
+        .iter()
+        .filter(|line| !line.starts_with("??"))
+        .count();
+    let untracked = status_lines
+        .iter()
+        .filter(|line| line.starts_with("??"))
+        .count();
+    format!(
+        "{REPO_DIRTY_TOTAL_PREFIX}{} tracked={} untracked={}",
+        status_lines.len(),
+        tracked,
+        untracked
+    )
+}
+
+pub(crate) fn repo_dirty_count_from_changes(recent_repo_changes: &[String]) -> usize {
+    recent_repo_changes
+        .iter()
+        .find_map(|change| {
+            change
+                .strip_prefix(REPO_DIRTY_TOTAL_PREFIX)
+                .and_then(|rest| rest.split_whitespace().next())
+                .and_then(|count| count.parse::<usize>().ok())
+        })
+        .unwrap_or_else(|| {
+            recent_repo_changes
+                .iter()
+                .filter(|change| !change.eq_ignore_ascii_case("repo clean"))
+                .count()
+        })
+}
+
 pub(crate) fn summarize_repo_event_line(line: &str) -> String {
     let trimmed = line.trim();
     if trimmed.is_empty() {
@@ -235,6 +272,9 @@ pub(crate) fn summarize_repo_event_line(line: &str) -> String {
     }
     if trimmed.eq_ignore_ascii_case("repo clean") {
         return "repo_state: clean".to_string();
+    }
+    if let Some(rest) = trimmed.strip_prefix(REPO_DIRTY_TOTAL_PREFIX) {
+        return format!("repo_state: dirty {rest}");
     }
 
     if let Some(rest) = trimmed.strip_prefix("status ") {

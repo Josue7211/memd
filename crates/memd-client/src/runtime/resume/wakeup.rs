@@ -167,11 +167,7 @@ fn handoff_quality_label(snapshot: &ResumeSnapshot) -> String {
 }
 
 fn dirty_change_count(snapshot: &ResumeSnapshot) -> usize {
-    snapshot
-        .recent_repo_changes
-        .iter()
-        .filter(|change| !change.eq_ignore_ascii_case("repo clean"))
-        .count()
+    crate::workflow::repo_dirty_count_from_changes(&snapshot.recent_repo_changes)
 }
 
 fn recovery_next_action_preview(next_action: &str) -> String {
@@ -1101,6 +1097,7 @@ mod tests {
             composite: 0.55,
         });
         snapshot.recent_repo_changes = vec![
+            "repo_dirty_total=188 tracked=83 untracked=105".to_string(),
             "repo change: crates/memd-client/src/runtime/resume/wakeup.rs".to_string(),
             "repo clean".to_string(),
         ];
@@ -1113,7 +1110,7 @@ mod tests {
             "recovery state must precede bulky context: {markdown}"
         );
         assert!(markdown.contains("quality=partial:0.55"));
-        assert!(markdown.contains("dirty=1"));
+        assert!(markdown.contains("dirty=188"));
         assert!(markdown.contains("next=fix partial handoff quality"));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
