@@ -2872,6 +2872,7 @@ pub(crate) fn build_bundle_capability_registry_with_home(
 }
 
 const CAPABILITY_PAYLOAD_TEXT_PREFIX: &str = "memd:payload-text:";
+const HOST_CLI_INSTALL_PLAN_PREFIX: &str = "memd:host-cli-install-plan:";
 const CAPABILITY_PAYLOAD_MAX_BYTES: u64 = 64 * 1024;
 
 fn notes_with_text_payload(mut notes: Vec<String>, path: &Path) -> Vec<String> {
@@ -3136,6 +3137,9 @@ pub(crate) fn collect_path_cli_capabilities() -> Vec<CapabilityRecord> {
     let mut records = Vec::new();
     for cli in ["codex", "gh", "opencode", "claude", "wrangler", "supabase"] {
         if let Some(path) = find_cli_on_path(cli) {
+            let mut notes =
+                vec!["PATH inventory; executable availability is host-local".to_string()];
+            notes.push(host_cli_install_plan_note(cli, &path));
             records.push(CapabilityRecord {
                 harness: "local".to_string(),
                 kind: "cli".to_string(),
@@ -3145,11 +3149,39 @@ pub(crate) fn collect_path_cli_capabilities() -> Vec<CapabilityRecord> {
                 source_path: path.display().to_string(),
                 bridge_hint: Some("discovered from PATH; sync as host capability".to_string()),
                 hash: None,
-                notes: vec!["PATH inventory; executable availability is host-local".to_string()],
+                notes,
             });
         }
     }
     records
+}
+
+fn host_cli_install_plan_note(name: &str, source_path: &Path) -> String {
+    format!(
+        "{HOST_CLI_INSTALL_PLAN_PREFIX}{}",
+        render_host_cli_install_plan(name, source_path)
+    )
+}
+
+fn render_host_cli_install_plan(name: &str, source_path: &Path) -> String {
+    let hint = match name {
+        "codex" => "Install Codex desktop/CLI for this machine, then expose codex on PATH.",
+        "gh" => {
+            "Install GitHub CLI for this machine, then authenticate if this repo needs GitHub access."
+        }
+        "claude" => "Install Claude Code CLI for this machine, then authenticate if needed.",
+        "opencode" => {
+            "Install OpenCode CLI for this machine, then sync its local config if needed."
+        }
+        "wrangler" => "Install Cloudflare Wrangler for this machine, then authenticate if needed.",
+        "supabase" => "Install Supabase CLI for this machine, then authenticate if needed.",
+        _ => "Install this CLI with this machine approved package manager, then expose it on PATH.",
+    };
+    format!(
+        "#!/bin/sh\nset -eu\n\necho 'memd host CLI install plan: {name}'\necho 'source machine path: {}'\necho '{}'\necho 'memd does not copy host-local binaries across machines.'\necho 'After install, run: memd capabilities sync --output .memd'\nif command -v {name} >/dev/null 2>&1; then\n  echo '{name} already available on PATH'\n  exit 0\nfi\nexit 2\n",
+        source_path.display(),
+        hint
+    )
 }
 
 fn find_cli_on_path(name: &str) -> Option<PathBuf> {

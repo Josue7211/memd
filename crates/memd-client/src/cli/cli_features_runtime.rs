@@ -209,6 +209,12 @@ fn capability_sync_feature(output: &Path) -> P0Feature {
         ));
     }
     gaps.extend(capability_surface_gaps(&counts));
+    if counts.host_cli_assets > counts.host_cli_install_plans {
+        gaps.push(format!(
+            "{} host CLI records lack server-synced install plans",
+            counts.host_cli_assets - counts.host_cli_install_plans
+        ));
+    }
     if counts.materialization_installable == 0 {
         gaps.push("fresh-machine materializer is unproven".to_string());
     }
@@ -243,6 +249,7 @@ fn capability_sync_feature(output: &Path) -> P0Feature {
             format!("opencode_assets={}", counts.opencode_assets),
             format!("project_policy_assets={}", counts.project_policy_assets),
             format!("host_cli_assets={}", counts.host_cli_assets),
+            format!("host_cli_install_plans={}", counts.host_cli_install_plans),
             "server-backed inventory is not the same as installing plugins/skills/CLIs".to_string(),
         ],
         gaps,
@@ -343,6 +350,7 @@ struct CapabilityAuditCounts {
     opencode_assets: usize,
     project_policy_assets: usize,
     host_cli_assets: usize,
+    host_cli_install_plans: usize,
 }
 
 #[derive(Debug, Default)]
@@ -403,6 +411,15 @@ fn read_capability_registry_counts(path: &Path) -> anyhow::Result<CapabilityAudi
                         .is_some_and(|text| text.starts_with("memd:payload-text:"))
                 })
             });
+        let has_host_cli_install_plan = record
+            .get("notes")
+            .and_then(|value| value.as_array())
+            .is_some_and(|notes| {
+                notes.iter().any(|note| {
+                    note.as_str()
+                        .is_some_and(|text| text.starts_with("memd:host-cli-install-plan:"))
+                })
+            });
         if portability != "universal" {
             counts.non_universal += 1;
         }
@@ -413,7 +430,12 @@ fn read_capability_registry_counts(path: &Path) -> anyhow::Result<CapabilityAudi
             ("hermes", _) => counts.hermes_assets += 1,
             ("opencode", _) => counts.opencode_assets += 1,
             ("project", "policy") => counts.project_policy_assets += 1,
-            ("local", "cli") | (_, "cli") => counts.host_cli_assets += 1,
+            ("local", "cli") | (_, "cli") => {
+                counts.host_cli_assets += 1;
+                if has_host_cli_install_plan {
+                    counts.host_cli_install_plans += 1;
+                }
+            }
             _ => {}
         }
         if has_payload
@@ -687,6 +709,67 @@ mod tests {
                 .evidence
                 .iter()
                 .any(|line| line == "claude_code_assets=0")
+        );
+
+        fs::remove_dir_all(bundle).ok();
+    }
+
+    #[test]
+    fn capability_sync_reports_host_cli_install_plans_without_calling_them_payloads() {
+        let bundle = std::env::temp_dir().join(format!(
+            "memd-p0-feature-host-cli-plan-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let state = bundle.join("state");
+        fs::create_dir_all(&state).expect("create state");
+        fs::write(
+            state.join("capability-registry.json"),
+            r#"{"capabilities":[
+                {
+                    "harness":"local",
+                    "kind":"cli",
+                    "name":"gh",
+                    "portability_class":"host-local",
+                    "source_path":"/usr/local/bin/gh",
+                    "notes":["memd:host-cli-install-plan:#!/bin/sh\necho install gh\n"]
+                }
+            ]}"#,
+        )
+        .expect("write registry");
+
+        let feature = capability_sync_feature(&bundle);
+
+        assert_eq!(feature.status, "partial");
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|line| line == "host_cli_assets=1")
+        );
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|line| line == "host_cli_install_plans=1")
+        );
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|line| line == "materialization_missing=1")
+        );
+        assert!(
+            feature
+                .gaps
+                .iter()
+                .any(|gap| gap
+                    == "host-local CLI availability cannot be restored by memd sync alone")
+        );
+        assert!(
+            !feature
+                .gaps
+                .iter()
+                .any(|gap| gap.contains("lack server-synced install plans"))
         );
 
         fs::remove_dir_all(bundle).ok();

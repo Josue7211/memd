@@ -1362,6 +1362,33 @@ fn materialization_action_for_record(
     output: &Path,
     record: &CapabilityRecord,
 ) -> CapabilityMaterializationAction {
+    if let Some(plan_text) = host_cli_install_plan_text(record) {
+        if host_cli_available_on_path(&record.name) {
+            return CapabilityMaterializationAction {
+                harness: record.harness.clone(),
+                kind: record.kind.clone(),
+                name: record.name.clone(),
+                status: "present".to_string(),
+                action: "host-cli-on-path".to_string(),
+                source_path: record.source_path.clone(),
+                target_path: None,
+                payload_text: None,
+                reason: "host-local CLI is already available on this machine".to_string(),
+            };
+        }
+        let target = host_cli_install_plan_target_path(output, record);
+        return CapabilityMaterializationAction {
+            harness: record.harness.clone(),
+            kind: record.kind.clone(),
+            name: record.name.clone(),
+            status: "missing".to_string(),
+            action: "write-host-cli-install-plan".to_string(),
+            source_path: record.source_path.clone(),
+            target_path: Some(target.display().to_string()),
+            payload_text: Some(plan_text.to_string()),
+            reason: "host-local CLI needs machine-specific install; server can restore an install plan but not the executable".to_string(),
+        };
+    }
     if let Some(payload_text) = capability_payload_text(record) {
         let target = capability_payload_target_path(output, record);
         return CapabilityMaterializationAction {
@@ -1466,12 +1493,60 @@ fn capability_materialization_paths(
 }
 
 const CAPABILITY_PAYLOAD_TEXT_PREFIX: &str = "memd:payload-text:";
+const HOST_CLI_INSTALL_PLAN_PREFIX: &str = "memd:host-cli-install-plan:";
 
 fn capability_payload_text(record: &CapabilityRecord) -> Option<&str> {
     record
         .notes
         .iter()
         .find_map(|note| note.strip_prefix(CAPABILITY_PAYLOAD_TEXT_PREFIX))
+}
+
+fn host_cli_install_plan_text(record: &CapabilityRecord) -> Option<&str> {
+    if record.portability_class != "host-local" && record.kind != "cli" {
+        return None;
+    }
+    record
+        .notes
+        .iter()
+        .find_map(|note| note.strip_prefix(HOST_CLI_INSTALL_PLAN_PREFIX))
+}
+
+fn host_cli_install_plan_target_path(output: &Path, record: &CapabilityRecord) -> PathBuf {
+    output
+        .join("install")
+        .join("host-cli")
+        .join(format!("{}.sh", sanitize_capability_filename(&record.name)))
+}
+
+fn host_cli_available_on_path(name: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|path| {
+        std::env::split_paths(&path)
+            .map(|dir| dir.join(name))
+            .any(|candidate| candidate.is_file())
+    })
+}
+
+fn sanitize_capability_filename(name: &str) -> String {
+    let mut out = name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    while out.contains("--") {
+        out = out.replace("--", "-");
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        "cli".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn capability_payload_target_path(output: &Path, record: &CapabilityRecord) -> PathBuf {
@@ -1512,6 +1587,28 @@ fn suffix_after_component(path: &Path, component: &str) -> Option<PathBuf> {
 fn apply_capability_materialization(
     action: &mut CapabilityMaterializationAction,
 ) -> anyhow::Result<bool> {
+    if action.action == "write-host-cli-install-plan" {
+        let Some(target) = action.target_path.as_ref().map(PathBuf::from) else {
+            return Ok(false);
+        };
+        let Some(payload) = action.payload_text.as_deref() else {
+            action.reason = "host CLI install plan payload is missing".to_string();
+            return Ok(false);
+        };
+        let changed =
+            !target.is_file() || fs::read_to_string(&target).ok().as_deref() != Some(payload);
+        if changed {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("create {}", parent.display()))?;
+            }
+            fs::write(&target, payload)
+                .with_context(|| format!("write host CLI install plan {}", target.display()))?;
+        }
+        action.status = "missing".to_string();
+        action.reason = "wrote host CLI install plan; install the CLI on this machine and rerun capability sync".to_string();
+        return Ok(changed);
+    }
     if action.action == "restore-from-payload" {
         let Some(target) = action.target_path.as_ref().map(PathBuf::from) else {
             return Ok(false);
@@ -1649,7 +1746,13 @@ mod capability_materialization_tests {
                     "universal",
                     ".memd/agents/hermes.sh",
                 ),
-                capability("local", "cli", "gh", "host-local", "/missing/bin/gh"),
+                capability(
+                    "local",
+                    "cli",
+                    "memd-missing-gh",
+                    "host-local",
+                    "/missing/bin/memd-missing-gh",
+                ),
             ],
         };
         write_bundle_capability_registry(&bundle, &registry).expect("write registry");
@@ -1703,6 +1806,71 @@ mod capability_materialization_tests {
         );
         assert_eq!(local_action.status, "missing");
         assert_eq!(local_action.action, "install-codex-plugin");
+
+        fs::remove_dir_all(bundle).ok();
+    }
+
+    #[test]
+    fn host_cli_install_plan_materializes_but_keeps_cli_missing() {
+        let bundle = std::env::temp_dir().join(format!(
+            "memd-host-cli-install-plan-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(bundle.join("state")).expect("create bundle state");
+        let mut record = capability(
+            "local",
+            "cli",
+            "memd-test-gh",
+            "host-local",
+            "/usr/local/bin/memd-test-gh",
+        );
+        record.notes = vec![
+            "PATH inventory; executable availability is host-local".to_string(),
+            "memd:host-cli-install-plan:#!/bin/sh\necho install gh\nexit 2\n".to_string(),
+        ];
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: None,
+            capabilities: vec![record],
+        };
+        write_bundle_capability_registry(&bundle, &registry).expect("write registry");
+
+        let report = run_capabilities_command(&CapabilitiesArgs {
+            command: None,
+            output: bundle.clone(),
+            harness: None,
+            kind: None,
+            portability: None,
+            query: None,
+            limit: 12,
+            summary: false,
+            json: false,
+            materialize_plan: false,
+            materialize: true,
+        })
+        .expect("capability report")
+        .materialization
+        .expect("materialization report");
+
+        assert_eq!(report.status, "partial-applied");
+        assert_eq!(report.applied, 1);
+        assert_eq!(report.missing, 1);
+        let action = report
+            .actions
+            .iter()
+            .find(|action| action.name == "memd-test-gh")
+            .expect("memd-test-gh action");
+        assert_eq!(action.status, "missing");
+        assert_eq!(action.action, "write-host-cli-install-plan");
+        assert!(action.reason.contains("install the CLI on this machine"));
+        let plan_path = bundle
+            .join("install")
+            .join("host-cli")
+            .join("memd-test-gh.sh");
+        assert_eq!(
+            fs::read_to_string(plan_path).expect("read install plan"),
+            "#!/bin/sh\necho install gh\nexit 2\n"
+        );
 
         fs::remove_dir_all(bundle).ok();
     }
