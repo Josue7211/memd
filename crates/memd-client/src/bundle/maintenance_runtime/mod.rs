@@ -1243,6 +1243,20 @@ fn materialization_action_for_record(
     output: &Path,
     record: &CapabilityRecord,
 ) -> CapabilityMaterializationAction {
+    if let Some(payload_text) = capability_payload_text(record) {
+        let target = capability_payload_target_path(output, record);
+        return CapabilityMaterializationAction {
+            harness: record.harness.clone(),
+            kind: record.kind.clone(),
+            name: record.name.clone(),
+            status: "installable".to_string(),
+            action: "restore-from-payload".to_string(),
+            source_path: record.source_path.clone(),
+            target_path: Some(target.display().to_string()),
+            payload_text: Some(payload_text.to_string()),
+            reason: "server-synced text payload can be materialized on this machine".to_string(),
+        };
+    }
     if is_bundle_relative_capability(record) {
         let (source, target) = capability_materialization_paths(output, record);
         let status = if source.exists() {
@@ -1258,6 +1272,7 @@ fn materialization_action_for_record(
             action: "restore-from-bundle".to_string(),
             source_path: source.display().to_string(),
             target_path: Some(target.display().to_string()),
+            payload_text: None,
             reason: "portable bundle asset can be restored from memd bundle state".to_string(),
         };
     }
@@ -1302,6 +1317,7 @@ fn materialization_action_for_record(
         action: action.to_string(),
         source_path: record.source_path.clone(),
         target_path: None,
+        payload_text: None,
         reason: reason.to_string(),
     }
 }
@@ -1330,9 +1346,76 @@ fn capability_materialization_paths(
     (source, target)
 }
 
+const CAPABILITY_PAYLOAD_TEXT_PREFIX: &str = "memd:payload-text:";
+
+fn capability_payload_text(record: &CapabilityRecord) -> Option<&str> {
+    record
+        .notes
+        .iter()
+        .find_map(|note| note.strip_prefix(CAPABILITY_PAYLOAD_TEXT_PREFIX))
+}
+
+fn capability_payload_target_path(output: &Path, record: &CapabilityRecord) -> PathBuf {
+    let path = PathBuf::from(&record.source_path);
+    if path.is_absolute() {
+        for anchor in [
+            ".codex",
+            ".claude",
+            ".agents",
+            ".config",
+            ".opencode",
+            ".openclaw",
+        ] {
+            if let Some(relative) = suffix_after_component(&path, anchor)
+                && let Some(home) = home_dir()
+            {
+                return home.join(anchor).join(relative);
+            }
+        }
+    }
+    capability_materialization_paths(output, record).1
+}
+
+fn suffix_after_component(path: &Path, component: &str) -> Option<PathBuf> {
+    let mut seen = false;
+    let mut suffix = PathBuf::new();
+    for part in path.components() {
+        let text = part.as_os_str().to_string_lossy();
+        if seen {
+            suffix.push(part.as_os_str());
+        } else if text == component {
+            seen = true;
+        }
+    }
+    seen.then_some(suffix)
+}
+
 fn apply_capability_materialization(
     action: &mut CapabilityMaterializationAction,
 ) -> anyhow::Result<bool> {
+    if action.action == "restore-from-payload" {
+        let Some(target) = action.target_path.as_ref().map(PathBuf::from) else {
+            return Ok(false);
+        };
+        let Some(payload) = action.payload_text.as_deref() else {
+            action.status = "missing".to_string();
+            action.reason = "server payload is missing".to_string();
+            return Ok(false);
+        };
+        if target.is_file() && fs::read_to_string(&target).ok().as_deref() == Some(payload) {
+            action.status = "present".to_string();
+            action.reason = "payload already materialized".to_string();
+            return Ok(false);
+        }
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+        }
+        fs::write(&target, payload)
+            .with_context(|| format!("restore payload to {}", target.display()))?;
+        action.status = "present".to_string();
+        action.reason = "restored from server-synced text payload".to_string();
+        return Ok(true);
+    }
     if action.action != "restore-from-bundle" {
         return Ok(false);
     }
@@ -1513,6 +1596,94 @@ mod capability_materialization_tests {
             fs::read_to_string(&target).expect("read restored"),
             "#!/bin/sh\n"
         );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn materialize_restores_text_payload_assets() {
+        let root =
+            std::env::temp_dir().join(format!("memd-payload-apply-{}", uuid::Uuid::new_v4()));
+        let bundle = root.join(".memd");
+        fs::create_dir_all(bundle.join("state")).expect("create bundle state");
+        let target = root.join("skills").join("demo").join("SKILL.md");
+        let mut record = capability(
+            "codex",
+            "skill",
+            "demo",
+            "harness-native",
+            "skills/demo/SKILL.md",
+        );
+        record.notes = vec!["memd:payload-text:# Demo\n".to_string()];
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: Some(root.display().to_string()),
+            capabilities: vec![record],
+        };
+        write_bundle_capability_registry(&bundle, &registry).expect("write registry");
+
+        let report = run_capabilities_command(&CapabilitiesArgs {
+            output: bundle.clone(),
+            harness: None,
+            kind: None,
+            portability: None,
+            query: None,
+            limit: 12,
+            summary: false,
+            json: false,
+            materialize_plan: false,
+            materialize: true,
+        })
+        .expect("capability report")
+        .materialization
+        .expect("materialization report");
+
+        assert_eq!(report.applied, 1);
+        assert_eq!(
+            fs::read_to_string(&target).expect("read payload"),
+            "# Demo\n"
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn materialize_plan_does_not_serialize_payload_body() {
+        let root = std::env::temp_dir().join(format!("memd-payload-plan-{}", uuid::Uuid::new_v4()));
+        let bundle = root.join(".memd");
+        fs::create_dir_all(bundle.join("state")).expect("create bundle state");
+        let mut record = capability(
+            "codex",
+            "skill",
+            "demo",
+            "harness-native",
+            "skills/demo/SKILL.md",
+        );
+        record.notes = vec!["memd:payload-text:# Secret-ish payload\n".to_string()];
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: Some(root.display().to_string()),
+            capabilities: vec![record],
+        };
+        write_bundle_capability_registry(&bundle, &registry).expect("write registry");
+
+        let report = run_capabilities_command(&CapabilitiesArgs {
+            output: bundle.clone(),
+            harness: None,
+            kind: None,
+            portability: None,
+            query: None,
+            limit: 12,
+            summary: false,
+            json: false,
+            materialize_plan: true,
+            materialize: false,
+        })
+        .expect("capability report");
+        let json = serde_json::to_string(&report.materialization).expect("serialize report");
+
+        assert!(json.contains("restore-from-payload"));
+        assert!(!json.contains("Secret-ish payload"));
 
         fs::remove_dir_all(root).ok();
     }

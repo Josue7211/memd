@@ -385,6 +385,15 @@ fn read_capability_registry_counts(path: &Path) -> anyhow::Result<CapabilityAudi
             .get("source_path")
             .and_then(|value| value.as_str())
             .unwrap_or_default();
+        let has_payload = record
+            .get("notes")
+            .and_then(|value| value.as_array())
+            .is_some_and(|notes| {
+                notes.iter().any(|note| {
+                    note.as_str()
+                        .is_some_and(|text| text.starts_with("memd:payload-text:"))
+                })
+            });
         if portability != "universal" {
             counts.non_universal += 1;
         }
@@ -398,7 +407,9 @@ fn read_capability_registry_counts(path: &Path) -> anyhow::Result<CapabilityAudi
             ("local", "cli") | (_, "cli") => counts.host_cli_assets += 1,
             _ => {}
         }
-        if capability_has_fresh_machine_payload(harness, kind, portability, source_path) {
+        if has_payload
+            || capability_has_fresh_machine_payload(harness, kind, portability, source_path)
+        {
             counts.materialization_installable += 1;
         } else {
             counts.materialization_missing += 1;
@@ -620,10 +631,8 @@ mod tests {
 
     #[test]
     fn capability_sync_requires_all_cross_machine_surfaces() {
-        let bundle = std::env::temp_dir().join(format!(
-            "memd-p0-feature-surfaces-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let bundle =
+            std::env::temp_dir().join(format!("memd-p0-feature-surfaces-{}", uuid::Uuid::new_v4()));
         let state = bundle.join("state");
         fs::create_dir_all(&state).expect("create state");
         fs::write(

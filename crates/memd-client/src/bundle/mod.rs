@@ -604,6 +604,8 @@ pub(crate) struct CapabilityMaterializationAction {
     pub(crate) action: String,
     pub(crate) source_path: String,
     pub(crate) target_path: Option<String>,
+    #[serde(skip_serializing)]
+    pub(crate) payload_text: Option<String>,
     pub(crate) reason: String,
 }
 

@@ -2766,7 +2766,7 @@ pub(crate) fn build_bundle_capability_registry_with_home(
                     source_path: display_bootstrap_source_path(&path, Some(project_root)),
                     bridge_hint: None,
                     hash: file_sha256(&path),
-                    notes: Vec::new(),
+                    notes: notes_with_text_payload(Vec::new(), &path),
                 });
             }
         }
@@ -2827,7 +2827,10 @@ pub(crate) fn build_bundle_capability_registry_with_home(
             source_path: opencode_plugin.display().to_string(),
             bridge_hint: None,
             hash: file_sha256(&opencode_plugin),
-            notes: vec!["local memd plugin bridge is active".to_string()],
+            notes: notes_with_text_payload(
+                vec!["local memd plugin bridge is active".to_string()],
+                &opencode_plugin,
+            ),
         });
     }
 
@@ -2856,6 +2859,23 @@ pub(crate) fn build_bundle_capability_registry_with_home(
         project_root: project_root.map(|path| path.display().to_string()),
         capabilities,
     }
+}
+
+const CAPABILITY_PAYLOAD_TEXT_PREFIX: &str = "memd:payload-text:";
+const CAPABILITY_PAYLOAD_MAX_BYTES: u64 = 64 * 1024;
+
+fn notes_with_text_payload(mut notes: Vec<String>, path: &Path) -> Vec<String> {
+    let Ok(meta) = fs::metadata(path) else {
+        return notes;
+    };
+    if !meta.is_file() || meta.len() > CAPABILITY_PAYLOAD_MAX_BYTES {
+        return notes;
+    }
+    let Ok(content) = fs::read_to_string(path) else {
+        return notes;
+    };
+    notes.push(format!("{CAPABILITY_PAYLOAD_TEXT_PREFIX}{content}"));
+    notes
 }
 
 pub(crate) fn collect_skill_capabilities(
@@ -2889,7 +2909,7 @@ pub(crate) fn collect_skill_capabilities(
             source_path: skill_file.display().to_string(),
             bridge_hint: None,
             hash: file_sha256(&skill_file),
-            notes: Vec::new(),
+            notes: notes_with_text_payload(Vec::new(), &skill_file),
         });
     }
 }
@@ -2933,7 +2953,10 @@ pub(crate) fn collect_claude_family_capabilities(
             source_path: path.display().to_string(),
             bridge_hint: None,
             hash: file_sha256(&path),
-            notes: vec!["detected from Claude-family harness root".to_string()],
+            notes: notes_with_text_payload(
+                vec!["detected from Claude-family harness root".to_string()],
+                &path,
+            ),
         }),
     );
     collect_directory_entry_capabilities(
@@ -3057,7 +3080,10 @@ pub(crate) fn collect_harness_root_directory_capabilities(
                 source_path: path.display().to_string(),
                 bridge_hint: None,
                 hash: file_sha256(&path),
-                notes: vec![format!("detected from {harness} workspace root")],
+                notes: notes_with_text_payload(
+                    vec![format!("detected from {harness} workspace root")],
+                    &path,
+                ),
             }),
     );
 
@@ -3332,7 +3358,10 @@ pub(crate) fn collect_directory_entry_capabilities(
             source_path: path.display().to_string(),
             bridge_hint: None,
             hash: file_sha256(&path),
-            notes: vec![format!("discovered from {relative_dir} surface")],
+            notes: notes_with_text_payload(
+                vec![format!("discovered from {relative_dir} surface")],
+                &path,
+            ),
         });
     }
 }
