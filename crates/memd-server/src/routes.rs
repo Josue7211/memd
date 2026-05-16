@@ -600,9 +600,39 @@ fn rerank_item_haystack(item: &MemoryItem) -> String {
 
 fn rerank_tokenize(text: &str) -> Vec<String> {
     text.split(|ch: char| !ch.is_alphanumeric())
+        .flat_map(split_identifier_token)
         .filter(|token| token.len() > 1)
         .map(|token| token.to_ascii_lowercase())
         .collect()
+}
+
+fn split_identifier_token(token: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut previous: Option<char> = None;
+    for ch in token.chars() {
+        let starts_new_word = previous.is_some_and(|prev| {
+            (prev.is_ascii_lowercase() && ch.is_ascii_uppercase())
+                || (prev.is_ascii_alphabetic() && ch.is_ascii_digit())
+                || (prev.is_ascii_digit() && ch.is_ascii_alphabetic())
+        });
+        if starts_new_word && !current.is_empty() {
+            out.push(std::mem::take(&mut current));
+        }
+        current.push(ch);
+        previous = Some(ch);
+    }
+    if !current.is_empty() {
+        out.push(current);
+    }
+    if out.len() <= 1 {
+        vec![token.to_string()]
+    } else {
+        let mut expanded = Vec::with_capacity(out.len() + 1);
+        expanded.push(token.to_string());
+        expanded.extend(out);
+        expanded
+    }
 }
 
 fn rerank_keyword_tokens(query_terms: &[String]) -> Vec<String> {

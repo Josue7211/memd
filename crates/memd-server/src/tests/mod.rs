@@ -9804,6 +9804,12 @@ async fn search_memory_no_rag_public_corpus_scores_traceable_recall() {
             vec!["ollama", "context"],
         ),
         (
+            "camel_path",
+            "The local harness bootstrap guard lives in the mixed-case runtime helper.",
+            Some("src/runtime/devServerGuard.ts"),
+            vec!["harness", "guard"],
+        ),
+        (
             "acronym",
             "RRF means Reciprocal Rank Fusion and combines lexical, fuzzy, atlas, and rerank lanes.",
             Some("docs/retrieval/rrf.md"),
@@ -9899,6 +9905,7 @@ async fn search_memory_no_rag_public_corpus_scores_traceable_recall() {
         ("semantic", "smeantic retrival weighted fuzion owner"),
         ("command", "memd rag sync prove command"),
         ("path", "integrations/ollama/README strict prompt packet"),
+        ("camel_path", "dev server guard runtime helper"),
         ("acronym", "what does RRF combine lexical fuzzy atlas"),
         ("name", "Maya Cloudflare workers backend runbook"),
         ("procedure", "dev server guard port 3000 procedure"),
