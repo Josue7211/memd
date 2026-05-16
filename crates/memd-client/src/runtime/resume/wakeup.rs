@@ -204,7 +204,88 @@ fn render_recovery_identity_line(output: &Path, snapshot: &ResumeSnapshot) -> St
     if let Some(blocker) = continuity.blocker.as_deref() {
         parts.push(format!("blocker={}", compact_inline(blocker, 96)));
     }
+    if let Some(detail) = recovery_proof_blocker_detail(output) {
+        parts.push(format!("proof_blockers={}", compact_inline(&detail, 260)));
+    }
     format!("- recovery {}\n\n", parts.join(" | "))
+}
+
+fn recovery_proof_blocker_detail(output: &Path) -> Option<String> {
+    let project_root = infer_bundle_project_root(output)?;
+    let report_dir = project_root
+        .join("docs")
+        .join("verification")
+        .join("25-5-memory-os-runs");
+    let mut details = Vec::new();
+    if let Some(report) = latest_report_with_suffix(&report_dir, "supermemory-head-to-head.json") {
+        if let Some(value) = read_json_report(&report) {
+            if report_status_is_blocked(&value) {
+                if let Some(items) = json_string_array(&value, "missing_requirements") {
+                    if !items.is_empty() {
+                        details.push(format!(
+                            "supermemory:missing_requirements={}",
+                            items.join(",")
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    if let Some(report) = latest_report_with_suffix(&report_dir, "external-public-full.json") {
+        if let Some(value) = read_json_report(&report) {
+            if report_status_is_blocked(&value) {
+                if let Some(items) = json_string_array(&value, "missing_explicit_env") {
+                    if !items.is_empty() {
+                        details.push(format!(
+                            "full_public:missing_explicit_env={}",
+                            items.join(",")
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    (!details.is_empty()).then(|| details.join(";"))
+}
+
+fn latest_report_with_suffix(report_dir: &Path, suffix: &str) -> Option<PathBuf> {
+    fs::read_dir(report_dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(suffix))
+        })
+        .filter_map(|path| {
+            let modified = path.metadata().and_then(|meta| meta.modified()).ok()?;
+            Some((modified, path))
+        })
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, path)| path)
+}
+
+fn read_json_report(path: &Path) -> Option<serde_json::Value> {
+    serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
+}
+
+fn report_status_is_blocked(value: &serde_json::Value) -> bool {
+    value
+        .get("status")
+        .and_then(|status| status.as_str())
+        .is_some_and(|status| status == "blocked")
+}
+
+fn json_string_array(value: &serde_json::Value, key: &str) -> Option<Vec<String>> {
+    Some(
+        value
+            .get(key)?
+            .as_array()?
+            .iter()
+            .filter_map(|item| item.as_str().map(str::to_string))
+            .collect(),
+    )
 }
 
 fn render_continuity_block(snapshot: &ResumeSnapshot, claude_strict: bool) -> String {
@@ -1146,6 +1227,66 @@ mod tests {
         );
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn wakeup_recovery_line_surfaces_market_proof_blocker_details() {
+        let project = std::env::temp_dir().join(format!(
+            "memd-wakeup-proof-blockers-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = project.join(".memd");
+        let report_dir = project
+            .join("docs")
+            .join("verification")
+            .join("25-5-memory-os-runs");
+        fs::create_dir_all(&output).expect("create temp bundle");
+        fs::create_dir_all(&report_dir).expect("create report dir");
+        fs::write(
+            report_dir.join("2026-05-16-supermemory-head-to-head.json"),
+            serde_json::json!({
+                "status": "blocked",
+                "missing_requirements": [
+                    "approved_supermemory_access_route_or_process_credential",
+                    "supermemory_same_fixture_replay_artifact"
+                ]
+            })
+            .to_string(),
+        )
+        .expect("write Supermemory report");
+        fs::write(
+            report_dir.join("2026-05-16-external-public-full.json"),
+            serde_json::json!({
+                "status": "blocked",
+                "missing_explicit_env": [
+                    "ALLOW_FULL_PUBLIC_PROOF=1",
+                    "PUBLIC_BENCH_LIMIT",
+                    "PUBLIC_BENCH_TIMEOUT",
+                    "RUN_LABEL"
+                ]
+            })
+            .to_string(),
+        )
+        .expect("write full public report");
+
+        let mut snapshot = sample_snapshot();
+        snapshot.handoff_quality = Some(HandoffQualityScore {
+            fill_rate: 1.0,
+            budget_utilization: 0.5,
+            dominant_kind: Some("decision".to_string()),
+            eviction_pressure: 0.0,
+            fact_coverage: 1.0,
+            decision_coverage: 1.0,
+            working_depth: 1.0,
+            composite: 0.96,
+        });
+
+        let markdown = render_bundle_wakeup_markdown(&output, &snapshot, false);
+
+        assert!(markdown.contains("proof_blockers=supermemory:missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact;full_public:missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL"), "{markdown}");
+        assert!(!markdown.contains("SUPERMEMORY_API_KEY"));
+
+        fs::remove_dir_all(project).expect("cleanup proof blocker temp bundle");
     }
 
     #[test]
