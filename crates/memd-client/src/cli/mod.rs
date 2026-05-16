@@ -312,16 +312,27 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                 _ => None,
             };
             let mut response = run_tokens_command(&args)?;
-            if let Some((output, since)) = tokens_report_scope(&args)
+            let report_scope = tokens_report_scope(&args);
+            if sync_output.is_none()
+                && let Some((output, since)) = report_scope
                 && base_url_reachable(&base_url, Duration::from_millis(250))
                 && let Ok(server) = fetch_server_token_savings(&client, output, since).await
             {
                 response = merge_server_token_savings_report(response, server);
             }
-            if let Some(output) = sync_output.as_deref()
-                && let Err(error) = push_token_savings_to_server(&client, &base_url, output).await
-            {
-                eprintln!("memd: token-savings server sync skipped ({error})");
+            if let Some(output) = sync_output.as_deref() {
+                match push_token_savings_to_server(&client, &base_url, output).await {
+                    Ok(()) => {
+                        if let Some((output, since)) = report_scope
+                            && base_url_reachable(&base_url, Duration::from_millis(250))
+                            && let Ok(server) =
+                                fetch_server_token_savings(&client, output, since).await
+                        {
+                            response = merge_server_token_savings_report(response, server);
+                        }
+                    }
+                    Err(error) => eprintln!("memd: token-savings server sync skipped ({error})"),
+                }
             }
             if json {
                 print_json(&response)?;
