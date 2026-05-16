@@ -754,6 +754,32 @@ mod tests {
         assert!(cloud_packet.chars().count() > 8000 * 4);
         assert!(!cloud_packet.contains("packet clipped to model-tier token budget"));
     }
+
+    #[test]
+    fn prompt_packet_clamp_preserves_late_required_sections() {
+        let source_id = uuid::Uuid::new_v4();
+        let huge = "source-backed fact ".repeat(500);
+        let packet = clamp_packet_for_model_tier(
+            format!(
+                "# memd context packet\n\n## System Guard\n- {huge}\n\n## Task State\n- intent: `CurrentTask`\n\n## Knowledge Gaps\n- ask before assuming\n\n## Token Budget\n- use Source IDs\n\n## Pinned Corrections\n- {huge}\n\n## Active Truth\n- {huge}\n\n## Procedures\n- inspect dirty tree before edits\n\n## Active Capabilities\n- local:cli `codex` status=installed portability=host-local auth_status=unknown\n\n## Access Routes\n- bitwarden status=installed refs_only=true guidance=ask user to unlock before workaround\n\n## Hive Board\n- queen_session: `none` sync=server\n\n## Evidence\n- {huge}\n\n## Open Conflicts\n- none\n\n## Source IDs\n- {source_id}\n"
+            ),
+            "tiny",
+        );
+
+        assert!(packet.chars().count() <= 4000);
+        assert!(packet.contains("packet clipped to model-tier token budget"));
+        assert!(packet.contains("## Task State"));
+        assert!(packet.contains("## Pinned Corrections"));
+        assert!(packet.contains("## Active Truth"));
+        assert!(packet.contains("## Procedures"));
+        assert!(packet.contains("## Active Capabilities"));
+        assert!(packet.contains("## Access Routes"));
+        assert!(packet.contains("bitwarden status=installed"));
+        assert!(packet.contains("## Hive Board"));
+        assert!(packet.contains("queen_session"));
+        assert!(packet.contains("## Source IDs"));
+        assert!(packet.contains(&source_id.to_string()));
+    }
 }
 
 pub(crate) async fn run_context_command(
@@ -1602,12 +1628,98 @@ fn clamp_packet_for_model_tier(packet: String, model_tier: &str) -> String {
     if packet.chars().count() <= max_chars {
         return packet;
     }
+    if let Some(clipped) = clamp_structured_prompt_packet(&packet, max_chars) {
+        return clipped;
+    }
     let mut clipped = packet
         .chars()
         .take(max_chars.saturating_sub(96))
         .collect::<String>();
     clipped.push_str("\n\n## Compiler Note\n- packet clipped to model-tier token budget\n");
     clipped
+}
+
+fn clamp_structured_prompt_packet(packet: &str, max_chars: usize) -> Option<String> {
+    let sections = split_prompt_packet_sections(packet);
+    if sections.len() < 2 {
+        return None;
+    }
+    let note = "\n\n## Compiler Note\n- packet clipped to model-tier token budget\n";
+    let header_chars = sections
+        .iter()
+        .map(|section| section.header.chars().count() + 2)
+        .sum::<usize>()
+        + note.chars().count();
+    if header_chars >= max_chars {
+        return None;
+    }
+    let body_budget = ((max_chars - header_chars) / sections.len()).max(48);
+    let mut clipped = String::new();
+    for (idx, section) in sections.iter().enumerate() {
+        if idx > 0 {
+            clipped.push('\n');
+        }
+        clipped.push_str(&section.header);
+        clipped.push('\n');
+        clipped.push_str(&clamp_prompt_section_body(
+            section.body.as_str(),
+            body_budget,
+        ));
+        clipped.push('\n');
+    }
+    clipped.push_str(note);
+    if clipped.chars().count() <= max_chars {
+        Some(clipped)
+    } else {
+        None
+    }
+}
+
+#[derive(Debug)]
+struct PromptPacketSection {
+    header: String,
+    body: String,
+}
+
+fn split_prompt_packet_sections(packet: &str) -> Vec<PromptPacketSection> {
+    let mut sections = Vec::new();
+    let mut current_header = String::new();
+    let mut current_body = String::new();
+    for line in packet.lines() {
+        if line.starts_with('#') && (line.starts_with("# ") || line.starts_with("## ")) {
+            if !current_header.is_empty() {
+                sections.push(PromptPacketSection {
+                    header: current_header,
+                    body: current_body.trim_end().to_string(),
+                });
+                current_body = String::new();
+            }
+            current_header = line.to_string();
+        } else if !current_header.is_empty() {
+            current_body.push_str(line);
+            current_body.push('\n');
+        }
+    }
+    if !current_header.is_empty() {
+        sections.push(PromptPacketSection {
+            header: current_header,
+            body: current_body.trim_end().to_string(),
+        });
+    }
+    sections
+}
+
+fn clamp_prompt_section_body(body: &str, max_chars: usize) -> String {
+    let body = body.trim();
+    if body.chars().count() <= max_chars {
+        return body.to_string();
+    }
+    let marker = "\n- section clipped to model-tier token budget";
+    let take_chars = max_chars.saturating_sub(marker.chars().count()).max(16);
+    let mut out = body.chars().take(take_chars).collect::<String>();
+    out = out.trim_end().to_string();
+    out.push_str(marker);
+    out
 }
 
 fn prompt_safe_line(value: &str) -> String {
