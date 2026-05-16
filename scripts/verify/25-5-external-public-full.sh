@@ -10,7 +10,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT_DIR="${OUT_DIR:-$ROOT/docs/verification/25-5-memory-os-runs}"
 RUN_DATE="${RUN_DATE:-$(date +%F)}"
 REPORT="${REPORT:-$OUT_DIR/${RUN_DATE}-external-public-full.json}"
-ALLOW_FULL_PUBLIC_PROOF="${ALLOW_FULL_PUBLIC_PROOF:-0}"
+ALLOW_FULL_PUBLIC_PROOF="${ALLOW_FULL_PUBLIC_PROOF:-}"
 MISSING_EXPLICIT_PUBLIC_PROOF_ENV=()
 
 mkdir -p "$OUT_DIR"
@@ -42,10 +42,8 @@ PY
 }
 
 if [[ "$ALLOW_FULL_PUBLIC_PROOF" != "1" ]]; then
-  write_blocked
-  exit 2
+  MISSING_EXPLICIT_PUBLIC_PROOF_ENV+=("ALLOW_FULL_PUBLIC_PROOF=1")
 fi
-
 if [[ -z "${PUBLIC_BENCH_LIMIT:-}" ]]; then
   MISSING_EXPLICIT_PUBLIC_PROOF_ENV+=("PUBLIC_BENCH_LIMIT")
 fi
