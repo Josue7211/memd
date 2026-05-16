@@ -34,3 +34,12 @@ These instructions are managed by memd.
 - Keep responses short, direct, and token-efficient unless the user asks for detail.
 
 <!-- memd-managed:end -->
+## shared dev-server guard
+
+- Before starting any webapp/dev server, check whether the intended port is already listening.
+- Use `scripts/dev-server-guard.sh --port <port> -- <command...>` instead of raw `npm run dev`, `astro dev`, `vite`, or similar.
+- If the guard reports an existing server, reuse that URL. Do not start another server on a new port unless the user asks for a second instance.
+- The guard uses the Rust CLI lease `resource:dev-server:<repo-hash>:127.0.0.1:<port>` so other agents can see the running-server footstep.
+- Release happens automatically when the guarded command exits.
+- Conflicts are hard-blocking. Treat raw dev-server launch commands as unsafe unless the user explicitly asks for another instance.
+- Contract: `docs/contracts/dev-server-guard.md`.
