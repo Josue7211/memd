@@ -655,6 +655,7 @@ fn native_handoff_recovery_feature(
             format!("voice_mode={voice_mode}"),
             path_evidence("wake", wake_path),
             path_evidence("mem", mem_path),
+            "strict prompt packets include repo voice_mode from .memd/config.json".to_string(),
             format!("wake_recovery_line={has_recovery_line}"),
             format!("native_continuity={has_native_continuity}"),
             format!(

@@ -415,6 +415,30 @@ mod tests {
     }
 
     #[test]
+    fn prompt_context_packet_includes_configured_voice_mode() {
+        let context = memd_schema::CompactContextResponse {
+            route: memd_schema::RetrievalRoute::Auto,
+            intent: memd_schema::RetrievalIntent::CurrentTask,
+            retrieval_order: vec![memd_schema::MemoryScope::Project],
+            records: vec![],
+        };
+        let packet = render_prompt_context_packet(
+            "codex",
+            "strict",
+            &context,
+            &ContextPacketOptions {
+                voice_mode: Some("caveman-ultra".to_string()),
+                ..ContextPacketOptions::default()
+            },
+        );
+
+        assert!(packet.contains("- voice_mode: `caveman-ultra`"));
+        assert!(packet.contains("hard compressed"));
+        assert!(packet.contains("normal spelling"));
+        assert!(packet.contains("rewrite before sending if draft slips"));
+    }
+
+    #[test]
     fn prompt_context_packet_strips_hidden_injection_text() {
         let context = memd_schema::CompactContextResponse {
             route: memd_schema::RetrievalRoute::Auto,
@@ -523,6 +547,7 @@ mod tests {
                         .to_string(),
                 ),
                 hive_section: Some("- queen_session: `none` sync=server".to_string()),
+                ..ContextPacketOptions::default()
             },
         );
 
@@ -762,6 +787,8 @@ pub(crate) async fn run_context_command(
         };
         let packet_options = ContextPacketOptions {
             model_tier: args.model_tier.clone(),
+            voice_mode: read_bundle_voice_mode(&default_bundle_root_path())
+                .or_else(|| Some(default_voice_mode())),
             include_capabilities: args.include_capabilities,
             include_access: args.include_access,
             include_hive: args.include_hive,
@@ -868,6 +895,12 @@ fn render_prompt_context_packet(
 ) -> String {
     let strict = !matches!(safety.trim().to_ascii_lowercase().as_str(), "off" | "none");
     let model_tier = options.model_tier.as_deref().unwrap_or("cloud");
+    let voice_mode = options
+        .voice_mode
+        .as_deref()
+        .and_then(|value| normalize_voice_mode_value(value).ok())
+        .unwrap_or_else(default_voice_mode);
+    let voice_contract = render_prompt_voice_contract(&voice_mode);
     let mut pinned = Vec::new();
     let mut active = Vec::new();
     let mut procedures = Vec::new();
@@ -985,10 +1018,12 @@ fn render_prompt_context_packet(
     };
 
     let packet = format!(
-        "# memd context packet\n\n## System Guard\n- target_agent: `{}`\n- model_tier: `{}`\n- safety_mode: `{}`\n- {}\n\n## Task State\n{}\n\n## Knowledge Gaps\n{}\n\n## Token Budget\n{}\n\n## Pinned Corrections\n{}\n\n## Active Truth\n{}\n\n## Procedures\n{}\n\n## Active Capabilities\n{}\n\n## Access Routes\n{}\n\n## Hive Board\n{}\n\n## Evidence\n{}\n\n## Open Conflicts\n{}\n\n## Source IDs\n{}\n",
+        "# memd context packet\n\n## System Guard\n- target_agent: `{}`\n- model_tier: `{}`\n- safety_mode: `{}`\n- voice_mode: `{}`\n- voice_contract: {}\n- {}\n\n## Task State\n{}\n\n## Knowledge Gaps\n{}\n\n## Token Budget\n{}\n\n## Pinned Corrections\n{}\n\n## Active Truth\n{}\n\n## Procedures\n{}\n\n## Active Capabilities\n{}\n\n## Access Routes\n{}\n\n## Hive Board\n{}\n\n## Evidence\n{}\n\n## Open Conflicts\n{}\n\n## Source IDs\n{}\n",
         agent,
         model_tier,
         if strict { "strict" } else { safety },
+        voice_mode,
+        voice_contract,
         guard,
         task_state,
         knowledge_gaps,
@@ -1004,6 +1039,21 @@ fn render_prompt_context_packet(
         source_ids
     );
     clamp_packet_for_model_tier(packet, model_tier)
+}
+
+fn render_prompt_voice_contract(voice_mode: &str) -> &'static str {
+    match voice_mode {
+        "normal" => "normal prose; keep replies direct and token-efficient",
+        "caveman-lite" => "compressed wording; normal spelling; exact technical terms; no filler",
+        "caveman-full" => "compressed fragments allowed; normal spelling; exact technical terms",
+        "caveman-ultra" => {
+            "hard compressed; normal spelling; exact technical terms; rewrite before sending if draft slips"
+        }
+        "wenyan-lite" => "semi-classical Chinese; concise; keep technical terms exact",
+        "wenyan-full" => "classical Chinese; terse; keep technical terms exact",
+        "wenyan-ultra" => "max compressed classical Chinese; keep technical terms exact",
+        _ => "compressed wording; normal spelling; exact technical terms",
+    }
 }
 
 fn render_token_budget_section(
@@ -1148,6 +1198,7 @@ fn truncate_prompt_line(line: &str, max_chars: usize) -> String {
 #[derive(Debug, Clone, Default)]
 struct ContextPacketOptions {
     model_tier: Option<String>,
+    voice_mode: Option<String>,
     include_capabilities: bool,
     include_access: bool,
     include_hive: bool,
