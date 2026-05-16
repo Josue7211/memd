@@ -11,11 +11,22 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates wget \
     && rm -rf /var/lib/apt/lists/*
 
+ARG MEMD_GIT_BRANCH=unknown
+ARG MEMD_GIT_COMMIT=unknown
+ARG MEMD_GIT_DIRTY=unknown
+
 WORKDIR /srv/memd
 COPY --from=builder /app/target/release/memd-server /usr/local/bin/memd-server
 
 ENV MEMD_DB_PATH=/data/memd.db
 ENV MEMD_BIND_ADDR=0.0.0.0:8787
+ENV MEMD_GIT_BRANCH=${MEMD_GIT_BRANCH}
+ENV MEMD_GIT_COMMIT=${MEMD_GIT_COMMIT}
+ENV MEMD_GIT_DIRTY=${MEMD_GIT_DIRTY}
+
+LABEL org.opencontainers.image.revision="${MEMD_GIT_COMMIT}"
+LABEL org.memd.git.branch="${MEMD_GIT_BRANCH}"
+LABEL org.memd.git.dirty="${MEMD_GIT_DIRTY}"
 
 VOLUME ["/data"]
 EXPOSE 8787

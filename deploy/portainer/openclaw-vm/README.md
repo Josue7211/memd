@@ -20,13 +20,21 @@ under Portainer management.
 
 ## Expected flow
 
-1. Build the image on the target VM:
-   - `docker build -f deploy/docker/Dockerfile.memd-server -t memd-server:local .`
-2. Bootstrap the Portainer agent on `openclaw-vm`:
+1. Generate deploy identity from a clean checkout:
+   - `scripts/deploy-memd-server-preflight.sh`
+   - Source the output into the shell or copy the three env values into the
+     Portainer stack env: `MEMD_GIT_BRANCH`, `MEMD_GIT_COMMIT`,
+     `MEMD_GIT_DIRTY`.
+2. Build the image on the target VM with identity args:
+   - `docker build -f deploy/docker/Dockerfile.memd-server --build-arg MEMD_GIT_BRANCH="$MEMD_GIT_BRANCH" --build-arg MEMD_GIT_COMMIT="$MEMD_GIT_COMMIT" --build-arg MEMD_GIT_DIRTY="$MEMD_GIT_DIRTY" -t memd-server:"$MEMD_GIT_COMMIT" .`
+3. Bootstrap the Portainer agent on `openclaw-vm`:
    - `bash deploy/portainer/openclaw-vm/bootstrap-portainer-agent.sh`
-3. Add `openclaw-vm` as a Portainer endpoint in the services Portainer instance.
-4. Create the stack in Portainer using:
+4. Add `openclaw-vm` as a Portainer endpoint in the services Portainer instance.
+5. Create the stack in Portainer using:
    - `deploy/portainer/openclaw-vm/memd-server.compose.yml`
+
+`GET /api/status` must show the deployed commit, `git_dirty=clean`, and an
+acceptable `benchmark_gate` before `server_authority` can be considered ready.
 
 ## Runtime defaults
 
