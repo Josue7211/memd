@@ -479,7 +479,7 @@ mod tests {
         }]);
         let f4 = DriftDetector::new(f4_stub, f4_cfg);
         let err = f4
-            .detect(&pref_terse(), &vec!["very long verbose".into()])
+            .detect(&pref_terse(), &["very long verbose".into()])
             .unwrap_err();
         assert!(
             err.to_string().contains("BUDGET"),

@@ -140,20 +140,19 @@ pub fn apply_lifecycle(mut item: MemoryItem) -> (MemoryItem, bool) {
     let window = freshness_window_days(item.kind);
     let reference_time = item.last_verified_at.unwrap_or(item.updated_at);
 
-    if item.status == MemoryStatus::Active && item.stage == memd_schema::MemoryStage::Canonical {
-        if reference_time + Duration::days(window) <= now {
-            item.status = MemoryStatus::Stale;
-            item.updated_at = now;
-            return (item, true);
-        }
+    if item.status == MemoryStatus::Active
+        && item.stage == memd_schema::MemoryStage::Canonical
+        && reference_time + Duration::days(window) <= now
+    {
+        item.status = MemoryStatus::Stale;
+        item.updated_at = now;
+        return (item, true);
     }
 
-    if item.status == MemoryStatus::Stale {
-        if reference_time + Duration::days(window * 2) <= now {
-            item.status = MemoryStatus::Expired;
-            item.updated_at = now;
-            return (item, true);
-        }
+    if item.status == MemoryStatus::Stale && reference_time + Duration::days(window * 2) <= now {
+        item.status = MemoryStatus::Expired;
+        item.updated_at = now;
+        return (item, true);
     }
 
     (item, false)

@@ -9,8 +9,10 @@ pub const DEFAULT_TUNING_HEADROOM: f64 = 1.10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum CompilerMode {
     Static,
+    #[default]
     Dynamic,
     SelfTuning,
 }
@@ -22,12 +24,6 @@ impl CompilerMode {
             Self::Dynamic => "dynamic",
             Self::SelfTuning => "self_tuning",
         }
-    }
-}
-
-impl Default for CompilerMode {
-    fn default() -> Self {
-        Self::Dynamic
     }
 }
 
@@ -123,17 +119,22 @@ pub fn build_tuning_profile(
             .unwrap_or(1),
     );
     if sample_count == 0 {
-        return rejected_profile(
-            user_hash,
-            harness,
+        return TuningProfile {
+            user_hash: user_hash.to_string(),
+            harness: harness.to_string(),
+            mode: CompilerMode::SelfTuning,
             sample_count,
-            effective_baseline,
-            effective_baseline,
-            0.0,
-            0.0,
-            guard.min_quality_score,
-            "no_samples",
-        );
+            baseline_budget: effective_baseline,
+            tuned_budget: effective_baseline,
+            average_tokens: 0.0,
+            average_quality_score: 0.0,
+            baseline_quality_score: guard.min_quality_score,
+            quality_delta: -guard.min_quality_score,
+            token_savings_pct: 0.0,
+            budget_regression_pct: 0.0,
+            accepted: false,
+            rejected_reason: Some("no_samples".to_string()),
+        };
     }
 
     let average_tokens = points
@@ -233,35 +234,6 @@ pub fn build_ab_bench_result(
         token_savings_vs_dynamic_pct: percent_delta(dynamic_budget, self_tuning_budget),
         quality_delta_vs_dynamic: profile.quality_delta,
         accepted: profile.accepted,
-    }
-}
-
-fn rejected_profile(
-    user_hash: &str,
-    harness: &str,
-    sample_count: usize,
-    baseline_budget: u64,
-    tuned_budget: u64,
-    average_tokens: f64,
-    average_quality_score: f64,
-    baseline_quality_score: f64,
-    reason: &str,
-) -> TuningProfile {
-    TuningProfile {
-        user_hash: user_hash.to_string(),
-        harness: harness.to_string(),
-        mode: CompilerMode::SelfTuning,
-        sample_count,
-        baseline_budget,
-        tuned_budget,
-        average_tokens,
-        average_quality_score,
-        baseline_quality_score,
-        quality_delta: average_quality_score - baseline_quality_score,
-        token_savings_pct: 0.0,
-        budget_regression_pct: 0.0,
-        accepted: false,
-        rejected_reason: Some(reason.to_string()),
     }
 }
 

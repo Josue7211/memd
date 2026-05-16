@@ -52,6 +52,37 @@ impl CorrectionConfidence {
     }
 }
 
+/// Phase C4.10 — cross-harness resolver.
+///
+/// Picks the winning record between a prior belief and a candidate
+/// correction. The correction wins iff it explicitly supersedes the prior
+/// (`corrects_id == prior.id`) AND its Lamport `version` is strictly greater
+/// — Lamport tiebreak on `source_agent` if equal versions are encountered.
+pub fn pick_correction_winner<'a>(
+    prior: &'a memd_schema::MemoryItem,
+    correction: &'a memd_schema::MemoryItem,
+) -> &'a memd_schema::MemoryItem {
+    let supersedes_prior = correction
+        .correction_meta
+        .as_ref()
+        .and_then(|meta| meta.corrects_id)
+        == Some(prior.id)
+        || correction.supersedes.contains(&prior.id);
+    if !supersedes_prior {
+        return prior;
+    }
+    match correction.version.cmp(&prior.version) {
+        std::cmp::Ordering::Greater => correction,
+        std::cmp::Ordering::Equal => {
+            // Deterministic tiebreak: lexicographic on source_agent.
+            let p = prior.source_agent.as_deref().unwrap_or("");
+            let c = correction.source_agent.as_deref().unwrap_or("");
+            if c >= p { correction } else { prior }
+        }
+        std::cmp::Ordering::Less => prior,
+    }
+}
+
 #[cfg(test)]
 mod cross_harness_tests {
     use super::*;
@@ -155,36 +186,5 @@ mod cross_harness_tests {
         let unrelated = item(Uuid::new_v4(), "codex", 99, MemoryKind::Correction, "y");
         let winner = pick_correction_winner(&belief, &unrelated);
         assert_eq!(winner.id, belief.id);
-    }
-}
-
-/// Phase C4.10 — cross-harness resolver.
-///
-/// Picks the winning record between a prior belief and a candidate
-/// correction. The correction wins iff it explicitly supersedes the prior
-/// (`corrects_id == prior.id`) AND its Lamport `version` is strictly greater
-/// — Lamport tiebreak on `source_agent` if equal versions are encountered.
-pub fn pick_correction_winner<'a>(
-    prior: &'a memd_schema::MemoryItem,
-    correction: &'a memd_schema::MemoryItem,
-) -> &'a memd_schema::MemoryItem {
-    let supersedes_prior = correction
-        .correction_meta
-        .as_ref()
-        .and_then(|meta| meta.corrects_id)
-        == Some(prior.id)
-        || correction.supersedes.iter().any(|id| *id == prior.id);
-    if !supersedes_prior {
-        return prior;
-    }
-    match correction.version.cmp(&prior.version) {
-        std::cmp::Ordering::Greater => correction,
-        std::cmp::Ordering::Equal => {
-            // Deterministic tiebreak: lexicographic on source_agent.
-            let p = prior.source_agent.as_deref().unwrap_or("");
-            let c = correction.source_agent.as_deref().unwrap_or("");
-            if c >= p { correction } else { prior }
-        }
-        std::cmp::Ordering::Less => prior,
     }
 }

@@ -1,5 +1,6 @@
 use axum::http::StatusCode;
 use chrono::Utc;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::{
@@ -49,21 +50,40 @@ pub(crate) fn working_memory(
         .query
         .as_deref()
         .and_then(|q| crate::helpers::detect_content_lane(q, None, &[]));
-    state.rehearse_items(&items, 3).map_err(internal_error)?;
+    // Working memory is a hot read path. Record feedback for the top item only
+    // to preserve adaptive signal without turning every poll into multiple
+    // SQLite writes; broader search/context routes still record deeper feedback.
+    let working_feedback_limit = 1;
     state
-        .record_retrieval_feedback(&items, 3, "retrieved_working", &plan)
+        .rehearse_items(&items, working_feedback_limit)
+        .map_err(internal_error)?;
+    state
+        .record_retrieval_feedback(&items, working_feedback_limit, "retrieved_working", &plan)
         .map_err(internal_error)?;
     let now = Utc::now();
+    let item_ids = items.iter().map(|item| item.id).collect::<Vec<_>>();
+    let entities_by_item = state
+        .store
+        .latest_entities_for_items(&item_ids)
+        .map_err(internal_error)?;
+    let mut trust_cache: HashMap<String, f32> = HashMap::new();
     let mut ranked_items = Vec::with_capacity(items.len());
     for item in items {
-        let (entity, _) = state.entity_view(item.id, 1).map_err(internal_error)?;
-        let source_trust_score = state
-            .store
-            .trust_score_for_item(&item)
-            .map_err(internal_error)?;
+        let entity = entities_by_item.get(&item.id);
+        let trust_key = working_trust_cache_key(&item);
+        let source_trust_score = if let Some(score) = trust_cache.get(&trust_key) {
+            *score
+        } else {
+            let score = state
+                .store
+                .trust_score_for_item(&item)
+                .map_err(internal_error)?;
+            trust_cache.insert(trust_key, score);
+            score
+        };
         let (score, reasons) = working_item_priority(
             &item,
-            entity.as_ref(),
+            entity,
             source_trust_score,
             source_trust_floor,
             now,
@@ -131,13 +151,13 @@ pub(crate) fn working_memory(
 
     for (index, (item_id, record, reasons)) in compacted_records.iter().enumerate() {
         // Check lane diversity: if this lane already has lane_diversity_cap items, defer it
-        if let Some(item) = selected_items.iter().find(|i| i.id == *item_id) {
-            if let Some(lane) = &item.lane {
-                let count = lane_counts.get(lane.as_str()).copied().unwrap_or(0);
-                if count >= lane_diversity_cap && records.len() < admission_limit {
-                    deferred.push((index, record, reasons));
-                    continue;
-                }
+        if let Some(item) = selected_items.iter().find(|i| i.id == *item_id)
+            && let Some(lane) = &item.lane
+        {
+            let count = lane_counts.get(lane.as_str()).copied().unwrap_or(0);
+            if count >= lane_diversity_cap && records.len() < admission_limit {
+                deferred.push((index, record, reasons));
+                continue;
             }
         }
 
@@ -158,10 +178,10 @@ pub(crate) fn working_memory(
         });
 
         // Track lane counts for admitted items
-        if let Some(item) = selected_items.iter().find(|i| i.id == *item_id) {
-            if let Some(lane) = &item.lane {
-                *lane_counts.entry(lane.clone()).or_insert(0) += 1;
-            }
+        if let Some(item) = selected_items.iter().find(|i| i.id == *item_id)
+            && let Some(lane) = &item.lane
+        {
+            *lane_counts.entry(lane.clone()).or_insert(0) += 1;
         }
 
         if index + 1 >= admission_limit {
@@ -313,6 +333,18 @@ pub(crate) fn working_memory(
         procedures,
         compaction_quality: Some(compaction_quality),
     })
+}
+
+fn working_trust_cache_key(item: &memd_schema::MemoryItem) -> String {
+    format!(
+        "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+        item.project,
+        item.namespace,
+        item.workspace,
+        item.visibility,
+        item.source_agent,
+        item.source_system
+    )
 }
 
 fn build_rehydration_record(
@@ -631,6 +663,118 @@ fn format_source_quality(source_quality: Option<memd_schema::SourceQuality>) -> 
     }
 }
 
+pub(crate) fn memory_policy_snapshot() -> MemoryPolicyResponse {
+    MemoryPolicyResponse {
+        retrieval_order: vec![
+            MemoryScope::Local,
+            MemoryScope::Synced,
+            MemoryScope::Project,
+            MemoryScope::Global,
+        ],
+        route_defaults: vec![
+            MemoryPolicyRouteDefault {
+                intent: memd_schema::RetrievalIntent::General,
+                route: memd_schema::RetrievalRoute::All,
+            },
+            MemoryPolicyRouteDefault {
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                route: memd_schema::RetrievalRoute::ProjectFirst,
+            },
+            MemoryPolicyRouteDefault {
+                intent: memd_schema::RetrievalIntent::Decision,
+                route: memd_schema::RetrievalRoute::ProjectFirst,
+            },
+            MemoryPolicyRouteDefault {
+                intent: memd_schema::RetrievalIntent::Runbook,
+                route: memd_schema::RetrievalRoute::ProjectFirst,
+            },
+            MemoryPolicyRouteDefault {
+                intent: memd_schema::RetrievalIntent::Topology,
+                route: memd_schema::RetrievalRoute::ProjectFirst,
+            },
+            MemoryPolicyRouteDefault {
+                intent: memd_schema::RetrievalIntent::Preference,
+                route: memd_schema::RetrievalRoute::GlobalFirst,
+            },
+            MemoryPolicyRouteDefault {
+                intent: memd_schema::RetrievalIntent::Fact,
+                route: memd_schema::RetrievalRoute::All,
+            },
+            MemoryPolicyRouteDefault {
+                intent: memd_schema::RetrievalIntent::Pattern,
+                route: memd_schema::RetrievalRoute::GlobalFirst,
+            },
+        ],
+        working_memory: MemoryPolicyWorkingMemory {
+            budget_chars: 1600,
+            max_chars_per_item: 220,
+            default_limit: 8,
+            rehydration_limit: 3,
+        },
+        retrieval_feedback: MemoryPolicyFeedback {
+            enabled: true,
+            tracked_surfaces: vec![
+                "search".to_string(),
+                "context".to_string(),
+                "compact_context".to_string(),
+                "working".to_string(),
+                "explain".to_string(),
+                "timeline".to_string(),
+            ],
+            max_items_per_request: 3,
+        },
+        source_trust_floor: 0.6,
+        runtime: memd_schema::MemoryPolicyRuntime {
+            live_truth: memd_schema::MemoryPolicyLiveTruth {
+                read_once_sources: true,
+                raw_reopen_requires_change_or_doubt: true,
+                visible_memory_objects: true,
+                compile_from_events: true,
+            },
+            memory_compilation: memd_schema::MemoryPolicyMemoryCompilation {
+                event_driven_updates: true,
+                patch_not_rewrite: true,
+                preserve_provenance: true,
+                source_on_demand: true,
+            },
+            semantic_fallback: memd_schema::MemoryPolicySemanticFallback {
+                enabled: true,
+                source_of_truth: false,
+                max_items_per_query: 3,
+                rerank_with_visible_memory: true,
+            },
+            skill_gating: memd_schema::MemoryPolicySkillGating {
+                propose_from_repeated_patterns: true,
+                sandboxed_evaluation: true,
+                auto_activate_low_risk_only: true,
+                gated_activation: true,
+                require_evaluation: true,
+                require_policy_approval: true,
+            },
+        },
+        promotion: MemoryPolicyPromotion {
+            min_salience: 0.22,
+            min_events: 3,
+            lookback_days: 14,
+            default_ttl_days: 90,
+        },
+        decay: MemoryPolicyDecay {
+            max_items: 128,
+            inactive_days: 21,
+            max_decay: 0.12,
+            decay_divisor: 14.0,
+            record_events: true,
+        },
+        consolidation: MemoryPolicyConsolidation {
+            max_groups: 24,
+            min_events: 3,
+            lookback_days: 14,
+            min_salience: 0.22,
+            record_events: true,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -839,117 +983,5 @@ mod tests {
             lane_score > no_lane_score,
             "lane item ({lane_score:.3}) must outrank no-lane ({no_lane_score:.3}) without query"
         );
-    }
-}
-
-pub(crate) fn memory_policy_snapshot() -> MemoryPolicyResponse {
-    MemoryPolicyResponse {
-        retrieval_order: vec![
-            MemoryScope::Local,
-            MemoryScope::Synced,
-            MemoryScope::Project,
-            MemoryScope::Global,
-        ],
-        route_defaults: vec![
-            MemoryPolicyRouteDefault {
-                intent: memd_schema::RetrievalIntent::General,
-                route: memd_schema::RetrievalRoute::All,
-            },
-            MemoryPolicyRouteDefault {
-                intent: memd_schema::RetrievalIntent::CurrentTask,
-                route: memd_schema::RetrievalRoute::ProjectFirst,
-            },
-            MemoryPolicyRouteDefault {
-                intent: memd_schema::RetrievalIntent::Decision,
-                route: memd_schema::RetrievalRoute::ProjectFirst,
-            },
-            MemoryPolicyRouteDefault {
-                intent: memd_schema::RetrievalIntent::Runbook,
-                route: memd_schema::RetrievalRoute::ProjectFirst,
-            },
-            MemoryPolicyRouteDefault {
-                intent: memd_schema::RetrievalIntent::Topology,
-                route: memd_schema::RetrievalRoute::ProjectFirst,
-            },
-            MemoryPolicyRouteDefault {
-                intent: memd_schema::RetrievalIntent::Preference,
-                route: memd_schema::RetrievalRoute::GlobalFirst,
-            },
-            MemoryPolicyRouteDefault {
-                intent: memd_schema::RetrievalIntent::Fact,
-                route: memd_schema::RetrievalRoute::All,
-            },
-            MemoryPolicyRouteDefault {
-                intent: memd_schema::RetrievalIntent::Pattern,
-                route: memd_schema::RetrievalRoute::GlobalFirst,
-            },
-        ],
-        working_memory: MemoryPolicyWorkingMemory {
-            budget_chars: 1600,
-            max_chars_per_item: 220,
-            default_limit: 8,
-            rehydration_limit: 3,
-        },
-        retrieval_feedback: MemoryPolicyFeedback {
-            enabled: true,
-            tracked_surfaces: vec![
-                "search".to_string(),
-                "context".to_string(),
-                "compact_context".to_string(),
-                "working".to_string(),
-                "explain".to_string(),
-                "timeline".to_string(),
-            ],
-            max_items_per_request: 3,
-        },
-        source_trust_floor: 0.6,
-        runtime: memd_schema::MemoryPolicyRuntime {
-            live_truth: memd_schema::MemoryPolicyLiveTruth {
-                read_once_sources: true,
-                raw_reopen_requires_change_or_doubt: true,
-                visible_memory_objects: true,
-                compile_from_events: true,
-            },
-            memory_compilation: memd_schema::MemoryPolicyMemoryCompilation {
-                event_driven_updates: true,
-                patch_not_rewrite: true,
-                preserve_provenance: true,
-                source_on_demand: true,
-            },
-            semantic_fallback: memd_schema::MemoryPolicySemanticFallback {
-                enabled: true,
-                source_of_truth: false,
-                max_items_per_query: 3,
-                rerank_with_visible_memory: true,
-            },
-            skill_gating: memd_schema::MemoryPolicySkillGating {
-                propose_from_repeated_patterns: true,
-                sandboxed_evaluation: true,
-                auto_activate_low_risk_only: true,
-                gated_activation: true,
-                require_evaluation: true,
-                require_policy_approval: true,
-            },
-        },
-        promotion: MemoryPolicyPromotion {
-            min_salience: 0.22,
-            min_events: 3,
-            lookback_days: 14,
-            default_ttl_days: 90,
-        },
-        decay: MemoryPolicyDecay {
-            max_items: 128,
-            inactive_days: 21,
-            max_decay: 0.12,
-            decay_divisor: 14.0,
-            record_events: true,
-        },
-        consolidation: MemoryPolicyConsolidation {
-            max_groups: 24,
-            min_events: 3,
-            lookback_days: 14,
-            min_salience: 0.22,
-            record_events: true,
-        },
     }
 }

@@ -133,7 +133,7 @@ fn match_prior(turn: &str, prior: &[PriorClaim]) -> (bool, Option<String>, Optio
             .iter()
             .filter(|tok| turn_tokens.contains(*tok))
             .count();
-        if overlap >= 2 && best.map_or(true, |(score, _)| overlap > score) {
+        if overlap >= 2 && best.is_none_or(|(score, _)| overlap > score) {
             best = Some((overlap, claim));
         }
     }
@@ -147,7 +147,7 @@ fn match_prior(turn: &str, prior: &[PriorClaim]) -> (bool, Option<String>, Optio
 fn tokenize(text: &str) -> Vec<String> {
     text.to_ascii_lowercase()
         .split(|c: char| !c.is_alphanumeric())
-        .filter(|tok| tok.len() >= 3 && !STOPWORDS.contains(&tok.as_ref()))
+        .filter(|tok| tok.len() >= 3 && !STOPWORDS.contains(tok))
         .map(|tok| tok.to_string())
         .collect()
 }

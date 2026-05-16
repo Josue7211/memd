@@ -204,12 +204,11 @@ pub fn load_latest_sealed_paths(output: &Path) -> Vec<String> {
         };
         for s in sd.flatten() {
             let p = s.path();
-            if let Ok(meta) = fs::metadata(&p) {
-                if let Ok(mt) = meta.modified() {
-                    if latest.as_ref().map_or(true, |(l, _)| mt > *l) {
-                        latest = Some((mt, p));
-                    }
-                }
+            if let Ok(meta) = fs::metadata(&p)
+                && let Ok(mt) = meta.modified()
+                && latest.as_ref().is_none_or(|(l, _)| mt > *l)
+            {
+                latest = Some((mt, p));
             }
         }
     }

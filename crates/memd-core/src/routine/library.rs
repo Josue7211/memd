@@ -328,7 +328,7 @@ pub fn routine_export_checksum(export: &RoutineExport) -> anyhow::Result<String>
     let mut clone = export.clone();
     clone.checksum.clear();
     let bytes = serde_json::to_vec(&clone).context("serialize routine export")?;
-    Ok(to_hex(&Sha256::digest(bytes)))
+    Ok(to_hex(Sha256::digest(bytes)))
 }
 
 fn validate_steps(status: RoutineStatus, steps: &[String]) -> anyhow::Result<()> {

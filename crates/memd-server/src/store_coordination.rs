@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::*;
 use crate::store_hive::annotate_hive_relationships;
 
@@ -39,6 +41,17 @@ impl SqliteStore {
                 limit: Some(256),
             })?
             .receipts;
+        let dev_server_leases = self
+            .dev_server_leases(&DevServerLeasesRequest {
+                session: None,
+                project: request.project.clone(),
+                namespace: request.namespace.clone(),
+                workspace: request.workspace.clone(),
+                repo_hash: None,
+                active_only: Some(true),
+                limit: Some(64),
+            })?
+            .leases;
 
         let visible_sessions = sessions
             .iter()
@@ -92,6 +105,21 @@ impl SqliteStore {
             .filter(|receipt| is_active_hive_board_receipt(receipt, &active_session_ids))
             .filter(|receipt| receipt.kind.starts_with("lane_"))
             .map(|receipt| receipt.summary.clone())
+            .chain(dev_server_leases.iter().map(|lease| {
+                format!(
+                    "dev-server {} owner={} pid={} scope={}",
+                    lease.url,
+                    lease
+                        .effective_agent
+                        .as_deref()
+                        .unwrap_or(lease.session.as_str()),
+                    lease
+                        .pid
+                        .map(|pid| pid.to_string())
+                        .unwrap_or_else(|| "none".to_string()),
+                    lease.scope
+                )
+            }))
             .collect::<Vec<_>>();
         let overlap_risks = active_bees
             .iter()
@@ -127,7 +155,9 @@ impl SqliteStore {
                     .iter()
                     .filter(|receipt| is_active_hive_board_receipt(receipt, &active_session_ids))
                     .filter(|receipt| {
-                        receipt.kind == "queen_deny" || receipt.kind.starts_with("lane_")
+                        receipt.kind == "queen_deny"
+                            || receipt.kind.starts_with("lane_")
+                            || receipt.kind == "dev_server_conflict"
                     })
                     .map(|receipt| receipt.summary.clone()),
             )
@@ -155,6 +185,16 @@ impl SqliteStore {
             .filter(|receipt| receipt.kind == "queen_deny")
         {
             recommended_actions.push(format!("reroute {}", receipt.summary));
+        }
+        for lease in &dev_server_leases {
+            recommended_actions.push(format!(
+                "reuse {} owned by {}",
+                lease.url,
+                lease
+                    .effective_agent
+                    .as_deref()
+                    .unwrap_or(lease.session.as_str())
+            ));
         }
 
         Ok(HiveBoardResponse {

@@ -122,7 +122,7 @@ fn build_corrections_chain(
         frontier.extend(predecessor.supersedes);
     }
 
-    chain.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    chain.sort_by_key(|item| std::cmp::Reverse(item.updated_at));
     Ok(chain)
 }
 
@@ -158,7 +158,7 @@ fn build_confidence_timeline(
         });
     }
 
-    samples.sort_by(|a, b| a.at.cmp(&b.at));
+    samples.sort_by_key(|a| a.at);
     samples
 }
 
@@ -177,7 +177,7 @@ fn build_trust_rank_history(events: &[MemoryEventRecord]) -> Vec<TrustRankSample
             confidence: event.confidence,
         })
         .collect();
-    samples.sort_by(|a, b| a.at.cmp(&b.at));
+    samples.sort_by_key(|a| a.at);
     samples
 }
 
@@ -260,7 +260,7 @@ fn build_branch_siblings(
             updated_at: candidate.updated_at,
         })
         .collect::<Vec<_>>();
-    siblings.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    siblings.sort_by_key(|item| std::cmp::Reverse(item.updated_at));
     siblings.truncate(6);
     Ok(siblings)
 }

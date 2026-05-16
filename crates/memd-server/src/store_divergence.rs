@@ -65,10 +65,10 @@ impl SqliteStore {
             else {
                 continue;
             };
-            if let Some(workspace) = request.workspace.as_deref() {
-                if item.workspace.as_deref() != Some(workspace) {
-                    continue;
-                }
+            if let Some(workspace) = request.workspace.as_deref()
+                && item.workspace.as_deref() != Some(workspace)
+            {
+                continue;
             }
             let text = item.content.chars().take(280).collect::<String>();
             let normalized = normalize_decision(&text);

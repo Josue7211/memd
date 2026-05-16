@@ -106,7 +106,7 @@ pub fn locate_latest_sealed(output: &Path, session_id: &str) -> Option<PathBuf> 
         let Ok(ts) = stem.parse::<u64>() else {
             continue;
         };
-        if best.as_ref().map_or(true, |(b, _)| ts > *b) {
+        if best.as_ref().is_none_or(|(b, _)| ts > *b) {
             best = Some((ts, path));
         }
     }

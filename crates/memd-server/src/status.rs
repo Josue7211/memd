@@ -130,7 +130,9 @@ pub(crate) async fn verify_spine(
 
 #[cfg(test)]
 mod tests {
-    use super::{atlas_dormant_for_ratio, benchmark_gate_for_latency, deployment_identity_value_from};
+    use super::{
+        atlas_dormant_for_ratio, benchmark_gate_for_latency, deployment_identity_value_from,
+    };
 
     #[test]
     fn atlas_dormancy_uses_active_items_not_total_rows() {

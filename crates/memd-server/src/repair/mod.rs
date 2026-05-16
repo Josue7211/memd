@@ -99,7 +99,7 @@ pub(crate) fn correct_item(
         state,
         &superseded,
         "superseded_by_correction",
-        &format!("memory item superseded by correction"),
+        "memory item superseded by correction",
     ) {
         warn!(error = %format_args!("{e:#}"), "record_lifecycle_event (superseded_by_correction)");
     }
@@ -177,36 +177,36 @@ pub(crate) fn correct_item(
     //    canonical_key yields a different entity). The old item's entity is the
     //    one that siblings share. Mark Active siblings with different content Contested.
     let mut contested = Vec::new();
-    if let Ok(Some(entity)) = state.store.entity_for_item(old_item.id) {
-        if let Ok(siblings) = state.store.items_for_entity(entity.id) {
-            for mut sibling in siblings {
-                if sibling.id == new_item.id || sibling.id == old_item.id {
-                    continue;
-                }
-                if sibling.status != MemoryStatus::Active {
-                    continue;
-                }
-                if sibling.kind != new_item.kind
-                    || sibling.scope != new_item.scope
-                    || sibling.project != new_item.project
-                {
-                    continue;
-                }
-                if sibling.content != new_item.content {
-                    sibling.status = MemoryStatus::Contested;
-                    sibling.updated_at = Utc::now();
-                    let sib_canonical = canonical_key(&sibling);
-                    let sib_redundancy = redundancy_key(&sibling);
-                    let sibling = MemoryItem {
-                        redundancy_key: Some(sib_redundancy.clone()),
-                        ..sibling
-                    };
-                    state
-                        .store
-                        .update(&sibling, &sib_canonical, &sib_redundancy)
-                        .map_err(internal_error)?;
-                    contested.push(sibling.id);
-                }
+    if let Ok(Some(entity)) = state.store.entity_for_item(old_item.id)
+        && let Ok(siblings) = state.store.items_for_entity(entity.id)
+    {
+        for mut sibling in siblings {
+            if sibling.id == new_item.id || sibling.id == old_item.id {
+                continue;
+            }
+            if sibling.status != MemoryStatus::Active {
+                continue;
+            }
+            if sibling.kind != new_item.kind
+                || sibling.scope != new_item.scope
+                || sibling.project != new_item.project
+            {
+                continue;
+            }
+            if sibling.content != new_item.content {
+                sibling.status = MemoryStatus::Contested;
+                sibling.updated_at = Utc::now();
+                let sib_canonical = canonical_key(&sibling);
+                let sib_redundancy = redundancy_key(&sibling);
+                let sibling = MemoryItem {
+                    redundancy_key: Some(sib_redundancy.clone()),
+                    ..sibling
+                };
+                state
+                    .store
+                    .update(&sibling, &sib_canonical, &sib_redundancy)
+                    .map_err(internal_error)?;
+                contested.push(sibling.id);
             }
         }
     }

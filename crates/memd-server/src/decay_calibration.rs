@@ -18,6 +18,8 @@
 //! Reinforcement adds `reinforcement_bump` to salience on every access
 //! and increments rehearsal_count.
 
+#![allow(dead_code)]
+
 #[derive(Debug, Clone, Copy)]
 pub struct DecayEvent {
     /// Turn index at which the item was accessed.

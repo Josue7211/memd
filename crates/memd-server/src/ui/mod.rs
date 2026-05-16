@@ -153,6 +153,8 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse, page: UiP
     } else {
         "tag nav-link"
     };
+    let focus_status = format!("{:?}", focus.status);
+    let focus_confidence = format!("{:.2}", focus.confidence);
 
     format!(
         r##"<!doctype html>
@@ -1165,7 +1167,7 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse, page: UiP
         title = escape_html(&focus.title),
         body = escape_html(&focus.body),
         artifact_kind = escape_html(&focus.artifact_kind),
-        status = format!("{:?}", focus.status),
+        status = focus_status,
         freshness = escape_html(&focus.freshness),
         workspace = escape_html(focus.workspace.as_deref().unwrap_or("none")),
         inbox_count = snapshot.home.inbox_count,
@@ -1174,7 +1176,7 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse, page: UiP
         source_system = escape_html(source_system),
         source_path = escape_html(source_path),
         producer = escape_html(producer),
-        confidence = format!("{:.2}", focus.confidence),
+        confidence = focus_confidence,
         repair_state = escape_html(&focus.repair_state),
         obsidian_bridge = obsidian_bridge,
         related_nodes = related_nodes,
@@ -2040,7 +2042,7 @@ mod tests {
         assert_eq!(detail.artifact.id, item.id);
         assert_eq!(detail.artifact.title, "runtime-spine");
         assert!(detail.explain.is_some());
-        assert!(detail.sources.sources.len() >= 1);
+        assert!(!detail.sources.sources.is_empty());
         assert_eq!(detail.workspaces.workspaces.len(), 1);
         assert_eq!(detail.sessions.sessions.len(), 0);
         assert_eq!(detail.tasks.tasks.len(), 0);

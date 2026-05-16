@@ -244,7 +244,7 @@ impl SqliteStore {
                         })
                         .filter(|(overlap, _)| *overlap > 0)
                         .collect();
-                    tag_neighbors.sort_by(|a, b| b.0.cmp(&a.0));
+                    tag_neighbors.sort_by_key(|entry| std::cmp::Reverse(entry.0));
 
                     for (_, neighbor) in tag_neighbors.into_iter().take(limit / 2) {
                         if seen.insert(neighbor.id) {
@@ -355,7 +355,7 @@ impl SqliteStore {
             for node in &nodes {
                 events.extend(self.events_for_item(node.memory_id)?);
             }
-            events.sort_by(|a, b| b.occurred_at.cmp(&a.occurred_at));
+            events.sort_by_key(|event| std::cmp::Reverse(event.occurred_at));
             events.truncate(50);
             events
         } else {
@@ -454,7 +454,7 @@ impl SqliteStore {
             regions.push(region);
         }
 
-        regions.sort_by(|a, b| b.node_count.cmp(&a.node_count));
+        regions.sort_by_key(|region| std::cmp::Reverse(region.node_count));
         Ok(regions)
     }
 
@@ -675,7 +675,7 @@ impl SqliteStore {
             .filter(|item| project.is_none() || item.project.as_deref() == project)
             .filter(|item| namespace.is_none() || item.namespace.as_deref() == namespace)
             .collect();
-        working.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        working.sort_by_key(|item| std::cmp::Reverse(item.updated_at));
         working.truncate(10);
         Ok(working.into_iter().map(|item| item.id).collect())
     }

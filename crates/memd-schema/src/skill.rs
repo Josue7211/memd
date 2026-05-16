@@ -60,7 +60,7 @@ impl SkillBody {
     /// back to drive mirror regeneration.
     pub fn parse_skill_md(raw: &str) -> Option<SkillBody> {
         let mut lines = raw.lines();
-        if !lines.next().is_some_and(|line| line.trim() == "---") {
+        if lines.next().is_none_or(|line| line.trim() != "---") {
             return None;
         }
         let mut name = None;

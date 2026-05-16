@@ -83,7 +83,7 @@ pub(crate) fn rotate_snapshots(dir: &Path, keep: usize) -> anyhow::Result<Vec<Pa
             Some((mtime, path))
         })
         .collect();
-    entries.sort_by(|a, b| b.0.cmp(&a.0));
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.0));
 
     let mut pruned = Vec::new();
     for (_, path) in entries.into_iter().skip(keep) {

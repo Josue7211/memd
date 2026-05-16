@@ -126,25 +126,25 @@ impl HookTrace {
         let _g = self
             .gate
             .lock()
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "hook trace mutex poisoned"))?;
+            .map_err(|_| io::Error::other("hook trace mutex poisoned"))?;
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let mut file = self.open_for_append()?;
         // Check cap; if exceeded, emit a single truncation-required line
         // and stop — contract §7.
-        if let Ok(meta) = file.metadata() {
-            if meta.len() >= TRACE_SIZE_CAP_BYTES {
-                let marker = serde_json::json!({
-                    "ts_ms": HookRecord::new(HookEvent::TruncationRequired, &record.session_id).ts_ms,
-                    "event": "truncation-required",
-                    "session_id": record.session_id,
-                    "failure_class": "none",
-                    "trace_id": Ulid::new().to_string(),
-                });
-                writeln!(file, "{}", marker)?;
-                return Ok(());
-            }
+        if let Ok(meta) = file.metadata()
+            && meta.len() >= TRACE_SIZE_CAP_BYTES
+        {
+            let marker = serde_json::json!({
+                "ts_ms": HookRecord::new(HookEvent::TruncationRequired, &record.session_id).ts_ms,
+                "event": "truncation-required",
+                "session_id": record.session_id,
+                "failure_class": "none",
+                "trace_id": Ulid::new().to_string(),
+            });
+            writeln!(file, "{}", marker)?;
+            return Ok(());
         }
         let line = serde_json::to_string(record)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
