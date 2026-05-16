@@ -1759,6 +1759,7 @@ fn wake_packet_cross_harness_profiles_keep_same_bundle_defaults() {
         let output = Command::new("bash")
             .arg("-c")
             .arg(profile)
+            .current_dir(&root)
             .env("PATH", format!("{}:{}", bin_dir.display(), path))
             .env("MEMD_LOG_PATH", &log_path)
             .output()
@@ -2076,7 +2077,7 @@ fn default_base_url_prefers_global_bundle_override() {
 }
 
 #[test]
-fn resolve_bundle_command_base_url_honors_env_override() {
+fn resolve_bundle_command_base_url_prefers_runtime_over_env_default() {
     let original_base_url = std::env::var_os("MEMD_BASE_URL");
     unsafe {
         std::env::set_var("MEMD_BASE_URL", "http://127.0.0.1:8787");
@@ -2086,7 +2087,31 @@ fn resolve_bundle_command_base_url_honors_env_override() {
         "http://127.0.0.1:8787",
         Some("http://100.104.154.24:8787"),
     );
-    assert_eq!(resolved, "http://127.0.0.1:8787");
+    assert_eq!(resolved, "http://100.104.154.24:8787");
+
+    if let Some(value) = original_base_url {
+        unsafe {
+            std::env::set_var("MEMD_BASE_URL", value);
+        }
+    } else {
+        unsafe {
+            std::env::remove_var("MEMD_BASE_URL");
+        }
+    }
+}
+
+#[test]
+fn resolve_bundle_command_base_url_honors_explicit_non_default_request() {
+    let original_base_url = std::env::var_os("MEMD_BASE_URL");
+    unsafe {
+        std::env::set_var("MEMD_BASE_URL", "http://127.0.0.1:8787");
+    }
+
+    let resolved = resolve_bundle_command_base_url(
+        "http://127.0.0.1:9797",
+        Some("http://100.104.154.24:8787"),
+    );
+    assert_eq!(resolved, "http://127.0.0.1:9797");
 
     if let Some(value) = original_base_url {
         unsafe {
@@ -2495,5 +2520,5 @@ async fn read_bundle_status_reports_live_session_rebind() {
             std::env::remove_var("HOME");
         }
     }
-    fs::remove_dir_all(temp_root).expect("cleanup status rebind temp");
+    cleanup_temp_dir(temp_root, "cleanup status rebind temp");
 }

@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use crate::harness::preset::SHARED_VISIBLE_SURFACES;
-use crate::harness::shared::HarnessPackData;
+use crate::harness::shared::{
+    HarnessPackData, memory_os_guardrail_behaviors, strict_context_command,
+};
 
 pub(crate) type HermesHarnessPack = HarnessPackData;
 
@@ -24,15 +26,20 @@ pub(crate) fn build_hermes_harness_pack(
         commands: vec![
             "memd wake --output .memd --write".to_string(),
             "memd resume --output .memd --semantic".to_string(),
+            strict_context_command("hermes"),
             "memd hook capture --output .memd --stdin --summary".to_string(),
             "memd hook spill --output .memd --stdin --apply".to_string(),
         ],
-        behaviors: vec![
-            "onboarding-friendly wake before the turn".to_string(),
-            "capture after the turn".to_string(),
-            "spill at compaction boundaries".to_string(),
-            "turn-scoped cache".to_string(),
-            "cloud-first reach with self-host later".to_string(),
-        ],
+        behaviors: {
+            let mut behaviors = vec![
+                "onboarding-friendly wake before the turn".to_string(),
+                "capture after the turn".to_string(),
+                "spill at compaction boundaries".to_string(),
+                "turn-scoped cache".to_string(),
+                "cloud-first reach with self-host later".to_string(),
+            ];
+            behaviors.extend(memory_os_guardrail_behaviors());
+            behaviors
+        },
     }
 }

@@ -116,3 +116,18 @@ pub(crate) fn pack_index_entry_from_view(
         behaviors: pack.behaviors().to_vec(),
     }
 }
+
+pub(crate) fn strict_context_command(agent: &str) -> String {
+    format!(
+        "memd context --agent {agent} --intent current_task --format prompt --include-capabilities --include-access --safety strict"
+    )
+}
+
+pub(crate) fn memory_os_guardrail_behaviors() -> Vec<String> {
+    vec![
+        "ask or run memd lookup before claiming unknown important facts".to_string(),
+        "save new user-taught facts through memd teach; use hook capture only for live turn spill"
+            .to_string(),
+        "include Active Capabilities and Access Routes before tool-sensitive work".to_string(),
+    ]
+}

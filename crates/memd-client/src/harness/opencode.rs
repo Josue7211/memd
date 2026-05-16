@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use crate::harness::preset::SHARED_VISIBLE_SURFACES;
-use crate::harness::shared::HarnessPackData;
+use crate::harness::shared::{
+    HarnessPackData, memory_os_guardrail_behaviors, strict_context_command,
+};
 
 pub(crate) type OpenCodeHarnessPack = HarnessPackData;
 
@@ -23,17 +25,22 @@ pub(crate) fn build_opencode_harness_pack(
             .collect(),
         commands: vec![
             "memd resume --output .memd".to_string(),
+            strict_context_command("opencode"),
             "memd remember --output .memd --kind decision --content \"Keep the shared lane current.\""
                 .to_string(),
             "memd handoff --output .memd --prompt".to_string(),
             "memd hook spill --output .memd --stdin --apply".to_string(),
         ],
-        behaviors: vec![
-            "resume before starting work".to_string(),
-            "write durable outcomes back".to_string(),
-            "emit a shared handoff".to_string(),
-            "spill at compaction boundaries".to_string(),
-            "keep the visible bundle in sync".to_string(),
-        ],
+        behaviors: {
+            let mut behaviors = vec![
+                "resume before starting work".to_string(),
+                "write durable outcomes back".to_string(),
+                "emit a shared handoff".to_string(),
+                "spill at compaction boundaries".to_string(),
+                "keep the visible bundle in sync".to_string(),
+            ];
+            behaviors.extend(memory_os_guardrail_behaviors());
+            behaviors
+        },
     }
 }

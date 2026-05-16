@@ -54,8 +54,9 @@ fn maybe_symlink_worktree_bundle(output: &Path) -> anyhow::Result<bool> {
     }
     #[cfg(unix)]
     {
-        std::os::unix::fs::symlink(&main_bundle, &target)
-            .with_context(|| format!("symlink {} -> {}", target.display(), main_bundle.display()))?;
+        std::os::unix::fs::symlink(&main_bundle, &target).with_context(|| {
+            format!("symlink {} -> {}", target.display(), main_bundle.display())
+        })?;
         eprintln!(
             "memd: detected git worktree, linked {} -> {}",
             target.display(),
@@ -78,8 +79,11 @@ fn maybe_symlink_worktree_bundle(output: &Path) -> anyhow::Result<bool> {
             Err(error) => {
                 eprintln!(
                     "memd: detected git worktree but could not symlink {} -> {} ({}). Falling back to fresh bundle. To share memory across worktrees, run: mklink /D {} {}",
-                    target.display(), main_bundle.display(), error,
-                    target.display(), main_bundle.display(),
+                    target.display(),
+                    main_bundle.display(),
+                    error,
+                    target.display(),
+                    main_bundle.display(),
                 );
                 Ok(false)
             }
@@ -552,11 +556,7 @@ fn default_device_name() -> String {
 }
 
 fn short_uuid() -> String {
-    uuid::Uuid::new_v4()
-        .to_string()
-        .chars()
-        .take(8)
-        .collect()
+    uuid::Uuid::new_v4().to_string().chars().take(8).collect()
 }
 
 fn current_git_head() -> Option<String> {

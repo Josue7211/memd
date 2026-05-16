@@ -171,6 +171,7 @@ fn lookup_markdown_mentions_pre_answer_protocol() {
             version: 1,
             correction_meta: None,
         }],
+        trace: None,
     };
 
     let request = SearchMemoryRequest {

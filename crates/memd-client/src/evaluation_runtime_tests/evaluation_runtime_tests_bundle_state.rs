@@ -1,5 +1,6 @@
     use super::*;
 
+    #[test]
     fn checkpoint_translation_sets_short_term_defaults() {
         let args = CheckpointArgs {
             output: PathBuf::from(".memd"),
@@ -208,6 +209,7 @@
         let remember_short = render_checkpoint_shell_profile(&dir);
         let remember_long =
             render_remember_shell_profile(&dir, "fact", &["basic-memory", "long-term"]);
+        let teach = render_teach_shell_profile(&dir);
         let watch = render_watch_shell_profile(&dir);
         let capture_live = render_capture_shell_profile(&dir, "capture-live");
         let sync_semantic = render_rag_sync_shell_profile(&dir);
@@ -258,6 +260,8 @@
         assert!(remember_short.contains("--tag basic-memory --tag short-term"));
         assert!(remember_long.contains("--kind \"fact\""));
         assert!(remember_long.contains("--tag \"long-term\""));
+        assert!(teach.contains("teach --output"));
+        assert!(teach.contains("MEMD_BIN"));
         assert!(watch.contains("memd watch --root"));
         assert!(capture_live.contains("hook capture --output"));
         assert!(capture_live.contains("--tag basic-memory"));
@@ -771,6 +775,7 @@
                 status: memd_schema::MemoryStatus::Active,
                 stage: memd_schema::MemoryStage::Canonical,
             }],
+            trace: None,
         };
 
         let request = SearchMemoryRequest {
@@ -1573,5 +1578,3 @@
 
     #[path = "evaluation_runtime_tests_bundle_setup.rs"]
     mod evaluation_runtime_tests_bundle_setup;
-
-    #[test]

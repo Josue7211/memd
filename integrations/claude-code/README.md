@@ -16,8 +16,11 @@ Recommended flow:
 2. verify the import chain with `/memory`
 3. refresh wake-up state with `memd wake`
 4. use `memd lookup` before answering about prior decisions, preferences, or history
-5. write durable takeaways back through `memd`
-6. let dream/autodream flow back into the same imported surface
+5. ask or run `memd lookup` before claiming unknown important facts
+6. save new user-taught facts with `memd teach --output .memd --content "..."`
+7. compile strict context with capabilities/access before tool-sensitive work
+8. write durable takeaways back through `memd`
+9. let dream/autodream flow back into the same imported surface
 
 Claude Code uses the same shared hook kit and bundle truth as the other
 harness packs, but its native bridge is the primary path.
@@ -113,7 +116,7 @@ That keeps Claude's native memory surface and `memd`'s source of truth aligned.
 ## Read Context
 
 ```bash
-memd context --project <project> --agent claude-code --compact
+memd context --agent claude-code --intent current_task --format prompt --include-capabilities --include-access --safety strict
 ```
 
 ## Hook Context

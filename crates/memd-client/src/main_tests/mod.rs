@@ -1,5 +1,11 @@
 use super::*;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::{
+    fs,
+    path::Path,
+    sync::{Arc, Mutex, OnceLock},
+    thread,
+    time::Duration,
+};
 
 use crate::render::{
     render_agent_zero_harness_pack_markdown, render_claude_code_harness_pack_markdown,
@@ -32,14 +38,35 @@ fn lock_home_mutation() -> std::sync::MutexGuard<'static, ()> {
     HOME_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
-        .expect("HOME mutation lock poisoned")
+        .unwrap_or_else(|poison| poison.into_inner())
 }
 
 fn lock_env_mutation() -> std::sync::MutexGuard<'static, ()> {
     ENV_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
-        .expect("env mutation lock poisoned")
+        .unwrap_or_else(|poison| poison.into_inner())
+}
+
+fn cleanup_temp_dir(path: impl AsRef<Path>, label: &str) {
+    let path = path.as_ref();
+    for attempt in 0..3 {
+        match fs::remove_dir_all(path) {
+            Ok(()) => return,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return,
+            Err(err) if attempt < 2 => {
+                eprintln!("{label}: cleanup retry after {err}");
+                thread::sleep(Duration::from_millis(25));
+            }
+            Err(err) => {
+                eprintln!(
+                    "{label}: leaving temp dir {} after cleanup failed: {err}",
+                    path.display()
+                );
+                return;
+            }
+        }
+    }
 }
 
 fn normalize_path_text(value: impl AsRef<Path>) -> String {

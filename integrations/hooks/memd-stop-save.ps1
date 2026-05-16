@@ -56,7 +56,7 @@ if ($sinceLast -ge $SaveInterval -and $exchangeCount -gt 0) {
   @'
 {
   "decision": "block",
-  "reason": "AUTO-SAVE checkpoint. Before stopping, persist the important state from this session into memd. Prefer compact truth over summary sludge: 1. run memd checkpoint for the current task state, 2. write any durable decisions/corrections/preferences, 3. if you have a compaction packet or turn-state delta, run memd hook spill --output .memd --stdin --apply, 4. then continue."
+  "reason": "AUTO-SAVE checkpoint. Before stopping, persist the important state from this session into memd. Prefer compact truth over summary sludge: 1. run memd checkpoint for the current task state, 2. save user-taught facts with memd teach --output .memd --content \"...\", 3. write durable decisions/corrections/preferences with memd remember, 4. if you have a compaction packet or turn-state delta, run memd hook spill --output .memd --stdin --apply, 5. then continue."
 }
 '@
 } else {

@@ -11,8 +11,9 @@
 # emitted `{"decision":"block"}` unconditionally, which deadlocked /compact.
 # Continuous capture happens via UserPromptSubmit + PostToolUse hooks; this
 # hook is a seal-and-proceed, not a gate. If you need a richer snapshot,
-# call `memd checkpoint` or `memd hook spill --stdin --apply` before /compact
-# — the PreCompact hook will NOT force you to.
+# call `memd checkpoint`, `memd teach --output .memd --content "..."` for
+# user-taught facts, or `memd hook spill --stdin --apply` before /compact — the
+# PreCompact hook will NOT force you to.
 set -euo pipefail
 
 STATE_DIR="${MEMD_HOOK_STATE_DIR:-$HOME/.memd/hook_state}"

@@ -81,6 +81,7 @@ async fn search_memory(
             version: 1,
             correction_meta: None,
         }],
+        trace: None,
     })
 }
 
@@ -134,6 +135,7 @@ async fn mock_search_memory_for_spill(
         route: RetrievalRoute::Auto,
         intent: RetrievalIntent::CurrentTask,
         items: Vec::new(),
+        trace: None,
     })
 }
 
@@ -375,7 +377,10 @@ async fn lookup_cli_defaults_stay_on_repo_b_bundle_against_live_memory_server() 
     env.remove("MEMD_BUNDLE_ROOT");
     let _cwd = set_current_dir(&repo_b_nested);
     let output = default_bundle_root_path();
-    assert_eq!(output, local_bundle);
+    assert_eq!(
+        fs::canonicalize(&output).expect("canonicalize resolved bundle"),
+        fs::canonicalize(&local_bundle).expect("canonicalize expected bundle")
+    );
     let args = LookupArgs {
         output,
         query: "repo bleed".to_string(),

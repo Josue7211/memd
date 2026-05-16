@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use crate::harness::preset::SHARED_VISIBLE_SURFACES;
-use crate::harness::shared::HarnessPackData;
+use crate::harness::shared::{
+    HarnessPackData, memory_os_guardrail_behaviors, strict_context_command,
+};
 
 pub(crate) type AgentZeroHarnessPack = HarnessPackData;
 
@@ -23,17 +25,22 @@ pub(crate) fn build_agent_zero_harness_pack(
             .collect(),
         commands: vec![
             "memd resume --output .memd".to_string(),
+            strict_context_command("agent-zero"),
             "memd remember --output .memd --kind decision --content \"Keep the zero-friction lane current.\""
                 .to_string(),
             "memd handoff --output .memd --prompt".to_string(),
             "memd hook spill --output .memd --stdin --apply".to_string(),
         ],
-        behaviors: vec![
-            "zero-friction resume before starting work".to_string(),
-            "write durable outcomes back".to_string(),
-            "emit a shared handoff".to_string(),
-            "spill at compaction boundaries".to_string(),
-            "keep the visible bundle in sync".to_string(),
-        ],
+        behaviors: {
+            let mut behaviors = vec![
+                "zero-friction resume before starting work".to_string(),
+                "write durable outcomes back".to_string(),
+                "emit a shared handoff".to_string(),
+                "spill at compaction boundaries".to_string(),
+                "keep the visible bundle in sync".to_string(),
+            ];
+            behaviors.extend(memory_os_guardrail_behaviors());
+            behaviors
+        },
     }
 }

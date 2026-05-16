@@ -320,6 +320,13 @@ pub(crate) fn render_remember_shell_profile(output: &Path, kind: &str, tags: &[&
     script
 }
 
+pub(crate) fn render_teach_shell_profile(output: &Path) -> String {
+    format!(
+        "#!/usr/bin/env bash\nset -euo pipefail\n\n{}source \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n\nmemd_cmd=\"${{MEMD_BIN:-memd}}\"\nif [[ -z \"${{MEMD_BIN:-}}\" ]]; then\ncandidate=\"$MEMD_BUNDLE_ROOT/../target/debug/memd\"\n[[ -x \"$candidate\" ]] && memd_cmd=\"$candidate\"\nfi\nargs=(teach --output \"$MEMD_BUNDLE_ROOT\")\nexec \"$memd_cmd\" \"${{args[@]}}\" \"$@\"\n",
+        bash_bundle_root_resolver(output),
+    )
+}
+
 pub(crate) fn render_remember_ps1_profile(output: &Path, kind: &str, tags: &[&str]) -> String {
     let mut script = format!(
         "{}$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n$args = @(\"remember\", \"--output\", $env:MEMD_BUNDLE_ROOT, \"--kind\", \"{}\", \"--scope\", \"project\")\n",
@@ -331,6 +338,13 @@ pub(crate) fn render_remember_ps1_profile(output: &Path, kind: &str, tags: &[&st
     }
     script.push_str("memd @args @Args\n");
     script
+}
+
+pub(crate) fn render_teach_ps1_profile(output: &Path) -> String {
+    format!(
+        "{}$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n$memdCmd = if ($env:MEMD_BIN) {{ $env:MEMD_BIN }} else {{ \"memd\" }}\nif (-not $env:MEMD_BIN) {{\n$candidate = Join-Path (Split-Path -Parent $env:MEMD_BUNDLE_ROOT) \"target/debug/memd\"\nif (Test-Path $candidate) {{ $memdCmd = $candidate }}\n}}\n$args = @(\"teach\", \"--output\", $env:MEMD_BUNDLE_ROOT)\n& $memdCmd @args @Args\n",
+        ps1_bundle_root_resolver(output),
+    )
 }
 
 pub(crate) fn render_capture_shell_profile(output: &Path, mode: &str) -> String {

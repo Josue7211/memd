@@ -617,16 +617,6 @@ pub(crate) fn resolve_bundle_command_base_url(
     runtime_base_url: Option<&str>,
 ) -> String {
     let requested = requested.trim();
-    if std::env::var("MEMD_BASE_URL")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .as_deref()
-        == Some(requested)
-    {
-        return requested.to_string();
-    }
-
     if requested != default_base_url() {
         return requested.to_string();
     }

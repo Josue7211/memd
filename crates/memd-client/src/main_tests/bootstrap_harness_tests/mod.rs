@@ -153,6 +153,139 @@ fn cli_parses_claim_close_command() {
 }
 
 #[test]
+fn cli_parses_teach_command_with_safe_defaults() {
+    let cli = Cli::try_parse_from([
+        "memd",
+        "teach",
+        "--output",
+        ".memd",
+        "--content",
+        "Codex LB lives at the user-provided path.",
+        "--tag",
+        "person-fact",
+    ])
+    .expect("teach command should parse");
+
+    match cli.command {
+        Commands::Teach(args) => {
+            assert_eq!(args.output, PathBuf::from(".memd"));
+            assert_eq!(args.kind, "fact");
+            assert_eq!(
+                args.content.as_deref(),
+                Some("Codex LB lives at the user-provided path.")
+            );
+            assert_eq!(args.tag, vec!["person-fact".to_string()]);
+        }
+        other => panic!("expected teach command, got {other:?}"),
+    }
+}
+
+#[test]
+fn teach_args_translate_to_user_taught_remember_args() {
+    let args = TeachArgs {
+        output: PathBuf::from(".memd"),
+        project: Some("memd".to_string()),
+        namespace: Some("main".to_string()),
+        workspace: None,
+        visibility: Some("private".to_string()),
+        kind: "preference".to_string(),
+        source_agent: Some("codex".to_string()),
+        confidence: None,
+        tag: vec!["profile".to_string()],
+        supersede: Vec::new(),
+        content: Some("User prefers direct status updates.".to_string()),
+        input: None,
+        stdin: false,
+    };
+
+    let remember = teach_args_as_remember_args(&args);
+
+    assert_eq!(remember.kind.as_deref(), Some("preference"));
+    assert_eq!(remember.source_system.as_deref(), Some("user-teach"));
+    assert_eq!(remember.source_quality.as_deref(), Some("canonical"));
+    assert_eq!(remember.confidence, Some(0.8));
+    assert!(remember.tag.contains(&"user-taught".to_string()));
+    assert!(remember.tag.contains(&"teach".to_string()));
+    assert!(remember.tag.contains(&"profile".to_string()));
+    assert_eq!(remember.content, args.content);
+}
+
+#[tokio::test]
+async fn teach_queues_offline_when_backend_down() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let bundle = temp.path().join(".memd");
+    fs::create_dir_all(&bundle).expect("create bundle");
+    let args = TeachArgs {
+        output: bundle.clone(),
+        project: Some("memd".to_string()),
+        namespace: Some("main".to_string()),
+        workspace: None,
+        visibility: Some("private".to_string()),
+        kind: "fact".to_string(),
+        source_agent: Some("codex".to_string()),
+        confidence: None,
+        tag: vec!["offline-proof".to_string()],
+        supersede: Vec::new(),
+        content: Some("User taught offline fact survives backend outage.".to_string()),
+        input: None,
+        stdin: false,
+    };
+    let remember = teach_args_as_remember_args(&args);
+
+    let response = remember_with_bundle_defaults(&remember, "http://127.0.0.1:1")
+        .await
+        .expect("queue offline teach");
+    let entries = read_offline_store_queue(&bundle).expect("read offline teach queue");
+
+    assert!(is_offline_queued_response(&response));
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].status, "pending");
+    assert_eq!(
+        entries[0].request.content,
+        "User taught offline fact survives backend outage."
+    );
+    assert_eq!(
+        entries[0].request.source_system.as_deref(),
+        Some("user-teach")
+    );
+    assert_eq!(
+        entries[0].request.source_quality,
+        Some(memd_schema::SourceQuality::Canonical)
+    );
+    assert_eq!(entries[0].request.confidence, Some(0.8));
+    assert!(entries[0].request.tags.contains(&"user-taught".to_string()));
+    assert!(entries[0].request.tags.contains(&"teach".to_string()));
+    assert!(
+        entries[0]
+            .request
+            .tags
+            .contains(&"offline-proof".to_string())
+    );
+}
+
+#[test]
+fn agent_profiles_include_teach_helpers_for_user_taught_facts() {
+    let dir = std::env::temp_dir().join(format!("memd-teach-helper-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&dir).expect("create teach helper temp");
+
+    write_agent_profiles(&dir).expect("write agent profiles");
+
+    let teach_sh = fs::read_to_string(dir.join("agents/teach.sh")).expect("read teach sh");
+    let teach_ps1 = fs::read_to_string(dir.join("agents/teach.ps1")).expect("read teach ps1");
+    assert!(teach_sh.contains("args=(teach --output"));
+    assert!(teach_sh.contains("MEMD_BIN"));
+    assert!(teach_sh.contains("target/debug/memd"));
+    assert!(teach_sh.contains("exec \"$memd_cmd\""));
+    assert!(teach_ps1.contains("@(\"teach\", \"--output\""));
+    assert!(teach_ps1.contains("MEMD_BIN"));
+
+    let metadata = fs::metadata(dir.join("agents/teach.sh")).expect("teach sh metadata");
+    assert_ne!(metadata.permissions().mode() & 0o111, 0);
+
+    fs::remove_dir_all(dir).expect("cleanup teach helper temp");
+}
+
+#[test]
 fn resolves_nested_bundle_rag_config() {
     let config = BundleConfigFile {
         project: None,
@@ -375,7 +508,7 @@ fn writes_bundle_memory_placeholder_with_hot_path_guidance() {
     assert!(claude_imports.contains("memd lookup"));
     assert!(codex_agents.contains(".memd/wake.md"));
     assert!(codex_agents.contains("memd lookup --output .memd --query"));
-    assert!(codex_agents.contains("`caveman-lite`"));
+    assert!(codex_agents.contains("`caveman-ultra`"));
 
     fs::remove_dir_all(dir).expect("cleanup temp bundle");
 }
@@ -758,7 +891,7 @@ fn wake_fallback_writes_placeholder_memory_and_wakeup_files() {
     assert!(memory.contains("session: session-demo"));
     assert!(memory.contains("tab: tab-alpha"));
     assert!(memory.contains("## Voice"));
-    assert!(memory.contains("caveman-lite"));
+    assert!(memory.contains("caveman-ultra"));
     assert!(wakeup.contains("fallback"));
     if let Ok(entries) = fs::read_dir(dir.join("agents")) {
         let agent_names: Vec<String> = entries
@@ -884,6 +1017,12 @@ fn copies_hook_assets_with_live_capture_scripts() {
     assert!(dir.join("memd-stop-save.ps1").exists());
     assert!(dir.join("memd-precompact-save.sh").exists());
     assert!(dir.join("memd-precompact-save.ps1").exists());
+
+    let stop_save = fs::read_to_string(dir.join("memd-stop-save.sh")).expect("read stop save");
+    let precompact =
+        fs::read_to_string(dir.join("memd-precompact-save.ps1")).expect("read precompact ps1");
+    assert!(stop_save.contains("memd teach --output .memd --content"));
+    assert!(precompact.contains("memd teach --output .memd --content"));
 
     let install = fs::read_to_string(dir.join("install.sh")).expect("read install.sh");
     assert!(install.contains("memd-capture"));
@@ -1046,6 +1185,18 @@ fn command_catalog_includes_slash_and_skill_commands() {
             .iter()
             .any(|entry| entry.name == "memd claim close")
     );
+    assert!(
+        catalog
+            .commands
+            .iter()
+            .any(|entry| entry.name == "memd teach")
+    );
+    assert!(
+        catalog
+            .commands
+            .iter()
+            .any(|entry| entry.name == ".memd/agents/teach.sh")
+    );
 
     let summary = render_command_catalog_summary(&catalog, None);
     assert!(summary.contains("commands root="));
@@ -1067,6 +1218,9 @@ fn command_catalog_includes_slash_and_skill_commands() {
     assert!(markdown.contains("memd claim create"));
     assert!(markdown.contains("memd claim list"));
     assert!(markdown.contains("memd claim close"));
+    assert!(markdown.contains("memd teach"));
+    assert!(markdown.contains(".memd/agents/teach.sh"));
+    assert!(markdown.contains("user-taught facts"));
 }
 
 #[test]
@@ -1127,6 +1281,63 @@ fn harness_registry_exposes_shared_preset_ids_and_defaults() {
     assert_eq!(codex.wake_char_budget, 1800);
     let claude_budget = crate::harness::preset::wake_char_budget_for_agent(Some("claude-code"));
     assert_eq!(claude_budget, 1200);
+}
+
+#[test]
+fn harness_manifests_include_strict_context_and_knowledge_gap_guardrails() {
+    let bundle_root =
+        std::env::temp_dir().join(format!("memd-guardrail-pack-test-{}", uuid::Uuid::new_v4()));
+
+    let manifests = vec![
+        crate::harness::codex::build_codex_harness_pack(&bundle_root, "demo", "main"),
+        crate::harness::claude_code::build_claude_code_harness_pack(&bundle_root, "demo", "main"),
+        crate::harness::agent_zero::build_agent_zero_harness_pack(&bundle_root, "demo", "main"),
+        crate::harness::openclaw::build_openclaw_harness_pack(&bundle_root, "demo", "main"),
+        crate::harness::hermes::build_hermes_harness_pack(&bundle_root, "demo", "main"),
+        crate::harness::opencode::build_opencode_harness_pack(&bundle_root, "demo", "main"),
+    ];
+
+    for manifest in manifests {
+        assert!(
+            manifest.commands.iter().any(|cmd| {
+                cmd.contains(&format!("memd context --agent {}", manifest.agent))
+                    && cmd.contains("--include-capabilities")
+                    && cmd.contains("--include-access")
+                    && cmd.contains("--safety strict")
+            }),
+            "{} lacks strict context command",
+            manifest.agent
+        );
+        assert!(
+            manifest
+                .behaviors
+                .iter()
+                .any(|line| line.contains("unknown important facts")),
+            "{} lacks unknown-fact guardrail",
+            manifest.agent
+        );
+        assert!(
+            manifest
+                .behaviors
+                .iter()
+                .any(|line| line.contains("memd teach")),
+            "{} lacks taught-fact capture guardrail",
+            manifest.agent
+        );
+        assert!(
+            manifest.behaviors.iter().any(|line| {
+                line.contains("Active Capabilities") && line.contains("Access Routes")
+            }),
+            "{} lacks capability/access guardrail",
+            manifest.agent
+        );
+
+        let markdown = crate::harness::shared::render_harness_pack_markdown(&manifest);
+        assert!(markdown.contains("unknown important facts"));
+        assert!(markdown.contains("memd teach"));
+        assert!(markdown.contains("--include-capabilities"));
+        assert!(markdown.contains("--include-access"));
+    }
 }
 
 #[test]
@@ -1338,7 +1549,11 @@ fn codex_pack_backend_failure_falls_back_to_local_bundle_truth() {
     let bundle_root =
         std::env::temp_dir().join(format!("memd-codex-local-truth-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&bundle_root).expect("create bundle root");
-    fs::write(bundle_root.join("wake.md"), "# local wakeup\n").expect("seed wakeup");
+    fs::write(
+        bundle_root.join("wake.md"),
+        "# local wakeup\n\n- Lookup before answers on decisions, preferences, history, or prior user corrections.\n- Writes: `memd remember --kind fact` (long-term), `memd remember --kind decision`, `memd remember --kind preference`, `memd checkpoint` (short-term), `memd hook capture --summary` (live/correction).\n",
+    )
+    .expect("seed wakeup");
     fs::write(bundle_root.join("mem.md"), "# local memory\n").expect("seed memory");
 
     let wakeup = read_codex_pack_local_markdown(&bundle_root, "wake.md")
@@ -1349,6 +1564,9 @@ fn codex_pack_backend_failure_falls_back_to_local_bundle_truth() {
         .expect("local memory fallback");
 
     assert!(wakeup.contains("local wakeup"));
+    assert!(wakeup.contains("If a required fact is absent or unknown"));
+    assert!(wakeup.contains("user-taught facts -> `memd teach"));
+    assert!(!wakeup.contains("`memd remember --kind fact` (long-term)"));
     assert!(memory.contains("local memory"));
 
     fs::remove_dir_all(bundle_root).expect("cleanup codex fallback temp dir");
@@ -1365,6 +1583,7 @@ fn run_bootstrap_hook(
     script: &Path,
     input: &str,
     path_override: Option<&str>,
+    memd_bin: Option<&Path>,
 ) -> std::process::Output {
     let mut command = Command::new("bash");
     command
@@ -1373,6 +1592,9 @@ fn run_bootstrap_hook(
         .stdout(Stdio::piped());
     if let Some(path) = path_override {
         command.env("PATH", path);
+    }
+    if let Some(memd_bin) = memd_bin {
+        command.env("MEMD_BIN", memd_bin);
     }
     let mut child = command.spawn().expect("spawn bootstrap hook");
     {
@@ -1419,6 +1641,7 @@ fn bootstrap_hook_refuses_cached_wake_without_session_receipt() {
         &script,
         &input,
         Some(&format!("{}:{}", fake_bin.display(), original_path)),
+        Some(&fake_memd),
     );
 
     assert!(output.status.success(), "hook should emit failure context");
@@ -1461,7 +1684,7 @@ fn bootstrap_hook_allows_cached_wake_after_session_receipt() {
         "{{\"cwd\":\"{}\",\"session_id\":\"session-b\"}}",
         project_root.display()
     );
-    let output = run_bootstrap_hook(&script, &input, None);
+    let output = run_bootstrap_hook(&script, &input, None, None);
 
     assert!(output.status.success(), "hook should emit cached context");
     let stdout = String::from_utf8_lossy(&output.stdout);

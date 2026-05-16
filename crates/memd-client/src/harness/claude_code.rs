@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use crate::harness::preset::WAKE_ONLY_SURFACES;
-use crate::harness::shared::HarnessPackData;
+use crate::harness::shared::{
+    HarnessPackData, memory_os_guardrail_behaviors, strict_context_command,
+};
 
 pub(crate) type ClaudeCodeHarnessPack = HarnessPackData;
 
@@ -27,13 +29,18 @@ pub(crate) fn build_claude_code_harness_pack(
         commands: vec![
             "memd wake --output .memd --write".to_string(),
             "memd resume --output .memd".to_string(),
+            strict_context_command("claude-code"),
             "memd lookup --output .memd --query \"what did we already decide about this?\""
                 .to_string(),
         ],
-        behaviors: vec![
-            "native Claude import bridge".to_string(),
-            "pre-answer lookup before memory-dependent responses".to_string(),
-            "wake-only boot path with explicit deeper recall".to_string(),
-        ],
+        behaviors: {
+            let mut behaviors = vec![
+                "native Claude import bridge".to_string(),
+                "pre-answer lookup before memory-dependent responses".to_string(),
+                "wake-only boot path with explicit deeper recall".to_string(),
+            ];
+            behaviors.extend(memory_os_guardrail_behaviors());
+            behaviors
+        },
     }
 }

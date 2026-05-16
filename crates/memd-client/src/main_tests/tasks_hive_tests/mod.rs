@@ -722,7 +722,7 @@ async fn run_hive_command_reports_live_session_rebind() {
             std::env::remove_var("HOME");
         }
     }
-    fs::remove_dir_all(temp_root).expect("cleanup hive rebind temp");
+    cleanup_temp_dir(temp_root, "cleanup hive rebind temp");
 }
 
 #[tokio::test]

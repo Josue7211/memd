@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use crate::harness::preset::SHARED_VISIBLE_SURFACES;
-use crate::harness::shared::HarnessPackData;
+use crate::harness::shared::{
+    HarnessPackData, memory_os_guardrail_behaviors, strict_context_command,
+};
 
 pub(crate) type OpenClawHarnessPack = HarnessPackData;
 
@@ -23,13 +25,18 @@ pub(crate) fn build_openclaw_harness_pack(
             .collect(),
         commands: vec![
             "memd context --project <project> --agent openclaw --compact".to_string(),
+            strict_context_command("openclaw"),
             "memd resume --output .memd --intent current_task".to_string(),
             "memd hook spill --output .memd --stdin --apply".to_string(),
         ],
-        behaviors: vec![
-            "fetch compact context before the task".to_string(),
-            "spill after compaction boundary".to_string(),
-            "turn-scoped cache".to_string(),
-        ],
+        behaviors: {
+            let mut behaviors = vec![
+                "fetch compact context before the task".to_string(),
+                "spill after compaction boundary".to_string(),
+                "turn-scoped cache".to_string(),
+            ];
+            behaviors.extend(memory_os_guardrail_behaviors());
+            behaviors
+        },
     }
 }

@@ -31,9 +31,12 @@ explicit:
 
 1. resume from the bundle before starting work
 2. read the generated wake and memory files for the shared lane
-3. write durable outcomes back with `memd remember`
-4. emit a handoff when another client needs to take over
-5. spill at compaction boundaries
+3. ask or run `memd lookup` before claiming unknown important facts
+4. save new user-taught facts with `memd teach --output .memd --content "..."`
+5. compile strict context with capabilities/access before tool-sensitive work
+6. write durable outcomes back with `memd remember`
+7. emit a handoff when another client needs to take over
+8. spill at compaction boundaries
 
 Use the OpenCode-specific entrypoint:
 
@@ -51,6 +54,7 @@ If you are using a bundle, read:
 
 ```bash
 memd resume --output .memd
+memd context --agent opencode --intent current_task --format prompt --include-capabilities --include-access --safety strict
 memd remember --output .memd --kind decision --content "Keep the shared lane current."
 memd handoff --output .memd --prompt
 memd hook spill --output .memd --stdin --apply

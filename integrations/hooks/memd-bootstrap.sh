@@ -5,6 +5,7 @@
 set -euo pipefail
 
 MEMD_WAKE_TTL="${MEMD_WAKE_TTL:-120}"
+MEMD_BIN="${MEMD_BIN:-memd}"
 
 # Read hook input from stdin (Claude Code sends JSON with session_id, cwd, etc.)
 INPUT="$(cat)"
@@ -75,10 +76,14 @@ if [ -f "$MARKER_FILE" ]; then
   fi
 fi
 
-# Run memd wake — the real enforcement
-WAKE_OUTPUT="$(memd wake --output "$BUNDLE_ROOT" --write 2>&1 || true)"
+# Run memd wake — the real enforcement. Output from a failed shell is not a
+# live wake receipt; require exit 0 before trusting it.
+set +e
+WAKE_OUTPUT="$("$MEMD_BIN" wake --output "$BUNDLE_ROOT" --write 2>&1)"
+WAKE_STATUS="$?"
+set -e
 
-if [ -n "$WAKE_OUTPUT" ]; then
+if [ "$WAKE_STATUS" -eq 0 ] && [ -n "$WAKE_OUTPUT" ]; then
   # Stamp the marker
   date +%s > "$MARKER_FILE"
   stamp_live_wake_receipt

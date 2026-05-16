@@ -93,7 +93,7 @@ async fn run_session_command_rebinds_local_bundle_to_live_session() {
             std::env::remove_var("HOME");
         }
     }
-    fs::remove_dir_all(temp_root).expect("cleanup session rebind temp");
+    cleanup_temp_dir(temp_root, "cleanup session rebind temp");
 }
 
 #[tokio::test]

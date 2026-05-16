@@ -446,6 +446,12 @@
         assert!(dir.join("memd-precompact-save.sh").exists());
         assert!(dir.join("memd-precompact-save.ps1").exists());
 
+        let stop_save = fs::read_to_string(dir.join("memd-stop-save.sh")).expect("read stop save");
+        let precompact =
+            fs::read_to_string(dir.join("memd-precompact-save.ps1")).expect("read precompact ps1");
+        assert!(stop_save.contains("memd teach --output .memd --content"));
+        assert!(precompact.contains("memd teach --output .memd --content"));
+
         let install = fs::read_to_string(dir.join("install.sh")).expect("read install.sh");
         assert!(install.contains("memd-capture"));
         assert!(install.contains("memd-hook-capture"));
@@ -842,7 +848,11 @@
         let bundle_root =
             std::env::temp_dir().join(format!("memd-codex-local-truth-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&bundle_root).expect("create bundle root");
-        fs::write(bundle_root.join("wake.md"), "# local wakeup\n").expect("seed wakeup");
+        fs::write(
+            bundle_root.join("wake.md"),
+            "# local wakeup\n\n- Lookup before answers on decisions, preferences, history, or prior user corrections.\n- Writes: `memd remember --kind fact` (long-term), `memd remember --kind decision`, `memd remember --kind preference`, `memd checkpoint` (short-term), `memd hook capture --summary` (live/correction).\n",
+        )
+        .expect("seed wakeup");
         fs::write(bundle_root.join("mem.md"), "# local memory\n").expect("seed memory");
 
         let wakeup = read_codex_pack_local_markdown(&bundle_root, "wake.md")
@@ -853,6 +863,9 @@
             .expect("local memory fallback");
 
         assert!(wakeup.contains("local wakeup"));
+        assert!(wakeup.contains("If a required fact is absent or unknown"));
+        assert!(wakeup.contains("user-taught facts -> `memd teach"));
+        assert!(!wakeup.contains("`memd remember --kind fact` (long-term)"));
         assert!(memory.contains("local memory"));
 
         fs::remove_dir_all(bundle_root).expect("cleanup codex fallback temp dir");

@@ -2286,6 +2286,26 @@ pub(crate) fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
             .with_context(|| format!("write {}", ps1_path.display()))?;
     }
 
+    {
+        let slug = "teach";
+        let shell_profile = render_teach_shell_profile(output);
+        let shell_path = agents_dir.join(format!("{slug}.sh"));
+        fs::write(&shell_path, shell_profile)
+            .with_context(|| format!("write {}", shell_path.display()))?;
+        set_executable_if_shell_script(
+            &shell_path,
+            shell_path
+                .file_name()
+                .and_then(|v| v.to_str())
+                .unwrap_or("teach.sh"),
+        )?;
+
+        let ps1_profile = render_teach_ps1_profile(output);
+        let ps1_path = agents_dir.join(format!("{slug}.ps1"));
+        fs::write(&ps1_path, ps1_profile)
+            .with_context(|| format!("write {}", ps1_path.display()))?;
+    }
+
     for slug in ["remember-short", "sync-semantic"] {
         let shell_profile = match slug {
             "remember-short" => render_checkpoint_shell_profile(output),
@@ -2505,6 +2525,7 @@ pub(crate) async fn write_bundle_memory_files(
     handoff: Option<&HandoffSnapshot>,
     apply_bridges: bool,
 ) -> anyhow::Result<()> {
+    let _write_lock = acquire_bundle_memory_write_lock(output)?;
     if let Some(tab_id) = default_bundle_tab_id() {
         let existing_tab_id = read_bundle_runtime_config(output)
             .ok()
@@ -2566,6 +2587,61 @@ pub(crate) async fn write_bundle_memory_files(
     Ok(())
 }
 
+struct BundleMemoryWriteLock {
+    path: PathBuf,
+}
+
+impl Drop for BundleMemoryWriteLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn acquire_bundle_memory_write_lock(output: &Path) -> anyhow::Result<BundleMemoryWriteLock> {
+    let lock_path = output.join("state").join("write-memory.lock");
+    if let Some(parent) = lock_path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    for _ in 0..200 {
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock_path)
+        {
+            Ok(mut file) => {
+                use std::io::Write as _;
+                writeln!(
+                    file,
+                    "pid={} created_at={}",
+                    std::process::id(),
+                    Utc::now().to_rfc3339()
+                )
+                .with_context(|| format!("write {}", lock_path.display()))?;
+                return Ok(BundleMemoryWriteLock { path: lock_path });
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if lock_is_stale(&lock_path) {
+                    let _ = fs::remove_file(&lock_path);
+                    continue;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            Err(error) => {
+                return Err(error).with_context(|| format!("create {}", lock_path.display()));
+            }
+        }
+    }
+    anyhow::bail!("timed out waiting for {}", lock_path.display())
+}
+
+fn lock_is_stale(lock_path: &Path) -> bool {
+    fs::metadata(lock_path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .is_some_and(|elapsed| elapsed > std::time::Duration::from_secs(30))
+}
+
 pub(crate) fn write_memd_bootstrap_marker(
     output: &Path,
     snapshot: &ResumeSnapshot,
@@ -2595,10 +2671,182 @@ pub(crate) fn write_memd_bootstrap_marker(
 
 pub(crate) fn prune_bundle_compiled_memory_outputs(output: &Path) -> anyhow::Result<()> {
     let compiled = bundle_compiled_memory_dir(output);
-    if compiled.exists() {
-        fs::remove_dir_all(&compiled).with_context(|| format!("remove {}", compiled.display()))?;
+    if !compiled.exists() {
+        return Ok(());
+    }
+    let Some(parent) = compiled.parent() else {
+        return Ok(());
+    };
+    let trash = parent.join(format!(
+        ".memory.prune-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+    match fs::rename(&compiled, &trash) {
+        Ok(()) => {
+            fs::remove_dir_all(&trash).with_context(|| format!("remove {}", trash.display()))?
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(rename_error) => {
+            fs::remove_dir_all(&compiled).with_context(|| {
+                format!(
+                    "rename {} to {} failed: {rename_error}; remove {}",
+                    compiled.display(),
+                    trash.display(),
+                    compiled.display()
+                )
+            })?;
+        }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod compiled_memory_prune_tests {
+    use super::*;
+
+    #[test]
+    fn prune_bundle_compiled_memory_outputs_removes_stale_tree() {
+        let output =
+            std::env::temp_dir().join(format!("memd-compiled-prune-{}", uuid::Uuid::new_v4()));
+        let compiled = bundle_compiled_memory_dir(&output);
+        let stale = compiled.join("items").join("working").join("stale.md");
+        std::fs::create_dir_all(stale.parent().expect("stale parent"))
+            .expect("create stale compiled tree");
+        std::fs::write(&stale, "# stale\n").expect("write stale compiled item");
+
+        prune_bundle_compiled_memory_outputs(&output).expect("prune compiled memory");
+
+        assert!(!compiled.exists());
+        let _ = std::fs::remove_dir_all(output);
+    }
+
+    #[test]
+    fn bundle_memory_write_lock_releases_on_drop() {
+        let output =
+            std::env::temp_dir().join(format!("memd-memory-lock-{}", uuid::Uuid::new_v4()));
+        let lock_path = output.join("state").join("write-memory.lock");
+
+        let lock = acquire_bundle_memory_write_lock(&output).expect("acquire memory write lock");
+        assert!(lock_path.exists());
+        drop(lock);
+
+        assert!(!lock_path.exists());
+        let _ = std::fs::remove_dir_all(output);
+    }
+
+    #[test]
+    fn capability_registry_includes_codex_system_skills_and_plugin_manifests() {
+        let home =
+            std::env::temp_dir().join(format!("memd-capability-home-{}", uuid::Uuid::new_v4()));
+        let system_skill = home
+            .join(".codex")
+            .join("skills")
+            .join(".system")
+            .join("imagegen");
+        std::fs::create_dir_all(&system_skill).expect("create system skill");
+        std::fs::write(system_skill.join("SKILL.md"), "# imagegen\n").expect("write skill");
+        let plugin_root = home
+            .join(".codex")
+            .join("plugins")
+            .join("cache")
+            .join("openai-curated")
+            .join("cloudflare")
+            .join("abc123");
+        let plugin_skill = plugin_root.join("skills").join("workers-best-practices");
+        std::fs::create_dir_all(&plugin_skill).expect("create plugin skill");
+        std::fs::write(plugin_skill.join("SKILL.md"), "# workers\n").expect("write plugin skill");
+        let manifest_dir = plugin_root.join(".codex-plugin");
+        std::fs::create_dir_all(&manifest_dir).expect("create plugin manifest dir");
+        std::fs::write(manifest_dir.join("plugin.json"), "{}\n").expect("write manifest");
+
+        let registry = build_bundle_capability_registry_with_home(None, Some(&home));
+
+        assert!(registry.capabilities.iter().any(|record| {
+            record.harness == "codex" && record.kind == "skill" && record.name == "imagegen"
+        }));
+        assert!(registry.capabilities.iter().any(|record| {
+            record.harness == "codex"
+                && record.kind == "plugin-skill"
+                && record.name == "abc123:workers-best-practices"
+        }));
+        assert!(registry.capabilities.iter().any(|record| {
+            record.harness == "codex"
+                && record.kind == "plugin"
+                && record.name == "cloudflare:abc123"
+        }));
+
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn capability_registry_includes_harness_packs_and_claude_settings() {
+        let home = std::env::temp_dir().join(format!(
+            "memd-capability-home-harness-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let project = std::env::temp_dir().join(format!(
+            "memd-capability-project-harness-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let claude = home.join(".claude");
+        std::fs::create_dir_all(&claude).expect("create claude home");
+        std::fs::write(claude.join("settings.json"), "{\"hooks\":{}}\n")
+            .expect("write claude settings");
+        let agents = project.join(".memd").join("agents");
+        std::fs::create_dir_all(&agents).expect("create bundle agents");
+        for profile in [
+            "agent-zero.sh",
+            "claude-code.sh",
+            "codex.sh",
+            "hermes.sh",
+            "openclaw.sh",
+            "opencode.sh",
+        ] {
+            std::fs::write(agents.join(profile), "#!/bin/sh\n").expect("write profile");
+        }
+
+        let registry = build_bundle_capability_registry_with_home(Some(&project), Some(&home));
+
+        for harness in [
+            "agent-zero",
+            "claude-code",
+            "codex",
+            "hermes",
+            "openclaw",
+            "opencode",
+        ] {
+            assert!(
+                registry.capabilities.iter().any(|record| {
+                    record.harness == harness
+                        && record.kind == "harness-pack"
+                        && record.status == "wired"
+                }),
+                "missing harness-pack for {harness}"
+            );
+        }
+        assert!(registry.capabilities.iter().any(|record| {
+            record.harness == "claude"
+                && record.kind == "claude-config"
+                && record.name == "settings.json"
+        }));
+
+        let _ = std::fs::remove_dir_all(home);
+        let _ = std::fs::remove_dir_all(project);
+    }
+
+    #[test]
+    fn host_cli_install_plan_is_machine_approved_runner() {
+        let script = render_host_cli_install_plan("wrangler", None);
+
+        assert!(script.contains("MEMD_HOST_CLI_INSTALL_APPROVED=1"));
+        assert!(script.contains("npm install -g wrangler"));
+        assert!(script.contains("dry-run only; no host changes made"));
+        assert!(script.contains("memd does not copy host-local binaries across machines"));
+    }
 }
 pub(crate) struct LoopEntry {
     pub(crate) slug: String,
@@ -2770,8 +3018,6 @@ pub(crate) fn build_bundle_capability_registry_with_home(
                 });
             }
         }
-    }
-    if let Some(project_root) = project_root {
         capabilities.extend(collect_project_harness_pack_capabilities(project_root));
     }
 
@@ -2963,98 +3209,16 @@ fn collect_text_payload_files_recursive(
     }
 }
 
-#[cfg(test)]
-mod capability_payload_tests {
-    use super::*;
-
-    #[test]
-    fn skill_capability_notes_include_directory_payload_files() {
-        let root =
-            std::env::temp_dir().join(format!("memd-skill-payload-notes-{}", uuid::Uuid::new_v4()));
-        let skill_dir = root.join("demo");
-        fs::create_dir_all(skill_dir.join("scripts")).expect("create skill dir");
-        fs::write(skill_dir.join("SKILL.md"), "# Demo\n").expect("write skill");
-        fs::write(skill_dir.join("scripts/run.sh"), "#!/bin/sh\necho demo\n")
-            .expect("write script");
-
-        let mut records = Vec::new();
-        collect_skill_capabilities(&mut records, "codex", &root);
-
-        let record = records
-            .iter()
-            .find(|record| record.name == "demo")
-            .expect("demo skill record");
-        assert!(
-            record
-                .notes
-                .iter()
-                .any(|note| note.starts_with(CAPABILITY_PAYLOAD_TEXT_PREFIX))
-        );
-        assert!(record.notes.iter().any(|note| {
-            note.strip_prefix(CAPABILITY_PAYLOAD_FILE_JSON_PREFIX)
-                .and_then(|payload| serde_json::from_str::<serde_json::Value>(payload).ok())
-                .and_then(|payload| payload.get("path").cloned())
-                .and_then(|path| path.as_str().map(str::to_string))
-                .as_deref()
-                == Some("scripts/run.sh")
-        }));
-
-        fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn host_cli_capabilities_include_expected_missing_install_plans() {
-        let records = collect_host_cli_capabilities(|_| None);
-
-        for expected in EXPECTED_HOST_CLIS {
-            let record = records
-                .iter()
-                .find(|record| record.name == *expected)
-                .unwrap_or_else(|| panic!("missing host CLI capability for {expected}"));
-            assert_eq!(record.harness, "local");
-            assert_eq!(record.kind, "cli");
-            assert_eq!(record.portability_class, "host-local");
-            assert!(record.notes.iter().any(|note| {
-                note.starts_with(HOST_CLI_INSTALL_PLAN_PREFIX)
-                    && note.contains("memd does not copy host-local binaries")
-            }));
-        }
-
-        assert!(records.iter().all(|record| record.status == "missing"));
-        assert!(
-            records
-                .iter()
-                .all(|record| record.source_path.starts_with("host-cli:"))
-        );
-        assert!(records.iter().all(|record| {
-            record
-                .notes
-                .iter()
-                .any(|note| note == "expected host CLI missing on this machine")
-        }));
-    }
-
-    #[test]
-    fn host_cli_install_plan_is_machine_approved_runner() {
-        let plan = render_host_cli_install_plan("wrangler", None);
-
-        assert!(plan.contains("MEMD_HOST_CLI_INSTALL_APPROVED=1"));
-        assert!(plan.contains("npm install -g wrangler"));
-        assert!(plan.contains("dry-run only; no host changes made"));
-        assert!(plan.contains("memd does not copy host-local binaries across machines"));
-    }
-}
-
 pub(crate) fn collect_skill_capabilities(
     records: &mut Vec<CapabilityRecord>,
     harness: &str,
     root: &Path,
 ) {
-    let mut skill_files = Vec::new();
-    collect_any_skill_files_recursive(root, 0, &mut skill_files);
-    skill_files.sort();
+    let mut skills = Vec::new();
+    collect_any_skill_files_recursive(root, 0, &mut skills);
+    skills.sort();
 
-    for skill_file in skill_files {
+    for skill_file in skills {
         let skill_dir = skill_file.parent().unwrap_or(root);
         let skill_name = skill_dir
             .file_name()
@@ -3805,7 +3969,7 @@ pub(crate) fn collect_claude_plugin_capabilities(
             source_path: settings_path.display().to_string(),
             bridge_hint,
             hash: file_sha256(settings_path),
-            notes,
+            notes: notes_with_text_payload(notes, settings_path),
         });
 
         let effective_portability = if harness_name == "claude" || portability_class == "universal"

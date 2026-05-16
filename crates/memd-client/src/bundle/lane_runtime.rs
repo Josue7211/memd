@@ -70,11 +70,14 @@ pub(crate) fn awareness_entry_has_same_lane(
         return false;
     }
 
+    let lane_worktree_root = normalize_lane_path(&lane.worktree_root);
+    let lane_repo_root = normalize_lane_path(&lane.repo_root);
     let same_worktree = entry
         .worktree_root
         .as_deref()
         .map(str::trim)
-        .is_some_and(|value| value == lane.worktree_root);
+        .map(normalize_lane_path)
+        .is_some_and(|value| value == lane_worktree_root);
     if same_worktree {
         return true;
     }
@@ -83,8 +86,20 @@ pub(crate) fn awareness_entry_has_same_lane(
         .repo_root
         .as_deref()
         .map(str::trim)
+        .map(normalize_lane_path)
         .zip(entry.branch.as_deref().map(str::trim))
-        .is_some_and(|(repo_root, branch)| repo_root == lane.repo_root && branch == lane.branch)
+        .is_some_and(|(repo_root, branch)| repo_root == lane_repo_root && branch == lane.branch)
+}
+
+fn normalize_lane_path(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    fs::canonicalize(trimmed)
+        .unwrap_or_else(|_| PathBuf::from(trimmed))
+        .display()
+        .to_string()
 }
 
 pub(crate) fn detect_lane_collision_from_awareness_entries(

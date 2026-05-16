@@ -362,6 +362,19 @@ pub(crate) fn write_bundle_capability_registry(
     Ok(())
 }
 
+pub(crate) fn read_bundle_capability_registry(
+    output: &Path,
+) -> anyhow::Result<Option<CapabilityRegistry>> {
+    let path = bundle_capability_registry_path(output);
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let registry = serde_json::from_str::<CapabilityRegistry>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(registry))
+}
+
 pub(crate) fn write_bundle_capability_bridges(
     output: &Path,
     registry: &CapabilityBridgeRegistry,
@@ -1220,6 +1233,19 @@ mod tests {
     use crate::cli::{Cli, Commands};
     use crate::test_support::{EnvScope, set_current_dir};
     use clap::Parser;
+    use std::path::{Path, PathBuf};
+
+    fn canonicalize_existing_parent(path: &Path) -> PathBuf {
+        fs::canonicalize(path).unwrap_or_else(|_| {
+            path.parent()
+                .and_then(|parent| {
+                    fs::canonicalize(parent)
+                        .ok()
+                        .map(|parent| parent.join(path.file_name().unwrap_or_default()))
+                })
+                .unwrap_or_else(|| path.to_path_buf())
+        })
+    }
 
     #[test]
     fn default_bundle_root_path_does_not_use_global_bundle_inside_repo_without_local_bundle() {
@@ -1243,14 +1269,20 @@ mod tests {
         let _cwd = set_current_dir(&nested);
 
         let resolved = default_bundle_root_path();
-        assert_eq!(resolved, repo.join(".memd"));
+        assert_eq!(
+            canonicalize_existing_parent(&resolved),
+            canonicalize_existing_parent(&repo.join(".memd"))
+        );
         assert_ne!(resolved, global_bundle);
 
         let cli = Cli::parse_from(["memd", "lookup", "--query", "repo bleed check"]);
         let Commands::Lookup(args) = cli.command else {
             panic!("expected lookup command");
         };
-        assert_eq!(args.output, repo.join(".memd"));
+        assert_eq!(
+            canonicalize_existing_parent(&args.output),
+            canonicalize_existing_parent(&repo.join(".memd"))
+        );
         assert_ne!(args.output, global_bundle);
 
         drop(_cwd);

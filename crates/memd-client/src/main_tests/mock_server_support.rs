@@ -917,6 +917,7 @@ pub(crate) async fn mock_search_memory(
             route: req.route.unwrap_or(memd_schema::RetrievalRoute::Auto),
             intent: req.intent.unwrap_or(memd_schema::RetrievalIntent::General),
             items: injected,
+            trace: None,
         });
     }
     let items = if req.tags.iter().any(|tag| tag == "resume_state") {
@@ -1123,6 +1124,7 @@ pub(crate) async fn mock_search_memory(
         route: req.route.unwrap_or(memd_schema::RetrievalRoute::Auto),
         intent: req.intent.unwrap_or(memd_schema::RetrievalIntent::General),
         items,
+        trace: None,
     })
 }
 

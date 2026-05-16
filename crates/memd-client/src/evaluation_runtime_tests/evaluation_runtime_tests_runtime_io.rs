@@ -928,6 +928,7 @@
             fs::read_to_string(dir.join("agents/remember-short.sh")).expect("read short helper");
         let remember_long =
             fs::read_to_string(dir.join("agents/remember-long.sh")).expect("read long helper");
+        let teach = fs::read_to_string(dir.join("agents/teach.sh")).expect("read teach helper");
         let watch = fs::read_to_string(dir.join("agents/watch.sh")).expect("read watch helper");
         assert!(remember_decision.contains("args=(remember --output"));
         assert!(remember_decision.contains("--kind \"decision\""));
@@ -936,6 +937,9 @@
         assert!(remember_short.contains("--tag basic-memory --tag short-term"));
         assert!(remember_long.contains("--kind \"fact\""));
         assert!(remember_long.contains("--tag \"long-term\""));
+        assert!(teach.contains("args=(teach --output"));
+        assert!(teach.contains("MEMD_BIN"));
+        assert!(teach.contains("exec \"$memd_cmd\""));
         assert!(watch.contains("memd watch --root"));
         let capture_live =
             fs::read_to_string(dir.join("agents/capture-live.sh")).expect("read capture helper");

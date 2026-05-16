@@ -45,11 +45,14 @@ Recommended flow:
 
 1. refresh wake-up at task start
 2. use `memd lookup` before answering about prior decisions, preferences, or project history
-3. write durable decisions/preferences through the generated helper scripts
-4. stream live changes through `memd hook capture`
-5. promote durable findings and supersede stale beliefs when corrections land
-6. let wake/resume/refresh/handoff write short-term status snapshots automatically
-7. use `.memd/agents/watch.sh` for live code-edit capture when working in the repo
+3. ask or run `memd lookup` before claiming unknown important facts
+4. save new user-taught facts with `memd teach --output .memd --content "..."`
+5. compile strict context with capabilities/access before tool-sensitive work
+6. write durable decisions/preferences through the generated helper scripts
+7. stream live changes through `memd hook capture`
+8. promote durable findings and supersede stale beliefs when corrections land
+9. let wake/resume/refresh/handoff write short-term status snapshots automatically
+10. use `.memd/agents/watch.sh` for live code-edit capture when working in the repo
 
 If the backend is unavailable, Codex should keep using the local bundle markdown already on disk rather than stalling the turn. Keep using the local bundle markdown until the backend comes back.
 
@@ -61,7 +64,7 @@ Hermes uses the same shared memory core, but it presents the adoption/onboarding
 ## Read Context
 
 ```bash
-memd context --project <project> --agent codex --compact
+memd context --agent codex --intent current_task --format prompt --include-capabilities --include-access --safety strict
 ```
 
 ## Read The Bundle Memory File

@@ -16,6 +16,6 @@ Add-Content -Path (Join-Path $StateDir "hook.log") -Value "[$(Get-Date -Format '
 @'
 {
   "decision": "block",
-  "reason": "COMPACTION IMMINENT. Persist everything important to memd before context is compressed. 1. checkpoint current task state, 2. write durable decisions/corrections/preferences/facts, 3. run memd hook spill --output .memd --stdin --apply for any compaction packet or turn-state delta, 4. then allow compaction."
+  "reason": "COMPACTION IMMINENT. Persist everything important to memd before context is compressed. 1. checkpoint current task state, 2. save user-taught facts with memd teach --output .memd --content \"...\", 3. write durable decisions/corrections/preferences with memd remember, 4. run memd hook spill --output .memd --stdin --apply for any compaction packet or turn-state delta, 5. then allow compaction."
 }
 '@

@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use crate::harness::preset::SHARED_VISIBLE_SURFACES;
-use crate::harness::shared::HarnessPackData;
+use crate::harness::shared::{
+    HarnessPackData, memory_os_guardrail_behaviors, strict_context_command,
+};
 
 pub(crate) type CodexHarnessPack = HarnessPackData;
 
@@ -24,17 +26,22 @@ pub(crate) fn build_codex_harness_pack(
         commands: vec![
             "memd wake --output .memd --write".to_string(),
             "memd resume --output .memd".to_string(),
+            strict_context_command("codex"),
             "memd lookup --output .memd --query \"what did we already decide about this?\""
                 .to_string(),
             "memd hook capture --output .memd --stdin --summary".to_string(),
             "memd hook spill --output .memd --stdin --apply".to_string(),
         ],
-        behaviors: vec![
-            "recall before turn".to_string(),
-            "pre-answer lookup before memory-dependent responses".to_string(),
-            "capture after turn".to_string(),
-            "spill at compaction boundaries".to_string(),
-            "turn-scoped cache".to_string(),
-        ],
+        behaviors: {
+            let mut behaviors = vec![
+                "recall before turn".to_string(),
+                "pre-answer lookup before memory-dependent responses".to_string(),
+                "capture after turn".to_string(),
+                "spill at compaction boundaries".to_string(),
+                "turn-scoped cache".to_string(),
+            ];
+            behaviors.extend(memory_os_guardrail_behaviors());
+            behaviors
+        },
     }
 }
