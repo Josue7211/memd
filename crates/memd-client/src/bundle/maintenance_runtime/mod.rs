@@ -1336,7 +1336,7 @@ fn build_capability_materialization_report(
     }
     let missing = actions
         .iter()
-        .filter(|action| action.status == "missing")
+        .filter(|action| action.status == "missing" || action.status == "install-failed")
         .count();
     let installable = actions
         .iter()
@@ -1691,6 +1691,32 @@ fn apply_capability_materialization(
         } else {
             "host CLI install plan already materialized; run it with MEMD_HOST_CLI_INSTALL_APPROVED=1 to install on this machine, then authenticate and rerun capability sync".to_string()
         };
+        if host_cli_install_approved() {
+            match run_host_cli_install_plan(&target) {
+                Ok(_) if host_cli_available_on_path(&action.name) => {
+                    action.status = "present".to_string();
+                    action.reason = format!(
+                        "host CLI installer ran and {} is now available on PATH; authenticate if needed, then rerun capability sync",
+                        action.name
+                    );
+                    return Ok(true);
+                }
+                Ok(output) => {
+                    action.status = "install-failed".to_string();
+                    action.reason = format!(
+                        "host CLI installer ran but {} is still missing on PATH: {}",
+                        action.name,
+                        compact_command_output(&output)
+                    );
+                    return Ok(true);
+                }
+                Err(error) => {
+                    action.status = "install-failed".to_string();
+                    action.reason = format!("host CLI installer failed: {error:#}");
+                    return Ok(true);
+                }
+            }
+        }
         return Ok(changed);
     }
     if action.action == "restore-from-payload" {
@@ -1800,6 +1826,29 @@ fn set_host_cli_install_plan_executable(_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn host_cli_install_approved() -> bool {
+    std::env::var("MEMD_HOST_CLI_INSTALL_APPROVED").as_deref() == Ok("1")
+}
+
+fn run_host_cli_install_plan(path: &Path) -> anyhow::Result<std::process::Output> {
+    std::process::Command::new("sh")
+        .arg(path)
+        .output()
+        .with_context(|| format!("run host CLI install plan {}", path.display()))
+}
+
+fn compact_command_output(output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let text = format!(
+        "exit={} stdout={} stderr={}",
+        output.status.code().unwrap_or(-1),
+        stdout.trim(),
+        stderr.trim()
+    );
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn is_bundle_relative_capability(record: &CapabilityRecord) -> bool {
     record.source_path.starts_with(".memd/")
         || record.source_path.starts_with("agents/")
@@ -1843,6 +1892,16 @@ fn capabilities_materialize(args: &CapabilitiesArgs) -> bool {
 #[cfg(test)]
 mod capability_materialization_tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    static HOST_CLI_INSTALL_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn lock_host_cli_install_env() -> std::sync::MutexGuard<'static, ()> {
+        HOST_CLI_INSTALL_ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("host CLI install env lock poisoned")
+    }
 
     fn capability(
         harness: &str,
@@ -2052,6 +2111,104 @@ mod capability_materialization_tests {
         assert_eq!(second_report.missing, 0);
 
         fs::remove_dir_all(bundle).ok();
+    }
+
+    #[test]
+    fn approved_host_cli_install_plan_runs_and_rechecks_path() {
+        let _guard = lock_host_cli_install_env();
+        let old_approved = std::env::var_os("MEMD_HOST_CLI_INSTALL_APPROVED");
+        let old_path = std::env::var_os("PATH");
+        let root = std::env::temp_dir().join(format!(
+            "memd-host-cli-approved-install-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let bundle = root.join(".memd");
+        let bin = root.join("bin");
+        fs::create_dir_all(bundle.join("state")).expect("create bundle state");
+        fs::create_dir_all(&bin).expect("create fake bin");
+        let cli_path = bin.join("memd-test-runner");
+        let plan = format!(
+            "#!/bin/sh\nset -eu\ncat > '{}' <<'EOF'\n#!/bin/sh\nexit 0\nEOF\nchmod +x '{}'\n",
+            cli_path.display(),
+            cli_path.display()
+        );
+        let mut record = capability(
+            "local",
+            "cli",
+            "memd-test-runner",
+            "host-local",
+            "host-cli:memd-test-runner",
+        );
+        record.notes = vec![
+            "PATH inventory; executable availability is host-local".to_string(),
+            format!("memd:host-cli-install-plan:{plan}"),
+        ];
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: None,
+            capabilities: vec![record],
+        };
+        write_bundle_capability_registry(&bundle, &registry).expect("write registry");
+
+        let mut paths = vec![bin.clone()];
+        if let Some(old_path) = old_path.as_ref() {
+            paths.extend(std::env::split_paths(old_path));
+        }
+        let joined_path = std::env::join_paths(paths).expect("join PATH");
+        unsafe {
+            std::env::set_var("MEMD_HOST_CLI_INSTALL_APPROVED", "1");
+            std::env::set_var("PATH", &joined_path);
+        }
+
+        let report = build_capabilities_response_from_registry(
+            &CapabilitiesArgs {
+                command: None,
+                output: bundle.clone(),
+                harness: None,
+                kind: None,
+                portability: None,
+                query: None,
+                limit: 12,
+                summary: false,
+                json: false,
+                materialize_plan: false,
+                materialize: true,
+            },
+            &bundle,
+            &registry,
+            &CapabilityBridgeRegistry {
+                generated_at: Utc::now(),
+                actions: Vec::new(),
+            },
+            "status",
+            false,
+            12,
+        )
+        .expect("capability report")
+        .materialization
+        .expect("materialization report");
+
+        unsafe {
+            match old_approved {
+                Some(value) => std::env::set_var("MEMD_HOST_CLI_INSTALL_APPROVED", value),
+                None => std::env::remove_var("MEMD_HOST_CLI_INSTALL_APPROVED"),
+            }
+            match old_path {
+                Some(value) => std::env::set_var("PATH", value),
+                None => std::env::remove_var("PATH"),
+            }
+        }
+
+        let action = report
+            .actions
+            .iter()
+            .find(|action| action.name == "memd-test-runner")
+            .expect("memd-test-runner action");
+        assert_eq!(action.status, "present");
+        assert!(action.reason.contains("now available on PATH"));
+        assert!(cli_path.is_file());
+
+        fs::remove_dir_all(root).ok();
     }
 
     #[test]
