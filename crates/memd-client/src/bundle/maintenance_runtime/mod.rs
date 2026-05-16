@@ -1358,8 +1358,9 @@ fn build_capability_materialization_report(
         .count();
     let auth_gaps = actions
         .iter()
-        .filter(|action| is_host_cli_action(action) && host_cli_auth_hint(&action.name).is_some())
+        .filter(|action| action.auth_status.as_deref() == Some("unknown"))
         .count();
+    let auth_unknown = auth_gaps;
     let fresh_machine_ready = missing == 0 && host_local == 0;
     Ok(CapabilityMaterializationReport {
         status: if fresh_machine_ready {
@@ -1375,6 +1376,7 @@ fn build_capability_materialization_report(
         missing,
         host_local,
         auth_gaps,
+        auth_unknown,
         fresh_machine_ready,
         applied,
         skipped,
@@ -1397,6 +1399,8 @@ fn materialization_action_for_record(
                 source_path: record.source_path.clone(),
                 target_path: None,
                 payload_text: None,
+                auth_status: host_cli_auth_status(&record.name),
+                auth_check: host_cli_auth_check(&record.name),
                 reason: host_cli_reason(
                     &record.name,
                     "host-local CLI is available on this machine, but fresh machines still need machine-specific install proof",
@@ -1413,6 +1417,8 @@ fn materialization_action_for_record(
             source_path: record.source_path.clone(),
             target_path: Some(target.display().to_string()),
             payload_text: Some(plan_text.to_string()),
+            auth_status: host_cli_auth_status(&record.name),
+            auth_check: host_cli_auth_check(&record.name),
             reason: host_cli_reason(
                 &record.name,
                 "host-local CLI needs machine-specific install; server can restore an install plan but not the executable",
@@ -1434,6 +1440,8 @@ fn materialization_action_for_record(
                 source_path: record.source_path.clone(),
                 target_path: Some(target.display().to_string()),
                 payload_text: Some(payload_text),
+                auth_status: None,
+                auth_check: None,
                 reason:
                     "server-synced text payload set can restore skill/plugin files on this machine"
                         .to_string(),
@@ -1449,6 +1457,8 @@ fn materialization_action_for_record(
             source_path: record.source_path.clone(),
             target_path: Some(target.display().to_string()),
             payload_text: Some(payload_text.to_string()),
+            auth_status: None,
+            auth_check: None,
             reason: "server-synced text payload can be materialized on this machine".to_string(),
         };
     }
@@ -1468,6 +1478,8 @@ fn materialization_action_for_record(
             source_path: source.display().to_string(),
             target_path: Some(target.display().to_string()),
             payload_text: None,
+            auth_status: None,
+            auth_check: None,
             reason: "portable bundle asset can be restored from memd bundle state".to_string(),
         };
     }
@@ -1513,6 +1525,16 @@ fn materialization_action_for_record(
         source_path: record.source_path.clone(),
         target_path: None,
         payload_text: None,
+        auth_status: if action == "install-host-cli" {
+            host_cli_auth_status(&record.name)
+        } else {
+            None
+        },
+        auth_check: if action == "install-host-cli" {
+            host_cli_auth_check(&record.name)
+        } else {
+            None
+        },
         reason: reason.to_string(),
     }
 }
@@ -1869,21 +1891,22 @@ fn compact_command_output(output: &std::process::Output) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn is_host_cli_action(action: &CapabilityMaterializationAction) -> bool {
-    matches!(
-        action.action.as_str(),
-        "host-cli-on-path" | "write-host-cli-install-plan" | "install-host-cli"
-    )
-}
-
 fn host_cli_reason(name: &str, base: &str) -> String {
-    match host_cli_auth_hint(name) {
+    match host_cli_auth_check_hint(name) {
         Some(hint) => format!("{base}; auth_status=unknown; auth_check={hint}"),
         None => base.to_string(),
     }
 }
 
-fn host_cli_auth_hint(name: &str) -> Option<&'static str> {
+fn host_cli_auth_status(name: &str) -> Option<String> {
+    host_cli_auth_check_hint(name).map(|_| "unknown".to_string())
+}
+
+fn host_cli_auth_check(name: &str) -> Option<String> {
+    host_cli_auth_check_hint(name).map(str::to_string)
+}
+
+fn host_cli_auth_check_hint(name: &str) -> Option<&'static str> {
     match name {
         "codex" => Some("open Codex on this machine and confirm account/plugin access"),
         "gh" => Some("gh auth status"),
@@ -2206,7 +2229,10 @@ mod capability_materialization_tests {
         .expect("materialization report");
 
         assert_eq!(report.auth_gaps, 1);
+        assert_eq!(report.auth_unknown, 1);
         let action = report.actions.first().expect("host CLI action");
+        assert_eq!(action.auth_status.as_deref(), Some("unknown"));
+        assert_eq!(action.auth_check.as_deref(), Some("gh auth status"));
         assert!(action.reason.contains("auth_status=unknown"));
         assert!(action.reason.contains("auth_check=gh auth status"));
 
@@ -2363,6 +2389,7 @@ mod capability_materialization_tests {
         assert_eq!(report.missing, 0);
         assert_eq!(report.host_local, 1);
         assert_eq!(report.auth_gaps, 0);
+        assert_eq!(report.auth_unknown, 0);
         assert!(!report.fresh_machine_ready);
         let action = report.actions.first().expect("host CLI action");
         assert_eq!(action.status, "present");
@@ -2666,11 +2693,13 @@ pub(crate) fn render_capabilities_runtime_summary(response: &CapabilitiesRespons
         .as_ref()
         .map(|report| {
             format!(
-                " materialize={} installable={} missing={} host_local={} fresh_machine_ready={} applied={} skipped={}",
+                " materialize={} installable={} missing={} host_local={} auth_gaps={} auth_unknown={} fresh_machine_ready={} applied={} skipped={}",
                 report.status,
                 report.installable,
                 report.missing,
                 report.host_local,
+                report.auth_gaps,
+                report.auth_unknown,
                 report.fresh_machine_ready,
                 report.applied,
                 report.skipped

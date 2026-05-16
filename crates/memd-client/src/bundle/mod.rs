@@ -592,6 +592,7 @@ pub(crate) struct CapabilityMaterializationReport {
     pub(crate) missing: usize,
     pub(crate) host_local: usize,
     pub(crate) auth_gaps: usize,
+    pub(crate) auth_unknown: usize,
     pub(crate) fresh_machine_ready: bool,
     pub(crate) applied: usize,
     pub(crate) skipped: usize,
@@ -609,6 +610,10 @@ pub(crate) struct CapabilityMaterializationAction {
     pub(crate) target_path: Option<String>,
     #[serde(skip_serializing)]
     pub(crate) payload_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) auth_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) auth_check: Option<String>,
     pub(crate) reason: String,
 }
 
