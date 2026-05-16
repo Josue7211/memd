@@ -1388,6 +1388,7 @@ fn evaluate_server_authority_status(value: &serde_json::Value) -> ServerAuthorit
         .get("git_commit")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("unknown");
+    let local_git_commit = local_git_commit_short();
     let git_dirty = value
         .get("git_dirty")
         .and_then(serde_json::Value::as_str)
@@ -1396,6 +1397,9 @@ fn evaluate_server_authority_status(value: &serde_json::Value) -> ServerAuthorit
         .get("benchmark_gate")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("unknown");
+    let latency_p95_ms = value
+        .get("latency_p95_ms")
+        .and_then(serde_json::Value::as_f64);
     let schema_version = value
         .get("schema_version")
         .and_then(serde_json::Value::as_i64)
@@ -1410,13 +1414,26 @@ fn evaluate_server_authority_status(value: &serde_json::Value) -> ServerAuthorit
     let mut gaps = Vec::new();
     if git_commit == "unknown" {
         gaps.push("server git_commit is unknown; deploy identity is not proven".to_string());
+    } else if let Some(local_commit) = local_git_commit.as_deref()
+        && !git_commits_match(git_commit, local_commit)
+    {
+        gaps.push(format!(
+            "server git_commit={git_commit} does not match local HEAD {local_commit}; shared authority deploy is stale"
+        ));
     }
     if git_dirty == "unknown" {
         gaps.push("server git_dirty is unknown; deployed dirty state is not proven".to_string());
+    } else if git_dirty != "clean" {
+        gaps.push(format!(
+            "server_git_dirty={git_dirty}; deployed authority tree is not clean"
+        ));
     }
     if !matches!(benchmark_gate, "pass" | "acceptable") {
+        let latency = latency_p95_ms
+            .map(|value| format!(" latency_p95_ms={value:.0}"))
+            .unwrap_or_default();
         gaps.push(format!(
-            "server benchmark_gate={benchmark_gate}; authority is not proven ready"
+            "server benchmark_gate={benchmark_gate}{latency}; authority is not proven ready"
         ));
     }
     if atlas_dormant {
@@ -1427,13 +1444,39 @@ fn evaluate_server_authority_status(value: &serde_json::Value) -> ServerAuthorit
         evidence: vec![
             "server_api_status=ok".to_string(),
             format!("server_git_commit={git_commit}"),
+            format!(
+                "local_git_commit={}",
+                local_git_commit.unwrap_or_else(|| "unknown".to_string())
+            ),
             format!("server_git_dirty={git_dirty}"),
             format!("server_benchmark_gate={benchmark_gate}"),
+            format!(
+                "server_latency_p95_ms={}",
+                latency_p95_ms
+                    .map(|value| format!("{value:.0}"))
+                    .unwrap_or_else(|| "unknown".to_string())
+            ),
             format!("server_schema_version={schema_version}"),
             format!("server_atlas_dormant={atlas_dormant}"),
         ],
         gaps,
     }
+}
+
+fn local_git_commit_short() -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--short", "HEAD"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!commit.is_empty()).then_some(commit)
+}
+
+fn git_commits_match(server_commit: &str, local_commit: &str) -> bool {
+    server_commit.starts_with(local_commit) || local_commit.starts_with(server_commit)
 }
 
 fn build_market_claim_gate(features: &[MemoryOsFeature]) -> MarketClaimGate {
@@ -2603,6 +2646,7 @@ mod tests {
             "git_commit": "unknown",
             "git_dirty": "unknown",
             "benchmark_gate": "fail",
+            "latency_p95_ms": 2048,
             "schema_version": 6,
             "atlas": {
                 "dormant": true
@@ -2625,13 +2669,51 @@ mod tests {
             probe
                 .gaps
                 .iter()
-                .any(|item| item.contains("benchmark_gate=fail"))
+                .any(|item| item.contains("benchmark_gate=fail latency_p95_ms=2048"))
         );
         assert!(
             probe
                 .gaps
                 .iter()
                 .any(|item| item.contains("atlas is dormant"))
+        );
+    }
+
+    #[test]
+    fn server_authority_status_marks_dirty_or_stale_live_server_partial() {
+        let local_commit = local_git_commit_short().unwrap_or_else(|| "local".to_string());
+        let stale_commit = if local_commit == "81f5c61" {
+            "0000000"
+        } else {
+            "81f5c61"
+        };
+        let probe = evaluate_server_authority_status(&serde_json::json!({
+            "git_commit": stale_commit,
+            "git_dirty": "dirty",
+            "benchmark_gate": "acceptable",
+            "schema_version": 6,
+            "atlas": {
+                "dormant": false
+            }
+        }));
+
+        assert!(
+            probe
+                .evidence
+                .iter()
+                .any(|item| item.starts_with("local_git_commit="))
+        );
+        assert!(
+            probe
+                .gaps
+                .iter()
+                .any(|item| item.contains("shared authority deploy is stale"))
+        );
+        assert!(
+            probe
+                .gaps
+                .iter()
+                .any(|item| item.contains("server_git_dirty=dirty"))
         );
     }
 
