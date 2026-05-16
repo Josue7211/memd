@@ -9749,6 +9749,13 @@ async fn tiny_ollama_context_packet_route_preserves_core_sections_and_server_syn
 
     assert_eq!(packet.model_tier, "tiny");
     assert!(packet.packet.chars().count() <= 4000);
+    assert!(packet.packet.contains("- voice_mode: `caveman-ultra`"));
+    assert!(packet.packet.contains("normal spelling"));
+    assert!(
+        packet
+            .packet
+            .contains("rewrite before sending if draft slips")
+    );
     for section in [
         "## System Guard",
         "## Task State",
