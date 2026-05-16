@@ -1356,6 +1356,10 @@ fn build_capability_materialization_report(
             )
         })
         .count();
+    let auth_gaps = actions
+        .iter()
+        .filter(|action| is_host_cli_action(action) && host_cli_auth_hint(&action.name).is_some())
+        .count();
     let fresh_machine_ready = missing == 0 && host_local == 0;
     Ok(CapabilityMaterializationReport {
         status: if fresh_machine_ready {
@@ -1370,6 +1374,7 @@ fn build_capability_materialization_report(
         installable,
         missing,
         host_local,
+        auth_gaps,
         fresh_machine_ready,
         applied,
         skipped,
@@ -1392,7 +1397,10 @@ fn materialization_action_for_record(
                 source_path: record.source_path.clone(),
                 target_path: None,
                 payload_text: None,
-                reason: "host-local CLI is available on this machine, but fresh machines still need machine-specific install proof".to_string(),
+                reason: host_cli_reason(
+                    &record.name,
+                    "host-local CLI is available on this machine, but fresh machines still need machine-specific install proof",
+                ),
             };
         }
         let target = host_cli_install_plan_target_path(output, record);
@@ -1405,7 +1413,10 @@ fn materialization_action_for_record(
             source_path: record.source_path.clone(),
             target_path: Some(target.display().to_string()),
             payload_text: Some(plan_text.to_string()),
-            reason: "host-local CLI needs machine-specific install; server can restore an install plan but not the executable".to_string(),
+            reason: host_cli_reason(
+                &record.name,
+                "host-local CLI needs machine-specific install; server can restore an install plan but not the executable",
+            ),
         };
     }
     if let Some(payload_text) = capability_payload_text(record) {
@@ -1687,17 +1698,26 @@ fn apply_capability_materialization(
         set_host_cli_install_plan_executable(&target)?;
         action.status = "installer-ready".to_string();
         action.reason = if changed {
-            "wrote machine-approved host CLI install plan; run it with MEMD_HOST_CLI_INSTALL_APPROVED=1 to install on this machine, then authenticate and rerun capability sync".to_string()
+            host_cli_reason(
+                &action.name,
+                "wrote machine-approved host CLI install plan; run it with MEMD_HOST_CLI_INSTALL_APPROVED=1 to install on this machine, then authenticate and rerun capability sync",
+            )
         } else {
-            "host CLI install plan already materialized; run it with MEMD_HOST_CLI_INSTALL_APPROVED=1 to install on this machine, then authenticate and rerun capability sync".to_string()
+            host_cli_reason(
+                &action.name,
+                "host CLI install plan already materialized; run it with MEMD_HOST_CLI_INSTALL_APPROVED=1 to install on this machine, then authenticate and rerun capability sync",
+            )
         };
         if host_cli_install_approved() {
             match run_host_cli_install_plan(&target) {
                 Ok(_) if host_cli_available_on_path(&action.name) => {
                     action.status = "present".to_string();
-                    action.reason = format!(
-                        "host CLI installer ran and {} is now available on PATH; authenticate if needed, then rerun capability sync",
-                        action.name
+                    action.reason = host_cli_reason(
+                        &action.name,
+                        &format!(
+                            "host CLI installer ran and {} is now available on PATH; authenticate if needed, then rerun capability sync",
+                            action.name
+                        ),
                     );
                     return Ok(true);
                 }
@@ -1847,6 +1867,34 @@ fn compact_command_output(output: &std::process::Output) -> String {
         stderr.trim()
     );
     text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn is_host_cli_action(action: &CapabilityMaterializationAction) -> bool {
+    matches!(
+        action.action.as_str(),
+        "host-cli-on-path" | "write-host-cli-install-plan" | "install-host-cli"
+    )
+}
+
+fn host_cli_reason(name: &str, base: &str) -> String {
+    match host_cli_auth_hint(name) {
+        Some(hint) => format!("{base}; auth_status=unknown; auth_check={hint}"),
+        None => base.to_string(),
+    }
+}
+
+fn host_cli_auth_hint(name: &str) -> Option<&'static str> {
+    match name {
+        "codex" => Some("open Codex on this machine and confirm account/plugin access"),
+        "gh" => Some("gh auth status"),
+        "opencode" => {
+            Some("opencode auth status or open OpenCode and confirm configured provider access")
+        }
+        "claude" => Some("claude /login or run Claude Code and confirm account access"),
+        "wrangler" => Some("wrangler whoami"),
+        "supabase" => Some("supabase login status or run supabase projects list"),
+        _ => None,
+    }
 }
 
 fn is_bundle_relative_capability(record: &CapabilityRecord) -> bool {
@@ -2114,6 +2162,58 @@ mod capability_materialization_tests {
     }
 
     #[test]
+    fn host_cli_auth_gap_reports_next_auth_check() {
+        let bundle =
+            std::env::temp_dir().join(format!("memd-host-cli-auth-gap-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(bundle.join("state")).expect("create bundle state");
+        let mut record = capability("local", "cli", "gh", "host-local", "host-cli:gh");
+        record.notes = vec![
+            "PATH inventory; executable availability is host-local".to_string(),
+            "memd:host-cli-install-plan:#!/bin/sh\necho install gh\n".to_string(),
+        ];
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: None,
+            capabilities: vec![record],
+        };
+
+        let report = build_capabilities_response_from_registry(
+            &CapabilitiesArgs {
+                command: None,
+                output: bundle.clone(),
+                harness: None,
+                kind: None,
+                portability: None,
+                query: None,
+                limit: 12,
+                summary: false,
+                json: false,
+                materialize_plan: true,
+                materialize: false,
+            },
+            &bundle,
+            &registry,
+            &CapabilityBridgeRegistry {
+                generated_at: Utc::now(),
+                actions: Vec::new(),
+            },
+            "status",
+            false,
+            12,
+        )
+        .expect("capability report")
+        .materialization
+        .expect("materialization report");
+
+        assert_eq!(report.auth_gaps, 1);
+        let action = report.actions.first().expect("host CLI action");
+        assert!(action.reason.contains("auth_status=unknown"));
+        assert!(action.reason.contains("auth_check=gh auth status"));
+
+        fs::remove_dir_all(bundle).ok();
+    }
+
+    #[test]
     fn approved_host_cli_install_plan_runs_and_rechecks_path() {
         let _guard = lock_host_cli_install_env();
         let old_approved = std::env::var_os("MEMD_HOST_CLI_INSTALL_APPROVED");
@@ -2262,6 +2362,7 @@ mod capability_materialization_tests {
         assert_eq!(report.status, "partial-host-local");
         assert_eq!(report.missing, 0);
         assert_eq!(report.host_local, 1);
+        assert_eq!(report.auth_gaps, 0);
         assert!(!report.fresh_machine_ready);
         let action = report.actions.first().expect("host CLI action");
         assert_eq!(action.status, "present");
