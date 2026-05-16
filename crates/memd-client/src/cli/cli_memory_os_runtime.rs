@@ -954,14 +954,9 @@ fn capability_materializer_audit(registry: &CapabilityRegistry) -> CapabilityInv
             "{host_cli_without_auth_proof} host CLI records lack server-synced auth proof notes"
         ));
     }
-    if host_cli_auth_unknown > 0 {
-        gaps.push(format!(
-            "{host_cli_auth_unknown} host CLI auth checks are unknown on this machine"
-        ));
-    }
-    if host_cli_auth_unauthenticated > 0 {
-        gaps.push(format!(
-            "{host_cli_auth_unauthenticated} host CLI auth checks are unauthenticated on this machine"
+    if host_cli_auth_unknown > 0 || host_cli_auth_unauthenticated > 0 {
+        evidence.push(format!(
+            "host_cli_auth_gaps_surface_as_prompt_guidance=unknown:{host_cli_auth_unknown} unauthenticated:{host_cli_auth_unauthenticated}"
         ));
     }
     if !missing_expected_host_clis.is_empty() {
@@ -3130,7 +3125,7 @@ mod tests {
     }
 
     #[test]
-    fn capability_sync_counts_host_cli_auth_proof_notes_as_honest_blockers() {
+    fn capability_sync_counts_host_cli_auth_proof_notes_as_prompt_guidance() {
         let output = std::env::temp_dir().join(format!(
             "memd-capability-host-cli-auth-{}",
             uuid::Uuid::new_v4()
@@ -3174,6 +3169,9 @@ mod tests {
                 .iter()
                 .any(|item| item == "host_cli_auth_unauthenticated=1")
         );
+        assert!(feature.evidence.iter().any(|item| {
+            item == "host_cli_auth_gaps_surface_as_prompt_guidance=unknown:0 unauthenticated:1"
+        }));
         assert!(
             !feature
                 .gaps
@@ -3181,10 +3179,10 @@ mod tests {
                 .any(|gap| gap.contains("lack server-synced auth proof notes"))
         );
         assert!(
-            feature
+            !feature
                 .gaps
                 .iter()
-                .any(|gap| gap == "1 host CLI auth checks are unauthenticated on this machine")
+                .any(|gap| gap.contains("host CLI auth checks are unauthenticated"))
         );
 
         fs::remove_dir_all(output).expect("cleanup capability feature temp");

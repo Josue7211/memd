@@ -574,6 +574,8 @@ mod tests {
                 notes.push(format!("memd:host-auth-check:{name} auth status"));
                 notes.push("memd:host-auth-proof:local-probe".to_string());
                 notes.push("memd:host-auth-output-stored:false".to_string());
+                notes.push("memd:host-cli-path-status:missing".to_string());
+                notes.push("memd:host-cli-install-plan:<omitted>".to_string());
             }
             memd_schema::CapabilityRecord {
                 harness: harness.to_string(),
@@ -657,6 +659,8 @@ mod tests {
         assert!(packet.contains("local:cli `supabase`"));
         assert!(packet.contains("auth_status=unauthenticated"));
         assert!(packet.contains("auth_status=unknown"));
+        assert!(packet.contains("host_status=missing"));
+        assert!(packet.contains("install_plan=available"));
         assert!(packet.contains("auth_check=opencode auth status"));
         assert!(!packet.contains("codex:skill `tool-0`"));
     }
@@ -674,6 +678,8 @@ mod tests {
             if let Some(status) = auth_status {
                 notes.push(format!("memd:host-auth-status:{status}"));
                 notes.push(format!("memd:host-auth-check:{name} auth status"));
+                notes.push("memd:host-cli-path-status:missing".to_string());
+                notes.push("memd:host-cli-install-plan:<omitted>".to_string());
             }
             memd_schema::CapabilityRecord {
                 harness: harness.to_string(),
@@ -719,6 +725,8 @@ mod tests {
                 .contains("local:cli `opencode`")
         );
         assert!(section.contains("auth_status=unauthenticated"));
+        assert!(section.contains("host_status=missing"));
+        assert!(section.contains("install_plan=available"));
         assert!(!section.contains("codex:skill `ignored`"));
     }
 
@@ -1282,6 +1290,19 @@ fn format_context_capability_line(
 ) -> String {
     let auth_status = capability_note_suffix(record, "memd:host-auth-status:");
     let auth_check = capability_note_suffix(record, "memd:host-auth-check:");
+    let path_status = capability_note_suffix(record, "memd:host-cli-path-status:");
+    let install_plan = record
+        .notes
+        .iter()
+        .any(|note| note.starts_with("memd:host-cli-install-plan:"));
+    let host_path = path_status
+        .map(|status| format!(" host_status={}", prompt_safe_line(status)))
+        .unwrap_or_default();
+    let install_plan = if install_plan {
+        " install_plan=available"
+    } else {
+        ""
+    };
     let host_auth = match (auth_status, auth_check) {
         (Some(status), Some(check)) => format!(
             " auth_status={} auth_check={}",
@@ -1295,12 +1316,14 @@ fn format_context_capability_line(
         .map(|sync| format!(" sync={}", prompt_safe_line(sync)))
         .unwrap_or_default();
     format!(
-        "- {}:{} `{}` status={} portability={}{} source={}{}",
+        "- {}:{} `{}` status={} portability={}{}{}{} source={}{}",
         prompt_safe_line(&record.harness),
         prompt_safe_line(&record.kind),
         prompt_safe_line(&record.name),
         prompt_safe_line(&record.status),
         prompt_safe_line(&record.portability_class),
+        host_path,
+        install_plan,
         host_auth,
         prompt_safe_line(&record.source_path),
         sync

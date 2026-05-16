@@ -1680,6 +1680,7 @@ const HOST_CLI_AUTH_STATUS_PREFIX: &str = "memd:host-auth-status:";
 const HOST_CLI_AUTH_CHECK_PREFIX: &str = "memd:host-auth-check:";
 const HOST_CLI_AUTH_PROOF_PREFIX: &str = "memd:host-auth-proof:";
 const HOST_CLI_AUTH_OUTPUT_STORED_PREFIX: &str = "memd:host-auth-output-stored:";
+const HOST_CLI_PATH_STATUS_PREFIX: &str = "memd:host-cli-path-status:";
 
 fn capability_payload_text(record: &CapabilityRecord) -> Option<&str> {
     record
@@ -1757,6 +1758,7 @@ fn annotate_host_cli_auth_notes(record: &mut CapabilityRecord) {
             && !note.starts_with(HOST_CLI_AUTH_CHECK_PREFIX)
             && !note.starts_with(HOST_CLI_AUTH_PROOF_PREFIX)
             && !note.starts_with(HOST_CLI_AUTH_OUTPUT_STORED_PREFIX)
+            && !note.starts_with(HOST_CLI_PATH_STATUS_PREFIX)
     });
     record
         .notes
@@ -1770,6 +1772,10 @@ fn annotate_host_cli_auth_notes(record: &mut CapabilityRecord) {
     record
         .notes
         .push(format!("{HOST_CLI_AUTH_OUTPUT_STORED_PREFIX}false"));
+    record.notes.push(format!(
+        "{HOST_CLI_PATH_STATUS_PREFIX}{}",
+        host_cli_path_status(&record.name)
+    ));
 }
 
 fn host_cli_install_plan_target_path(output: &Path, record: &CapabilityRecord) -> PathBuf {
@@ -1785,6 +1791,14 @@ fn host_cli_available_on_path(name: &str) -> bool {
             .map(|dir| dir.join(name))
             .any(|candidate| candidate.is_file())
     })
+}
+
+fn host_cli_path_status(name: &str) -> &'static str {
+    if host_cli_available_on_path(name) {
+        "on-path"
+    } else {
+        "missing"
+    }
 }
 
 fn sanitize_capability_filename(name: &str) -> String {
@@ -2606,6 +2620,12 @@ mod capability_materialization_tests {
                 .iter()
                 .any(|note| note == "memd:host-auth-output-stored:false")
         );
+        assert!(
+            record
+                .notes
+                .iter()
+                .any(|note| note == "memd:host-cli-path-status:on-path")
+        );
         let serialized = serde_json::to_string(record).expect("serialize record");
         assert!(!serialized.contains("secret-ish-output"));
         assert!(!serialized.contains("stdout="));
@@ -2690,6 +2710,12 @@ mod capability_materialization_tests {
                 .notes
                 .iter()
                 .any(|note| note == "memd:host-auth-output-stored:false")
+        );
+        assert!(
+            record
+                .notes
+                .iter()
+                .any(|note| note == "memd:host-cli-path-status:on-path")
         );
 
         unsafe {
