@@ -3,6 +3,7 @@ import argparse
 import contextlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -93,24 +94,29 @@ def replay_command(benchmark_id: str) -> str:
     return command
 
 
+def external_public_cache_root() -> Path:
+    explicit = os.environ.get("DATASET_CACHE_DIR") or os.environ.get(
+        "MEMD_EXTERNAL_PUBLIC_CACHE_DIR"
+    )
+    if explicit:
+        return Path(explicit).expanduser()
+    return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "memd" / "external-public-cache"
+
+
 def dataset_path(benchmark_id: str, filename: str) -> Path:
     primary = REPO_ROOT / ".memd" / "benchmarks" / "datasets" / benchmark_id / filename
     if primary.exists():
         return primary
-    verification_cache = (
-        REPO_ROOT
-        / "docs"
-        / "verification"
-        / "25-5-memory-os-runs"
-        / "external-public-cache"
+    external_cache = (
+        external_public_cache_root()
         / benchmark_id
         / "benchmarks"
         / "datasets"
         / benchmark_id
         / filename
     )
-    if verification_cache.exists():
-        return verification_cache
+    if external_cache.exists():
+        return external_cache
     return primary
 
 

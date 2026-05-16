@@ -27,12 +27,18 @@ def dataset_path(benchmark_id: str, filename: str) -> Path:
     primary = REPO_ROOT / ".memd" / "benchmarks" / "datasets" / benchmark_id / filename
     if primary.exists():
         return primary
-    cached = (
-        REPO_ROOT
-        / "docs"
-        / "verification"
-        / "25-5-memory-os-runs"
+    explicit = os.environ.get("DATASET_CACHE_DIR") or os.environ.get(
+        "MEMD_EXTERNAL_PUBLIC_CACHE_DIR"
+    )
+    cache_root = (
+        Path(explicit).expanduser()
+        if explicit
+        else Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+        / "memd"
         / "external-public-cache"
+    )
+    cached = (
+        cache_root
         / benchmark_id
         / "benchmarks"
         / "datasets"

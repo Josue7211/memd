@@ -6,6 +6,8 @@ pub(crate) struct MemoryOsFeatureReport {
     pub(crate) generated_at: DateTime<Utc>,
     pub(crate) bundle_root: String,
     pub(crate) status: String,
+    pub(crate) hygiene_status: String,
+    pub(crate) token_risk: String,
     pub(crate) market_claim: MarketClaimGate,
     pub(crate) features: Vec<MemoryOsFeature>,
 }
@@ -21,6 +23,12 @@ pub(crate) struct MarketClaimGate {
 pub(crate) struct MemoryOsFeature {
     pub(crate) id: String,
     pub(crate) status: String,
+    pub(crate) implementation_status: String,
+    pub(crate) dogfood_status: String,
+    pub(crate) proof_status: String,
+    pub(crate) market_status: String,
+    pub(crate) hygiene_status: String,
+    pub(crate) token_risk: String,
     pub(crate) evidence: Vec<String>,
     pub(crate) gaps: Vec<String>,
 }
@@ -192,12 +200,14 @@ pub(crate) fn render_feature_summary(report: &MemoryOsFeatureReport) -> String {
                 acc
             });
     format!(
-        "features status={} working={} partial={} broken={} unproven={} market_claim={} blockers={} bundle={}",
+        "features status={} working={} partial={} broken={} unproven={} hygiene={} token_risk={} market_claim={} blockers={} bundle={}",
         report.status,
         counts.get("working").copied().unwrap_or(0),
         counts.get("partial").copied().unwrap_or(0),
         counts.get("broken").copied().unwrap_or(0),
         counts.get("unproven").copied().unwrap_or(0),
+        report.hygiene_status,
+        report.token_risk,
         report.market_claim.status,
         report.market_claim.blockers.len(),
         report.bundle_root
@@ -206,9 +216,11 @@ pub(crate) fn render_feature_summary(report: &MemoryOsFeatureReport) -> String {
 
 pub(crate) fn render_health_summary(report: &MemoryOsHealthReport) -> String {
     format!(
-        "health status={} features={} market_claim={} market_blockers={} access={} sync_pending={} sync_failed={} sync_kinds={} token_source={} measured_tokens_saved={} server_events={} estimated_tokens_saved={} bundle={}",
+        "health status={} features={} hygiene={} token_risk={} market_claim={} market_blockers={} access={} sync_pending={} sync_failed={} sync_kinds={} token_source={} measured_tokens_saved={} server_events={} estimated_tokens_saved={} bundle={}",
         report.status,
         report.features.status,
+        report.features.hygiene_status,
+        report.features.token_risk,
         report.features.market_claim.status,
         report.features.market_claim.blockers.len(),
         report.access.status,
@@ -569,11 +581,16 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
         "partial"
     };
 
+    let hygiene_status = aggregate_hygiene_status(&features);
+    let token_risk = aggregate_token_risk(&features);
+
     MemoryOsFeatureReport {
         generated_at: Utc::now(),
         bundle_root: output.display().to_string(),
         status: status.to_string(),
-        market_claim: build_market_claim_gate(),
+        hygiene_status,
+        token_risk,
+        market_claim: build_market_claim_gate(&features),
         features,
     }
 }
@@ -1395,12 +1412,25 @@ fn evaluate_server_authority_status(value: &serde_json::Value) -> ServerAuthorit
     }
 }
 
-fn build_market_claim_gate() -> MarketClaimGate {
+fn build_market_claim_gate(features: &[MemoryOsFeature]) -> MarketClaimGate {
     let report_dir = Path::new("docs")
         .join("verification")
         .join("25-5-memory-os-runs");
     let mut evidence = Vec::new();
     let mut blockers = Vec::new();
+
+    if let Some(hygiene) = features.iter().find(|feature| feature.id == "repo_hygiene") {
+        if hygiene.hygiene_status != "clean" {
+            blockers.push(format!(
+                "repo hygiene is {}; market claim blocked until git-visible raw caches and noisy artifacts are gone",
+                hygiene.hygiene_status
+            ));
+        } else {
+            evidence.push("repo hygiene clean".to_string());
+        }
+    } else {
+        blockers.push("repo hygiene feature missing".to_string());
+    }
 
     let open_competitor = latest_report_with_suffix(&report_dir, "competitor-head-to-head.json")
         .and_then(|path| report_status(&path).map(|status| (path, status)));
@@ -2156,6 +2186,8 @@ mod tests {
                 generated_at: now,
                 bundle_root: ".memd".to_string(),
                 status: "partial".to_string(),
+                hygiene_status: "noisy".to_string(),
+                token_risk: "medium".to_string(),
                 market_claim: MarketClaimGate {
                     status: "blocked".to_string(),
                     evidence: Vec::new(),
@@ -2221,6 +2253,8 @@ mod tests {
         assert!(summary.contains("sync_pending=1"));
         assert!(summary.contains("sync_failed=1"));
         assert!(summary.contains("sync_kinds=token_savings:pending:0 failed:1"));
+        assert!(summary.contains("hygiene=noisy"));
+        assert!(summary.contains("token_risk=medium"));
         assert!(summary.contains("market_claim=blocked"));
         assert!(summary.contains("market_blockers=1"));
         assert!(summary.contains("token_source=server"));
@@ -2603,6 +2637,8 @@ mod tests {
         let feature = repo_hygiene_feature(&bundle);
 
         assert_eq!(feature.status, "partial");
+        assert_eq!(feature.hygiene_status, "noisy");
+        assert_eq!(feature.token_risk, "medium");
         assert!(
             feature
                 .evidence
@@ -2894,9 +2930,19 @@ mod tests {
 
         let report = build_feature_report(&output);
         let summary = render_feature_summary(&report);
+        let repo_hygiene = report
+            .features
+            .iter()
+            .find(|feature| feature.id == "repo_hygiene")
+            .expect("repo hygiene feature");
 
         assert_ne!(report.status, report.market_claim.status);
         assert_eq!(report.market_claim.status, "blocked");
+        assert_eq!(repo_hygiene.implementation_status, repo_hygiene.status);
+        assert_eq!(repo_hygiene.market_status, "blocked");
+        assert_eq!(repo_hygiene.hygiene_status, "clean");
+        assert_eq!(repo_hygiene.token_risk, "low");
+        assert_eq!(report.hygiene_status, "clean");
         assert!(
             report
                 .market_claim
@@ -2912,6 +2958,8 @@ mod tests {
                 .any(|item| item.contains("full external public proof"))
         );
         assert!(summary.contains("market_claim=blocked"));
+        assert!(summary.contains("hygiene=clean"));
+        assert!(summary.contains("token_risk="));
         assert!(summary.contains("blockers="));
 
         fs::remove_dir_all(output).expect("cleanup feature temp");
@@ -3224,11 +3272,117 @@ fn path_evidence(label: &str, path: &Path) -> String {
 }
 
 fn feature(id: &str, status: &str, evidence: Vec<String>, gaps: Vec<String>) -> MemoryOsFeature {
+    let axes = feature_axes(id, status, &gaps);
     MemoryOsFeature {
         id: id.to_string(),
         status: status.to_string(),
+        implementation_status: axes.implementation_status,
+        dogfood_status: axes.dogfood_status,
+        proof_status: axes.proof_status,
+        market_status: axes.market_status,
+        hygiene_status: axes.hygiene_status,
+        token_risk: axes.token_risk,
         evidence,
         gaps,
+    }
+}
+
+#[derive(Debug, Clone)]
+struct FeatureAxes {
+    implementation_status: String,
+    dogfood_status: String,
+    proof_status: String,
+    market_status: String,
+    hygiene_status: String,
+    token_risk: String,
+}
+
+fn feature_axes(id: &str, status: &str, gaps: &[String]) -> FeatureAxes {
+    let hygiene_status = if id == "repo_hygiene" {
+        if status == "working" {
+            "clean"
+        } else if gaps
+            .iter()
+            .any(|gap| gap.contains("raw benchmark cache") || gap.contains("cache path"))
+        {
+            "broken"
+        } else {
+            "noisy"
+        }
+    } else if gaps.iter().any(|gap| {
+        gap.contains("raw benchmark cache")
+            || gap.contains("repo-visible")
+            || gap.contains("cache path")
+    }) {
+        "broken"
+    } else {
+        "clean"
+    };
+    let token_risk = if hygiene_status == "broken" || status == "broken" {
+        "high"
+    } else if hygiene_status == "noisy" || status == "partial" || status == "unproven" {
+        "medium"
+    } else {
+        "low"
+    };
+    let proof_status = match id {
+        "proof_gates" => "focused",
+        "capability_sync" | "access_secret_routes" | "server_authority" => {
+            if status == "working" {
+                "sampled"
+            } else {
+                "focused"
+            }
+        }
+        _ if status == "unproven" => "blocked",
+        _ => "focused",
+    };
+    let dogfood_status = if id == "repo_hygiene" {
+        if hygiene_status == "clean" {
+            "working"
+        } else {
+            status
+        }
+    } else {
+        status
+    };
+
+    FeatureAxes {
+        implementation_status: status.to_string(),
+        dogfood_status: dogfood_status.to_string(),
+        proof_status: proof_status.to_string(),
+        market_status: "blocked".to_string(),
+        hygiene_status: hygiene_status.to_string(),
+        token_risk: token_risk.to_string(),
+    }
+}
+
+fn aggregate_hygiene_status(features: &[MemoryOsFeature]) -> String {
+    if features
+        .iter()
+        .any(|feature| feature.hygiene_status == "broken")
+    {
+        "broken".to_string()
+    } else if features
+        .iter()
+        .any(|feature| feature.hygiene_status == "noisy")
+    {
+        "noisy".to_string()
+    } else {
+        "clean".to_string()
+    }
+}
+
+fn aggregate_token_risk(features: &[MemoryOsFeature]) -> String {
+    if features.iter().any(|feature| feature.token_risk == "high") {
+        "high".to_string()
+    } else if features
+        .iter()
+        .any(|feature| feature.token_risk == "medium")
+    {
+        "medium".to_string()
+    } else {
+        "low".to_string()
     }
 }
 

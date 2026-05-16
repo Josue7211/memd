@@ -7,6 +7,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT_DIR="${OUT_DIR:-$ROOT/docs/verification/25-5-memory-os-runs}"
+DEFAULT_CACHE_ROOT="${MEMD_EXTERNAL_PUBLIC_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/memd/external-public-cache}"
 RUN_DATE="${RUN_DATE:-$(date +%F)}"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/memd-external-public.XXXXXX")"
 SERVER_DB="$WORK_DIR/memd.db"
@@ -17,7 +18,7 @@ PUBLIC_BENCH_TIMEOUT="${PUBLIC_BENCH_TIMEOUT:-900}"
 PUBLIC_BENCH_OFFSET="${PUBLIC_BENCH_OFFSET:-0}"
 SERVER_LOG="$OUT_DIR/${RUN_DATE}-${RUN_LABEL}-server.log"
 REPORT="$OUT_DIR/${RUN_DATE}-${RUN_LABEL}.json"
-DATASET_CACHE_DIR="${DATASET_CACHE_DIR:-$OUT_DIR/external-public-cache}"
+DATASET_CACHE_DIR="${DATASET_CACHE_DIR:-$DEFAULT_CACHE_ROOT}"
 SERVER_PID=""
 
 mkdir -p "$OUT_DIR"
