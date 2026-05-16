@@ -1292,6 +1292,54 @@ mod tests {
     }
 
     #[test]
+    fn continuity_blocker_prefers_explicit_next_action_blockers_over_refresh_pressure() {
+        let mut snapshot = ResumeSnapshot::empty();
+        snapshot.refresh_recommended = true;
+        snapshot.preferences = vec![
+            "id=next | kind=decision | tags=next-agent,recovery | upd=1778958400 | c=CURRENT NEXT ACTION: continue P5 proof. Remaining blockers are Supermemory same-fixture replay and full external public proof opt-in.".to_string(),
+        ];
+
+        let continuity = snapshot.continuity_capsule();
+
+        assert!(
+            continuity
+                .next_action
+                .as_deref()
+                .unwrap_or_default()
+                .contains("continue P5 proof")
+        );
+        assert_eq!(
+            continuity.blocker.as_deref(),
+            Some("Supermemory same-fixture replay and full external public proof opt-in")
+        );
+    }
+
+    #[test]
+    fn continuity_blocker_uses_raw_next_action_before_compaction() {
+        let mut snapshot = ResumeSnapshot::empty();
+        snapshot.refresh_recommended = true;
+        let filler = "route-safe proof gate ".repeat(200);
+        snapshot.preferences = vec![format!(
+            "id=next | kind=decision | tags=next-agent,recovery | upd=1778958400 | c=CURRENT NEXT ACTION: continue P5 proof. {filler} Remaining blockers are Supermemory replay and full public proof."
+        )];
+
+        let continuity = snapshot.continuity_capsule();
+
+        assert!(
+            !continuity
+                .next_action
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Remaining blockers"),
+            "test must exercise compacted next-action text"
+        );
+        assert_eq!(
+            continuity.blocker.as_deref(),
+            Some("Supermemory replay and full public proof")
+        );
+    }
+
+    #[test]
     fn resume_defaults_bind_repo_identity_without_runtime_config() {
         let _cwd_lock = lock_cwd_mutation();
         let temp_root =
@@ -2452,13 +2500,24 @@ impl ResumeSnapshot {
         let changed = self
             .continuity_changed()
             .map(|value| compact_inline(value.trim(), 180));
-        let next_action = self
-            .continuity_next()
+        let raw_next_action = self.continuity_next();
+        let next_action = raw_next_action
+            .as_deref()
             .map(|value| compact_inline(value.trim(), 512));
-        let blocker = self.compact_inbox_items().first().cloned().or_else(|| {
-            self.refresh_recommended
-                .then(|| "refresh recommended due to context pressure".to_string())
-        });
+        let blocker = self
+            .compact_inbox_items()
+            .first()
+            .cloned()
+            .or_else(|| {
+                raw_next_action
+                    .as_deref()
+                    .and_then(blocker_from_next_action)
+                    .map(|value| compact_inline(value.trim(), 180))
+            })
+            .or_else(|| {
+                self.refresh_recommended
+                    .then(|| "refresh recommended due to context pressure".to_string())
+            });
 
         ContinuityCapsule {
             current_task,
@@ -2803,6 +2862,27 @@ fn best_next_action_record(records: Vec<String>) -> Option<String> {
         .into_iter()
         .filter(|record| is_next_action_record(record))
         .max_by_key(|record| record_updated_at(record).unwrap_or(0))
+}
+
+fn blocker_from_next_action(next_action: &str) -> Option<String> {
+    let markers = [
+        "Remaining blockers are ",
+        "Remaining blocker pair: ",
+        "Remaining blockers: ",
+        "blockers are ",
+        "blockers: ",
+    ];
+    markers.iter().find_map(|marker| {
+        let (_, tail) = next_action.split_once(marker)?;
+        let blocker = tail
+            .split(['.', '\n'])
+            .next()
+            .unwrap_or(tail)
+            .trim()
+            .trim_end_matches(';')
+            .trim();
+        (!blocker.is_empty()).then(|| blocker.to_string())
+    })
 }
 
 fn latest_raw_spine_next_action(output: &Path) -> Option<String> {
