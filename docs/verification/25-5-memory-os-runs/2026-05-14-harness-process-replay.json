@@ -1,0 +1,25 @@
+{
+  "suite": "25_5_harness_process_replay",
+  "status": "pass",
+  "server_url": "http://127.0.0.1:57066",
+  "project": "memd-harness-process-replay",
+  "namespace": "main",
+  "ids": {
+    "private": "3a57f581-bedf-4c38-a7b6-17110160d005",
+    "stale": "3649074c-912d-4925-88db-05cf3607a38a",
+    "correction": "10907fcf-d324-444d-8e68-dc18b57c5ad2",
+    "procedure": "13f38e58-f462-4e57-bcd3-e17d4e39a19d"
+  },
+  "codex_truth_top_id": "10907fcf-d324-444d-8e68-dc18b57c5ad2",
+  "codex_private_visible": false,
+  "ollama_packet_sections": [
+    "System Guard",
+    "Pinned Corrections",
+    "Active Truth",
+    "Evidence",
+    "Procedures",
+    "Open Conflicts",
+    "Source IDs"
+  ],
+  "ollama_packet_chars": 1775
+}

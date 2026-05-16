@@ -1,0 +1,182 @@
+{
+  "suite": "25_5_external_public_smoke",
+  "status": "pass",
+  "rag_url": null,
+  "server_url": "http://127.0.0.1:63914",
+  "datasets": [
+    "longmemeval",
+    "locomo",
+    "membench",
+    "convomem"
+  ],
+  "rows": [
+    {
+      "dataset": "longmemeval",
+      "backend": "memd",
+      "limit": 2,
+      "dataset_source_url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json",
+      "dataset_checksum": "sha256:d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+      "dataset_items": 500,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "annotated_top1_hit_rate": null,
+      "annotated_top1_total": 0,
+      "annotated_top1_gaps": [],
+      "mean_latency_ms": 9433.0,
+      "failures": [],
+      "items": [
+        {
+          "question_id": "e47becba",
+          "question": "What degree did I graduate with?",
+          "hit": true,
+          "top_id": "answer_280352e9",
+          "expected_targets": null,
+          "annotated_top1_hit": null
+        },
+        {
+          "question_id": "118b2229",
+          "question": "How long is my daily commute to work?",
+          "hit": true,
+          "top_id": "answer_40a90d51",
+          "expected_targets": null,
+          "annotated_top1_hit": null
+        }
+      ]
+    },
+    {
+      "dataset": "locomo",
+      "backend": "memd",
+      "limit": 2,
+      "dataset_source_url": "https://raw.githubusercontent.com/snap-research/locomo/3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376/data/locomo10.json",
+      "dataset_checksum": "sha256:79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4",
+      "dataset_items": 1986,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "annotated_top1_hit_rate": 1.0,
+      "annotated_top1_total": 2,
+      "annotated_top1_gaps": [],
+      "mean_latency_ms": 69.0,
+      "failures": [],
+      "items": [
+        {
+          "question_id": "conv-26::0",
+          "question": "When did Caroline go to the LGBTQ support group?",
+          "hit": true,
+          "top_id": "D1:3",
+          "expected_targets": [
+            "D1:3"
+          ],
+          "annotated_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::1",
+          "question": "When did Melanie paint a sunrise?",
+          "hit": true,
+          "top_id": "D1:12",
+          "expected_targets": [
+            "D1:12"
+          ],
+          "annotated_top1_hit": true
+        }
+      ]
+    },
+    {
+      "dataset": "membench",
+      "backend": "memd",
+      "limit": 2,
+      "dataset_source_url": "https://github.com/import-myself/Membench/tree/f66d8d1028d3f68627d00f77a967b93fbb8694b6/MemData/FirstAgent",
+      "dataset_checksum": "sha256:54bde8259c10ee1cfe5ff16f35a8a25ca9ad5d79e162e0b3a43034ed64115e5a",
+      "dataset_items": 3000,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "annotated_top1_hit_rate": 0.0,
+      "annotated_top1_total": 2,
+      "annotated_top1_gaps": [
+        {
+          "question_id": "book::0::0",
+          "question": "What books have you recommended to me before?",
+          "top_id": "[18,0]",
+          "expected_targets": [
+            "[4,0]",
+            "[9,0]"
+          ]
+        },
+        {
+          "question_id": "book::1::0",
+          "question": "What books have you recommended to me before?",
+          "top_id": "[0,0]",
+          "expected_targets": [
+            "[3,0]"
+          ]
+        }
+      ],
+      "mean_latency_ms": 1514.5,
+      "failures": [],
+      "items": [
+        {
+          "question_id": "book::0::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[18,0]",
+          "expected_targets": [
+            "[4,0]",
+            "[9,0]"
+          ],
+          "annotated_top1_hit": false
+        },
+        {
+          "question_id": "book::1::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[0,0]",
+          "expected_targets": [
+            "[3,0]"
+          ],
+          "annotated_top1_hit": false
+        }
+      ]
+    },
+    {
+      "dataset": "convomem",
+      "backend": "memd",
+      "limit": 2,
+      "dataset_source_url": "https://huggingface.co/datasets/Salesforce/ConvoMem/tree/main/core_benchmark/evidence_questions",
+      "dataset_checksum": "sha256:dead92689c44ac5a3b66c0c7980166c8fc8d9b16a9cedb2e1c2f7981b6e6f094",
+      "dataset_items": 525,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "annotated_top1_hit_rate": 1.0,
+      "annotated_top1_total": 2,
+      "annotated_top1_gaps": [],
+      "mean_latency_ms": 2317.0,
+      "failures": [],
+      "items": [
+        {
+          "question_id": "Professional Life::0",
+          "question": "What color do I use for hot leads in my personal spreadsheet?",
+          "hit": true,
+          "top_id": "bd706f6b-b0e3-41a3-a80c-d3c80e8539a1::msg:2",
+          "expected_targets": [
+            "bd706f6b-b0e3-41a3-a80c-d3c80e8539a1::msg:2"
+          ],
+          "annotated_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::1",
+          "question": "What was the new CRM password you set last week?",
+          "hit": true,
+          "top_id": "b887b0fb-c2fa-4d47-b467-9ee8a885959f::msg:10",
+          "expected_targets": [
+            "b887b0fb-c2fa-4d47-b467-9ee8a885959f::msg:10"
+          ],
+          "annotated_top1_hit": true
+        }
+      ]
+    }
+  ],
+  "failed": []
+}

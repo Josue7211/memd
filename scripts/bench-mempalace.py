@@ -9,8 +9,6 @@ import tempfile
 import uuid
 from pathlib import Path
 
-import chromadb
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_ROOT = REPO_ROOT / ".memd" / "benchmarks" / "baselines"
@@ -24,6 +22,15 @@ MEMPALACE_ROOT = Path(
     )
 ).resolve()
 MEMPALACE_PYTHON = MEMPALACE_ROOT / ".venv" / "bin" / "python"
+BENCH_LIMIT = 0
+
+
+def ensure_mempalace_python_path() -> None:
+    site_packages = sorted((MEMPALACE_ROOT / ".venv" / "lib").glob("python*/site-packages"))
+    for path in reversed(site_packages):
+        path_text = str(path)
+        if path_text not in sys.path:
+            sys.path.insert(0, path_text)
 
 
 def ensure_environment() -> None:
@@ -31,6 +38,7 @@ def ensure_environment() -> None:
         raise SystemExit(f"missing mempalace repo: {MEMPALACE_ROOT}")
     if not MEMPALACE_PYTHON.exists():
         raise SystemExit(f"missing mempalace venv python: {MEMPALACE_PYTHON}")
+    ensure_mempalace_python_path()
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     ARTIFACTS_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -78,20 +86,48 @@ def write_json(path: Path, payload) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def replay_command(benchmark_id: str) -> str:
+    command = f"{MEMPALACE_PYTHON} {REPO_ROOT / 'scripts' / 'bench-mempalace.py'} --benchmark {benchmark_id}"
+    if BENCH_LIMIT > 0:
+        command = f"{command} --limit {BENCH_LIMIT}"
+    return command
+
+
+def dataset_path(benchmark_id: str, filename: str) -> Path:
+    primary = REPO_ROOT / ".memd" / "benchmarks" / "datasets" / benchmark_id / filename
+    if primary.exists():
+        return primary
+    verification_cache = (
+        REPO_ROOT
+        / "docs"
+        / "verification"
+        / "25-5-memory-os-runs"
+        / "external-public-cache"
+        / benchmark_id
+        / "benchmarks"
+        / "datasets"
+        / benchmark_id
+        / filename
+    )
+    if verification_cache.exists():
+        return verification_cache
+    return primary
+
+
 def longmemeval_dataset_path() -> Path:
-    return REPO_ROOT / ".memd" / "benchmarks" / "datasets" / "longmemeval" / "longmemeval_s_cleaned.json"
+    return dataset_path("longmemeval", "longmemeval_s_cleaned.json")
 
 
 def locomo_dataset_path() -> Path:
-    return REPO_ROOT / ".memd" / "benchmarks" / "datasets" / "locomo" / "locomo10.json"
+    return dataset_path("locomo", "locomo10.json")
 
 
 def convomem_dataset_path() -> Path:
-    return REPO_ROOT / ".memd" / "benchmarks" / "datasets" / "convomem" / "convomem-evidence-sample.json"
+    return dataset_path("convomem", "convomem-evidence-sample.json")
 
 
 def membench_dataset_path() -> Path:
-    return REPO_ROOT / ".memd" / "benchmarks" / "datasets" / "membench" / "membench-firstagent.json"
+    return dataset_path("membench", "membench-firstagent.json")
 
 
 def run_longmemeval() -> dict:
@@ -109,6 +145,8 @@ def run_longmemeval() -> dict:
         "--out",
         str(results_path),
     ]
+    if BENCH_LIMIT > 0:
+        command.extend(["--limit", str(BENCH_LIMIT)])
     run_subprocess(command, log_path)
     with results_path.open(encoding="utf-8") as handle:
         rows = [json.loads(line) for line in handle if line.strip()]
@@ -118,7 +156,9 @@ def run_longmemeval() -> dict:
     summary = {
         "accuracy": accuracy,
         "artifact_path": f".memd/benchmarks/baselines/mempalace-replays/{bench}/latest/",
-        "command": f"{MEMPALACE_PYTHON} {REPO_ROOT / 'scripts' / 'bench-mempalace.py'} --benchmark {bench}",
+        "command": replay_command(bench),
+        "limit": BENCH_LIMIT or None,
+        "limit_scope": "items",
         "note": "local same-fixture replay complete; MemPalace raw session recall_any@5 on memd cached LongMemEval fixture",
         "source": f".memd/benchmarks/baselines/mempalace-replays/{bench}/latest/summary.json",
         "status": "replayed",
@@ -133,10 +173,19 @@ def run_locomo() -> dict:
     results_path = out_dir / "results.json"
     log_path = out_dir / "stdout.log"
     summary_path = out_dir / "summary.json"
+    data_file = locomo_dataset_path()
+    temp_dir = None
+    item_limit = None
+    limit_scope = None
+    if BENCH_LIMIT > 0:
+        temp_dir = tempfile.TemporaryDirectory(prefix="memd-mempalace-locomo-")
+        data_file = Path(temp_dir.name) / "locomo-item-slice.json"
+        item_limit = write_locomo_item_slice(locomo_dataset_path(), data_file, BENCH_LIMIT)
+        limit_scope = "items"
     command = [
         str(MEMPALACE_PYTHON),
         "benchmarks/locomo_bench.py",
-        str(locomo_dataset_path()),
+        str(data_file),
         "--mode",
         "hybrid",
         "--granularity",
@@ -146,19 +195,46 @@ def run_locomo() -> dict:
         "--out",
         str(results_path),
     ]
-    run_subprocess(command, log_path)
-    rows = json.loads(results_path.read_text(encoding="utf-8"))
+    try:
+        run_subprocess(command, log_path)
+        rows = json.loads(results_path.read_text(encoding="utf-8"))
+    finally:
+        if temp_dir is not None:
+            temp_dir.cleanup()
     accuracy = average(row["recall"] for row in rows)
     summary = {
         "accuracy": accuracy,
         "artifact_path": f".memd/benchmarks/baselines/mempalace-replays/{bench}/latest/",
-        "command": f"{MEMPALACE_PYTHON} {REPO_ROOT / 'scripts' / 'bench-mempalace.py'} --benchmark {bench}",
-        "note": "local same-fixture replay complete; MemPalace hybrid session top-10 average retrieval recall on memd cached LoCoMo fixture",
+        "command": replay_command(bench),
+        "limit": item_limit,
+        "limit_scope": limit_scope,
+        "note": "local same-fixture replay complete; MemPalace hybrid session top-10 average retrieval recall on memd cached LoCoMo fixture item slice",
         "source": f".memd/benchmarks/baselines/mempalace-replays/{bench}/latest/summary.json",
         "status": "replayed",
     }
     write_json(summary_path, summary)
     return summary
+
+
+def write_locomo_item_slice(source_path: Path, target_path: Path, limit: int) -> int:
+    source_rows = json.loads(source_path.read_text(encoding="utf-8"))
+    remaining = limit
+    sliced_rows = []
+    for row in source_rows:
+        if remaining <= 0:
+            break
+        qa_rows = list(row.get("qa") or [])
+        if not qa_rows:
+            continue
+        kept = qa_rows[:remaining]
+        if not kept:
+            continue
+        row_copy = dict(row)
+        row_copy["qa"] = kept
+        sliced_rows.append(row_copy)
+        remaining -= len(kept)
+    write_json(target_path, sliced_rows)
+    return limit - remaining
 
 
 def run_convomem() -> dict:
@@ -172,7 +248,8 @@ def run_convomem() -> dict:
     with log_path.open("w", encoding="utf-8") as log:
         with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
             print(f"ConvoMem exact-fixture replay: {len(fixture['items'])} items")
-            for index, item in enumerate(fixture["items"], start=1):
+            items = fixture["items"][:BENCH_LIMIT] if BENCH_LIMIT > 0 else fixture["items"]
+            for index, item in enumerate(items, start=1):
                 recall, details = retrieve_convomem_item(
                     question=item["query"],
                     conversations=item["metadata"]["conversations"],
@@ -188,14 +265,16 @@ def run_convomem() -> dict:
                         "details": details,
                     }
                 )
-                if index % 25 == 0 or index == len(fixture["items"]):
-                    print(f"[{index}/{len(fixture['items'])}] avg_recall={average(r['recall'] for r in results):.3f}")
+                if index % 25 == 0 or index == len(items):
+                    print(f"[{index}/{len(items)}] avg_recall={average(r['recall'] for r in results):.3f}")
     write_json(results_path, results)
     accuracy = average(row["recall"] for row in results)
     summary = {
         "accuracy": accuracy,
         "artifact_path": f".memd/benchmarks/baselines/mempalace-replays/{bench}/latest/",
-        "command": f"{MEMPALACE_PYTHON} {REPO_ROOT / 'scripts' / 'bench-mempalace.py'} --benchmark {bench}",
+        "command": replay_command(bench),
+        "limit": BENCH_LIMIT or None,
+        "limit_scope": "items",
         "note": "local same-fixture replay complete; MemPalace raw top-10 replay over memd normalized ConvoMem evidence fixture",
         "source": f".memd/benchmarks/baselines/mempalace-replays/{bench}/latest/summary.json",
         "status": "replayed",
@@ -223,7 +302,7 @@ def run_membench() -> dict:
                     categories=["simple"],
                     topic="",
                     top_k=5,
-                    limit=0,
+                    limit=BENCH_LIMIT,
                     mode="hybrid",
                     out_file=str(results_path),
                 )
@@ -233,7 +312,9 @@ def run_membench() -> dict:
     summary = {
         "accuracy": accuracy,
         "artifact_path": f".memd/benchmarks/baselines/mempalace-replays/{bench}/latest/",
-        "command": f"{MEMPALACE_PYTHON} {REPO_ROOT / 'scripts' / 'bench-mempalace.py'} --benchmark {bench}",
+        "command": replay_command(bench),
+        "limit": BENCH_LIMIT or None,
+        "limit_scope": "items",
         "note": "local same-fixture replay complete; MemPalace hybrid top-5 over memd 3000-item MemBench combined fixture via synthetic single-category adapter",
         "source": f".memd/benchmarks/baselines/mempalace-replays/{bench}/latest/summary.json",
         "status": "replayed",
@@ -270,6 +351,8 @@ def retrieve_convomem_item(
     message_evidences: list[dict],
     top_k: int,
 ) -> tuple[float, dict]:
+    import chromadb
+
     corpus = []
     speakers = []
     for conversation in conversations:
@@ -316,6 +399,7 @@ def retrieve_convomem_item(
 
 
 def main() -> int:
+    global BENCH_LIMIT
     parser = argparse.ArgumentParser(description="Run local MemPalace replays for memd public benchmarks.")
     parser.add_argument(
         "--benchmark",
@@ -323,7 +407,9 @@ def main() -> int:
         choices=sorted(RUNNERS.keys()),
         help="Benchmark to run. Repeat to select multiple. Default: all.",
     )
+    parser.add_argument("--limit", type=int, default=0, help="Limit replay items where benchmark adapters support item-level limits.")
     args = parser.parse_args()
+    BENCH_LIMIT = max(args.limit, 0)
     ensure_environment()
     selected = args.benchmark or list(RUNNERS.keys())
     replays = load_existing_replays()

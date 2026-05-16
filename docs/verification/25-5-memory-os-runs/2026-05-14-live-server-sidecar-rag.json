@@ -1,0 +1,226 @@
+{
+  "suite": "25_5_live_server_sidecar_rag",
+  "status": "pass",
+  "records": 7,
+  "server_url": "http://127.0.0.1:57646",
+  "sidecar_url": "http://127.0.0.1:57645",
+  "sidecar_indexed_count": 7,
+  "server_health_items": 7,
+  "rag_status": {
+    "enabled": true,
+    "reachable": true,
+    "name": "rag-sidecar",
+    "profile": "sparse",
+    "indexed_count": 7,
+    "timeout_ms": 2000,
+    "last_sync_status": "health_ok"
+  },
+  "search_results": [
+    {
+      "key": "gateway",
+      "query": "cedar packets labeled evidence local models raw instruction dumps",
+      "top_id": "08c411a3-481b-4d21-a33a-e6fab9783ed7",
+      "lanes": [
+        "fts_bm25",
+        "fuzzy",
+        "atlas",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth",
+        "rerank"
+      ],
+      "signals": [
+        {
+          "lane": "fts_bm25",
+          "score": 11.473525202603835,
+          "rank": 1,
+          "reason": "lexical/FTS5 BM25 candidate"
+        },
+        {
+          "lane": "fuzzy",
+          "score": 0.7011135819363667,
+          "rank": 1,
+          "reason": "typo, alias, path, acronym, or id fuzzy match"
+        },
+        {
+          "lane": "rag_dense_head",
+          "score": 1.6744356155395508,
+          "rank": 1,
+          "reason": "top optional sidecar dense candidate after ACL filtering"
+        },
+        {
+          "lane": "rag_dense",
+          "score": 1.6744356155395508,
+          "rank": 1,
+          "reason": "optional sidecar dense candidate"
+        },
+        {
+          "lane": "intrinsic_dense",
+          "score": 0.6982625722885132,
+          "rank": 1,
+          "reason": "intrinsic vector candidate"
+        },
+        {
+          "lane": "truth",
+          "score": 4.330000007152558,
+          "rank": 6,
+          "reason": "ACL-safe truth, correction, trust, status, and recency guard"
+        },
+        {
+          "lane": "rerank",
+          "score": 5.396440505981445,
+          "rank": 1,
+          "reason": "final sidecar/intrinsic rerank order"
+        }
+      ]
+    },
+    {
+      "key": "offline",
+      "query": "fjord replay offline captures self host authority returns",
+      "top_id": "14f82b5b-cfc0-4014-a561-51f79133b8fe",
+      "lanes": [
+        "fts_bm25",
+        "fuzzy",
+        "atlas",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth",
+        "rerank"
+      ],
+      "signals": [
+        {
+          "lane": "fts_bm25",
+          "score": 12.046868734747704,
+          "rank": 1,
+          "reason": "lexical/FTS5 BM25 candidate"
+        },
+        {
+          "lane": "fuzzy",
+          "score": 0.6971260504201681,
+          "rank": 1,
+          "reason": "typo, alias, path, acronym, or id fuzzy match"
+        },
+        {
+          "lane": "rag_dense_head",
+          "score": 1.6520987749099731,
+          "rank": 1,
+          "reason": "top optional sidecar dense candidate after ACL filtering"
+        },
+        {
+          "lane": "rag_dense",
+          "score": 1.6520987749099731,
+          "rank": 1,
+          "reason": "optional sidecar dense candidate"
+        },
+        {
+          "lane": "intrinsic_dense",
+          "score": 0.6170395016670227,
+          "rank": 1,
+          "reason": "intrinsic vector candidate"
+        },
+        {
+          "lane": "truth",
+          "score": 4.330000007152558,
+          "rank": 5,
+          "reason": "ACL-safe truth, correction, trust, status, and recency guard"
+        },
+        {
+          "lane": "rerank",
+          "score": 6.471251010894775,
+          "rank": 1,
+          "reason": "final sidecar/intrinsic rerank order"
+        }
+      ]
+    },
+    {
+      "key": "trace",
+      "query": "helio trace fuzzy dense truth recency rerank contributions",
+      "top_id": "53c82fa0-4174-4a14-a8da-40a7552835a0",
+      "lanes": [
+        "fts_bm25",
+        "fuzzy",
+        "atlas",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth",
+        "rerank"
+      ],
+      "signals": [
+        {
+          "lane": "fts_bm25",
+          "score": 11.357796407178014,
+          "rank": 1,
+          "reason": "lexical/FTS5 BM25 candidate"
+        },
+        {
+          "lane": "fuzzy",
+          "score": 0.7067194570135746,
+          "rank": 1,
+          "reason": "typo, alias, path, acronym, or id fuzzy match"
+        },
+        {
+          "lane": "rag_dense_head",
+          "score": 1.6884108781814575,
+          "rank": 1,
+          "reason": "top optional sidecar dense candidate after ACL filtering"
+        },
+        {
+          "lane": "rag_dense",
+          "score": 1.6884108781814575,
+          "rank": 1,
+          "reason": "optional sidecar dense candidate"
+        },
+        {
+          "lane": "intrinsic_dense",
+          "score": 0.7420403361320496,
+          "rank": 1,
+          "reason": "intrinsic vector candidate"
+        },
+        {
+          "lane": "truth",
+          "score": 4.330000007152558,
+          "rank": 4,
+          "reason": "ACL-safe truth, correction, trust, status, and recency guard"
+        },
+        {
+          "lane": "rerank",
+          "score": 3.438802719116211,
+          "rank": 1,
+          "reason": "final sidecar/intrinsic rerank order"
+        }
+      ]
+    }
+  ],
+  "acl_check": {
+    "query": "confidential sidecar candidate public visibility filter proof",
+    "private_id": "76eb55ee-d09b-45e7-9d00-71ea4f1d1a43",
+    "top_id": "386762db-3750-4291-abbe-3223c53398b8",
+    "private_visible": false,
+    "lanes": [
+      "fuzzy",
+      "rag_dense_head",
+      "rag_dense",
+      "intrinsic_dense",
+      "truth",
+      "rerank"
+    ]
+  },
+  "truth_check": {
+    "query": "strict packet mode local model safety owner juno icarus",
+    "correction_id": "c1b4fabf-b0b2-4051-9246-28a9ad93f407",
+    "stale_id": "d045544e-0d99-4309-8af6-7f70ae9c1b6e",
+    "top_id": "c1b4fabf-b0b2-4051-9246-28a9ad93f407",
+    "stale_rank": 2,
+    "lanes": [
+      "fuzzy",
+      "rag_dense_head",
+      "rag_dense",
+      "intrinsic_dense",
+      "truth",
+      "rerank"
+    ]
+  }
+}

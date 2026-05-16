@@ -1,0 +1,200 @@
+{
+  "suite": "25_5_live_server_sidecar_rag",
+  "status": "pass",
+  "records": 7,
+  "server_url": "http://127.0.0.1:49686",
+  "sidecar_url": "http://127.0.0.1:49685",
+  "sidecar_indexed_count": 7,
+  "server_health_items": 7,
+  "rag_status": {
+    "enabled": true,
+    "reachable": true,
+    "name": "rag-sidecar",
+    "profile": "sparse",
+    "indexed_count": 7,
+    "timeout_ms": 2000,
+    "last_sync_status": "health_ok"
+  },
+  "search_results": [
+    {
+      "key": "gateway",
+      "query": "cedar packets labeled evidence local models raw instruction dumps",
+      "top_id": "02ce6015-211d-493e-b4e4-cb4cf3d15ea2",
+      "lanes": [
+        "fts_bm25",
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "truth",
+        "rerank"
+      ],
+      "signals": [
+        {
+          "lane": "fts_bm25",
+          "score": 11.473525202603835,
+          "rank": 1,
+          "reason": "lexical/FTS5 BM25 candidate"
+        },
+        {
+          "lane": "fuzzy",
+          "score": 0.7011135819363667,
+          "rank": 1,
+          "reason": "typo, alias, path, acronym, or id fuzzy match"
+        },
+        {
+          "lane": "rag_dense_head",
+          "score": 1.6744356155395508,
+          "rank": 1,
+          "reason": "top optional sidecar dense candidate after ACL filtering"
+        },
+        {
+          "lane": "rag_dense",
+          "score": 1.6744356155395508,
+          "rank": 1,
+          "reason": "optional sidecar dense candidate"
+        },
+        {
+          "lane": "truth",
+          "score": 3.6300000071525576,
+          "rank": 4,
+          "reason": "ACL-safe truth, correction, trust, status, and recency guard"
+        },
+        {
+          "lane": "rerank",
+          "score": 5.396440505981445,
+          "rank": 1,
+          "reason": "final sidecar/intrinsic rerank order"
+        }
+      ]
+    },
+    {
+      "key": "offline",
+      "query": "fjord replay offline captures self host authority returns",
+      "top_id": "f3946d1b-10e2-4eb9-9021-de13cf3a1bd4",
+      "lanes": [
+        "fts_bm25",
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "truth",
+        "rerank"
+      ],
+      "signals": [
+        {
+          "lane": "fts_bm25",
+          "score": 12.046868734747704,
+          "rank": 1,
+          "reason": "lexical/FTS5 BM25 candidate"
+        },
+        {
+          "lane": "fuzzy",
+          "score": 0.6971260504201681,
+          "rank": 1,
+          "reason": "typo, alias, path, acronym, or id fuzzy match"
+        },
+        {
+          "lane": "rag_dense_head",
+          "score": 1.6520987749099731,
+          "rank": 1,
+          "reason": "top optional sidecar dense candidate after ACL filtering"
+        },
+        {
+          "lane": "rag_dense",
+          "score": 1.6520987749099731,
+          "rank": 1,
+          "reason": "optional sidecar dense candidate"
+        },
+        {
+          "lane": "truth",
+          "score": 3.6300000071525576,
+          "rank": 4,
+          "reason": "ACL-safe truth, correction, trust, status, and recency guard"
+        },
+        {
+          "lane": "rerank",
+          "score": 6.471251010894775,
+          "rank": 1,
+          "reason": "final sidecar/intrinsic rerank order"
+        }
+      ]
+    },
+    {
+      "key": "trace",
+      "query": "helio trace fuzzy dense truth recency rerank contributions",
+      "top_id": "097faf21-06e9-409e-a148-66f749838a06",
+      "lanes": [
+        "fts_bm25",
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "truth",
+        "rerank"
+      ],
+      "signals": [
+        {
+          "lane": "fts_bm25",
+          "score": 11.357796407178014,
+          "rank": 1,
+          "reason": "lexical/FTS5 BM25 candidate"
+        },
+        {
+          "lane": "fuzzy",
+          "score": 0.7067194570135746,
+          "rank": 1,
+          "reason": "typo, alias, path, acronym, or id fuzzy match"
+        },
+        {
+          "lane": "rag_dense_head",
+          "score": 1.6884108781814575,
+          "rank": 1,
+          "reason": "top optional sidecar dense candidate after ACL filtering"
+        },
+        {
+          "lane": "rag_dense",
+          "score": 1.6884108781814575,
+          "rank": 1,
+          "reason": "optional sidecar dense candidate"
+        },
+        {
+          "lane": "truth",
+          "score": 3.6300000071525576,
+          "rank": 4,
+          "reason": "ACL-safe truth, correction, trust, status, and recency guard"
+        },
+        {
+          "lane": "rerank",
+          "score": 3.438802719116211,
+          "rank": 1,
+          "reason": "final sidecar/intrinsic rerank order"
+        }
+      ]
+    }
+  ],
+  "acl_check": {
+    "query": "confidential sidecar candidate public visibility filter proof",
+    "private_id": "ce45f5ea-5ed5-4ecc-9503-d436cb1fac75",
+    "top_id": "7c93084e-d05d-447d-a1d0-33c2777d3155",
+    "private_visible": false,
+    "lanes": [
+      "fuzzy",
+      "rag_dense_head",
+      "rag_dense",
+      "truth",
+      "rerank"
+    ]
+  },
+  "truth_check": {
+    "query": "strict packet mode local model safety owner juno icarus",
+    "correction_id": "280a4ca8-03fe-4a80-a02d-aaaa39375af9",
+    "stale_id": "a06d9b00-3aa3-416f-8909-6864d55a5c5d",
+    "top_id": "280a4ca8-03fe-4a80-a02d-aaaa39375af9",
+    "stale_rank": 2,
+    "lanes": [
+      "fuzzy",
+      "rag_dense_head",
+      "rag_dense",
+      "truth",
+      "rerank"
+    ]
+  }
+}

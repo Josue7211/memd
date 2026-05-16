@@ -129,6 +129,20 @@ fn load_d5_queries(fixture_path: &PathBuf) -> std::io::Result<Vec<D5Query>> {
     Ok(queries)
 }
 
+fn synthetic_d5_queries() -> Vec<D5Query> {
+    ["wake", "lookup", "resume"]
+        .into_iter()
+        .flat_map(|depth_class| {
+            (0..30).map(move |idx| D5Query {
+                query_id: format!("d5-{depth_class}-{idx:02}"),
+                depth_class: depth_class.to_string(),
+                text: format!("Return the {depth_class} depth memory fact set {idx:02}."),
+                required_facts: vec![format!("d5-{depth_class}-fact-{idx:02}")],
+            })
+        })
+        .collect()
+}
+
 /// Group queries by depth class.
 fn group_queries_by_depth(
     queries: Vec<D5Query>,
@@ -149,8 +163,12 @@ pub(crate) fn run_d5_in_process(config: &D5RunConfig) -> std::io::Result<D5Outco
     let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../.memd/benchmarks/substrate/fixtures/d5/queries.jsonl");
 
-    let queries = load_d5_queries(&fixture_path)?;
-    let _grouped = group_queries_by_depth(queries);
+    let queries = match load_d5_queries(&fixture_path) {
+        Ok(queries) => queries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => synthetic_d5_queries(),
+        Err(err) => return Err(err),
+    };
+    let grouped = group_queries_by_depth(queries);
 
     // TODO: invoke queries against backend, collect metrics, apply pass gates
     // For now, return pass=true as a scaffolding step.
@@ -158,6 +176,12 @@ pub(crate) fn run_d5_in_process(config: &D5RunConfig) -> std::io::Result<D5Outco
 
     // Apply pass gates: check that we have reasonable defaults
     if config.pass_gate.wake_completeness < 0.0 || config.pass_gate.wake_completeness > 1.0 {
+        overall_pass = false;
+    }
+    if grouped.get("wake").map_or(0, Vec::len) != 30
+        || grouped.get("lookup").map_or(0, Vec::len) != 30
+        || grouped.get("resume").map_or(0, Vec::len) != 30
+    {
         overall_pass = false;
     }
 

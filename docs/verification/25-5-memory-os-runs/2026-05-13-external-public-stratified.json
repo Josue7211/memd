@@ -1,0 +1,155 @@
+{
+  "suite": "25_5_external_public_stratified",
+  "status": "pass",
+  "selected_slices": [
+    {
+      "offset": 0,
+      "limit": 50,
+      "path": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-13-external-public-scale-50.json"
+    },
+    {
+      "offset": 50,
+      "limit": 25,
+      "path": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-13-external-public-scale-25-offset-50-final.json"
+    }
+  ],
+  "min_items_per_dataset": 75,
+  "require_annotated_top1": false,
+  "datasets": [
+    "longmemeval",
+    "locomo",
+    "membench",
+    "convomem"
+  ],
+  "aggregate": {
+    "longmemeval": {
+      "items": 75,
+      "hits": 75,
+      "failures": 0,
+      "annotated_top1_total": 0,
+      "annotated_top1_hits": 0,
+      "answer_supported_top1_total": 0,
+      "answer_supported_top1_hits": 0,
+      "source_reports": [
+        {
+          "path": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-13-external-public-scale-50.json",
+          "offset": 0,
+          "limit": 50,
+          "accuracy": 1.0,
+          "recall_at_k": 1.0,
+          "answer_supported_top1_hit_rate": null,
+          "annotated_top1_hit_rate": null
+        },
+        {
+          "path": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-13-external-public-scale-25-offset-50-final.json",
+          "offset": 50,
+          "limit": 25,
+          "accuracy": 1.0,
+          "recall_at_k": 1.0,
+          "answer_supported_top1_hit_rate": null,
+          "annotated_top1_hit_rate": null
+        }
+      ],
+      "hit_rate": 1.0,
+      "annotated_top1_hit_rate": null,
+      "answer_supported_top1_hit_rate": null
+    },
+    "locomo": {
+      "items": 75,
+      "hits": 75,
+      "failures": 0,
+      "annotated_top1_total": 73,
+      "annotated_top1_hits": 70,
+      "answer_supported_top1_total": 75,
+      "answer_supported_top1_hits": 75,
+      "source_reports": [
+        {
+          "path": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-13-external-public-scale-50.json",
+          "offset": 0,
+          "limit": 50,
+          "accuracy": 1.0,
+          "recall_at_k": 1.0,
+          "answer_supported_top1_hit_rate": 1.0,
+          "annotated_top1_hit_rate": 0.9375
+        },
+        {
+          "path": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-13-external-public-scale-25-offset-50-final.json",
+          "offset": 50,
+          "limit": 25,
+          "accuracy": 1.0,
+          "recall_at_k": 1.0,
+          "answer_supported_top1_hit_rate": 1.0,
+          "annotated_top1_hit_rate": 1.0
+        }
+      ],
+      "hit_rate": 1.0,
+      "annotated_top1_hit_rate": 0.958904109589041,
+      "answer_supported_top1_hit_rate": 1.0
+    },
+    "membench": {
+      "items": 75,
+      "hits": 75,
+      "failures": 0,
+      "annotated_top1_total": 75,
+      "annotated_top1_hits": 75,
+      "answer_supported_top1_total": 75,
+      "answer_supported_top1_hits": 75,
+      "source_reports": [
+        {
+          "path": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-13-external-public-scale-50.json",
+          "offset": 0,
+          "limit": 50,
+          "accuracy": 1.0,
+          "recall_at_k": 1.0,
+          "answer_supported_top1_hit_rate": 1.0,
+          "annotated_top1_hit_rate": 1.0
+        },
+        {
+          "path": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-13-external-public-scale-25-offset-50-final.json",
+          "offset": 50,
+          "limit": 25,
+          "accuracy": 1.0,
+          "recall_at_k": 1.0,
+          "answer_supported_top1_hit_rate": 1.0,
+          "annotated_top1_hit_rate": 1.0
+        }
+      ],
+      "hit_rate": 1.0,
+      "annotated_top1_hit_rate": 1.0,
+      "answer_supported_top1_hit_rate": 1.0
+    },
+    "convomem": {
+      "items": 75,
+      "hits": 75,
+      "failures": 0,
+      "annotated_top1_total": 75,
+      "annotated_top1_hits": 74,
+      "answer_supported_top1_total": 75,
+      "answer_supported_top1_hits": 75,
+      "source_reports": [
+        {
+          "path": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-13-external-public-scale-50.json",
+          "offset": 0,
+          "limit": 50,
+          "accuracy": 1.0,
+          "recall_at_k": 1.0,
+          "answer_supported_top1_hit_rate": 1.0,
+          "annotated_top1_hit_rate": 0.98
+        },
+        {
+          "path": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-13-external-public-scale-25-offset-50-final.json",
+          "offset": 50,
+          "limit": 25,
+          "accuracy": 1.0,
+          "recall_at_k": 1.0,
+          "answer_supported_top1_hit_rate": 1.0,
+          "annotated_top1_hit_rate": 1.0
+        }
+      ],
+      "hit_rate": 1.0,
+      "annotated_top1_hit_rate": 0.9866666666666667,
+      "answer_supported_top1_hit_rate": 1.0
+    }
+  },
+  "failures": []
+}

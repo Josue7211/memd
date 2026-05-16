@@ -1,0 +1,375 @@
+{
+  "suite": "25_5_live_rag_lift_corpus",
+  "status": "pass",
+  "corpus": "public-benchmark-style",
+  "cases": 24,
+  "no_rag_recall_at_1": 0.25,
+  "rag_recall_at_1": 0.75,
+  "recall_at_1_lift": 0.5,
+  "no_rag_mrr": 0.3654431216931216,
+  "rag_mrr": 0.8451388888888888,
+  "mrr_lift": 0.4796957671957672,
+  "rag_dense_trace_rate": 1.0,
+  "sidecar_profile": "fastembed:all-minilm-l6-v2",
+  "rows": [
+    {
+      "key": "restart",
+      "query": "resume a crashed assistant session with prior context",
+      "no_rag_rank": null,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "harness",
+      "query": "switch assistants while retaining shared memory",
+      "no_rag_rank": null,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "gateway",
+      "query": "safe compact context for a local language model",
+      "no_rag_rank": 1,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "offline",
+      "query": "remember facts when the server is unavailable",
+      "no_rag_rank": 8,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "aliases",
+      "query": "find misspelled files commands names and ids",
+      "no_rag_rank": 1,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "trace",
+      "query": "explain why a retrieval result was selected",
+      "no_rag_rank": null,
+      "rag_rank": 4,
+      "rag_dense_rank": 3,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "truth",
+      "query": "latest correction beats an old mistaken fact",
+      "no_rag_rank": 2,
+      "rag_rank": 2,
+      "rag_dense_rank": 2,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "privacy",
+      "query": "stop another assistant from seeing private notes",
+      "no_rag_rank": 1,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "sync",
+      "query": "one self hosted backend keeps agents synchronized",
+      "no_rag_rank": null,
+      "rag_rank": 5,
+      "rag_dense_rank": 3,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "procedures",
+      "query": "reuse a repeated operational workflow",
+      "no_rag_rank": 6,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "atlas",
+      "query": "connect related people projects sessions and decisions",
+      "no_rag_rank": 2,
+      "rag_rank": 2,
+      "rag_dense_rank": 2,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "firewall",
+      "query": "prevent memory from changing system policy or tools",
+      "no_rag_rank": null,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "modelbench",
+      "query": "choose the best vector model from measured qrels",
+      "no_rag_rank": 6,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "sidecar",
+      "query": "vector service should boost recall without becoming truth",
+      "no_rag_rank": 7,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "rerank",
+      "query": "sort retrieved memories by strongest relevance",
+      "no_rag_rank": 1,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "localfirst",
+      "query": "local files should boot memory without network",
+      "no_rag_rank": null,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "correction",
+      "query": "track what replaced an outdated belief",
+      "no_rag_rank": 3,
+      "rag_rank": 2,
+      "rag_dense_rank": 2,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "status",
+      "query": "show whether rag is reachable and indexed",
+      "no_rag_rank": 2,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "ollama",
+      "query": "feed local models trusted memories safely",
+      "no_rag_rank": 9,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "dedupe",
+      "query": "avoid storing the same fact repeatedly",
+      "no_rag_rank": 8,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "events",
+      "query": "audit how memory changed over time",
+      "no_rag_rank": null,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "scope",
+      "query": "keep global and project memories from leaking",
+      "no_rag_rank": 1,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "authority",
+      "query": "central server should sync but not break offline use",
+      "no_rag_rank": 10,
+      "rag_rank": 3,
+      "rag_dense_rank": 3,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    },
+    {
+      "key": "ranking",
+      "query": "combine many retrieval signals into one ranking",
+      "no_rag_rank": 1,
+      "rag_rank": 1,
+      "rag_dense_rank": 1,
+      "rag_rerank_rank": null,
+      "rag_lanes": [
+        "fuzzy",
+        "rag_dense_head",
+        "rag_dense",
+        "intrinsic_dense",
+        "truth"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "competitor": "mempalace",
+  "competitor_replays": "/Volumes/T7/projects/memd/.memd/benchmarks/baselines/mempalace_replays.json",
+  "memd_report": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-13-external-public-scale-50.json",
+  "reason": "memd meets or exceeds local same-fixture competitor replay on every covered dataset",
+  "rows": [
+    {
+      "competitor_artifact_path": ".memd/benchmarks/baselines/mempalace-replays/longmemeval/latest/",
+      "competitor_command": "/Volumes/T7/projects/mempalace/.venv/bin/python /Volumes/T7/projects/memd/scripts/bench-mempalace.py --benchmark longmemeval --limit 50",
+      "competitor_limit": 50,
+      "competitor_limit_scope": "items",
+      "competitor_metric": "accuracy",
+      "competitor_score": 0.92,
+      "competitor_source": ".memd/benchmarks/baselines/mempalace-replays/longmemeval/latest/summary.json",
+      "competitor_status": "replayed",
+      "dataset": "longmemeval",
+      "delta": 0.07999999999999996,
+      "memd_metric": "accuracy",
+      "memd_score": 1.0
+    },
+    {
+      "competitor_artifact_path": ".memd/benchmarks/baselines/mempalace-replays/locomo/latest/",
+      "competitor_command": "/Volumes/T7/projects/mempalace/.venv/bin/python /Volumes/T7/projects/memd/scripts/bench-mempalace.py --benchmark locomo --limit 50",
+      "competitor_limit": 50,
+      "competitor_limit_scope": "items",
+      "competitor_metric": "accuracy",
+      "competitor_score": 0.9096666666666665,
+      "competitor_source": ".memd/benchmarks/baselines/mempalace-replays/locomo/latest/summary.json",
+      "competitor_status": "replayed",
+      "dataset": "locomo",
+      "delta": 0.09033333333333349,
+      "memd_metric": "accuracy",
+      "memd_score": 1.0
+    },
+    {
+      "competitor_artifact_path": ".memd/benchmarks/baselines/mempalace-replays/membench/latest/",
+      "competitor_command": "/Volumes/T7/projects/mempalace/.venv/bin/python /Volumes/T7/projects/memd/scripts/bench-mempalace.py --benchmark membench --limit 50",
+      "competitor_limit": 50,
+      "competitor_limit_scope": "items",
+      "competitor_metric": "accuracy",
+      "competitor_score": 1.0,
+      "competitor_source": ".memd/benchmarks/baselines/mempalace-replays/membench/latest/summary.json",
+      "competitor_status": "replayed",
+      "dataset": "membench",
+      "delta": 0.0,
+      "memd_metric": "accuracy",
+      "memd_score": 1.0
+    },
+    {
+      "competitor_artifact_path": ".memd/benchmarks/baselines/mempalace-replays/convomem/latest/",
+      "competitor_command": "/Volumes/T7/projects/mempalace/.venv/bin/python /Volumes/T7/projects/memd/scripts/bench-mempalace.py --benchmark convomem --limit 50",
+      "competitor_limit": 50,
+      "competitor_limit_scope": "items",
+      "competitor_metric": "accuracy",
+      "competitor_score": 0.98,
+      "competitor_source": ".memd/benchmarks/baselines/mempalace-replays/convomem/latest/summary.json",
+      "competitor_status": "replayed",
+      "dataset": "convomem",
+      "delta": 0.020000000000000018,
+      "memd_metric": "accuracy",
+      "memd_score": 1.0
+    }
+  ],
+  "status": "pass",
+  "suite": "25_5_competitor_head_to_head"
+}

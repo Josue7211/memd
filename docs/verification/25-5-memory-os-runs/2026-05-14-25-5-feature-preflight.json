@@ -1,0 +1,157 @@
+{
+  "generated_at": "2026-05-14T14:22:58.340331Z",
+  "bundle_root": "/Volumes/T7/projects/memd/.memd",
+  "status": "working",
+  "features": [
+    {
+      "id": "hybrid_local_bundle",
+      "status": "working",
+      "evidence": [
+        "wake:present:/Volumes/T7/projects/memd/.memd/wake.md",
+        "mem:present:/Volumes/T7/projects/memd/.memd/mem.md",
+        "events:present:/Volumes/T7/projects/memd/.memd/events.md"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "server_authority",
+      "status": "working",
+      "evidence": [
+        "sqlite:present:/Volumes/T7/projects/memd/.memd/memd.db",
+        "offline_sync_queue:missing:/Volumes/T7/projects/memd/.memd/state/offline-sync-queue.jsonl",
+        "offline store replay syncs pending local captures and skips already-synced entries",
+        "offline sync replay reconciles capabilities, access routes, and token savings with server authority once, with per-kind synced status",
+        "server capability/access route proofs simulate PC-A to PC-B reconciliation without deleting unavailable capabilities or storing secrets",
+        "sync_queue=store_pending:0 store_failed:0 sync_pending:0 sync_failed:0",
+        "sync_queue_by_kind=none",
+        "sync_queue_path=/Volumes/T7/projects/memd/.memd/state/offline-sync-queue.jsonl"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "mandatory_retrieval_core",
+      "status": "working",
+      "evidence": [
+        "exact/FTS/BM25 search commands are present",
+        "fuzzy lane is implemented for typos, names, paths, commands, acronyms, and IDs",
+        "atlas/entity recall is mandatory server core and defaults on",
+        "truth/correction/rerank lanes are part of traceable weighted fusion",
+        "truth guard includes source-linked provenance and updated-at temporal recency",
+        "focused no-RAG route proof covers fuzzy trace, correction precedence, visibility isolation, and firewall labels",
+        "public no-RAG corpus route proof passes with traceable recall over semantic, command, path, acronym, name, procedure, atlas ID, preference, visibility, offline queue, and correction queries",
+        "temporal/provenance route proof passes: newer source-linked evidence outranks stale unsourced summaries through the truth lane",
+        "search trace flag is exposed"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "semantic_lane",
+      "status": "working",
+      "evidence": [
+        "rag_enabled=false",
+        "intrinsic_dense_enabled=true",
+        "first-party intrinsic dense route proof writes local vectors, emits intrinsic_dense trace signals, and succeeds with MEMD_RAG_URL unset",
+        "embedding profile registry includes local-fast, local-best, code-best, cloud-best, private-only, sidecar sparse, and sidecar dense profiles"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "rag_booster_optional",
+      "status": "working",
+      "evidence": [
+        "MEMD_RAG_URL is not required for bundle context commands"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "model_tier_context_compiler",
+      "status": "working",
+      "evidence": [
+        "context prompt renderer supports model tier and section flags",
+        "prompt packets can include server-backed capabilities, access routes, and hive board with local fallback",
+        "tiny/Ollama context packet route keeps guard, task, corrections, procedure, capabilities, access, hive, and source IDs under 1000 tokens",
+        "server packet memory lines lead with compact content before metadata for weak/local models",
+        "context packet matrix proof preserves shared correction/procedure/capability/access context across Claude Code, Codex, OpenCode, and Ollama targets"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "capability_sync",
+      "status": "working",
+      "evidence": [
+        "discovered_capabilities=27",
+        "server capability sync/list routes round-trip records with project/workspace/user/agent scope",
+        "capability list query searches persisted payload metadata such as source paths",
+        "server authority proof simulates PC-A syncing skills/plugins and PC-B listing available plus unavailable capabilities with target-equivalent guidance",
+        "sync_queue=store_pending:0 store_failed:0 sync_pending:0 sync_failed:0",
+        "sync_queue_by_kind=none",
+        "sync_queue_path=/Volumes/T7/projects/memd/.memd/state/offline-sync-queue.jsonl"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "access_secret_routes",
+      "status": "working",
+      "evidence": [
+        "bitwarden=installed",
+        "agent-secrets=unavailable",
+        "macos-keychain=available",
+        "server access route sync/list routes round-trip refs-only routes",
+        "server rejects access routes that claim secret values are stored",
+        "server authority proof keeps Bitwarden and agent-secrets routes listed without storing values, including unavailable broker guidance",
+        "agent-secrets is integrated as an external broker route; memd stores refs, status, scope, guidance, and audit metadata only",
+        "sync_queue=store_pending:0 store_failed:0 sync_pending:0 sync_failed:0",
+        "sync_queue_by_kind=none",
+        "sync_queue_path=/Volumes/T7/projects/memd/.memd/state/offline-sync-queue.jsonl"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "shared_context_mesh",
+      "status": "working",
+      "evidence": [
+        "hive_system=codex",
+        "live hive board is available to prompt packets",
+        "queen handoff route writes server inbox message and target context packet includes handoff_scope, note, and sync=server"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "prompt_firewall",
+      "status": "working",
+      "evidence": [
+        "strict prompt context treats memory as data and quarantines suspicious text",
+        "search trace emits firewall lane for suspicious memory",
+        "server context packets include Firewall Trace labels, stage, status, trust, action, and selection reason",
+        "focused poisoned-memory context packet route proof passes"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "token_savings_engine",
+      "status": "working",
+      "evidence": [
+        "source_registry:present:/Volumes/T7/projects/memd/.memd/state/source-registry.json",
+        "raw_spine:present:/Volumes/T7/projects/memd/.memd/state/raw-spine.jsonl",
+        "token_savings_ledger:present:/Volumes/T7/projects/memd/.memd/state/token-savings-ledger.ndjson",
+        "context packet savings are measured locally and syncable to memd-server",
+        "source-read attribution records saved tokens when a source-registry hash/path is referenced instead of reread",
+        "server authority replay proof syncs token savings payloads after backend outage",
+        "sync_queue=store_pending:0 store_failed:0 sync_pending:0 sync_failed:0",
+        "sync_queue_by_kind=none",
+        "sync_queue_path=/Volumes/T7/projects/memd/.memd/state/offline-sync-queue.jsonl"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "proof_gates",
+      "status": "working",
+      "evidence": [
+        "feature registry marks broken/partial/unproven work instead of claiming 25/5",
+        "25/5 memory OS proof suite has an implementation-readiness preflight that blocks public proof when any feature is not working",
+        "public proof harness remains separate from implementation-focused checks; run it after readiness, not during incremental implementation"
+      ],
+      "gaps": []
+    }
+  ]
+}

@@ -1,0 +1,1208 @@
+{
+  "suite": "25_5_external_public_scale_25",
+  "status": "pass",
+  "rag_url": null,
+  "server_url": "http://127.0.0.1:49293",
+  "limit": 25,
+  "datasets": [
+    "longmemeval",
+    "locomo",
+    "membench",
+    "convomem"
+  ],
+  "rows": [
+    {
+      "dataset": "longmemeval",
+      "backend": "memd",
+      "limit": 25,
+      "dataset_source_url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json",
+      "dataset_checksum": "sha256:d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+      "dataset_items": 500,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "answer_supported_at_1": null,
+      "annotated_top1_hit_rate": null,
+      "annotated_top1_total": 0,
+      "annotated_top1_gaps": [],
+      "answer_supported_top1_hit_rate": null,
+      "answer_supported_top1_total": 0,
+      "answer_supported_top1_gaps": [],
+      "mean_latency_ms": 9278.28,
+      "failures": [],
+      "items": [
+        {
+          "question_id": "e47becba",
+          "question": "What degree did I graduate with?",
+          "hit": true,
+          "top_id": "answer_280352e9",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "118b2229",
+          "question": "How long is my daily commute to work?",
+          "hit": true,
+          "top_id": "answer_40a90d51",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "51a45a95",
+          "question": "Where did I redeem a $5 coupon on coffee creamer?",
+          "hit": true,
+          "top_id": "answer_d61669c7",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "58bf7951",
+          "question": "What play did I attend at the local community theater?",
+          "hit": true,
+          "top_id": "answer_355c48bb",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "1e043500",
+          "question": "What is the name of the playlist I created on Spotify?",
+          "hit": true,
+          "top_id": "answer_3e012175",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "c5e8278d",
+          "question": "What was my last name before I changed it?",
+          "hit": true,
+          "top_id": "answer_f6168136",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "6ade9755",
+          "question": "Where do I take yoga classes?",
+          "hit": true,
+          "top_id": "answer_9398da02",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "6f9b354f",
+          "question": "What color did I repaint my bedroom walls?",
+          "hit": true,
+          "top_id": "answer_feb5200f",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "58ef2f1c",
+          "question": "When did I volunteer at the local animal shelter's fundraising dinner?",
+          "hit": true,
+          "top_id": "answer_59547700",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "f8c5f88b",
+          "question": "Where did I buy my new tennis racket from?",
+          "hit": true,
+          "top_id": "answer_c3567066",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "5d3d2817",
+          "question": "What was my previous occupation?",
+          "hit": true,
+          "top_id": "sharegpt_ipLglky_48",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "7527f7e2",
+          "question": "How much did I spend on a designer handbag?",
+          "hit": true,
+          "top_id": "answer_7cb94507",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "c960da58",
+          "question": "How many playlists do I have on Spotify?",
+          "hit": true,
+          "top_id": "answer_e05e4612",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "3b6f954b",
+          "question": "Where did I attend for my study abroad program?",
+          "hit": true,
+          "top_id": "answer_94030872",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "726462e0",
+          "question": "What was the discount I got on my first purchase from the new clothing brand?",
+          "hit": true,
+          "top_id": "answer_f38f679b",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "94f70d80",
+          "question": "How long did it take me to assemble the IKEA bookshelf?",
+          "hit": true,
+          "top_id": "answer_c63c0458",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "66f24dbb",
+          "question": "What did I buy for my sister's birthday gift?",
+          "hit": true,
+          "top_id": "answer_fea2e4d3",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "ad7109d1",
+          "question": "What speed is my new internet plan?",
+          "hit": true,
+          "top_id": "answer_679840f8",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "af8d2e46",
+          "question": "How many shirts did I pack for my 5-day trip to Costa Rica?",
+          "hit": true,
+          "top_id": "answer_82a04f59",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "dccbc061",
+          "question": "What was my previous stance on spirituality?",
+          "hit": true,
+          "top_id": "answer_8f276838",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "c8c3f81d",
+          "question": "What brand are my favorite running shoes?",
+          "hit": true,
+          "top_id": "answer_761acef8",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "8ebdbe50",
+          "question": "What certification did I complete last month?",
+          "hit": true,
+          "top_id": "answer_8ad8a34f",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "6b168ec8",
+          "question": "How many bikes do I own?",
+          "hit": true,
+          "top_id": "answer_e623ae87",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "75499fd8",
+          "question": "What breed is my dog?",
+          "hit": true,
+          "top_id": "answer_723bf11f",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        },
+        {
+          "question_id": "21436231",
+          "question": "How many largemouth bass did I catch on my fishing trip to Lake Michigan?",
+          "hit": true,
+          "top_id": "answer_1e6d4567",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        }
+      ]
+    },
+    {
+      "dataset": "locomo",
+      "backend": "memd",
+      "limit": 25,
+      "dataset_source_url": "https://raw.githubusercontent.com/snap-research/locomo/3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376/data/locomo10.json",
+      "dataset_checksum": "sha256:79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4",
+      "dataset_items": 1986,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "answer_supported_at_1": 1.0,
+      "annotated_top1_hit_rate": 0.92,
+      "annotated_top1_total": 25,
+      "annotated_top1_gaps": [
+        {
+          "question_id": "conv-26::1",
+          "question": "When did Melanie paint a sunrise?",
+          "top_id": "D1:14",
+          "expected_targets": [
+            "D1:12"
+          ]
+        },
+        {
+          "question_id": "conv-26::6",
+          "question": "When is Melanie planning on going camping?",
+          "top_id": "D6:16",
+          "expected_targets": [
+            "D2:7"
+          ]
+        }
+      ],
+      "answer_supported_top1_hit_rate": 1.0,
+      "answer_supported_top1_total": 25,
+      "answer_supported_top1_gaps": [],
+      "mean_latency_ms": 4294.0,
+      "failures": [],
+      "items": [
+        {
+          "question_id": "conv-26::0",
+          "question": "When did Caroline go to the LGBTQ support group?",
+          "hit": true,
+          "top_id": "D1:3",
+          "expected_targets": [
+            "D1:3"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::1",
+          "question": "When did Melanie paint a sunrise?",
+          "hit": true,
+          "top_id": "D1:14",
+          "expected_targets": [
+            "D1:12"
+          ],
+          "annotated_top1_hit": false,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::2",
+          "question": "What fields would Caroline be likely to pursue in her educaton?",
+          "hit": true,
+          "top_id": "D1:9",
+          "expected_targets": [
+            "D1:11",
+            "D1:9"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::3",
+          "question": "What did Caroline research?",
+          "hit": true,
+          "top_id": "D2:8",
+          "expected_targets": [
+            "D2:8"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::4",
+          "question": "What is Caroline's identity?",
+          "hit": true,
+          "top_id": "D1:5",
+          "expected_targets": [
+            "D1:5"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::5",
+          "question": "When did Melanie run a charity race?",
+          "hit": true,
+          "top_id": "D2:1",
+          "expected_targets": [
+            "D2:1"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::6",
+          "question": "When is Melanie planning on going camping?",
+          "hit": true,
+          "top_id": "D6:16",
+          "expected_targets": [
+            "D2:7"
+          ],
+          "annotated_top1_hit": false,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::7",
+          "question": "What is Caroline's relationship status?",
+          "hit": true,
+          "top_id": "D2:14",
+          "expected_targets": [
+            "D2:14",
+            "D3:13"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::8",
+          "question": "When did Caroline give a speech at a school?",
+          "hit": true,
+          "top_id": "D3:1",
+          "expected_targets": [
+            "D3:1"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::9",
+          "question": "When did Caroline meet up with her friends, family, and mentors?",
+          "hit": true,
+          "top_id": "D3:11",
+          "expected_targets": [
+            "D3:11"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::10",
+          "question": "How long has Caroline had her current group of friends for?",
+          "hit": true,
+          "top_id": "D3:13",
+          "expected_targets": [
+            "D3:13"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::11",
+          "question": "Where did Caroline move from 4 years ago?",
+          "hit": true,
+          "top_id": "D3:13",
+          "expected_targets": [
+            "D3:13",
+            "D4:3"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::12",
+          "question": "How long ago was Caroline's 18th birthday?",
+          "hit": true,
+          "top_id": "D4:5",
+          "expected_targets": [
+            "D4:5"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::13",
+          "question": "What career path has Caroline decided to persue?",
+          "hit": true,
+          "top_id": "D4:13",
+          "expected_targets": [
+            "D1:11",
+            "D4:13"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::14",
+          "question": "Would Caroline still want to pursue counseling as a career if she hadn't received support growing up?",
+          "hit": true,
+          "top_id": "D4:15",
+          "expected_targets": [
+            "D3:5",
+            "D4:15"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::15",
+          "question": "What activities does Melanie partake in?",
+          "hit": true,
+          "top_id": "D5:4",
+          "expected_targets": [
+            "D1:12",
+            "D1:18",
+            "D5:4",
+            "D9:1"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::16",
+          "question": "When did Melanie sign up for a pottery class?",
+          "hit": true,
+          "top_id": "D5:4",
+          "expected_targets": [
+            "D5:4"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::17",
+          "question": "When is Caroline going to the transgender conference?",
+          "hit": true,
+          "top_id": "D5:13",
+          "expected_targets": [
+            "D5:13"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::18",
+          "question": "Where has Melanie camped?",
+          "hit": true,
+          "top_id": "D8:32",
+          "expected_targets": [
+            "D4:6",
+            "D6:16",
+            "D8:32"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::19",
+          "question": "What do Melanie's kids like?",
+          "hit": true,
+          "top_id": "D4:8",
+          "expected_targets": [
+            "D4:8",
+            "D6:6"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::20",
+          "question": "When did Melanie go to the museum?",
+          "hit": true,
+          "top_id": "D6:4",
+          "expected_targets": [
+            "D6:4"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::21",
+          "question": "When did Caroline have a picnic?",
+          "hit": true,
+          "top_id": "D6:11",
+          "expected_targets": [
+            "D6:11"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::22",
+          "question": "Would Caroline likely have Dr. Seuss books on her bookshelf?",
+          "hit": true,
+          "top_id": "D6:9",
+          "expected_targets": [
+            "D6:9"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::23",
+          "question": "What books has Melanie read?",
+          "hit": true,
+          "top_id": "D7:8",
+          "expected_targets": [
+            "D6:10",
+            "D7:8"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "conv-26::24",
+          "question": "What does Melanie do to destress?",
+          "hit": true,
+          "top_id": "D7:22",
+          "expected_targets": [
+            "D5:4",
+            "D7:22"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        }
+      ]
+    },
+    {
+      "dataset": "membench",
+      "backend": "memd",
+      "limit": 25,
+      "dataset_source_url": "https://github.com/import-myself/Membench/tree/f66d8d1028d3f68627d00f77a967b93fbb8694b6/MemData/FirstAgent",
+      "dataset_checksum": "sha256:54bde8259c10ee1cfe5ff16f35a8a25ca9ad5d79e162e0b3a43034ed64115e5a",
+      "dataset_items": 3000,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "answer_supported_at_1": 1.0,
+      "annotated_top1_hit_rate": 1.0,
+      "annotated_top1_total": 25,
+      "annotated_top1_gaps": [],
+      "answer_supported_top1_hit_rate": 1.0,
+      "answer_supported_top1_total": 25,
+      "answer_supported_top1_gaps": [],
+      "mean_latency_ms": 2831.08,
+      "failures": [],
+      "items": [
+        {
+          "question_id": "book::0::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[9,0]",
+          "expected_targets": [
+            "[4,0]",
+            "[9,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::1::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[3,0]",
+          "expected_targets": [
+            "[3,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::2::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[5,0]",
+          "expected_targets": [
+            "[5,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::3::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[3,0]",
+          "expected_targets": [
+            "[3,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::4::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[5,0]",
+          "expected_targets": [
+            "[14,0]",
+            "[5,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::5::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[9,0]",
+          "expected_targets": [
+            "[4,0]",
+            "[9,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::6::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[3,0]",
+          "expected_targets": [
+            "[12,0]",
+            "[3,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::7::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[3,0]",
+          "expected_targets": [
+            "[3,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::8::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[4,0]",
+          "expected_targets": [
+            "[4,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::9::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[7,0]",
+          "expected_targets": [
+            "[12,0]",
+            "[4,0]",
+            "[7,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::10::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[5,0]",
+          "expected_targets": [
+            "[14,0]",
+            "[5,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::11::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[3,0]",
+          "expected_targets": [
+            "[10,0]",
+            "[3,0]",
+            "[7,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::12::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[4,0]",
+          "expected_targets": [
+            "[12,0]",
+            "[4,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::13::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[3,0]",
+          "expected_targets": [
+            "[3,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::14::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[3,0]",
+          "expected_targets": [
+            "[3,0]",
+            "[7,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::15::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[8,0]",
+          "expected_targets": [
+            "[12,0]",
+            "[5,0]",
+            "[8,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::16::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[8,0]",
+          "expected_targets": [
+            "[5,0]",
+            "[8,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::17::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[3,0]",
+          "expected_targets": [
+            "[3,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::18::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[11,0]",
+          "expected_targets": [
+            "[11,0]",
+            "[4,0]",
+            "[8,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::19::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[17,0]",
+          "expected_targets": [
+            "[13,0]",
+            "[17,0]",
+            "[3,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::20::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[5,0]",
+          "expected_targets": [
+            "[17,0]",
+            "[5,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::21::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[3,0]",
+          "expected_targets": [
+            "[12,0]",
+            "[3,0]",
+            "[7,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::22::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[5,0]",
+          "expected_targets": [
+            "[5,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::23::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[5,0]",
+          "expected_targets": [
+            "[5,0]",
+            "[9,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "book::24::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[4,0]",
+          "expected_targets": [
+            "[14,0]",
+            "[4,0]",
+            "[7,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        }
+      ]
+    },
+    {
+      "dataset": "convomem",
+      "backend": "memd",
+      "limit": 25,
+      "dataset_source_url": "https://huggingface.co/datasets/Salesforce/ConvoMem/tree/main/core_benchmark/evidence_questions",
+      "dataset_checksum": "sha256:dead92689c44ac5a3b66c0c7980166c8fc8d9b16a9cedb2e1c2f7981b6e6f094",
+      "dataset_items": 525,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "answer_supported_at_1": 1.0,
+      "annotated_top1_hit_rate": 1.0,
+      "annotated_top1_total": 25,
+      "annotated_top1_gaps": [],
+      "answer_supported_top1_hit_rate": 1.0,
+      "answer_supported_top1_total": 25,
+      "answer_supported_top1_gaps": [],
+      "mean_latency_ms": 6104.32,
+      "failures": [],
+      "items": [
+        {
+          "question_id": "Professional Life::0",
+          "question": "What color do I use for hot leads in my personal spreadsheet?",
+          "hit": true,
+          "top_id": "bd706f6b-b0e3-41a3-a80c-d3c80e8539a1::msg:2",
+          "expected_targets": [
+            "bd706f6b-b0e3-41a3-a80c-d3c80e8539a1::msg:2"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::1",
+          "question": "What was the new CRM password you set last week?",
+          "hit": true,
+          "top_id": "b887b0fb-c2fa-4d47-b467-9ee8a885959f::msg:10",
+          "expected_targets": [
+            "b887b0fb-c2fa-4d47-b467-9ee8a885959f::msg:10"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::2",
+          "question": "I'm preparing for my follow-up call with Quantum Solutions. What was the name of the key decision-maker I identified there?",
+          "hit": true,
+          "top_id": "c2ea095e-4845-4d75-a976-ea74d50ea639::msg:4",
+          "expected_targets": [
+            "c2ea095e-4845-4d75-a976-ea74d50ea639::msg:4"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::3",
+          "question": "What is the new SaaS feature I decided to focus on pitching this month?",
+          "hit": true,
+          "top_id": "dc44f8c2-3870-471b-a08f-40a47488dd4d::msg:2",
+          "expected_targets": [
+            "dc44f8c2-3870-471b-a08f-40a47488dd4d::msg:2"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::4",
+          "question": "I'm reviewing my weekly performance stats. What did I mention my daily call quota was set to?",
+          "hit": true,
+          "top_id": "d39304f1-fa38-48ea-b18a-2311991bd150::msg:12",
+          "expected_targets": [
+            "d39304f1-fa38-48ea-b18a-2311991bd150::msg:12"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::5",
+          "question": "Who is my direct team lead at InnovateLeads?",
+          "hit": true,
+          "top_id": "0fb6ef51-6071-41b1-a82e-f72bef462148::msg:30",
+          "expected_targets": [
+            "0fb6ef51-6071-41b1-a82e-f72bef462148::msg:30"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::6",
+          "question": "I'm trying to remember the name of that first B2B sales company I worked at, the really high-pressure one. What was it called again?",
+          "hit": true,
+          "top_id": "a5dd9ae4-9a8e-4902-912d-effc5073ff00::msg:2",
+          "expected_targets": [
+            "a5dd9ae4-9a8e-4902-912d-effc5073ff00::msg:2"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::7",
+          "question": "What was the name of the late-night campus radio show you hosted during university?",
+          "hit": true,
+          "top_id": "24db3203-298a-4bea-809a-083e65dab16f::msg:2",
+          "expected_targets": [
+            "24db3203-298a-4bea-809a-083e65dab16f::msg:2"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::8",
+          "question": "What is the name of the custom CRM field I use to log the date for my next follow-up call?",
+          "hit": true,
+          "top_id": "85d7a6d1-f44c-42f6-bbb6-e0ca045912f4::msg:18",
+          "expected_targets": [
+            "85d7a6d1-f44c-42f6-bbb6-e0ca045912f4::msg:18"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::9",
+          "question": "How many scoops of coffee grounds do I use for my French press each morning?",
+          "hit": true,
+          "top_id": "492e7cc7-3b7a-49ee-90ec-11d62ac47f22::msg:18",
+          "expected_targets": [
+            "492e7cc7-3b7a-49ee-90ec-11d62ac47f22::msg:18"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::10",
+          "question": "What was the personal conversion rate goal you set for this quarter?",
+          "hit": true,
+          "top_id": "1ec747f1-3aaa-41aa-9e34-df4c23240216::msg:2",
+          "expected_targets": [
+            "1ec747f1-3aaa-41aa-9e34-df4c23240216::msg:2"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::11",
+          "question": "What was the name of the PR firm where you did your unpaid internship after graduation?",
+          "hit": true,
+          "top_id": "d402fd80-ca86-4c54-af7f-3732e26630bf::msg:36",
+          "expected_targets": [
+            "d402fd80-ca86-4c54-af7f-3732e26630bf::msg:36"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::12",
+          "question": "What industry did I mention I dislike cold-calling the most?",
+          "hit": true,
+          "top_id": "cf2b045c-d306-438f-bc6e-6acb2f886d06::msg:16",
+          "expected_targets": [
+            "cf2b045c-d306-438f-bc6e-6acb2f886d06::msg:16"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::13",
+          "question": "I'm updating my professional profile and need to get the wording just right. Can you remind me of the exact title of the degree I received from university?",
+          "hit": true,
+          "top_id": "2d30c723-a1b5-4126-b6cb-f85a0e5fd7f3::msg:4",
+          "expected_targets": [
+            "2d30c723-a1b5-4126-b6cb-f85a0e5fd7f3::msg:4"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::14",
+          "question": "I was just thinking about my early career struggles after college. Do you remember the name of the local newspaper I told you I worked for as a copy editor?",
+          "hit": true,
+          "top_id": "53025aff-c3fb-4ae9-a0ec-ffbddf7ff23e::msg:12",
+          "expected_targets": [
+            "53025aff-c3fb-4ae9-a0ec-ffbddf7ff23e::msg:12"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::15",
+          "question": "I'm getting ready to start my calls for the day. What's the specific opening line I told you I was going to use?",
+          "hit": true,
+          "top_id": "e8c064bb-c445-4407-bb5e-e890fef58a7c::msg:30",
+          "expected_targets": [
+            "e8c064bb-c445-4407-bb5e-e890fef58a7c::msg:30"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::16",
+          "question": "I remember mentioning a specific competitor that we lost a deal to. Can you remind me which company I identified?",
+          "hit": true,
+          "top_id": "39ad600e-5e55-47eb-9f95-1c4441a23621::msg:22",
+          "expected_targets": [
+            "39ad600e-5e55-47eb-9f95-1c4441a23621::msg:22"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::17",
+          "question": "What is the exact length of the voicemail you decided on for your strategy?",
+          "hit": true,
+          "top_id": "2787e1fb-4e37-4d24-8e84-e79d37c5b5c4::msg:4",
+          "expected_targets": [
+            "2787e1fb-4e37-4d24-8e84-e79d37c5b5c4::msg:4"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::18",
+          "question": "Remind me, how many enterprise-level demos did I say I needed to lock in for my bonus this quarter?",
+          "hit": true,
+          "top_id": "f4201c7f-163f-4457-ac5d-48cfb43a5352::msg:22",
+          "expected_targets": [
+            "f4201c7f-163f-4457-ac5d-48cfb43a5352::msg:22"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::19",
+          "question": "I'm about to call that major prospect, Quantum Solutions, again. I remember making a note about the gatekeeper's name. What was the executive assistant's name?",
+          "hit": true,
+          "top_id": "649e474f-69f9-491a-88aa-9208c5655698::msg:10",
+          "expected_targets": [
+            "649e474f-69f9-491a-88aa-9208c5655698::msg:10"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::20",
+          "question": "What did my personal data indicate as the optimal time to call prospects in the tech sector?",
+          "hit": true,
+          "top_id": "e9bef676-588e-4f29-87f7-c322f8b88e9f::msg:32",
+          "expected_targets": [
+            "e9bef676-588e-4f29-87f7-c322f8b88e9f::msg:32"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::21",
+          "question": "I'm prepping for a call with a new prospect who seems like a perfect fit. I remember telling you which product tier I find most straightforward to pitch. Can you remind me which one I said was the easiest for me to sell?",
+          "hit": true,
+          "top_id": "fad456ef-51c5-4b56-89cb-8e0cbbfa85e5::msg:22",
+          "expected_targets": [
+            "fad456ef-51c5-4b56-89cb-8e0cbbfa85e5::msg:22"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::22",
+          "question": "I'm running late for my weekly team meeting, what's the conference call number I asked you to save?",
+          "hit": true,
+          "top_id": "cd7d9475-6cf2-4791-8ce5-31111e116047::msg:18",
+          "expected_targets": [
+            "cd7d9475-6cf2-4791-8ce5-31111e116047::msg:18"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::23",
+          "question": "I'm following up with the IT department about that bug in our CRM. What was the case number they gave me?",
+          "hit": true,
+          "top_id": "b9d7d490-c8e5-46cf-9a12-67ea96829c16::msg:16",
+          "expected_targets": [
+            "b9d7d490-c8e5-46cf-9a12-67ea96829c16::msg:16"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        },
+        {
+          "question_id": "Professional Life::24",
+          "question": "I'm planning my day, can you remind me of the deadline for my weekly performance report?",
+          "hit": true,
+          "top_id": "1089b3b8-34c2-45be-bdaf-5ef23f044d9d::msg:22",
+          "expected_targets": [
+            "1089b3b8-34c2-45be-bdaf-5ef23f044d9d::msg:22"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        }
+      ]
+    }
+  ],
+  "failed": []
+}

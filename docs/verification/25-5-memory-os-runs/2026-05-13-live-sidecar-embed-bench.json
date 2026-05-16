@@ -1,0 +1,32 @@
+{
+  "corpus": "memd-live-sidecar-smoke",
+  "cases": 8,
+  "live": true,
+  "selected_model": "rag-sidecar:sparse:retrieve",
+  "results": [
+    {
+      "model_id": "rag-sidecar:sparse:retrieve",
+      "provider": "Sidecar",
+      "role": "LiveRetrieve",
+      "cases": 8,
+      "mean_score": 1.0,
+      "mean_latency_ms": 5.723843625000001,
+      "mean_cost_units": 0.0,
+      "recall_at_1": 1.0,
+      "mrr": 1.0,
+      "selection_score": 0.9994276156375
+    },
+    {
+      "model_id": "rag-sidecar:bge-reranker-base:rerank",
+      "provider": "Sidecar",
+      "role": "LiveRerank",
+      "cases": 8,
+      "mean_score": 1.0,
+      "mean_latency_ms": 370.07668225,
+      "mean_cost_units": 0.0,
+      "recall_at_1": 1.0,
+      "mrr": 1.0,
+      "selection_score": 0.962992331775
+    }
+  ]
+}

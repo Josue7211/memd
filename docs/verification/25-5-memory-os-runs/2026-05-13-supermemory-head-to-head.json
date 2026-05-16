@@ -1,0 +1,10 @@
+{
+  "api_key_present": false,
+  "competitor": "supermemory",
+  "competitor_replays": "/Volumes/T7/projects/memd/.memd/benchmarks/baselines/supermemory_replays.json",
+  "memd_report": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-13-external-public-scale-50.json",
+  "reason": "missing SUPERMEMORY_API_KEY and replay artifacts",
+  "required": "set SUPERMEMORY_API_KEY and run TRY_REPLAY=1 scripts/verify/25-5-supermemory-head-to-head.sh",
+  "status": "blocked",
+  "suite": "25_5_supermemory_head_to_head"
+}

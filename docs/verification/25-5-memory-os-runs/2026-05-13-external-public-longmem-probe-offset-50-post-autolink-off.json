@@ -1,0 +1,156 @@
+{
+  "suite": "25_5_external_public_longmem_probe_offset_50_post_autolink_off",
+  "status": "pass",
+  "rag_url": null,
+  "server_url": "http://127.0.0.1:60985",
+  "limit": 1,
+  "offset": 50,
+  "timeout_seconds": 300,
+  "datasets": [
+    "longmemeval",
+    "locomo",
+    "membench",
+    "convomem"
+  ],
+  "rows": [
+    {
+      "dataset": "longmemeval",
+      "backend": "memd",
+      "limit": 1,
+      "dataset_source_url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json",
+      "dataset_checksum": "sha256:d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+      "dataset_items": 500,
+      "offset": 50,
+      "qid_filter_count": 1,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "answer_supported_at_1": null,
+      "annotated_top1_hit_rate": null,
+      "annotated_top1_total": 0,
+      "annotated_top1_gaps": [],
+      "answer_supported_top1_hit_rate": null,
+      "answer_supported_top1_total": 0,
+      "answer_supported_top1_gaps": [],
+      "mean_latency_ms": 21410.0,
+      "failures": [],
+      "items": [
+        {
+          "question_id": "76d63226",
+          "question": "What size is my new Samsung TV?",
+          "hit": true,
+          "top_id": "answer_bbdc7b0a",
+          "expected_targets": null,
+          "annotated_top1_hit": null,
+          "answer_supported_top1_hit": null
+        }
+      ]
+    },
+    {
+      "dataset": "locomo",
+      "backend": "memd",
+      "limit": 1,
+      "dataset_source_url": "https://raw.githubusercontent.com/snap-research/locomo/3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376/data/locomo10.json",
+      "dataset_checksum": "sha256:79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4",
+      "dataset_items": 1986,
+      "offset": 50,
+      "qid_filter_count": 1,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "answer_supported_at_1": 1.0,
+      "annotated_top1_hit_rate": 1.0,
+      "annotated_top1_total": 1,
+      "annotated_top1_gaps": [],
+      "answer_supported_top1_hit_rate": 1.0,
+      "answer_supported_top1_total": 1,
+      "answer_supported_top1_gaps": [],
+      "mean_latency_ms": 39570.0,
+      "failures": [],
+      "items": [
+        {
+          "question_id": "conv-26::50",
+          "question": "What would Caroline's political leaning likely be?",
+          "hit": true,
+          "top_id": "D12:1",
+          "expected_targets": [
+            "D12:1"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        }
+      ]
+    },
+    {
+      "dataset": "membench",
+      "backend": "memd",
+      "limit": 1,
+      "dataset_source_url": "https://github.com/import-myself/Membench/tree/f66d8d1028d3f68627d00f77a967b93fbb8694b6/MemData/FirstAgent",
+      "dataset_checksum": "sha256:54bde8259c10ee1cfe5ff16f35a8a25ca9ad5d79e162e0b3a43034ed64115e5a",
+      "dataset_items": 3000,
+      "offset": 50,
+      "qid_filter_count": 1,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "answer_supported_at_1": 1.0,
+      "annotated_top1_hit_rate": 1.0,
+      "annotated_top1_total": 1,
+      "annotated_top1_gaps": [],
+      "answer_supported_top1_hit_rate": 1.0,
+      "answer_supported_top1_total": 1,
+      "answer_supported_top1_gaps": [],
+      "mean_latency_ms": 2845.0,
+      "failures": [],
+      "items": [
+        {
+          "question_id": "book::50::0",
+          "question": "What books have you recommended to me before?",
+          "hit": true,
+          "top_id": "[3,0]",
+          "expected_targets": [
+            "[3,0]"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        }
+      ]
+    },
+    {
+      "dataset": "convomem",
+      "backend": "memd",
+      "limit": 1,
+      "dataset_source_url": "https://huggingface.co/datasets/Salesforce/ConvoMem/tree/main/core_benchmark/evidence_questions",
+      "dataset_checksum": "sha256:dead92689c44ac5a3b66c0c7980166c8fc8d9b16a9cedb2e1c2f7981b6e6f094",
+      "dataset_items": 525,
+      "offset": 50,
+      "qid_filter_count": 1,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "answer_supported_at_1": 1.0,
+      "annotated_top1_hit_rate": 1.0,
+      "annotated_top1_total": 1,
+      "annotated_top1_gaps": [],
+      "answer_supported_top1_hit_rate": 1.0,
+      "answer_supported_top1_total": 1,
+      "answer_supported_top1_gaps": [],
+      "mean_latency_ms": 4456.0,
+      "failures": [],
+      "items": [
+        {
+          "question_id": "Personal Life::50",
+          "question": "What is the name of the rescue beagle mix I adopted?",
+          "hit": true,
+          "top_id": "743323eb-7380-40f3-9ed5-886e40e04704::msg:14",
+          "expected_targets": [
+            "743323eb-7380-40f3-9ed5-886e40e04704::msg:14"
+          ],
+          "annotated_top1_hit": true,
+          "answer_supported_top1_hit": true
+        }
+      ]
+    }
+  ],
+  "failed": []
+}
