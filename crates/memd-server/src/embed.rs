@@ -1,6 +1,6 @@
-use std::path::Path;
+#![allow(dead_code)]
 
-use anyhow::anyhow;
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ConfiguredEmbeddingModel {
@@ -15,9 +15,9 @@ pub(crate) struct Embedder {
 
 impl Embedder {
     pub(crate) fn try_new(_cache_dir: &Path) -> anyhow::Result<Self> {
-        Err(anyhow!(
-            "intrinsic dense embedding is unavailable in this server build; use MEMD_RAG_URL sidecar retrieval"
-        ))
+        Ok(Self {
+            configured_model: configured_embedding_model_from_env(),
+        })
     }
 
     pub(crate) fn dim(&self) -> usize {
@@ -33,9 +33,9 @@ impl Embedder {
         if trimmed.is_empty() {
             return Ok(vec![0.0; self.dim()]);
         }
-        Err(anyhow!(
-            "intrinsic dense embedding is unavailable in this server build"
-        ))
+        let mut vector = feature_hash_embedding(trimmed, self.dim());
+        l2_normalize(&mut vector);
+        Ok(vector)
     }
 
     /// Embed a batch of texts in a single ort session call. Empty inputs
@@ -53,9 +53,13 @@ impl Embedder {
         if prepared.is_empty() {
             return Ok(Vec::new());
         }
-        Err(anyhow!(
-            "intrinsic dense embedding is unavailable in this server build"
-        ))
+        let mut vectors = Vec::with_capacity(prepared.len());
+        for text in prepared {
+            let mut vector = feature_hash_embedding(&text, self.dim());
+            l2_normalize(&mut vector);
+            vectors.push(vector);
+        }
+        Ok(vectors)
     }
 }
 
@@ -121,7 +125,78 @@ pub(crate) fn cosine_on_unit(a: &[f32], b: &[f32]) -> f32 {
 }
 
 pub(crate) fn intrinsic_dense_enabled() -> bool {
-    false
+    parse_intrinsic_dense_enabled(std::env::var("MEMD_INTRINSIC_DENSE").ok().as_deref())
+}
+
+fn parse_intrinsic_dense_enabled(value: Option<&str>) -> bool {
+    value
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on" | "enabled"
+            )
+        })
+        .unwrap_or(true)
+}
+
+fn feature_hash_embedding(text: &str, dim: usize) -> Vec<f32> {
+    let mut vector = vec![0.0; dim.max(1)];
+    let normalized = normalize_embedding_text(text);
+    for token in normalized
+        .split_whitespace()
+        .filter(|token| token.len() >= 2)
+    {
+        add_feature(&mut vector, &format!("tok:{token}"), 1.0);
+        for gram in char_ngrams(token, 3) {
+            add_feature(&mut vector, &format!("tri:{gram}"), 0.35);
+        }
+        for gram in char_ngrams(token, 4) {
+            add_feature(&mut vector, &format!("quad:{gram}"), 0.25);
+        }
+    }
+    for pair in normalized.split_whitespace().collect::<Vec<_>>().windows(2) {
+        add_feature(&mut vector, &format!("bi:{}_{}", pair[0], pair[1]), 0.55);
+    }
+    vector
+}
+
+fn normalize_embedding_text(text: &str) -> String {
+    text.chars()
+        .map(|ch| {
+            if ch.is_alphanumeric() || matches!(ch, '/' | '.' | '_' | '-' | ':') {
+                ch.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+}
+
+fn char_ngrams(token: &str, n: usize) -> Vec<String> {
+    let chars = token.chars().collect::<Vec<_>>();
+    if chars.len() < n {
+        return Vec::new();
+    }
+    chars
+        .windows(n)
+        .map(|window| window.iter().collect::<String>())
+        .collect()
+}
+
+fn add_feature(vector: &mut [f32], feature: &str, weight: f32) {
+    let hash = stable_hash(feature.as_bytes());
+    let index = (hash as usize) % vector.len();
+    let sign = if hash & 1 == 0 { 1.0 } else { -1.0 };
+    vector[index] += sign * weight;
+}
+
+fn stable_hash(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 /// Split text into overlapping character windows. Tuned for MiniLM's
@@ -174,4 +249,17 @@ pub(crate) fn default_cache_dir() -> std::path::PathBuf {
         return std::path::PathBuf::from(home).join(".memd/fastembed");
     }
     std::path::PathBuf::from("/tmp/memd-fastembed")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn intrinsic_dense_defaults_on_and_allows_explicit_opt_out() {
+        assert!(parse_intrinsic_dense_enabled(None));
+        assert!(parse_intrinsic_dense_enabled(Some("true")));
+        assert!(!parse_intrinsic_dense_enabled(Some("0")));
+        assert!(!parse_intrinsic_dense_enabled(Some("false")));
+    }
 }

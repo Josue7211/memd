@@ -22,6 +22,8 @@ pub struct SidecarBackendHealth {
     pub multimodal: bool,
     #[serde(default)]
     pub profile: Option<String>,
+    #[serde(default)]
+    pub indexed_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -777,6 +777,28 @@ pub(crate) fn migrate_memory_entities_indexed_lookups(conn: &mut Connection) -> 
     Ok(())
 }
 
+pub(crate) fn create_hive_session_identity_indexes(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE INDEX IF NOT EXISTS idx_hive_sessions_hive_system
+          ON hive_sessions(hive_system);
+        CREATE INDEX IF NOT EXISTS idx_hive_sessions_hive_role
+          ON hive_sessions(hive_role);
+        CREATE INDEX IF NOT EXISTS idx_hive_sessions_host
+          ON hive_sessions(host);
+        CREATE INDEX IF NOT EXISTS idx_hive_sessions_repo_root
+          ON hive_sessions(repo_root);
+        CREATE INDEX IF NOT EXISTS idx_hive_sessions_worktree_root_identity
+          ON hive_sessions(worktree_root);
+        CREATE INDEX IF NOT EXISTS idx_hive_sessions_branch_identity
+          ON hive_sessions(branch);
+        "#,
+    )
+    .context("create hive session identity indexes")?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod v11_schema_tests {
     use super::*;
@@ -862,26 +884,4 @@ mod v11_schema_tests {
             assert_eq!(count, 1, "{table} missing");
         }
     }
-}
-
-pub(crate) fn create_hive_session_identity_indexes(conn: &Connection) -> anyhow::Result<()> {
-    conn.execute_batch(
-        r#"
-        CREATE INDEX IF NOT EXISTS idx_hive_sessions_hive_system
-          ON hive_sessions(hive_system);
-        CREATE INDEX IF NOT EXISTS idx_hive_sessions_hive_role
-          ON hive_sessions(hive_role);
-        CREATE INDEX IF NOT EXISTS idx_hive_sessions_host
-          ON hive_sessions(host);
-        CREATE INDEX IF NOT EXISTS idx_hive_sessions_repo_root
-          ON hive_sessions(repo_root);
-        CREATE INDEX IF NOT EXISTS idx_hive_sessions_worktree_root_identity
-          ON hive_sessions(worktree_root);
-        CREATE INDEX IF NOT EXISTS idx_hive_sessions_branch_identity
-          ON hive_sessions(branch);
-        "#,
-    )
-    .context("create hive session identity indexes")?;
-
-    Ok(())
 }

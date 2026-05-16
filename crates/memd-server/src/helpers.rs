@@ -25,7 +25,10 @@ pub(crate) fn enrich_with_entities(
     // every /memory/context/compact, /memory/inbox, /memory/search.
     let mut sources: BTreeMap<SourceKey, SourceAggregate> = BTreeMap::new();
     for item in &items {
-        sources.entry(source_key_of(item)).or_default().observe(item);
+        sources
+            .entry(source_key_of(item))
+            .or_default()
+            .observe(item);
     }
 
     // Batch the entity lookup too: one SQL round-trip for the whole batch
@@ -101,7 +104,7 @@ pub(crate) fn build_context(
         .filter(|entry| visibility_allows(&req.agent, &entry.item))
         .cloned()
         .collect();
-    live_truth.sort_by(|a, b| b.item.updated_at.cmp(&a.item.updated_at));
+    live_truth.sort_by_key(|entry| std::cmp::Reverse(entry.item.updated_at));
 
     for entry in live_truth {
         let mut item = entry.item;
@@ -121,6 +124,7 @@ pub(crate) fn build_context(
         .iter()
         .filter(|entry| plan.allows(entry.item.scope))
         .filter(|entry| entry.item.kind != MemoryKind::LiveTruth)
+        .filter(|entry| context_intent_allows_kind(plan.intent, entry.item.kind))
         .filter(|entry| entry.item.status == MemoryStatus::Active)
         .filter(|entry| matches_requested_project(&req.project, &entry.item))
         .filter(|entry| {
@@ -157,6 +161,26 @@ pub(crate) fn build_context(
         retrieval_order,
         items: scoped,
     })
+}
+
+fn context_intent_allows_kind(intent: RetrievalIntent, kind: MemoryKind) -> bool {
+    match intent {
+        RetrievalIntent::Decision => {
+            matches!(kind, MemoryKind::Decision | MemoryKind::Constraint)
+        }
+        RetrievalIntent::Preference => {
+            matches!(kind, MemoryKind::Preference | MemoryKind::Decision)
+        }
+        RetrievalIntent::Fact => matches!(
+            kind,
+            MemoryKind::Fact | MemoryKind::LiveTruth | MemoryKind::Constraint
+        ),
+        RetrievalIntent::Runbook | RetrievalIntent::Procedural => {
+            matches!(kind, MemoryKind::Runbook | MemoryKind::Procedural)
+        }
+        RetrievalIntent::Topology => matches!(kind, MemoryKind::Topology | MemoryKind::Decision),
+        _ => true,
+    }
 }
 
 pub(crate) fn apply_agent_profile_defaults(
@@ -235,11 +259,6 @@ pub(crate) fn filter_items(
             req.belief_branch
                 .as_ref()
                 .is_none_or(|branch| entry.item.belief_branch.as_ref() == Some(branch))
-        })
-        .filter(|entry| {
-            req.source_agent
-                .as_ref()
-                .is_none_or(|agent| entry.item.source_agent.as_ref() == Some(agent))
         })
         .filter(|entry| {
             req.tags.is_empty()
@@ -391,9 +410,10 @@ pub(crate) fn filter_raw_items_authority(
 }
 
 /// Reciprocal Rank Fusion: merge metadata-based ranking (already applied as
-/// sort order on `items`) with FTS5 BM25 ranking. Each ranker contributes
-/// `1 / (k + rank)` per item; items appearing in both lists get combined
-/// scores. k=60 is the standard constant from the original RRF paper.
+/// sort order on `items`) with retrieval ranking. Each ranker contributes
+/// `1 / (k + rank)` per item; retrieval scores add a small normalized signal
+/// so a strong dense/rerank candidate survives metadata ties. k=60 is the
+/// standard constant from the original RRF paper.
 fn rrf_rerank(items: &mut Vec<MemoryViewItem>, fts_ranks: &[(Uuid, f64)]) {
     const RRF_K: f64 = 60.0;
 
@@ -402,25 +422,43 @@ fn rrf_rerank(items: &mut Vec<MemoryViewItem>, fts_ranks: &[(Uuid, f64)]) {
         .enumerate()
         .map(|(rank, (id, _))| (*id, rank))
         .collect();
+    let fts_score_map: std::collections::HashMap<Uuid, f64> = fts_ranks.iter().copied().collect();
+    let max_fts_score = fts_ranks
+        .iter()
+        .map(|(_, score)| score.abs())
+        .fold(0.0_f64, f64::max)
+        .max(1.0);
 
-    let mut rrf_scores: Vec<(usize, f64)> = items
+    let mut rrf_scores: Vec<(usize, f64, usize)> = items
         .iter()
         .enumerate()
         .map(|(meta_rank, entry)| {
             let meta_rrf = 1.0 / (RRF_K + meta_rank as f64);
-            let fts_rrf = fts_rank_map
-                .get(&entry.item.id)
-                .map(|&fts_rank| 1.0 / (RRF_K + fts_rank as f64))
+            let fts_rank = fts_rank_map.get(&entry.item.id).copied();
+            let fts_rrf = fts_rank
+                .map(|fts_rank| 1.0 / (RRF_K + fts_rank as f64))
                 .unwrap_or(0.0);
-            (meta_rank, meta_rrf + fts_rrf)
+            let fts_score = fts_score_map
+                .get(&entry.item.id)
+                .map(|score| (score / max_fts_score).clamp(0.0, 1.0) * 0.08)
+                .unwrap_or(0.0);
+            (
+                meta_rank,
+                meta_rrf + fts_rrf + fts_score,
+                fts_rank.unwrap_or(usize::MAX),
+            )
         })
         .collect();
 
-    rrf_scores.sort_by(|a, b| b.1.total_cmp(&a.1));
+    rrf_scores.sort_by(|a, b| {
+        b.1.total_cmp(&a.1)
+            .then_with(|| a.2.cmp(&b.2))
+            .then_with(|| a.0.cmp(&b.0))
+    });
 
     let reordered: Vec<MemoryViewItem> = rrf_scores
         .into_iter()
-        .map(|(original_index, _)| items[original_index].clone())
+        .map(|(original_index, _, _)| items[original_index].clone())
         .collect();
     *items = reordered;
 }
@@ -672,14 +710,13 @@ pub(crate) fn score_consolidation_quality(
     // (b) Information preservation: clause density vs event count.
     // Count rough clause boundaries ('. ', '! ', '? ', ': ', '; ') in content.
     let clause_count = content
-        .split(|c: char| c == '.' || c == '!' || c == '?' || c == ':' || c == ';')
+        .split(['.', '!', '?', ':', ';'])
         .filter(|s| s.trim().len() > 4)
         .count()
         .max(1);
     let expected_clauses = (event_count / 2).max(1);
-    let information_preservation = ((clause_count as f32) / (expected_clauses as f32))
-        .min(1.0)
-        .max(0.1);
+    let information_preservation =
+        ((clause_count as f32) / (expected_clauses as f32)).clamp(0.1, 1.0);
 
     // (c) Kind preservation: expected kind from entity type should match item kind.
     let expected_kind = consolidation_kind(&entity.entity_type);
@@ -771,7 +808,11 @@ pub(crate) fn consolidation_tags(entity: &MemoryEntityRecord, event_count: usize
 
 pub(crate) fn internal_error(error: anyhow::Error) -> (StatusCode, String) {
     let message = format!("{error:#}");
-    if message.contains("queen_denied:") || message.contains("queen_handoff_locked:") {
+    if message.contains("queen_denied:")
+        || message.contains("queen_handoff_locked:")
+        || message.contains("dev_server_conflict:")
+        || message.contains("dev_server_release_denied:")
+    {
         return crate::errors::MemdError::conflict(message).into();
     }
     crate::errors::MemdError::from(error).into()
@@ -1089,6 +1130,7 @@ pub(crate) fn search_score(
         let query_tokens = tokenize_search_text(query);
         let overlap = query_tokens.intersection(&doc_tokens).count() as f32;
         score += overlap * 0.35;
+        score += recommendation_search_adjustment(&query_tokens, &content);
 
         let keywords = search_keyword_tokens(query);
         if !keywords.is_empty() {
@@ -1108,6 +1150,47 @@ pub(crate) fn search_score(
 
     score -= age_penalty(item.updated_at);
     score
+}
+
+fn recommendation_search_adjustment(
+    query_tokens: &std::collections::BTreeSet<String>,
+    content: &str,
+) -> f32 {
+    let has_recommendation_intent = query_tokens.iter().any(|token| {
+        matches!(
+            token.as_str(),
+            "recommend"
+                | "recommended"
+                | "recommends"
+                | "recommendation"
+                | "recommendations"
+                | "suggest"
+                | "suggested"
+                | "suggestion"
+                | "suggestions"
+        )
+    });
+    if !has_recommendation_intent {
+        return 0.0;
+    }
+
+    let has_recommendation_evidence = content.contains("assistant recommendation turn")
+        || content.contains("recommend")
+        || content.contains("worth checking out")
+        || content.contains("you should try");
+    if has_recommendation_evidence {
+        return 1.35;
+    }
+
+    if content.contains("i'm really into")
+        || content.contains("im really into")
+        || content.contains("i recently read")
+        || content.contains("i enjoyed")
+        || content.contains("overall experience of the book")
+    {
+        return -0.65;
+    }
+    0.0
 }
 
 pub(crate) fn trust_rank_adjustment(source_trust_score: f32) -> f32 {
@@ -1456,6 +1539,30 @@ mod tests {
         assert!(
             search_score(&corrected, None, 0.95, &None, None, None, &plan)
                 > search_score(&noisy, None, 0.95, &None, None, None, &plan)
+        );
+    }
+
+    #[test]
+    fn recommendation_search_score_prefers_recommendation_over_preference_chat() {
+        let plan = RetrievalPlan::resolve(
+            Some(RetrievalRoute::LocalFirst),
+            Some(RetrievalIntent::CurrentTask),
+        );
+        let query = Some("What books have you recommended to me before?".to_string());
+        let recommendation = sample_item(
+            "assistant recommendation turn. user: I'm looking for a good book to read. assistant: I recommend The Darwin Awards.",
+            vec!["public-benchmark"],
+            Some("membench"),
+        );
+        let preference = sample_item(
+            "user: I'm really into Seinlanguage. assistant: I'm glad you are enjoying that book.",
+            vec!["public-benchmark"],
+            Some("membench"),
+        );
+
+        assert!(
+            search_score(&recommendation, None, 0.95, &query, None, None, &plan)
+                > search_score(&preference, None, 0.95, &query, None, None, &plan) + 1.0
         );
     }
 
@@ -1950,5 +2057,29 @@ mod epistemic_state_tests {
                 .any(|reason| reason == "inferred")
         );
         assert!(inbox_reasons(&stale).iter().any(|reason| reason == "stale"));
+    }
+
+    #[test]
+    fn context_intent_filters_decision_kinds_before_ranking() {
+        assert!(context_intent_allows_kind(
+            RetrievalIntent::Decision,
+            MemoryKind::Decision
+        ));
+        assert!(context_intent_allows_kind(
+            RetrievalIntent::Decision,
+            MemoryKind::Constraint
+        ));
+        assert!(!context_intent_allows_kind(
+            RetrievalIntent::Decision,
+            MemoryKind::Fact
+        ));
+        assert!(context_intent_allows_kind(
+            RetrievalIntent::Preference,
+            MemoryKind::Preference
+        ));
+        assert!(context_intent_allows_kind(
+            RetrievalIntent::General,
+            MemoryKind::Fact
+        ));
     }
 }

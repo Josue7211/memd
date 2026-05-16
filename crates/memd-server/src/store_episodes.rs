@@ -17,7 +17,7 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use memd_schema::{
     ConsolidateEpisodesRequest, ConsolidateEpisodesResponse, Episode, EpisodeFactRelation,
-    ListEpisodesRequest, ListEpisodesResponse, MemoryItem, SessionSpan,
+    ListEpisodesRequest, ListEpisodesResponse, MemoryItem,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use uuid::Uuid;
@@ -153,15 +153,15 @@ fn load_items_in_window(
 ) -> anyhow::Result<Vec<MemoryItem>> {
     let mut sql = String::from("SELECT payload_json FROM memory_items WHERE updated_at >= ?1");
     let mut args: Vec<String> = vec![since.to_rfc3339()];
-    if project.is_some() {
+    if let Some(project) = project {
         sql.push_str(" AND project = ?");
         sql.push_str(&(args.len() + 1).to_string());
-        args.push(project.unwrap().to_string());
+        args.push(project.to_string());
     }
-    if namespace.is_some() {
+    if let Some(namespace) = namespace {
         sql.push_str(" AND namespace = ?");
         sql.push_str(&(args.len() + 1).to_string());
-        args.push(namespace.unwrap().to_string());
+        args.push(namespace.to_string());
     }
     sql.push_str(" ORDER BY updated_at ASC");
 
@@ -400,7 +400,7 @@ mod tests {
 
     fn test_store() -> SqliteStore {
         let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.into_path().join("episodes.db");
+        let path = dir.keep().join("episodes.db");
         SqliteStore::open(path).expect("open store")
     }
 

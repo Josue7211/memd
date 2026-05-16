@@ -630,6 +630,33 @@ pub struct SearchMemoryResponse {
     pub route: RetrievalRoute,
     pub intent: RetrievalIntent,
     pub items: Vec<MemoryItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace: Option<SearchRetrievalTrace>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchRetrievalTrace {
+    pub query: Option<String>,
+    pub lanes: Vec<String>,
+    pub items: Vec<SearchItemTrace>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchItemTrace {
+    pub id: Uuid,
+    pub final_rank: usize,
+    pub final_score: f64,
+    pub signals: Vec<SearchSignalTrace>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchSignalTrace {
+    pub lane: String,
+    pub score: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rank: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

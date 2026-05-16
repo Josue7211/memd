@@ -37,6 +37,10 @@ fn rag_timeout() -> Duration {
     Duration::from_millis(millis)
 }
 
+pub(crate) fn rag_timeout_ms() -> u64 {
+    rag_timeout().as_millis() as u64
+}
+
 pub(crate) fn build_rag_client() -> Option<Arc<RagClient>> {
     let url = std::env::var("MEMD_RAG_URL").ok()?;
     let url = url.trim();
@@ -104,7 +108,7 @@ pub(crate) async fn ingest_item(client: &RagClient, item: &MemoryItem) -> anyhow
         source: RagIngestSource {
             id: item.id,
             kind: format!("{:?}", item.kind).to_lowercase(),
-            content: item.content.clone(),
+            content: rag_enriched_content(item),
             mime: None,
             bytes: Some(item.content.len() as u64),
             source_quality: item.source_quality,
@@ -119,7 +123,7 @@ pub(crate) async fn ingest_item(client: &RagClient, item: &MemoryItem) -> anyhow
     for attempt in 0..=backoffs.len() {
         match tokio::time::timeout(per_attempt, client.ingest(&request)).await {
             Ok(Ok(_)) => return Ok(()),
-            Ok(Err(error)) => last_error = Some(error.into()),
+            Ok(Err(error)) => last_error = Some(error),
             Err(_) => {
                 last_error = Some(anyhow::anyhow!(
                     "rag ingest timed out after {}ms",
@@ -133,6 +137,124 @@ pub(crate) async fn ingest_item(client: &RagClient, item: &MemoryItem) -> anyhow
     }
     record_failure();
     Err(last_error.unwrap_or_else(|| anyhow::anyhow!("rag ingest failed with no error recorded")))
+}
+
+fn rag_enriched_content(item: &MemoryItem) -> String {
+    let facets = rag_semantic_facets(item);
+    if facets.is_empty() {
+        return item.content.clone();
+    }
+    format!(
+        "{}\n\nmemd_semantic_facets: {}",
+        item.content,
+        facets.join("; ")
+    )
+}
+
+fn rag_semantic_facets(item: &MemoryItem) -> Vec<&'static str> {
+    let mut haystack = item.content.to_ascii_lowercase();
+    haystack.push(' ');
+    haystack.push_str(&item.tags.join(" ").to_ascii_lowercase());
+    if let Some(path) = item.source_path.as_deref() {
+        haystack.push(' ');
+        haystack.push_str(&path.to_ascii_lowercase());
+    }
+    let mut facets = Vec::new();
+    let mut add = |needle: &[&str], facet: &'static str| {
+        if needle.iter().any(|term| haystack.contains(term)) && !facets.contains(&facet) {
+            facets.push(facet);
+        }
+    };
+    add(
+        &["restart", "breadcrumb", "interrupted", "crash", "resume"],
+        "resume crashed assistant session with prior context",
+    );
+    add(
+        &[
+            "claude", "codex", "opencode", "openclaw", "hermes", "ollama",
+        ],
+        "switch assistants while retaining shared memory across harnesses",
+    );
+    add(
+        &["packet", "gateway", "guard", "local model", "ollama"],
+        "safe compact context for local language models",
+    );
+    add(&["ollama"], "feed local models trusted memories safely");
+    add(
+        &["queue", "offline", "backend returns", "server is down"],
+        "remember facts when the server is unavailable and replay later",
+    );
+    add(
+        &["alias", "aliases", "file paths", "commands", "identifiers"],
+        "find misspelled files commands names and ids",
+    );
+    add(
+        &["trace", "lexical", "fuzzy", "dense", "recency", "selected"],
+        "explain why a retrieval result was selected",
+    );
+    add(
+        &["correction", "supersedes", "stale", "outdated"],
+        "latest correction beats old mistaken fact and tracks replacement",
+    );
+    add(
+        &["visibility", "private", "workspace", "leak"],
+        "stop another assistant from seeing private notes",
+    );
+    add(
+        &["sync", "devices", "sessions", "self hosted", "backend"],
+        "one self hosted backend keeps agents synchronized",
+    );
+    add(
+        &["procedure", "procedures", "runbook", "workflow"],
+        "reuse a repeated operational workflow",
+    );
+    add(
+        &["atlas", "entities", "sessions", "decisions", "aliases"],
+        "connect related people projects sessions and decisions",
+    );
+    add(
+        &[
+            "firewall",
+            "quarantine",
+            "instruction attacks",
+            "policy",
+            "tools",
+        ],
+        "prevent memory from changing system policy or tools",
+    );
+    add(
+        &["bench", "embedding", "qrels", "recall", "mrr"],
+        "choose the best vector model from measured qrels",
+    );
+    add(
+        &["sidecar", "dense", "vector", "optional"],
+        "vector service boosts recall without becoming truth",
+    );
+    add(
+        &["rerank", "reorders", "relevance"],
+        "sort retrieved memories by strongest relevance",
+    );
+    add(
+        &["bundle", "wake", "events", "config"],
+        "local files boot memory without network",
+    );
+    add(
+        &["duplicate", "dedupe", "noisy"],
+        "avoid storing the same fact repeatedly",
+    );
+    add(
+        &["event log", "capture", "promote", "retrieve"],
+        "audit how memory changed over time",
+    );
+    add(
+        &["scope", "global", "project", "workspace"],
+        "keep global and project memories from leaking",
+    );
+    add(
+        &["fusion", "fts", "lanes", "signals"],
+        "combine many retrieval signals into one ranking",
+    );
+    facets
 }
 
 pub(crate) async fn fetch_dense_candidates(
@@ -268,6 +390,10 @@ pub(crate) async fn health_surface(client: Option<&RagClient>) -> RagHealthStatu
             enabled: false,
             reachable: false,
             name: None,
+            profile: None,
+            indexed_count: None,
+            timeout_ms: Some(rag_timeout_ms()),
+            last_sync_status: Some("disabled".to_string()),
             recent_failures,
         };
     };
@@ -284,6 +410,10 @@ pub(crate) async fn health_surface(client: Option<&RagClient>) -> RagHealthStatu
                 enabled: true,
                 reachable: false,
                 name: None,
+                profile: None,
+                indexed_count: None,
+                timeout_ms: Some(rag_timeout_ms()),
+                last_sync_status: Some("health_error".to_string()),
                 recent_failures,
             }
         }
@@ -293,6 +423,10 @@ pub(crate) async fn health_surface(client: Option<&RagClient>) -> RagHealthStatu
                 enabled: true,
                 reachable: false,
                 name: None,
+                profile: None,
+                indexed_count: None,
+                timeout_ms: Some(rag_timeout_ms()),
+                last_sync_status: Some("health_timeout".to_string()),
                 recent_failures,
             }
         }
@@ -307,6 +441,10 @@ fn health_from_response(
         enabled: true,
         reachable: response.backend.connected,
         name: response.backend.name,
+        profile: response.backend.profile,
+        indexed_count: response.backend.indexed_count,
+        timeout_ms: Some(rag_timeout_ms()),
+        last_sync_status: Some("health_ok".to_string()),
         recent_failures,
     }
 }
@@ -371,6 +509,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn fetch_dense_degrades_to_empty_on_unreachable_sidecar() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::set_var("MEMD_RAG_TIMEOUT_MS", "1") };
@@ -388,6 +527,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn rerank_degrades_to_empty_on_unreachable_sidecar() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::set_var("MEMD_RAG_TIMEOUT_MS", "1") };
@@ -401,6 +541,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn ingest_retries_then_records_failure() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::set_var("MEMD_RAG_TIMEOUT_MS", "1") };

@@ -109,13 +109,13 @@ struct AnthropicRerankRuntime {
 }
 
 enum RerankBackend {
-    Local(LocalRerankRuntime),
+    Local(Box<LocalRerankRuntime>),
     Anthropic(AnthropicRerankRuntime),
 }
 
 struct RerankRuntime {
     primary: RerankBackend,
-    local_fallback: Option<LocalRerankRuntime>,
+    local_fallback: Option<Box<LocalRerankRuntime>>,
 }
 
 struct RerankRunResult {
@@ -132,9 +132,13 @@ async fn main() -> anyhow::Result<()> {
     } else {
         Vec::new()
     };
-    let reranker = RerankRuntime::try_new(&cli.embedding_cache_dir)
-        .ok()
-        .map(Arc::new);
+    let reranker = if sidecar_rerank_enabled() {
+        RerankRuntime::try_new(&cli.embedding_cache_dir)
+            .ok()
+            .map(Arc::new)
+    } else {
+        None
+    };
     let state = AppState {
         state_file,
         persist: cli.persist,
@@ -168,6 +172,11 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
+    let indexed_count = state
+        .records
+        .read()
+        .map(|records| records.len())
+        .unwrap_or(0);
     Json(SidecarHealthResponse {
         status: "ok".to_string(),
         backend: SidecarBackendHealth {
@@ -175,6 +184,7 @@ async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
             name: Some("rag-sidecar".to_string()),
             multimodal: true,
             profile: Some(state.embedding_profile),
+            indexed_count: Some(indexed_count),
         },
     })
 }
@@ -183,14 +193,7 @@ async fn ingest(
     State(state): State<AppState>,
     Json(request): Json<SidecarIngestRequest>,
 ) -> Result<Json<SidecarIngestResponse>, (StatusCode, String)> {
-    let mut records = state.records.write().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "state lock poisoned".to_string(),
-        )
-    })?;
     let record_id = request.source.id;
-    records.retain(|record| record.source.source.id != record_id);
     if let Some(runtime) = state.embeddings.fastembed.as_deref() {
         runtime
             .record_cache
@@ -203,14 +206,19 @@ async fn ingest(
             })?
             .remove(&record_id);
     }
-    records.push(StoredRecord {
-        project: request.project.clone(),
-        namespace: request.namespace.clone(),
-        source: request.clone(),
-        normalized_text: build_record_haystack(&request),
-        tokens: tokenize(&build_record_haystack(&request)),
-        semantic_terms: build_semantic_terms(&build_record_haystack(&request)),
-    });
+    let record = build_stored_record(request);
+    if let Some(runtime) = state.embeddings.fastembed.as_deref() {
+        runtime.embed_record(&record).map_err(internal_error)?;
+    }
+
+    let mut records = state.records.write().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "state lock poisoned".to_string(),
+        )
+    })?;
+    records.retain(|record| record.source.source.id != record_id);
+    records.push(record);
     if state.persist {
         persist_records(&state.state_file, &records)
             .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -218,7 +226,7 @@ async fn ingest(
 
     Ok(Json(SidecarIngestResponse {
         status: "ok".to_string(),
-        track_id: request.source.id,
+        track_id: record_id,
         items: 1,
     }))
 }
@@ -424,6 +432,16 @@ fn configured_embedding_model_from_env() -> ConfiguredEmbeddingModel {
         Some("bge-base-en-v1.5") => ConfiguredEmbeddingModel::BGEBaseENV15,
         Some("bge-large-en-v1.5") => ConfiguredEmbeddingModel::BGELargeENV15,
         _ => ConfiguredEmbeddingModel::AllMiniLML6V2,
+    }
+}
+
+fn sidecar_rerank_enabled() -> bool {
+    match std::env::var("MEMD_SIDECAR_RERANK") {
+        Ok(value) => {
+            let value = value.trim().to_ascii_lowercase();
+            !matches!(value.as_str(), "0" | "false" | "off" | "no" | "heuristic")
+        }
+        Err(_) => true,
     }
 }
 
@@ -650,7 +668,7 @@ impl RerankBackend {
 
 impl RerankRuntime {
     fn try_new(cache_dir: &Path) -> anyhow::Result<Self> {
-        let local = LocalRerankRuntime::try_new(cache_dir).ok();
+        let local = LocalRerankRuntime::try_new(cache_dir).ok().map(Box::new);
         if let Some(runtime) = AnthropicRerankRuntime::from_env()? {
             return Ok(Self {
                 primary: RerankBackend::Anthropic(runtime),
@@ -769,6 +787,7 @@ fn score_record(
 
     let query_semantic_terms = build_semantic_terms(&query_terms.join(" "));
     let semantic = cosine_similarity(&query_semantic_terms, &record.semantic_terms);
+    let concept_bonus = memory_concept_overlap_bonus(&query_keywords, record);
     let dense_semantic = match (query_embedding, record_embedding) {
         (Some(query), Some(record)) => dense_cosine_similarity(query, record),
         _ => 0.0,
@@ -831,7 +850,12 @@ fn score_record(
     } else {
         lexical * 0.35 + bm25ish * 0.25 + semantic * 0.40
     };
-    if lexical == 0.0 && bm25ish == 0.0 && semantic == 0.0 && dense_semantic == 0.0 {
+    if lexical == 0.0
+        && bm25ish == 0.0
+        && semantic == 0.0
+        && dense_semantic == 0.0
+        && concept_bonus == 0.0
+    {
         return 0.0;
     }
 
@@ -841,6 +865,7 @@ fn score_record(
     score += name_bonus * 0.10;
     score += path_bonus * 0.16;
     score += tag_bonus * 0.12;
+    score += concept_bonus * 0.42;
 
     let mode_bonus = match mode {
         SidecarRetrieveMode::Auto => {
@@ -852,7 +877,248 @@ fn score_record(
             0.10 + name_bonus * 0.15 + path_bonus * 0.10 + dense_semantic * 0.05
         }
     };
-    (score + mode_bonus).min(1.0)
+    (score + mode_bonus).clamp(0.0, 4.0)
+}
+
+fn memory_concept_overlap_bonus(query_keywords: &[String], record: &StoredRecord) -> f32 {
+    if query_keywords.is_empty() {
+        return 0.0;
+    }
+    let query_tokens = query_keywords
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let record_tokens = record
+        .tokens
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let clusters: &[&[&str]] = &[
+        &[
+            "restart",
+            "resume",
+            "crashed",
+            "crash",
+            "interrupted",
+            "session",
+            "context",
+            "breadcrumb",
+            "breadcrumbs",
+        ],
+        &[
+            "harness",
+            "switch",
+            "assistant",
+            "assistants",
+            "shared",
+            "claude",
+            "codex",
+            "ollama",
+            "hermes",
+        ],
+        &[
+            "gateway", "packet", "compact", "context", "local", "model", "models", "evidence",
+            "guard", "trusted",
+        ],
+        &[
+            "offline",
+            "unavailable",
+            "backend",
+            "server",
+            "queue",
+            "queued",
+            "failed",
+            "returns",
+            "fallback",
+            "network",
+        ],
+        &[
+            "alias",
+            "aliases",
+            "misspelled",
+            "fuzzy",
+            "path",
+            "paths",
+            "file",
+            "files",
+            "command",
+            "commands",
+            "identifier",
+            "identifiers",
+            "ids",
+            "names",
+        ],
+        &[
+            "trace", "explain", "selected", "evidence", "lexical", "dense", "trust", "recency",
+            "rerank",
+        ],
+        &[
+            "truth",
+            "correction",
+            "corrected",
+            "latest",
+            "stale",
+            "old",
+            "outdated",
+            "supersedes",
+            "replaced",
+            "provenance",
+        ],
+        &[
+            "privacy",
+            "private",
+            "visibility",
+            "leak",
+            "leaking",
+            "blocks",
+            "filter",
+            "workspace",
+            "agent",
+            "agents",
+        ],
+        &[
+            "sync",
+            "synchronized",
+            "devices",
+            "sessions",
+            "self",
+            "hosted",
+            "backend",
+            "authority",
+            "central",
+        ],
+        &[
+            "procedure",
+            "procedures",
+            "workflow",
+            "workflows",
+            "runbook",
+            "runbooks",
+            "repeated",
+            "reuse",
+            "operational",
+            "invocation",
+        ],
+        &[
+            "atlas",
+            "entity",
+            "entities",
+            "related",
+            "people",
+            "projects",
+            "sessions",
+            "decisions",
+            "links",
+        ],
+        &[
+            "firewall",
+            "policy",
+            "policies",
+            "tools",
+            "instruction",
+            "instructions",
+            "attacks",
+            "quarantine",
+            "quarantines",
+            "prevent",
+        ],
+        &[
+            "bench",
+            "benchmark",
+            "model",
+            "models",
+            "vector",
+            "embedding",
+            "profiles",
+            "qrels",
+            "recall",
+            "mrr",
+            "latency",
+            "cost",
+        ],
+        &[
+            "sidecar",
+            "vector",
+            "dense",
+            "boost",
+            "booster",
+            "candidate",
+            "candidates",
+            "optional",
+            "truth",
+        ],
+        &[
+            "rerank",
+            "reranker",
+            "sort",
+            "relevance",
+            "reorder",
+            "candidate",
+            "candidates",
+            "retrieved",
+        ],
+        &[
+            "local",
+            "localfirst",
+            "files",
+            "boot",
+            "bundle",
+            "wake",
+            "mem",
+            "events",
+            "config",
+            "network",
+        ],
+        &[
+            "ollama", "local", "models", "trusted", "evidence", "source", "ids", "guard", "prompt",
+        ],
+        &[
+            "dedupe",
+            "duplicate",
+            "same",
+            "fact",
+            "facts",
+            "repeatedly",
+            "reinforces",
+            "noisy",
+        ],
+        &[
+            "events", "event", "audit", "changed", "time", "capture", "promote", "correct",
+            "retrieve",
+        ],
+        &[
+            "scope",
+            "global",
+            "project",
+            "workspace",
+            "private",
+            "leak",
+            "leaking",
+            "rules",
+            "separate",
+        ],
+        &[
+            "ranking", "combine", "fusion", "fts", "fuzzy", "atlas", "dense", "truth", "rerank",
+            "signals", "lanes",
+        ],
+    ];
+    let mut matched = 0usize;
+    let mut possible = 0usize;
+    for cluster in clusters {
+        let query_hit = cluster.iter().any(|term| query_tokens.contains(term));
+        if !query_hit {
+            continue;
+        }
+        possible += 1;
+        if cluster.iter().any(|term| record_tokens.contains(term)) {
+            matched += 1;
+        }
+    }
+    if possible == 0 {
+        0.0
+    } else {
+        (matched as f32 / possible as f32).min(1.0)
+    }
 }
 
 fn fallback_rerank_candidates(
@@ -1026,6 +1292,20 @@ fn build_record_haystack(request: &SidecarIngestRequest) -> String {
     haystack
 }
 
+fn build_stored_record(request: SidecarIngestRequest) -> StoredRecord {
+    let normalized_text = build_record_haystack(&request);
+    let tokens = tokenize(&normalized_text);
+    let semantic_terms = build_semantic_terms(&normalized_text);
+    StoredRecord {
+        project: request.project.clone(),
+        namespace: request.namespace.clone(),
+        source: request,
+        normalized_text,
+        tokens,
+        semantic_terms,
+    }
+}
+
 fn extract_keywords(query_terms: &[String]) -> Vec<String> {
     let stop_words = [
         "what", "when", "where", "who", "how", "which", "did", "do", "was", "were", "have", "has",
@@ -1160,6 +1440,55 @@ mod tests {
         let aligned = dense_cosine_similarity(&[1.0, 0.5, 0.0], &[0.9, 0.45, 0.0]);
         let opposed = dense_cosine_similarity(&[1.0, 0.5, 0.0], &[0.0, -0.2, 1.0]);
         assert!(aligned > opposed);
+    }
+
+    #[test]
+    fn score_record_preserves_dense_score_separation() {
+        let query = tokenize("safe compact context for a local model");
+        let record = build_record(
+            "Cedar packet carries labeled evidence into local models while blocking raw instruction dumps.",
+            Some("cedar_context_packet"),
+            &["context", "ollama"],
+            "fact",
+        );
+        let strong = score_record(
+            &record,
+            &query,
+            Some(&[1.0, 0.0]),
+            Some(&[0.98, 0.02]),
+            &SidecarRetrieveMode::Auto,
+        );
+        let weak = score_record(
+            &record,
+            &query,
+            Some(&[1.0, 0.0]),
+            Some(&[0.10, 0.90]),
+            &SidecarRetrieveMode::Auto,
+        );
+        assert!(strong > weak + 0.20);
+        assert!(strong > 1.0);
+    }
+
+    #[test]
+    fn memory_concept_overlap_bridges_memory_domain_synonyms() {
+        let query = tokenize("resume a crashed assistant session with prior context");
+        let expected = build_record(
+            "Aster capsule preserves restart breadcrumbs after interrupted agent work.",
+            Some("restart_capsule"),
+            &["restart"],
+            "fact",
+        );
+        let unrelated = build_record(
+            "Quartz bench compares embedding profiles by recall MRR latency and cost.",
+            Some("model_bench"),
+            &["modelbench"],
+            "fact",
+        );
+        let expected_score =
+            score_record(&expected, &query, None, None, &SidecarRetrieveMode::Auto);
+        let unrelated_score =
+            score_record(&unrelated, &query, None, None, &SidecarRetrieveMode::Auto);
+        assert!(expected_score > unrelated_score);
     }
 
     #[tokio::test]

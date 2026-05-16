@@ -86,11 +86,11 @@ pub(crate) fn ingest_lane_files(
                 .unwrap_or(0);
 
             // Check manifest — skip if hash unchanged.
-            if let Some(existing) = state.store.ingestion_manifest_get(&source_path_str)? {
-                if existing.content_hash == hash {
-                    skipped += 1;
-                    continue;
-                }
+            if let Some(existing) = state.store.ingestion_manifest_get(&source_path_str)?
+                && existing.content_hash == hash
+            {
+                skipped += 1;
+                continue;
             }
 
             // Classify content by filename hints.
@@ -166,20 +166,18 @@ pub(crate) fn ingest_lane_files(
     for entry in &all_manifest {
         if !seen_paths.contains(&entry.source_path) && !Path::new(&entry.source_path).exists() {
             // File was deleted — expire its memory item if present.
-            if let Some(item_id) = &entry.memory_item_id {
-                if let Ok(Some(mut item)) = state
+            if let Some(item_id) = &entry.memory_item_id
+                && let Ok(Some(mut item)) = state
                     .store
                     .get(Uuid::parse_str(item_id).unwrap_or(Uuid::nil()))
-                {
-                    if item.status == MemoryStatus::Active {
-                        item.status = MemoryStatus::Expired;
-                        item.updated_at = Utc::now();
-                        let ck = canonical_key(&item);
-                        let rk = redundancy_key(&item);
-                        let _ = state.store.update(&item, &ck, &rk);
-                        stale += 1;
-                    }
-                }
+                && item.status == MemoryStatus::Active
+            {
+                item.status = MemoryStatus::Expired;
+                item.updated_at = Utc::now();
+                let ck = canonical_key(&item);
+                let rk = redundancy_key(&item);
+                let _ = state.store.update(&item, &ck, &rk);
+                stale += 1;
             }
         }
     }

@@ -3,7 +3,8 @@ use crate::canonical_key;
 use crate::redundancy_key;
 use memd_schema::{
     HiveRosterRequest, MaintainReportRequest, MemoryKind, MemoryScope, MemoryStage, MemoryStatus,
-    MemoryVisibility, SourceQuality,
+    MemoryVisibility, SourceQuality, TokenSavingsListRequest, TokenSavingsRecord,
+    TokenSavingsSyncRequest,
 };
 
 fn open_temp_store(prefix: &str) -> (std::path::PathBuf, SqliteStore) {
@@ -44,6 +45,60 @@ fn sample_memory_item() -> MemoryItem {
         version: 1,
         correction_meta: None,
     }
+}
+
+#[test]
+fn token_savings_upsert_and_list_summarizes_cross_harness_records() {
+    let (dir, store) = open_temp_store("memd-token-savings-store");
+    let now = chrono::Utc::now();
+    let record = TokenSavingsRecord {
+        id: Uuid::new_v4(),
+        operation: "context_packet".to_string(),
+        project: Some("memd".to_string()),
+        namespace: Some("main".to_string()),
+        workspace: Some("core".to_string()),
+        user_id: None,
+        agent: Some("codex".to_string()),
+        model_tier: Some("tiny".to_string()),
+        intent: Some("CurrentTask".to_string()),
+        source_records: 3,
+        baseline_input_tokens: 1000,
+        output_tokens: 250,
+        tokens_saved: 750,
+        reason: "compiled packet avoided reread".to_string(),
+        ts: now,
+        updated_at: None,
+    };
+
+    let sync = store
+        .upsert_token_savings(&TokenSavingsSyncRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("core".to_string()),
+            user_id: None,
+            agent: None,
+            records: vec![record],
+        })
+        .expect("upsert token savings");
+    let list = store
+        .list_token_savings(&TokenSavingsListRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("core".to_string()),
+            user_id: None,
+            agent: None,
+            since: None,
+            limit: None,
+        })
+        .expect("list token savings");
+
+    assert_eq!(sync.upserted, 1);
+    assert_eq!(list.total, 1);
+    assert_eq!(list.measured_input_tokens, 1000);
+    assert_eq!(list.measured_output_tokens, 250);
+    assert_eq!(list.measured_tokens_saved, 750);
+
+    std::fs::remove_dir_all(dir).expect("cleanup token savings store");
 }
 
 #[path = "core.rs"]

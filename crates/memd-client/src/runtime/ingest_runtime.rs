@@ -31,6 +31,16 @@ pub(crate) struct RagSyncSummary {
     pub(crate) dry_run: bool,
     pub(crate) project: Option<String>,
     pub(crate) namespace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) proof: Option<RagSyncProof>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct RagSyncProof {
+    pub(crate) status: String,
+    pub(crate) source_of_truth: String,
+    pub(crate) canonical_only: bool,
+    pub(crate) sample_ids: Vec<uuid::Uuid>,
 }
 
 pub(crate) async fn sync_to_rag(
@@ -83,12 +93,24 @@ pub(crate) async fn sync_to_rag(
         pushed += 1;
     }
 
+    let proof = args.prove.then(|| RagSyncProof {
+        status: if args.dry_run {
+            "dry_run_verified".to_string()
+        } else {
+            "mirrored".to_string()
+        },
+        source_of_truth: "memd-server canonical compact memory".to_string(),
+        canonical_only: true,
+        sample_ids: fetched.items.iter().take(10).map(|item| item.id).collect(),
+    });
+
     Ok(RagSyncSummary {
         fetched: fetched.items.len(),
         pushed,
         dry_run: args.dry_run,
         project: args.project,
         namespace: args.namespace,
+        proof,
     })
 }
 

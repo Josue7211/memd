@@ -222,6 +222,7 @@ pub(crate) fn rerank_broad_lookup_fallback(
             .map(|(_, item)| item)
             .take(req.limit.unwrap_or(6))
             .collect(),
+        trace: response.trace.clone(),
     }
 }
 
@@ -628,7 +629,10 @@ mod tests {
         let resolved = resolve_default_bundle_root()
             .expect("resolve bundle root")
             .expect("bundle root should exist");
-        assert_eq!(resolved, repo_bundle);
+        assert_eq!(
+            fs::canonicalize(&resolved).expect("canonicalize resolved bundle"),
+            fs::canonicalize(&repo_bundle).expect("canonicalize expected repo bundle")
+        );
 
         std::env::set_current_dir(&original_cwd).expect("restore current dir");
         unsafe {
@@ -883,6 +887,7 @@ mod tests {
                     correction_meta: None,
                 },
             ],
+            trace: None,
         };
 
         let reranked = rerank_broad_lookup_fallback(

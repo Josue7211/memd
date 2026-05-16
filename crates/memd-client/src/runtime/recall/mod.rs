@@ -165,6 +165,7 @@ async fn lookup_resume_snapshot_fallback(
             .unwrap_or(memd_schema::RetrievalRoute::ProjectFirst),
         intent: req.intent.unwrap_or(memd_schema::RetrievalIntent::General),
         items,
+        trace: None,
     })
 }
 
