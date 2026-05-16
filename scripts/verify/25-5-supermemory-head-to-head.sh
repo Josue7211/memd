@@ -179,9 +179,17 @@ if memd_report.get("status") != "pass":
 if not replays_path.exists():
     reason = "missing Supermemory live replay artifacts"
     required = "use the approved Supermemory access route with TRY_REPLAY=1 or provide SUPERMEMORY_REPLAYS"
+    missing_requirements = ["supermemory_same_fixture_replay_artifact"]
     if not os.environ.get("SUPERMEMORY_API_KEY"):
         reason = "missing approved Supermemory credential and replay artifacts"
-    write_and_exit("blocked", 2, reason=reason, required=required)
+        missing_requirements.insert(0, "approved_supermemory_access_route_or_process_credential")
+    write_and_exit(
+        "blocked",
+        2,
+        reason=reason,
+        required=required,
+        missing_requirements=missing_requirements,
+    )
 
 replays = json.loads(replays_path.read_text(encoding="utf-8"))
 memd_rows = {row.get("dataset"): row for row in memd_report.get("rows", [])}

@@ -29,6 +29,10 @@
     "status": "working"
   },
   "memd_report": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-13-external-public-scale-50.json",
+  "missing_requirements": [
+    "approved_supermemory_access_route_or_process_credential",
+    "supermemory_same_fixture_replay_artifact"
+  ],
   "reason": "missing approved Supermemory credential and replay artifacts",
   "required": "use the approved Supermemory access route with TRY_REPLAY=1 or provide SUPERMEMORY_REPLAYS",
   "status": "blocked",
