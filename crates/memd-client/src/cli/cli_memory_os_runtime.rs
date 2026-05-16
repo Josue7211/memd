@@ -96,6 +96,11 @@ pub(crate) struct TokenSavingsReport {
     pub(crate) measured_input_tokens: usize,
     pub(crate) measured_output_tokens: usize,
     pub(crate) measured_tokens_saved: usize,
+    pub(crate) wasted_events: usize,
+    pub(crate) wasted_tokens: usize,
+    pub(crate) wasted_raw_reread_tokens: usize,
+    pub(crate) wasted_giant_diff_tokens: usize,
+    pub(crate) wasted_cache_exposure_tokens: usize,
     pub(crate) source_records: usize,
     pub(crate) estimated_source_tokens: usize,
     pub(crate) wake_tokens: Option<usize>,
@@ -117,6 +122,10 @@ pub(crate) struct TokenSavingsLedgerEntry {
     pub(crate) baseline_input_tokens: usize,
     pub(crate) output_tokens: usize,
     pub(crate) tokens_saved: usize,
+    #[serde(default)]
+    pub(crate) wasted_tokens: usize,
+    #[serde(default)]
+    pub(crate) waste_kind: Option<String>,
     pub(crate) reason: String,
 }
 
@@ -305,13 +314,15 @@ pub(crate) fn render_secrets_summary(report: &SecretProviderReport) -> String {
 
 pub(crate) fn render_tokens_summary(report: &TokenSavingsReport) -> String {
     format!(
-        "tokens_saved source={} measured={} events={} server_measured={} server_events={} estimated={} source_records={} source_tokens={} wake_tokens={} bundle={}",
+        "tokens_saved source={} measured={} events={} server_measured={} server_events={} estimated={} wasted={} wasted_events={} source_records={} source_tokens={} wake_tokens={} bundle={}",
         report.source,
         report.measured_tokens_saved,
         report.ledger_events,
         report.server_measured_tokens_saved,
         report.server_events,
         report.estimated_tokens_saved,
+        report.wasted_tokens,
+        report.wasted_events,
         report.source_records,
         report.estimated_source_tokens,
         report
@@ -556,6 +567,7 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
             path_evidence("token_savings_ledger", &token_savings_ledger_path(output)),
             "context packet savings are measured locally and syncable to memd-server".to_string(),
             "source-read attribution records saved tokens when a source-registry hash/path is referenced instead of reread".to_string(),
+            "wasted-token telemetry records raw source rereads, giant diffs, and repo cache exposure with wasted token estimates".to_string(),
             "Token Budget prompt section instructs agents to reuse Source IDs, avoid rereading unchanged raw sources, and reread only for exact quotes, current file contents, or changed source hashes".to_string(),
             "server authority replay proof syncs token savings payloads after backend outage".to_string(),
         ]
@@ -1739,6 +1751,17 @@ fn build_token_savings_report(output: &Path, since: Option<String>) -> TokenSavi
         .map(|entry| entry.output_tokens)
         .sum::<usize>();
     let measured_tokens_saved = ledger.iter().map(|entry| entry.tokens_saved).sum::<usize>();
+    let wasted_events = ledger
+        .iter()
+        .filter(|entry| entry.wasted_tokens > 0)
+        .count();
+    let wasted_tokens = ledger
+        .iter()
+        .map(|entry| entry.wasted_tokens)
+        .sum::<usize>();
+    let wasted_raw_reread_tokens = wasted_tokens_for_kind(&ledger, "raw_source_reread");
+    let wasted_giant_diff_tokens = wasted_tokens_for_kind(&ledger, "giant_diff");
+    let wasted_cache_exposure_tokens = wasted_tokens_for_kind(&ledger, "repo_cache_exposure");
     let (source_records, estimated_source_tokens) =
         read_source_registry_token_estimate(&source_registry_path);
     let wake_tokens = read_wake_token_estimate(&output.join("wake-token-metrics.json"))
@@ -1758,6 +1781,11 @@ fn build_token_savings_report(output: &Path, since: Option<String>) -> TokenSavi
         measured_input_tokens,
         measured_output_tokens,
         measured_tokens_saved,
+        wasted_events,
+        wasted_tokens,
+        wasted_raw_reread_tokens,
+        wasted_giant_diff_tokens,
+        wasted_cache_exposure_tokens,
         source_records,
         estimated_source_tokens,
         wake_tokens,
@@ -1785,6 +1813,10 @@ pub(crate) fn merge_server_token_savings_report(
     report.measured_tokens_saved = server.measured_tokens_saved;
     report.notes.push(
         "server measured totals came from memd-server /tokens/savings; local ledger retained as fallback"
+            .to_string(),
+    );
+    report.notes.push(
+        "local wasted-token telemetry is retained until server sync supports waste counters"
             .to_string(),
     );
     report
@@ -1816,6 +1848,8 @@ pub(crate) fn record_context_token_savings(
         baseline_input_tokens,
         output_tokens,
         tokens_saved,
+        wasted_tokens: 0,
+        waste_kind: None,
         reason: "compiled memory/context packet avoided raw source reread".to_string(),
     };
     append_token_savings_ledger_entry(output, &entry)?;
@@ -1849,12 +1883,44 @@ pub(crate) fn record_source_read_token_savings(
         baseline_input_tokens,
         output_tokens,
         tokens_saved,
+        wasted_tokens: 0,
+        waste_kind: None,
         reason: format!(
             "{}; source_path={} source_hash={}",
             reason.trim(),
             source_path,
             hash
         ),
+    };
+    append_token_savings_ledger_entry(output, &entry)?;
+    Ok(Some(entry))
+}
+
+pub(crate) fn record_wasted_token_event(
+    output: &Path,
+    waste_kind: &str,
+    observed_chars: usize,
+    reason: &str,
+) -> anyhow::Result<Option<TokenSavingsLedgerEntry>> {
+    let wasted_tokens = estimate_text_tokens_from_chars(observed_chars);
+    if wasted_tokens == 0 {
+        return Ok(None);
+    }
+    let entry = TokenSavingsLedgerEntry {
+        id: uuid::Uuid::new_v4(),
+        ts: Utc::now(),
+        operation: "token_waste_observed".to_string(),
+        project: None,
+        agent: None,
+        model_tier: None,
+        intent: Some("TokenWaste".to_string()),
+        source_records: 0,
+        baseline_input_tokens: wasted_tokens,
+        output_tokens: 0,
+        tokens_saved: 0,
+        wasted_tokens,
+        waste_kind: Some(waste_kind.trim().to_string()),
+        reason: reason.trim().to_string(),
     };
     append_token_savings_ledger_entry(output, &entry)?;
     Ok(Some(entry))
@@ -1898,6 +1964,14 @@ fn read_token_savings_ledger(path: &Path, since: Option<&str>) -> Vec<TokenSavin
         .filter_map(|line| serde_json::from_str::<TokenSavingsLedgerEntry>(line).ok())
         .filter(|entry| since.is_none_or(|since| entry.ts >= since))
         .collect()
+}
+
+fn wasted_tokens_for_kind(ledger: &[TokenSavingsLedgerEntry], kind: &str) -> usize {
+    ledger
+        .iter()
+        .filter(|entry| entry.waste_kind.as_deref() == Some(kind))
+        .map(|entry| entry.wasted_tokens)
+        .sum()
 }
 
 fn source_registry_entry(
@@ -2160,10 +2234,65 @@ mod tests {
     }
 
     #[test]
+    fn token_savings_ledger_records_wasted_token_telemetry() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-token-waste-telemetry-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(output.join("state")).expect("create token waste state");
+
+        record_wasted_token_event(
+            &output,
+            "raw_source_reread",
+            4000,
+            "unchanged raw source was reread instead of referenced by Source ID",
+        )
+        .expect("record raw source reread waste")
+        .expect("raw source reread waste entry");
+        record_wasted_token_event(
+            &output,
+            "giant_diff",
+            8000,
+            "giant diff entered context without a compact source handle",
+        )
+        .expect("record giant diff waste")
+        .expect("giant diff waste entry");
+        record_wasted_token_event(
+            &output,
+            "repo_cache_exposure",
+            12000,
+            "repo-visible cache path entered review/context surface",
+        )
+        .expect("record cache exposure waste")
+        .expect("cache exposure waste entry");
+
+        let report = build_token_savings_report(&output, None);
+        let summary = render_tokens_summary(&report);
+
+        assert_eq!(report.wasted_events, 3);
+        assert_eq!(report.wasted_raw_reread_tokens, 1000);
+        assert_eq!(report.wasted_giant_diff_tokens, 2000);
+        assert_eq!(report.wasted_cache_exposure_tokens, 3000);
+        assert_eq!(report.wasted_tokens, 6000);
+        assert!(summary.contains("wasted=6000"));
+        assert!(summary.contains("wasted_events=3"));
+
+        fs::remove_dir_all(output).expect("cleanup token waste telemetry temp");
+    }
+
+    #[test]
     fn server_token_savings_report_overrides_measured_totals() {
         let output =
             std::env::temp_dir().join(format!("memd-token-savings-merge-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(output.join("state")).expect("create token temp");
+        record_wasted_token_event(
+            &output,
+            "giant_diff",
+            8000,
+            "giant diff entered context before server counters existed",
+        )
+        .expect("record local waste before merge")
+        .expect("local waste entry");
         let local = build_token_savings_report(&output, None);
         let merged = merge_server_token_savings_report(
             local,
@@ -2181,6 +2310,9 @@ mod tests {
         assert_eq!(merged.server_events, 2);
         assert_eq!(merged.measured_tokens_saved, 700);
         assert_eq!(merged.server_measured_tokens_saved, 700);
+        assert_eq!(merged.wasted_events, 1);
+        assert_eq!(merged.wasted_tokens, 2000);
+        assert_eq!(merged.wasted_giant_diff_tokens, 2000);
 
         fs::remove_dir_all(output).expect("cleanup token merge temp");
     }
@@ -2251,6 +2383,11 @@ mod tests {
                 measured_input_tokens: 1000,
                 measured_output_tokens: 300,
                 measured_tokens_saved: 700,
+                wasted_events: 0,
+                wasted_tokens: 0,
+                wasted_raw_reread_tokens: 0,
+                wasted_giant_diff_tokens: 0,
+                wasted_cache_exposure_tokens: 0,
                 source_records: 0,
                 estimated_source_tokens: 0,
                 wake_tokens: None,
@@ -2502,6 +2639,12 @@ mod tests {
                 .evidence
                 .iter()
                 .any(|item| item.contains("source-read attribution records saved tokens"))
+        );
+        assert!(
+            tokens
+                .evidence
+                .iter()
+                .any(|item| item.contains("wasted-token telemetry"))
         );
         assert!(
             tokens
