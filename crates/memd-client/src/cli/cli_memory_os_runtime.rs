@@ -427,13 +427,13 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
         "working",
         vec![
             "exact/FTS/BM25 search commands are present".to_string(),
-            "fuzzy lane is implemented for typos, names, split paths, commands, acronyms, and IDs"
+            "fuzzy lane is implemented for typos, names, split/camel/acronym paths, commands, acronyms, and IDs"
                 .to_string(),
             "atlas/entity recall is mandatory server core and defaults on".to_string(),
             "truth/correction/rerank lanes are part of traceable weighted fusion".to_string(),
             "truth guard includes source-linked provenance and updated-at temporal recency"
                 .to_string(),
-            "focused no-RAG route proof covers fuzzy trace, split path/command token recall, correction precedence, visibility isolation, and firewall labels".to_string(),
+            "focused no-RAG route proof covers fuzzy trace, split/camel/acronym path and command token recall, correction precedence, visibility isolation, and firewall labels".to_string(),
             "public no-RAG corpus route proof passes with traceable recall over semantic, command, path, acronym, name, procedure, atlas ID, preference, visibility, offline queue, and correction queries".to_string(),
             "temporal/provenance route proof passes: newer source-linked evidence outranks stale unsourced summaries through the truth lane".to_string(),
             "search trace flag is exposed".to_string(),
@@ -2744,7 +2744,7 @@ mod tests {
             retrieval
                 .evidence
                 .iter()
-                .any(|item| item.contains("fuzzy lane is implemented"))
+                .any(|item| item.contains("split/camel/acronym paths"))
         );
         assert!(
             retrieval
@@ -2762,7 +2762,7 @@ mod tests {
             retrieval
                 .evidence
                 .iter()
-                .any(|item| item.contains("focused no-RAG route proof"))
+                .any(|item| item.contains("split/camel/acronym path and command token recall"))
         );
         assert!(
             retrieval
