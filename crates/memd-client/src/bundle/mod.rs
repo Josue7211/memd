@@ -593,6 +593,8 @@ pub(crate) struct CapabilityMaterializationReport {
     pub(crate) host_local: usize,
     pub(crate) auth_gaps: usize,
     pub(crate) auth_unknown: usize,
+    pub(crate) auth_authenticated: usize,
+    pub(crate) auth_unauthenticated: usize,
     pub(crate) fresh_machine_ready: bool,
     pub(crate) applied: usize,
     pub(crate) skipped: usize,

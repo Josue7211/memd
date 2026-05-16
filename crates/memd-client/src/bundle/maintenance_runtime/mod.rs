@@ -1358,9 +1358,25 @@ fn build_capability_materialization_report(
         .count();
     let auth_gaps = actions
         .iter()
+        .filter(|action| {
+            matches!(
+                action.auth_status.as_deref(),
+                Some("unknown" | "unauthenticated")
+            )
+        })
+        .count();
+    let auth_unknown = actions
+        .iter()
         .filter(|action| action.auth_status.as_deref() == Some("unknown"))
         .count();
-    let auth_unknown = auth_gaps;
+    let auth_authenticated = actions
+        .iter()
+        .filter(|action| action.auth_status.as_deref() == Some("authenticated"))
+        .count();
+    let auth_unauthenticated = actions
+        .iter()
+        .filter(|action| action.auth_status.as_deref() == Some("unauthenticated"))
+        .count();
     let fresh_machine_ready = missing == 0 && host_local == 0;
     Ok(CapabilityMaterializationReport {
         status: if fresh_machine_ready {
@@ -1377,6 +1393,8 @@ fn build_capability_materialization_report(
         host_local,
         auth_gaps,
         auth_unknown,
+        auth_authenticated,
+        auth_unauthenticated,
         fresh_machine_ready,
         applied,
         skipped,
@@ -1893,13 +1911,27 @@ fn compact_command_output(output: &std::process::Output) -> String {
 
 fn host_cli_reason(name: &str, base: &str) -> String {
     match host_cli_auth_check_hint(name) {
-        Some(hint) => format!("{base}; auth_status=unknown; auth_check={hint}"),
+        Some(hint) => format!(
+            "{base}; auth_status={}; auth_check={hint}",
+            host_cli_auth_status(name).unwrap_or_else(|| "unknown".to_string())
+        ),
         None => base.to_string(),
     }
 }
 
 fn host_cli_auth_status(name: &str) -> Option<String> {
-    host_cli_auth_check_hint(name).map(|_| "unknown".to_string())
+    host_cli_auth_check_hint(name)?;
+    if !host_cli_available_on_path(name) {
+        return Some("unknown".to_string());
+    }
+    let Some(args) = host_cli_auth_probe_args(name) else {
+        return Some("unknown".to_string());
+    };
+    match std::process::Command::new(name).args(args).output() {
+        Ok(output) if output.status.success() => Some("authenticated".to_string()),
+        Ok(_) => Some("unauthenticated".to_string()),
+        Err(_) => Some("unknown".to_string()),
+    }
 }
 
 fn host_cli_auth_check(name: &str) -> Option<String> {
@@ -1916,6 +1948,16 @@ fn host_cli_auth_check_hint(name: &str) -> Option<&'static str> {
         "claude" => Some("claude /login or run Claude Code and confirm account access"),
         "wrangler" => Some("wrangler whoami"),
         "supabase" => Some("supabase login status or run supabase projects list"),
+        _ => None,
+    }
+}
+
+fn host_cli_auth_probe_args(name: &str) -> Option<&'static [&'static str]> {
+    match name {
+        "gh" => Some(&["auth", "status"]),
+        "opencode" => Some(&["auth", "status"]),
+        "wrangler" => Some(&["whoami"]),
+        "supabase" => Some(&["projects", "list"]),
         _ => None,
     }
 }
@@ -2186,6 +2228,11 @@ mod capability_materialization_tests {
 
     #[test]
     fn host_cli_auth_gap_reports_next_auth_check() {
+        let _guard = lock_host_cli_install_env();
+        let old_path = std::env::var_os("PATH");
+        unsafe {
+            std::env::remove_var("PATH");
+        }
         let bundle =
             std::env::temp_dir().join(format!("memd-host-cli-auth-gap-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(bundle.join("state")).expect("create bundle state");
@@ -2230,13 +2277,195 @@ mod capability_materialization_tests {
 
         assert_eq!(report.auth_gaps, 1);
         assert_eq!(report.auth_unknown, 1);
+        assert_eq!(report.auth_authenticated, 0);
+        assert_eq!(report.auth_unauthenticated, 0);
         let action = report.actions.first().expect("host CLI action");
         assert_eq!(action.auth_status.as_deref(), Some("unknown"));
         assert_eq!(action.auth_check.as_deref(), Some("gh auth status"));
         assert!(action.reason.contains("auth_status=unknown"));
         assert!(action.reason.contains("auth_check=gh auth status"));
 
+        unsafe {
+            match old_path {
+                Some(value) => std::env::set_var("PATH", value),
+                None => std::env::remove_var("PATH"),
+            }
+        }
         fs::remove_dir_all(bundle).ok();
+    }
+
+    #[test]
+    fn host_cli_auth_probe_marks_authenticated_without_storing_output() {
+        let _guard = lock_host_cli_install_env();
+        let old_path = std::env::var_os("PATH");
+        let root =
+            std::env::temp_dir().join(format!("memd-host-cli-auth-probe-{}", uuid::Uuid::new_v4()));
+        let bundle = root.join(".memd");
+        let bin = root.join("bin");
+        fs::create_dir_all(bundle.join("state")).expect("create bundle state");
+        fs::create_dir_all(&bin).expect("create fake bin");
+        let gh = bin.join("gh");
+        fs::write(&gh, "#!/bin/sh\nexit 0\n").expect("write fake gh");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(&gh).expect("fake gh metadata").permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&gh, permissions).expect("chmod fake gh");
+        }
+        unsafe {
+            std::env::set_var("PATH", &bin);
+        }
+
+        let mut record = capability(
+            "local",
+            "cli",
+            "gh",
+            "host-local",
+            &gh.display().to_string(),
+        );
+        record.notes = vec![
+            "PATH inventory; executable availability is host-local".to_string(),
+            "memd:host-cli-install-plan:#!/bin/sh\necho install gh\n".to_string(),
+        ];
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: None,
+            capabilities: vec![record],
+        };
+
+        let report = build_capabilities_response_from_registry(
+            &CapabilitiesArgs {
+                command: None,
+                output: bundle.clone(),
+                harness: None,
+                kind: None,
+                portability: None,
+                query: None,
+                limit: 12,
+                summary: false,
+                json: false,
+                materialize_plan: true,
+                materialize: false,
+            },
+            &bundle,
+            &registry,
+            &CapabilityBridgeRegistry {
+                generated_at: Utc::now(),
+                actions: Vec::new(),
+            },
+            "status",
+            false,
+            12,
+        )
+        .expect("capability report")
+        .materialization
+        .expect("materialization report");
+
+        assert_eq!(report.auth_gaps, 0);
+        assert_eq!(report.auth_unknown, 0);
+        assert_eq!(report.auth_authenticated, 1);
+        assert_eq!(report.auth_unauthenticated, 0);
+        let action = report.actions.first().expect("host CLI action");
+        assert_eq!(action.auth_status.as_deref(), Some("authenticated"));
+        assert_eq!(action.auth_check.as_deref(), Some("gh auth status"));
+        assert!(!action.reason.contains("stdout="));
+        assert!(!action.reason.contains("stderr="));
+
+        unsafe {
+            match old_path {
+                Some(value) => std::env::set_var("PATH", value),
+                None => std::env::remove_var("PATH"),
+            }
+        }
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn host_cli_auth_probe_marks_unauthenticated_as_gap() {
+        let _guard = lock_host_cli_install_env();
+        let old_path = std::env::var_os("PATH");
+        let root = std::env::temp_dir().join(format!(
+            "memd-host-cli-auth-probe-fail-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let bundle = root.join(".memd");
+        let bin = root.join("bin");
+        fs::create_dir_all(bundle.join("state")).expect("create bundle state");
+        fs::create_dir_all(&bin).expect("create fake bin");
+        let gh = bin.join("gh");
+        fs::write(&gh, "#!/bin/sh\nexit 1\n").expect("write fake gh");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(&gh).expect("fake gh metadata").permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&gh, permissions).expect("chmod fake gh");
+        }
+        unsafe {
+            std::env::set_var("PATH", &bin);
+        }
+
+        let mut record = capability(
+            "local",
+            "cli",
+            "gh",
+            "host-local",
+            &gh.display().to_string(),
+        );
+        record.notes = vec![
+            "PATH inventory; executable availability is host-local".to_string(),
+            "memd:host-cli-install-plan:#!/bin/sh\necho install gh\n".to_string(),
+        ];
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: None,
+            capabilities: vec![record],
+        };
+
+        let report = build_capabilities_response_from_registry(
+            &CapabilitiesArgs {
+                command: None,
+                output: bundle.clone(),
+                harness: None,
+                kind: None,
+                portability: None,
+                query: None,
+                limit: 12,
+                summary: false,
+                json: false,
+                materialize_plan: true,
+                materialize: false,
+            },
+            &bundle,
+            &registry,
+            &CapabilityBridgeRegistry {
+                generated_at: Utc::now(),
+                actions: Vec::new(),
+            },
+            "status",
+            false,
+            12,
+        )
+        .expect("capability report")
+        .materialization
+        .expect("materialization report");
+
+        assert_eq!(report.auth_gaps, 1);
+        assert_eq!(report.auth_unknown, 0);
+        assert_eq!(report.auth_authenticated, 0);
+        assert_eq!(report.auth_unauthenticated, 1);
+        let action = report.actions.first().expect("host CLI action");
+        assert_eq!(action.auth_status.as_deref(), Some("unauthenticated"));
+        assert_eq!(action.auth_check.as_deref(), Some("gh auth status"));
+
+        unsafe {
+            match old_path {
+                Some(value) => std::env::set_var("PATH", value),
+                None => std::env::remove_var("PATH"),
+            }
+        }
+        fs::remove_dir_all(root).ok();
     }
 
     #[test]
@@ -2390,6 +2619,8 @@ mod capability_materialization_tests {
         assert_eq!(report.host_local, 1);
         assert_eq!(report.auth_gaps, 0);
         assert_eq!(report.auth_unknown, 0);
+        assert_eq!(report.auth_authenticated, 0);
+        assert_eq!(report.auth_unauthenticated, 0);
         assert!(!report.fresh_machine_ready);
         let action = report.actions.first().expect("host CLI action");
         assert_eq!(action.status, "present");
@@ -2693,13 +2924,15 @@ pub(crate) fn render_capabilities_runtime_summary(response: &CapabilitiesRespons
         .as_ref()
         .map(|report| {
             format!(
-                " materialize={} installable={} missing={} host_local={} auth_gaps={} auth_unknown={} fresh_machine_ready={} applied={} skipped={}",
+                " materialize={} installable={} missing={} host_local={} auth_gaps={} auth_unknown={} auth_authenticated={} auth_unauthenticated={} fresh_machine_ready={} applied={} skipped={}",
                 report.status,
                 report.installable,
                 report.missing,
                 report.host_local,
                 report.auth_gaps,
                 report.auth_unknown,
+                report.auth_authenticated,
+                report.auth_unauthenticated,
                 report.fresh_machine_ready,
                 report.applied,
                 report.skipped
