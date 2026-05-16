@@ -127,26 +127,26 @@ def access_route_hint():
     bw = bitwarden_status()
     memd_guidance = memd_access_route_guidance()
     if os.environ.get("SUPERMEMORY_API_KEY"):
-        return "SUPERMEMORY_API_KEY is present; run with TRY_REPLAY=1 to create same-fixture replay artifacts."
+        return "Approved Supermemory credential is present for this process; run with TRY_REPLAY=1 to create same-fixture replay artifacts."
     if memd_guidance:
         return (
             f"memd access route says: {memd_guidance} "
-            "After the approved route is available, export SUPERMEMORY_API_KEY only for this process "
+            "After the approved route is available, provide the credential only to this process "
             "or provide an explicit replay artifact. Do not store the secret in memd."
         )
     if bw.get("available") and bw.get("status") == "locked":
         return (
             "Bitwarden is configured but locked. Ask the user to unlock Bitwarden, "
-            "then export SUPERMEMORY_API_KEY for this process or provide an explicit replay artifact. "
+            "then use the approved access route for this process or provide an explicit replay artifact. "
             "Do not store the secret in memd."
         )
     if bw.get("available") and bw.get("status") == "unlocked":
         return (
             "Bitwarden is unlocked. Retrieve the approved Supermemory API-key route into an ephemeral "
-            "SUPERMEMORY_API_KEY env var, run TRY_REPLAY=1, and do not persist the secret."
+            "process-local credential, run TRY_REPLAY=1, and do not persist the secret."
         )
     return (
-        "Set SUPERMEMORY_API_KEY or provide SUPERMEMORY_REPLAYS. If the key lives in a password manager, "
+        "Use the approved Supermemory credential route or provide SUPERMEMORY_REPLAYS. If the key lives in a password manager, "
         "ask the user for the approved access route."
     )
 
@@ -158,7 +158,7 @@ def write_and_exit(status, exit_code, **extra):
         "competitor": "supermemory",
         "memd_report": str(memd_report_path) if memd_report_path else None,
         "competitor_replays": str(replays_path),
-        "api_key_present": bool(os.environ.get("SUPERMEMORY_API_KEY")),
+        "credential_env_present": bool(os.environ.get("SUPERMEMORY_API_KEY")),
         "bitwarden": bitwarden_status(),
         "memd_access_route": memd_access_route(),
         "access_route_hint": access_route_hint(),
@@ -178,9 +178,9 @@ if memd_report.get("status") != "pass":
 
 if not replays_path.exists():
     reason = "missing Supermemory live replay artifacts"
-    required = "set SUPERMEMORY_API_KEY and run TRY_REPLAY=1 scripts/verify/25-5-supermemory-head-to-head.sh"
+    required = "use the approved Supermemory access route with TRY_REPLAY=1 or provide SUPERMEMORY_REPLAYS"
     if not os.environ.get("SUPERMEMORY_API_KEY"):
-        reason = "missing SUPERMEMORY_API_KEY and replay artifacts"
+        reason = "missing approved Supermemory credential and replay artifacts"
     write_and_exit("blocked", 2, reason=reason, required=required)
 
 replays = json.loads(replays_path.read_text(encoding="utf-8"))

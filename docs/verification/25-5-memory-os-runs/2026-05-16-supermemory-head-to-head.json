@@ -1,6 +1,5 @@
 {
-  "access_route_hint": "memd access route says: Bitwarden is installed but locked or unknown; ask user to unlock before workaround. After the approved route is available, export SUPERMEMORY_API_KEY only for this process or provide an explicit replay artifact. Do not store the secret in memd.",
-  "api_key_present": false,
+  "access_route_hint": "memd access route says: Bitwarden is installed but locked or unknown; ask user to unlock before workaround. After the approved route is available, provide the credential only to this process or provide an explicit replay artifact. Do not store the secret in memd.",
   "bitwarden": {
     "available": true,
     "serverUrl": "https://swaysvault.aparcedo.org",
@@ -9,6 +8,7 @@
   },
   "competitor": "supermemory",
   "competitor_replays": "/Volumes/T7/projects/memd/.memd/benchmarks/baselines/supermemory_replays.json",
+  "credential_env_present": false,
   "memd_access_route": {
     "available": true,
     "notes": [
@@ -29,8 +29,8 @@
     "status": "working"
   },
   "memd_report": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-13-external-public-scale-50.json",
-  "reason": "missing SUPERMEMORY_API_KEY and replay artifacts",
-  "required": "set SUPERMEMORY_API_KEY and run TRY_REPLAY=1 scripts/verify/25-5-supermemory-head-to-head.sh",
+  "reason": "missing approved Supermemory credential and replay artifacts",
+  "required": "use the approved Supermemory access route with TRY_REPLAY=1 or provide SUPERMEMORY_REPLAYS",
   "status": "blocked",
   "suite": "25_5_supermemory_head_to_head"
 }
