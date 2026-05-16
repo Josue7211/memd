@@ -1,4 +1,10 @@
 use super::*;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+use crate::bundle::infer_bundle_project_root;
 
 #[path = "render_memory_summary.rs"]
 mod render_memory_summary;
@@ -24,6 +30,89 @@ fn extract_compact_record_id(line: &str) -> Option<String> {
         .unwrap_or(rest.len());
     let id = rest[..end].trim();
     (!id.is_empty()).then(|| id.to_string())
+}
+
+fn handoff_proof_blocker_detail(snapshot: &crate::HandoffSnapshot) -> Option<String> {
+    let target_bundle = Path::new(snapshot.target_bundle.as_deref()?);
+    let project_root = infer_bundle_project_root(target_bundle)?;
+    let report_dir = project_root
+        .join("docs")
+        .join("verification")
+        .join("25-5-memory-os-runs");
+    let mut details = Vec::new();
+    if let Some(report) =
+        latest_handoff_report_with_suffix(&report_dir, "supermemory-head-to-head.json")
+    {
+        if let Some(value) = read_handoff_json_report(&report) {
+            if handoff_report_status_is_blocked(&value) {
+                if let Some(items) = handoff_json_string_array(&value, "missing_requirements") {
+                    if !items.is_empty() {
+                        details.push(format!(
+                            "supermemory:missing_requirements={}",
+                            items.join(",")
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    if let Some(report) =
+        latest_handoff_report_with_suffix(&report_dir, "external-public-full.json")
+    {
+        if let Some(value) = read_handoff_json_report(&report) {
+            if handoff_report_status_is_blocked(&value) {
+                if let Some(items) = handoff_json_string_array(&value, "missing_explicit_env") {
+                    if !items.is_empty() {
+                        details.push(format!(
+                            "full_public:missing_explicit_env={}",
+                            items.join(",")
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    (!details.is_empty()).then(|| details.join(";"))
+}
+
+fn latest_handoff_report_with_suffix(report_dir: &Path, suffix: &str) -> Option<PathBuf> {
+    fs::read_dir(report_dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(suffix))
+        })
+        .filter_map(|path| {
+            let modified = path.metadata().and_then(|meta| meta.modified()).ok()?;
+            Some((modified, path))
+        })
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, path)| path)
+}
+
+fn read_handoff_json_report(path: &Path) -> Option<serde_json::Value> {
+    serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
+}
+
+fn handoff_report_status_is_blocked(value: &serde_json::Value) -> bool {
+    value
+        .get("status")
+        .and_then(|status| status.as_str())
+        .is_some_and(|status| status == "blocked")
+}
+
+fn handoff_json_string_array(value: &serde_json::Value, key: &str) -> Option<Vec<String>> {
+    Some(
+        value
+            .get(key)?
+            .as_array()?
+            .iter()
+            .filter_map(|item| item.as_str().map(str::to_string))
+            .collect(),
+    )
 }
 
 pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
@@ -275,6 +364,7 @@ fn render_current_task_snapshot(snapshot: &crate::ResumeSnapshot) -> String {
 pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String {
     let mut output = String::new();
     let continuity = snapshot.resume.continuity_capsule();
+    let proof_blockers = handoff_proof_blocker_detail(snapshot);
     output.push_str("# h\n\n");
     output.push_str(&format!(
         "- at={} | p={} | n={} | a={} | voice={} | w={} | v={} | r={} | i={}\n",
@@ -337,6 +427,7 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
         || continuity.changed.is_some()
         || continuity.next_action.is_some()
         || continuity.blocker.is_some()
+        || proof_blockers.is_some()
     {
         output.push_str("\n## C\n\n");
         if let Some(current_task) = continuity.current_task.as_deref() {
@@ -356,6 +447,12 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
         }
         if let Some(blocker) = continuity.blocker.as_deref() {
             output.push_str(&format!("- blocker={}\n", compact_inline(blocker, 180)));
+        }
+        if let Some(detail) = proof_blockers.as_deref() {
+            output.push_str(&format!(
+                "- proof_blockers={}\n",
+                compact_inline(detail, 260)
+            ));
         }
     }
 
@@ -649,5 +746,64 @@ mod tests {
             "{prompt}"
         );
         assert!(prompt.contains("- blocker=One review item is still open"));
+    }
+
+    #[test]
+    fn render_handoff_prompt_surfaces_proof_blocker_details() {
+        let project = std::env::temp_dir().join(format!(
+            "memd-handoff-proof-blockers-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = project.join(".memd");
+        let report_dir = project
+            .join("docs")
+            .join("verification")
+            .join("25-5-memory-os-runs");
+        fs::create_dir_all(&output).expect("create temp bundle");
+        fs::create_dir_all(&report_dir).expect("create report dir");
+        fs::write(
+            report_dir.join("2026-05-16-supermemory-head-to-head.json"),
+            serde_json::json!({
+                "status": "blocked",
+                "missing_requirements": [
+                    "approved_supermemory_access_route_or_process_credential",
+                    "supermemory_same_fixture_replay_artifact"
+                ]
+            })
+            .to_string(),
+        )
+        .expect("write Supermemory report");
+        fs::write(
+            report_dir.join("2026-05-16-external-public-full.json"),
+            serde_json::json!({
+                "status": "blocked",
+                "missing_explicit_env": [
+                    "ALLOW_FULL_PUBLIC_PROOF=1",
+                    "PUBLIC_BENCH_LIMIT",
+                    "PUBLIC_BENCH_TIMEOUT",
+                    "RUN_LABEL"
+                ]
+            })
+            .to_string(),
+        )
+        .expect("write full public report");
+
+        let handoff = crate::HandoffSnapshot {
+            generated_at: chrono::Utc::now(),
+            resume: sample_resume_snapshot(),
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            voice_mode: "caveman-ultra".to_string(),
+            target_session: Some("session-noether".to_string()),
+            target_bundle: Some(output.display().to_string()),
+        };
+
+        let prompt = render_handoff_prompt(&handoff);
+
+        assert!(prompt.contains("proof_blockers=supermemory:missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact;full_public:missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL"), "{prompt}");
+        assert!(!prompt.contains("SUPERMEMORY_API_KEY"));
+
+        fs::remove_dir_all(project).expect("cleanup proof blocker temp bundle");
     }
 }
