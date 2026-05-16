@@ -1096,6 +1096,9 @@ pub(crate) fn build_capabilities_response_from_registry(
         })
         .cloned()
         .collect::<Vec<_>>();
+    for capability in &mut filtered {
+        annotate_host_cli_auth_notes(capability);
+    }
     filtered.sort_by(|left, right| {
         left.harness
             .cmp(&right.harness)
@@ -1584,6 +1587,10 @@ fn capability_materialization_paths(
 const CAPABILITY_PAYLOAD_TEXT_PREFIX: &str = "memd:payload-text:";
 const CAPABILITY_PAYLOAD_FILE_JSON_PREFIX: &str = "memd:payload-file-json:";
 const HOST_CLI_INSTALL_PLAN_PREFIX: &str = "memd:host-cli-install-plan:";
+const HOST_CLI_AUTH_STATUS_PREFIX: &str = "memd:host-auth-status:";
+const HOST_CLI_AUTH_CHECK_PREFIX: &str = "memd:host-auth-check:";
+const HOST_CLI_AUTH_PROOF_PREFIX: &str = "memd:host-auth-proof:";
+const HOST_CLI_AUTH_OUTPUT_STORED_PREFIX: &str = "memd:host-auth-output-stored:";
 
 fn capability_payload_text(record: &CapabilityRecord) -> Option<&str> {
     record
@@ -1640,6 +1647,34 @@ fn host_cli_install_plan_text(record: &CapabilityRecord) -> Option<&str> {
         .notes
         .iter()
         .find_map(|note| note.strip_prefix(HOST_CLI_INSTALL_PLAN_PREFIX))
+}
+
+fn annotate_host_cli_auth_notes(record: &mut CapabilityRecord) {
+    if record.portability_class != "host-local" || record.kind != "cli" {
+        return;
+    }
+    let Some(check) = host_cli_auth_check(&record.name) else {
+        return;
+    };
+    let status = host_cli_auth_status(&record.name).unwrap_or_else(|| "unknown".to_string());
+    record.notes.retain(|note| {
+        !note.starts_with(HOST_CLI_AUTH_STATUS_PREFIX)
+            && !note.starts_with(HOST_CLI_AUTH_CHECK_PREFIX)
+            && !note.starts_with(HOST_CLI_AUTH_PROOF_PREFIX)
+            && !note.starts_with(HOST_CLI_AUTH_OUTPUT_STORED_PREFIX)
+    });
+    record
+        .notes
+        .push(format!("{HOST_CLI_AUTH_STATUS_PREFIX}{status}"));
+    record
+        .notes
+        .push(format!("{HOST_CLI_AUTH_CHECK_PREFIX}{check}"));
+    record
+        .notes
+        .push(format!("{HOST_CLI_AUTH_PROOF_PREFIX}local-probe"));
+    record
+        .notes
+        .push(format!("{HOST_CLI_AUTH_OUTPUT_STORED_PREFIX}false"));
 }
 
 fn host_cli_install_plan_target_path(output: &Path, record: &CapabilityRecord) -> PathBuf {
@@ -2465,6 +2500,177 @@ mod capability_materialization_tests {
                 None => std::env::remove_var("PATH"),
             }
         }
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn host_cli_auth_notes_are_syncable_without_secret_output() {
+        let _guard = lock_host_cli_install_env();
+        let old_path = std::env::var_os("PATH");
+        let root = std::env::temp_dir().join(format!(
+            "memd-host-cli-auth-sync-note-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let bundle = root.join(".memd");
+        let bin = root.join("bin");
+        fs::create_dir_all(bundle.join("state")).expect("create bundle state");
+        fs::create_dir_all(&bin).expect("create fake bin");
+        let gh = bin.join("gh");
+        fs::write(&gh, "#!/bin/sh\necho secret-ish-output\nexit 1\n").expect("write fake gh");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(&gh).expect("fake gh metadata").permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&gh, permissions).expect("chmod fake gh");
+        }
+        unsafe {
+            std::env::set_var("PATH", &bin);
+        }
+
+        let mut record = capability(
+            "local",
+            "cli",
+            "gh",
+            "host-local",
+            &gh.display().to_string(),
+        );
+        record.notes = vec![
+            "PATH inventory; executable availability is host-local".to_string(),
+            "memd:host-auth-status:stale".to_string(),
+            "memd:host-auth-output-stored:true".to_string(),
+        ];
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: None,
+            capabilities: vec![record],
+        };
+
+        let response = build_capabilities_response_from_registry(
+            &CapabilitiesArgs {
+                command: None,
+                output: bundle.clone(),
+                harness: None,
+                kind: None,
+                portability: None,
+                query: None,
+                limit: 12,
+                summary: false,
+                json: false,
+                materialize_plan: false,
+                materialize: false,
+            },
+            &bundle,
+            &registry,
+            &CapabilityBridgeRegistry {
+                generated_at: Utc::now(),
+                actions: Vec::new(),
+            },
+            "status",
+            false,
+            12,
+        )
+        .expect("capability response");
+
+        let record = response
+            .records
+            .iter()
+            .find(|record| record.name == "gh")
+            .expect("gh record");
+        assert!(
+            record
+                .notes
+                .iter()
+                .any(|note| note == "memd:host-auth-status:unauthenticated")
+        );
+        assert!(
+            record
+                .notes
+                .iter()
+                .any(|note| note == "memd:host-auth-check:gh auth status")
+        );
+        assert!(
+            record
+                .notes
+                .iter()
+                .any(|note| note == "memd:host-auth-proof:local-probe")
+        );
+        assert!(
+            record
+                .notes
+                .iter()
+                .any(|note| note == "memd:host-auth-output-stored:false")
+        );
+        let serialized = serde_json::to_string(record).expect("serialize record");
+        assert!(!serialized.contains("secret-ish-output"));
+        assert!(!serialized.contains("stdout="));
+        assert!(!serialized.contains("stderr="));
+
+        unsafe {
+            match old_path {
+                Some(value) => std::env::set_var("PATH", value),
+                None => std::env::remove_var("PATH"),
+            }
+        }
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn host_cli_auth_notes_skip_non_host_local_cli_records() {
+        let root = std::env::temp_dir().join(format!(
+            "memd-host-cli-auth-sync-skip-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let bundle = root.join(".memd");
+        fs::create_dir_all(bundle.join("state")).expect("create bundle state");
+
+        let mut record = capability(
+            "codex",
+            "plugin",
+            "github:7955f1db",
+            "harness-native",
+            "/tmp/plugin.json",
+        );
+        record.notes = vec!["memd:host-auth-status:stale".to_string()];
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: None,
+            capabilities: vec![record],
+        };
+
+        let response = build_capabilities_response_from_registry(
+            &CapabilitiesArgs {
+                command: None,
+                output: bundle.clone(),
+                harness: None,
+                kind: None,
+                portability: None,
+                query: None,
+                limit: 12,
+                summary: false,
+                json: false,
+                materialize_plan: false,
+                materialize: false,
+            },
+            &bundle,
+            &registry,
+            &CapabilityBridgeRegistry {
+                generated_at: Utc::now(),
+                actions: Vec::new(),
+            },
+            "status",
+            false,
+            12,
+        )
+        .expect("capability response");
+
+        let record = response
+            .records
+            .iter()
+            .find(|record| record.name == "github:7955f1db")
+            .expect("plugin record");
+        assert_eq!(record.notes, vec!["memd:host-auth-status:stale"]);
+
         fs::remove_dir_all(root).ok();
     }
 
