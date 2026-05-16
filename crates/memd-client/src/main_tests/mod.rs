@@ -90,6 +90,29 @@ fn assert_path_tail(actual: &str, expected: &Path) {
     );
 }
 
+#[test]
+fn invalidate_bundle_runtime_caches_tolerates_concurrent_missing_files() {
+    let dir = std::env::temp_dir().join(format!(
+        "memd-runtime-cache-prune-missing-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let output = dir.join(".memd");
+    fs::create_dir_all(output.join("state")).expect("create state dir");
+    fs::write(output.join("state/resume-snapshot-cache.json"), "{}\n").expect("write resume cache");
+    fs::remove_file(output.join("state/resume-snapshot-cache.json"))
+        .expect("simulate concurrent resume cache removal");
+
+    crate::runtime::invalidate_bundle_runtime_caches(&output)
+        .expect("missing cache is already invalidated");
+    crate::runtime::invalidate_bundle_runtime_caches(&output)
+        .expect("second invalidation is idempotent");
+
+    assert!(!output.join("state/resume-snapshot-cache.json").exists());
+    assert!(!output.join("state/handoff-snapshot-cache.json").exists());
+
+    fs::remove_dir_all(dir).expect("cleanup runtime cache missing dir");
+}
+
 fn codex_test_snapshot(project: &str, namespace: &str, agent: &str) -> ResumeSnapshot {
     ResumeSnapshot {
         project: Some(project.to_string()),

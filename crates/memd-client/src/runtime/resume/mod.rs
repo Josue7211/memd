@@ -3241,8 +3241,12 @@ pub(crate) fn invalidate_bundle_runtime_caches(output: &Path) -> anyhow::Result<
         cache::resume_snapshot_cache_path(output),
         cache::handoff_snapshot_cache_path(output),
     ] {
-        if path.exists() {
-            fs::remove_file(&path).with_context(|| format!("remove {}", path.display()))?;
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                return Err(err).with_context(|| format!("remove {}", path.display()));
+            }
         }
     }
     Ok(())
