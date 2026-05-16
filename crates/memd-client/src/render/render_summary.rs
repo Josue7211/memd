@@ -115,6 +115,33 @@ fn handoff_json_string_array(value: &serde_json::Value, key: &str) -> Option<Vec
     )
 }
 
+fn render_handoff_user_prompt(
+    snapshot: &crate::HandoffSnapshot,
+    proof_blockers: Option<&str>,
+) -> String {
+    let continuity = snapshot.resume.continuity_capsule();
+    let project = snapshot.resume.project.as_deref().unwrap_or("this repo");
+    let namespace = snapshot.resume.namespace.as_deref().unwrap_or("main");
+    let visibility = snapshot.resume.visibility.as_deref().unwrap_or("all");
+    let next = continuity
+        .next_action
+        .as_deref()
+        .map(compact_next_action)
+        .unwrap_or_else(|| "inspect wake, dirty tree, and durable handoff continuity".to_string());
+    let blocker = continuity
+        .blocker
+        .as_deref()
+        .map(|value| compact_inline(value, 180))
+        .unwrap_or_else(|| "none recorded".to_string());
+    let dirty_count =
+        crate::workflow::repo_dirty_count_from_changes(&snapshot.resume.recent_repo_changes);
+    let proof = proof_blockers.unwrap_or("none recorded");
+
+    format!(
+        "Pick up `{project}` / `{namespace}` from memd handoff. First inspect `git status --short --untracked-files=all`, `.memd/wake.md`, and `memd lookup --output .memd --query \"handoff continuity next action\"`. Continue: {next}. Current blocker: {blocker}. Proof blockers: {proof}. Visibility: {visibility}. Dirty count at handoff: {dirty_count}. Keep commits atomic and leave tree clean."
+    )
+}
+
 pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
     let mut output = String::new();
     let continuity = snapshot.continuity_capsule();
@@ -399,6 +426,14 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
         dirty_count,
         quality
     ));
+    output.push_str("\n## User Prompt\n\n");
+    output.push_str("- give next agent:\n");
+    output.push_str("```text\n");
+    output.push_str(&render_handoff_user_prompt(
+        snapshot,
+        proof_blockers.as_deref(),
+    ));
+    output.push_str("\n```\n");
 
     output.push_str("\n## W\n\n");
     if snapshot.resume.working.records.is_empty() {
@@ -736,6 +771,10 @@ mod tests {
         assert!(prompt.contains("voice=caveman-ultra"));
         assert!(prompt.contains("native_handoff=true"));
         assert!(prompt.contains("target_session=session-noether"));
+        assert!(prompt.contains("## User Prompt"));
+        assert!(prompt.contains("give next agent:"));
+        assert!(prompt.contains("Pick up `demo` / `main` from memd handoff"));
+        assert!(prompt.contains("Keep commits atomic and leave tree clean"));
         assert!(prompt.contains("## C"));
         assert!(prompt.contains("- doing="));
         assert!(prompt.contains("- left_off="));
