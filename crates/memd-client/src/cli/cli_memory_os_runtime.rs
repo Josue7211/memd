@@ -1691,13 +1691,19 @@ fn build_access_report(output: &Path, resource: Option<&str>, agent: Option<&str
         source: "security CLI".to_string(),
     });
 
-    let status = if routes
-        .iter()
-        .any(|route| route.status == "unlocked" || route.status == "available")
-    {
+    let refs_only = routes.iter().all(|route| !route.secret_values_stored);
+    let has_usable_or_guided_route = routes.iter().any(|route| {
+        matches!(
+            route.status.as_str(),
+            "unlocked" | "available" | "installed"
+        )
+    });
+    let status = if refs_only && has_usable_or_guided_route {
+        "working"
+    } else if refs_only && !routes.is_empty() {
         "partial"
     } else {
-        "unproven"
+        "broken"
     };
     AccessReport {
         generated_at: Utc::now(),
@@ -1708,6 +1714,7 @@ fn build_access_report(output: &Path, resource: Option<&str>, agent: Option<&str
             "memd stores access metadata and secret refs only, never secret values".to_string(),
             "locked providers should trigger an ask-user-to-unlock route, not workaround churn"
                 .to_string(),
+            "status=working means refs-only routes exist and at least one provider is usable or has explicit unlock guidance".to_string(),
         ],
     }
 }
@@ -3404,10 +3411,15 @@ mod tests {
         assert_eq!(capability.status, "partial");
         assert!(
             capability
+                .evidence
+                .iter()
+                .any(|item| item.contains("host_cli_auth_gaps_surface_as_prompt_guidance"))
+        );
+        assert!(
+            capability
                 .gaps
                 .iter()
-                .any(|gap| gap
-                    == "host-local CLI availability cannot be restored by memd sync alone")
+                .any(|gap| gap.contains("missing codex harness-pack capability record"))
         );
 
         let access = report
@@ -3465,6 +3477,7 @@ mod tests {
 
         let report = run_access_command(&args).expect("access route report");
         assert_eq!(report.routes.len(), 1);
+        assert_eq!(report.status, "working");
         let route = &report.routes[0];
         assert_eq!(route.provider, "bitwarden");
         assert_eq!(route.scope, "supermemory-api-key");
@@ -3481,6 +3494,35 @@ mod tests {
         assert!(summary.contains("bitwarden:"));
         assert!(summary.contains("["));
         assert!(summary.contains("bundle="));
+
+        fs::remove_dir_all(output).expect("cleanup access temp");
+    }
+
+    #[test]
+    fn access_report_marks_refs_only_guided_routes_working() {
+        let output =
+            std::env::temp_dir().join(format!("memd-access-route-status-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&output).expect("create access temp");
+
+        let report = build_access_report(&output, None, Some("codex"));
+
+        assert_eq!(report.status, "working");
+        assert!(
+            report
+                .routes
+                .iter()
+                .all(|route| !route.secret_values_stored)
+        );
+        assert!(report.routes.iter().any(|route| matches!(
+            route.status.as_str(),
+            "unlocked" | "available" | "installed"
+        )));
+        assert!(
+            report
+                .notes
+                .iter()
+                .any(|note| note.contains("refs-only routes"))
+        );
 
         fs::remove_dir_all(output).expect("cleanup access temp");
     }
