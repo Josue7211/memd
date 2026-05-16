@@ -4674,13 +4674,38 @@ impl SqliteStore {
             total: records.len(),
             measured_input_tokens: records
                 .iter()
+                .filter(|record| record.waste_kind.is_none())
                 .map(|record| record.baseline_input_tokens)
                 .sum(),
-            measured_output_tokens: records.iter().map(|record| record.output_tokens).sum(),
-            measured_tokens_saved: records.iter().map(|record| record.tokens_saved).sum(),
+            measured_output_tokens: records
+                .iter()
+                .filter(|record| record.waste_kind.is_none())
+                .map(|record| record.output_tokens)
+                .sum(),
+            measured_tokens_saved: records
+                .iter()
+                .filter(|record| record.waste_kind.is_none())
+                .map(|record| record.tokens_saved)
+                .sum(),
+            wasted_events: records
+                .iter()
+                .filter(|record| record.wasted_tokens > 0)
+                .count(),
+            wasted_tokens: records.iter().map(|record| record.wasted_tokens).sum(),
+            wasted_raw_reread_tokens: token_waste_for_kind(&records, "raw_source_reread"),
+            wasted_giant_diff_tokens: token_waste_for_kind(&records, "giant_diff"),
+            wasted_cache_exposure_tokens: token_waste_for_kind(&records, "repo_cache_exposure"),
             records,
         })
     }
+}
+
+fn token_waste_for_kind(records: &[TokenSavingsRecord], kind: &str) -> usize {
+    records
+        .iter()
+        .filter(|record| record.waste_kind.as_deref() == Some(kind))
+        .map(|record| record.wasted_tokens)
+        .sum()
 }
 
 fn capability_key(record: &CapabilityRecord) -> String {

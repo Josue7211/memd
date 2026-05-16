@@ -2443,6 +2443,8 @@ mod tests {
                     baseline_input_tokens: 1200,
                     output_tokens: 280,
                     tokens_saved: 920,
+                    wasted_tokens: 0,
+                    waste_kind: None,
                     reason: "offline packet compile avoided reread".to_string(),
                     ts: chrono::Utc::now(),
                     updated_at: None,

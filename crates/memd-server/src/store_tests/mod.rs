@@ -65,7 +65,29 @@ fn token_savings_upsert_and_list_summarizes_cross_harness_records() {
         baseline_input_tokens: 1000,
         output_tokens: 250,
         tokens_saved: 750,
+        wasted_tokens: 0,
+        waste_kind: None,
         reason: "compiled packet avoided reread".to_string(),
+        ts: now,
+        updated_at: None,
+    };
+    let waste_record = TokenSavingsRecord {
+        id: Uuid::new_v4(),
+        operation: "token_waste_observed".to_string(),
+        project: Some("memd".to_string()),
+        namespace: Some("main".to_string()),
+        workspace: Some("core".to_string()),
+        user_id: None,
+        agent: Some("codex".to_string()),
+        model_tier: None,
+        intent: Some("TokenWaste".to_string()),
+        source_records: 0,
+        baseline_input_tokens: 2000,
+        output_tokens: 0,
+        tokens_saved: 0,
+        wasted_tokens: 2000,
+        waste_kind: Some("giant_diff".to_string()),
+        reason: "giant diff entered context".to_string(),
         ts: now,
         updated_at: None,
     };
@@ -77,7 +99,7 @@ fn token_savings_upsert_and_list_summarizes_cross_harness_records() {
             workspace: Some("core".to_string()),
             user_id: None,
             agent: None,
-            records: vec![record],
+            records: vec![record, waste_record],
         })
         .expect("upsert token savings");
     let list = store
@@ -92,11 +114,14 @@ fn token_savings_upsert_and_list_summarizes_cross_harness_records() {
         })
         .expect("list token savings");
 
-    assert_eq!(sync.upserted, 1);
-    assert_eq!(list.total, 1);
+    assert_eq!(sync.upserted, 2);
+    assert_eq!(list.total, 2);
     assert_eq!(list.measured_input_tokens, 1000);
     assert_eq!(list.measured_output_tokens, 250);
     assert_eq!(list.measured_tokens_saved, 750);
+    assert_eq!(list.wasted_events, 1);
+    assert_eq!(list.wasted_tokens, 2000);
+    assert_eq!(list.wasted_giant_diff_tokens, 2000);
 
     std::fs::remove_dir_all(dir).expect("cleanup token savings store");
 }

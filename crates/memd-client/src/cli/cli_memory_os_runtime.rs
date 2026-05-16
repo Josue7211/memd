@@ -1742,15 +1742,23 @@ fn build_token_savings_report(output: &Path, since: Option<String>) -> TokenSavi
     let source_registry_path = output.join("state").join("source-registry.json");
     let ledger_path = token_savings_ledger_path(output);
     let ledger = read_token_savings_ledger(&ledger_path, since.as_deref());
+    let savings_ledger = ledger
+        .iter()
+        .filter(|entry| entry.waste_kind.is_none())
+        .collect::<Vec<_>>();
     let measured_input_tokens = ledger
         .iter()
+        .filter(|entry| entry.waste_kind.is_none())
         .map(|entry| entry.baseline_input_tokens)
         .sum::<usize>();
-    let measured_output_tokens = ledger
+    let measured_output_tokens = savings_ledger
         .iter()
         .map(|entry| entry.output_tokens)
         .sum::<usize>();
-    let measured_tokens_saved = ledger.iter().map(|entry| entry.tokens_saved).sum::<usize>();
+    let measured_tokens_saved = savings_ledger
+        .iter()
+        .map(|entry| entry.tokens_saved)
+        .sum::<usize>();
     let wasted_events = ledger
         .iter()
         .filter(|entry| entry.wasted_tokens > 0)
@@ -1811,6 +1819,13 @@ pub(crate) fn merge_server_token_savings_report(
     report.measured_input_tokens = server.measured_input_tokens;
     report.measured_output_tokens = server.measured_output_tokens;
     report.measured_tokens_saved = server.measured_tokens_saved;
+    if server.wasted_events > 0 || server.wasted_tokens > 0 {
+        report.wasted_events = server.wasted_events;
+        report.wasted_tokens = server.wasted_tokens;
+        report.wasted_raw_reread_tokens = server.wasted_raw_reread_tokens;
+        report.wasted_giant_diff_tokens = server.wasted_giant_diff_tokens;
+        report.wasted_cache_exposure_tokens = server.wasted_cache_exposure_tokens;
+    }
     report.notes.push(
         "server measured totals came from memd-server /tokens/savings; local ledger retained as fallback"
             .to_string(),
@@ -2031,6 +2046,8 @@ pub(crate) fn build_token_savings_sync_records(
             baseline_input_tokens: entry.baseline_input_tokens,
             output_tokens: entry.output_tokens,
             tokens_saved: entry.tokens_saved,
+            wasted_tokens: entry.wasted_tokens,
+            waste_kind: entry.waste_kind,
             reason: entry.reason,
             ts: entry.ts,
             updated_at: None,
@@ -2274,6 +2291,8 @@ mod tests {
         assert_eq!(report.wasted_giant_diff_tokens, 2000);
         assert_eq!(report.wasted_cache_exposure_tokens, 3000);
         assert_eq!(report.wasted_tokens, 6000);
+        assert_eq!(report.measured_input_tokens, 0);
+        assert_eq!(report.measured_tokens_saved, 0);
         assert!(summary.contains("wasted=6000"));
         assert!(summary.contains("wasted_events=3"));
 
@@ -2301,6 +2320,11 @@ mod tests {
                 measured_input_tokens: 1000,
                 measured_output_tokens: 300,
                 measured_tokens_saved: 700,
+                wasted_events: 1,
+                wasted_tokens: 2000,
+                wasted_raw_reread_tokens: 0,
+                wasted_giant_diff_tokens: 2000,
+                wasted_cache_exposure_tokens: 0,
                 records: Vec::new(),
             },
         );

@@ -2324,6 +2324,8 @@ fn record_server_context_packet_token_savings(
             baseline_input_tokens,
             output_tokens,
             tokens_saved: baseline_input_tokens.saturating_sub(output_tokens),
+            wasted_tokens: 0,
+            waste_kind: None,
             reason: "server compiled context packet avoided raw source reread".to_string(),
             ts: Utc::now(),
             updated_at: None,

@@ -147,6 +147,10 @@ pub struct TokenSavingsRecord {
     pub baseline_input_tokens: usize,
     pub output_tokens: usize,
     pub tokens_saved: usize,
+    #[serde(default)]
+    pub wasted_tokens: usize,
+    #[serde(default)]
+    pub waste_kind: Option<String>,
     pub reason: String,
     pub ts: DateTime<Utc>,
     pub updated_at: Option<DateTime<Utc>>,
@@ -187,6 +191,16 @@ pub struct TokenSavingsListResponse {
     pub measured_input_tokens: usize,
     pub measured_output_tokens: usize,
     pub measured_tokens_saved: usize,
+    #[serde(default)]
+    pub wasted_events: usize,
+    #[serde(default)]
+    pub wasted_tokens: usize,
+    #[serde(default)]
+    pub wasted_raw_reread_tokens: usize,
+    #[serde(default)]
+    pub wasted_giant_diff_tokens: usize,
+    #[serde(default)]
+    pub wasted_cache_exposure_tokens: usize,
     pub records: Vec<TokenSavingsRecord>,
 }
 
