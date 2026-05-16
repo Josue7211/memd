@@ -116,6 +116,32 @@ market_claim = features.get("market_claim") or {}
 market_status = market_claim.get("status", "unknown")
 market_blockers = market_claim.get("blockers") or []
 market_evidence = market_claim.get("evidence") or []
+
+
+def blocker_value(blocker, key):
+    marker = f"{key}="
+    if marker not in blocker:
+        return None
+    return blocker.split(marker, 1)[1].split()[0]
+
+
+def blocker_detail_summary(blockers):
+    details = []
+    for blocker in blockers:
+        label = "other"
+        if "Supermemory" in blocker:
+            label = "supermemory"
+        elif "full external public proof" in blocker:
+            label = "full_public"
+        for key in ("missing_requirements", "missing_explicit_env"):
+            value = blocker_value(blocker, key)
+            if value:
+                details.append(f"{label}:{key}={value}")
+                break
+    return ";".join(details) if details else "none"
+
+
+market_blocker_detail = blocker_detail_summary(market_blockers)
 summary.write_text(
     "\n".join(
         [
@@ -125,6 +151,7 @@ summary.write_text(
             f"- feature_status: {features.get('status', 'unknown')}",
             f"- market_claim: {market_status}",
             f"- market_blockers: {len(market_blockers)}",
+            f"- market_blocker_detail: {market_blocker_detail}",
             "- claim: implemented gates pass, including live FastEmbed RAG lift, process-level harness replay, PromptWall third-party prompt-injection corpus, upstream LongMemEval/LoCoMo/MemBench/ConvoMem external smoke, no-RAG external public scale-10, and standalone no-RAG external public scale-25 proof; full 25/5 market-best claim remains open until full-corpus and competitor head-to-head runs pass.",
             "",
             "## Market Claim Gate",
