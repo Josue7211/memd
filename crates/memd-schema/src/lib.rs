@@ -2970,11 +2970,15 @@ pub struct LatencyBucket {
 pub struct LatencyDiagnosticsResponse {
     pub surface: String,
     pub total: u64,
+    #[serde(default)]
+    pub recent_total: u64,
     pub mean_ms: f64,
     pub max_ms: u64,
     pub p50_ms: f64,
     pub p95_ms: f64,
     pub p99_ms: f64,
+    #[serde(default)]
+    pub recent_p95_ms: f64,
     pub buckets: Vec<LatencyBucket>,
 }
 

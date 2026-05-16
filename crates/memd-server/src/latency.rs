@@ -4,18 +4,21 @@
 // `BUCKET_COUNT` cells and returns the upper edge of the bucket the
 // target rank falls into, so it's intentionally an overestimate.
 
-use std::sync::Arc;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use memd_schema::{LatencyBucket, LatencyDiagnosticsResponse};
 
 pub(crate) const BUCKET_COUNT: usize = 22;
+const RECENT_SAMPLE_LIMIT: usize = 128;
 
 pub(crate) struct LatencyHistogram {
     buckets: [AtomicU64; BUCKET_COUNT],
     total: AtomicU64,
     max_ms: AtomicU64,
     sum_ms: AtomicU64,
+    recent: Mutex<VecDeque<u64>>,
 }
 
 impl LatencyHistogram {
@@ -25,6 +28,7 @@ impl LatencyHistogram {
             total: AtomicU64::new(0),
             max_ms: AtomicU64::new(0),
             sum_ms: AtomicU64::new(0),
+            recent: Mutex::new(VecDeque::with_capacity(RECENT_SAMPLE_LIMIT)),
         })
     }
 
@@ -34,6 +38,12 @@ impl LatencyHistogram {
         self.total.fetch_add(1, Ordering::Relaxed);
         self.sum_ms.fetch_add(ms, Ordering::Relaxed);
         self.max_ms.fetch_max(ms, Ordering::Relaxed);
+        if let Ok(mut recent) = self.recent.lock() {
+            if recent.len() == RECENT_SAMPLE_LIMIT {
+                recent.pop_front();
+            }
+            recent.push_back(ms);
+        }
     }
 
     pub(crate) fn snapshot(&self) -> LatencyDiagnosticsResponse {
@@ -50,6 +60,9 @@ impl LatencyHistogram {
         } else {
             sum_ms as f64 / total as f64
         };
+        let recent_samples = self.recent_samples();
+        let recent_total = recent_samples.len() as u64;
+        let recent_p95_ms = percentile_for_samples(&recent_samples, 0.95);
 
         let bucket_records: Vec<LatencyBucket> = buckets
             .iter()
@@ -63,26 +76,31 @@ impl LatencyHistogram {
         LatencyDiagnosticsResponse {
             surface: "working_memory".to_string(),
             total,
+            recent_total,
             mean_ms,
             max_ms,
             p50_ms: percentile(&buckets, total, 0.50),
             p95_ms: percentile(&buckets, total, 0.95),
             p99_ms: percentile(&buckets, total, 0.99),
+            recent_p95_ms,
             buckets: bucket_records,
         }
     }
 
-    pub(crate) fn p95_ms(&self) -> Option<f64> {
-        let total = self.total.load(Ordering::Relaxed);
-        if total == 0 {
-            return None;
+    pub(crate) fn recent_p95_ms(&self) -> Option<f64> {
+        let samples = self.recent_samples();
+        if samples.is_empty() {
+            None
+        } else {
+            Some(percentile_for_samples(&samples, 0.95))
         }
-        let buckets: Vec<u64> = self
-            .buckets
-            .iter()
-            .map(|b| b.load(Ordering::Relaxed))
-            .collect();
-        Some(percentile(&buckets, total, 0.95))
+    }
+
+    fn recent_samples(&self) -> Vec<u64> {
+        self.recent
+            .lock()
+            .map(|recent| recent.iter().copied().collect())
+            .unwrap_or_default()
     }
 }
 
@@ -113,6 +131,17 @@ fn percentile(buckets: &[u64], total: u64, q: f64) -> f64 {
         }
     }
     bucket_upper_ms(BUCKET_COUNT - 1) as f64
+}
+
+fn percentile_for_samples(samples: &[u64], q: f64) -> f64 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let mut buckets = vec![0u64; BUCKET_COUNT];
+    for sample in samples {
+        buckets[bucket_for_ms(*sample)] += 1;
+    }
+    percentile(&buckets, samples.len() as u64, q)
 }
 
 #[cfg(test)]
@@ -146,5 +175,28 @@ mod tests {
             "p95 sits at bucket boundary"
         );
         assert!(snap.p99_ms >= 128.0);
+    }
+
+    #[test]
+    fn recent_p95_drops_stale_outliers() {
+        let hist = LatencyHistogram::new();
+        for _ in 0..100 {
+            hist.record_ms(1500);
+        }
+        for _ in 0..RECENT_SAMPLE_LIMIT {
+            hist.record_ms(5);
+        }
+
+        let snap = hist.snapshot();
+
+        assert_eq!(snap.total, 228);
+        assert_eq!(snap.recent_total, RECENT_SAMPLE_LIMIT as u64);
+        assert!(snap.p95_ms >= 1024.0, "all-time p95 keeps old outliers");
+        assert!(
+            snap.recent_p95_ms <= 16.0,
+            "recent p95 should track current tail, got {}",
+            snap.recent_p95_ms
+        );
+        assert_eq!(hist.recent_p95_ms(), Some(snap.recent_p95_ms));
     }
 }

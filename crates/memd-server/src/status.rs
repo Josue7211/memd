@@ -1,6 +1,6 @@
 // K2.9 HarnessStatus: compiled-state surface at GET /api/status.
-// latency_p95_ms + benchmark_gate remain placeholders until K2.6 lands the
-// latency histogram and CI gate wiring.
+// latency_p95_ms + benchmark_gate use the recent working-memory latency window
+// so old outliers do not keep operator status red after the service recovers.
 
 use axum::{Json, extract::State, http::StatusCode};
 use memd_schema::{
@@ -40,7 +40,7 @@ pub(crate) async fn get_harness_status(
         }
     }
 
-    let latency_p95_ms = state.latency.p95_ms();
+    let latency_p95_ms = state.latency.recent_p95_ms();
     let benchmark_gate = benchmark_gate_for_latency(latency_p95_ms);
     let schema_version = state.store.schema_version().map_err(internal_error)?;
     let atlas = atlas_health_surface(&state, breakdown.active).map_err(internal_error)?;
