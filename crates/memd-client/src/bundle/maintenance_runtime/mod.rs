@@ -1028,6 +1028,7 @@ pub(crate) fn run_capabilities_command(
     let mut registry = build_bundle_capability_registry(project_root.as_deref());
     let bridges = detect_capability_bridges();
     if matches!(&args.command, Some(CapabilitiesSubcommand::Sync(_))) {
+        annotate_capability_registry_host_cli_auth_notes(&mut registry);
         write_bundle_capability_registry(output, &registry)?;
         write_bundle_capability_bridges(output, &bridges)?;
     } else if let Some(persisted) = read_persisted_capability_registry(output)? {
@@ -1647,6 +1648,12 @@ fn host_cli_install_plan_text(record: &CapabilityRecord) -> Option<&str> {
         .notes
         .iter()
         .find_map(|note| note.strip_prefix(HOST_CLI_INSTALL_PLAN_PREFIX))
+}
+
+pub(crate) fn annotate_capability_registry_host_cli_auth_notes(registry: &mut CapabilityRegistry) {
+    for capability in &mut registry.capabilities {
+        annotate_host_cli_auth_notes(capability);
+    }
 }
 
 fn annotate_host_cli_auth_notes(record: &mut CapabilityRecord) {
@@ -2605,6 +2612,87 @@ mod capability_materialization_tests {
         assert!(!serialized.contains("secret-ish-output"));
         assert!(!serialized.contains("stdout="));
         assert!(!serialized.contains("stderr="));
+
+        unsafe {
+            match old_path {
+                Some(value) => std::env::set_var("PATH", value),
+                None => std::env::remove_var("PATH"),
+            }
+        }
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn capability_sync_persists_host_cli_auth_notes_to_registry() {
+        let _guard = lock_host_cli_install_env();
+        let old_path = std::env::var_os("PATH");
+        let root = std::env::temp_dir().join(format!(
+            "memd-host-cli-auth-sync-registry-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let bundle = root.join(".memd");
+        let bin = root.join("bin");
+        fs::create_dir_all(bundle.join("state")).expect("create bundle state");
+        fs::create_dir_all(&bin).expect("create fake bin");
+        let gh = bin.join("gh");
+        fs::write(&gh, "#!/bin/sh\nexit 0\n").expect("write fake gh");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(&gh).expect("fake gh metadata").permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&gh, permissions).expect("chmod fake gh");
+        }
+        unsafe {
+            std::env::set_var("PATH", &bin);
+        }
+
+        run_capabilities_command(&CapabilitiesArgs {
+            command: Some(CapabilitiesSubcommand::Sync(
+                crate::cli::args::CapabilitiesSyncArgs {
+                    output: bundle.clone(),
+                    json: false,
+                },
+            )),
+            output: PathBuf::from("ignored-by-sync"),
+            harness: None,
+            kind: None,
+            portability: None,
+            query: None,
+            limit: 12,
+            summary: false,
+            json: false,
+            materialize_plan: false,
+            materialize: false,
+        })
+        .expect("capability sync");
+
+        let persisted = read_persisted_capability_registry(&bundle)
+            .expect("read registry")
+            .expect("registry");
+        let record = persisted
+            .capabilities
+            .iter()
+            .find(|record| record.name == "gh")
+            .expect("gh record");
+        assert!(
+            record
+                .notes
+                .iter()
+                .any(|note| note == "memd:host-auth-status:authenticated")
+        );
+        assert!(
+            record
+                .notes
+                .iter()
+                .any(|note| note == "memd:host-auth-proof:local-probe")
+        );
+        assert!(
+            record
+                .notes
+                .iter()
+                .any(|note| note == "memd:host-auth-output-stored:false")
+        );
 
         unsafe {
             match old_path {

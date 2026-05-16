@@ -835,6 +835,27 @@ fn capability_materializer_audit(registry: &CapabilityRegistry) -> CapabilityInv
                 .any(|note| note.starts_with("memd:host-cli-install-plan:"))
         })
         .count();
+    let host_cli_records = registry
+        .capabilities
+        .iter()
+        .filter(|record| record.kind == "cli" || record.portability_class == "host-local")
+        .collect::<Vec<_>>();
+    let host_cli_auth_proofs = host_cli_records
+        .iter()
+        .filter(|record| host_cli_auth_proof_is_syncable(record))
+        .count();
+    let host_cli_auth_authenticated = host_cli_records
+        .iter()
+        .filter(|record| host_cli_auth_status_note(record).as_deref() == Some("authenticated"))
+        .count();
+    let host_cli_auth_unknown = host_cli_records
+        .iter()
+        .filter(|record| host_cli_auth_status_note(record).as_deref() == Some("unknown"))
+        .count();
+    let host_cli_auth_unauthenticated = host_cli_records
+        .iter()
+        .filter(|record| host_cli_auth_status_note(record).as_deref() == Some("unauthenticated"))
+        .count();
     let (expected_host_cli_records, missing_expected_host_clis) =
         expected_host_cli_inventory(registry);
     let mut evidence = vec![
@@ -847,6 +868,10 @@ fn capability_materializer_audit(registry: &CapabilityRegistry) -> CapabilityInv
         format!("materialization_installable={materialization_installable}"),
         format!("materialization_missing={materialization_missing}"),
         format!("host_cli_install_plans={host_cli_install_plans}"),
+        format!("host_cli_auth_proofs={host_cli_auth_proofs}"),
+        format!("host_cli_auth_authenticated={host_cli_auth_authenticated}"),
+        format!("host_cli_auth_unknown={host_cli_auth_unknown}"),
+        format!("host_cli_auth_unauthenticated={host_cli_auth_unauthenticated}"),
         format!(
             "expected_host_cli_records={expected_host_cli_records}/{}",
             EXPECTED_HOST_CLIS.len()
@@ -883,6 +908,22 @@ fn capability_materializer_audit(registry: &CapabilityRegistry) -> CapabilityInv
     if host_cli_without_install_plan > 0 {
         gaps.push(format!(
             "{host_cli_without_install_plan} host CLI records lack server-synced install plans"
+        ));
+    }
+    let host_cli_without_auth_proof = host_cli_records.len().saturating_sub(host_cli_auth_proofs);
+    if host_cli_without_auth_proof > 0 {
+        gaps.push(format!(
+            "{host_cli_without_auth_proof} host CLI records lack server-synced auth proof notes"
+        ));
+    }
+    if host_cli_auth_unknown > 0 {
+        gaps.push(format!(
+            "{host_cli_auth_unknown} host CLI auth checks are unknown on this machine"
+        ));
+    }
+    if host_cli_auth_unauthenticated > 0 {
+        gaps.push(format!(
+            "{host_cli_auth_unauthenticated} host CLI auth checks are unauthenticated on this machine"
         ));
     }
     if !missing_expected_host_clis.is_empty() {
@@ -954,6 +995,30 @@ fn capability_has_payload_file_set(record: &CapabilityRecord) -> bool {
         .notes
         .iter()
         .any(|note| note.starts_with("memd:payload-file-json:"))
+}
+
+fn host_cli_auth_status_note(record: &CapabilityRecord) -> Option<String> {
+    record
+        .notes
+        .iter()
+        .find_map(|note| note.strip_prefix("memd:host-auth-status:"))
+        .map(str::to_string)
+}
+
+fn host_cli_auth_proof_is_syncable(record: &CapabilityRecord) -> bool {
+    host_cli_auth_status_note(record).is_some()
+        && record
+            .notes
+            .iter()
+            .any(|note| note.starts_with("memd:host-auth-check:"))
+        && record
+            .notes
+            .iter()
+            .any(|note| note == "memd:host-auth-proof:local-probe")
+        && record
+            .notes
+            .iter()
+            .any(|note| note == "memd:host-auth-output-stored:false")
 }
 
 const EXPECTED_HOST_CLIS: &[&str] = &["codex", "gh", "opencode", "claude", "wrangler", "supabase"];
@@ -2720,6 +2785,12 @@ mod tests {
             feature
                 .evidence
                 .iter()
+                .any(|item| item == "host_cli_auth_proofs=0")
+        );
+        assert!(
+            feature
+                .evidence
+                .iter()
                 .any(|item| item == "expected_host_cli_records=1/6")
         );
         assert!(
@@ -2735,6 +2806,12 @@ mod tests {
                 .any(|gap| gap
                     == "host-local CLI availability cannot be restored by memd sync alone")
         );
+        assert!(
+            feature
+                .gaps
+                .iter()
+                .any(|gap| gap == "1 host CLI records lack server-synced auth proof notes")
+        );
         assert!(feature.gaps.iter().any(|gap| {
             gap == "missing expected host CLI capability records: codex,opencode,claude,wrangler,supabase"
         }));
@@ -2743,6 +2820,67 @@ mod tests {
                 .gaps
                 .iter()
                 .any(|gap| gap.contains("lack server-synced install plans"))
+        );
+
+        fs::remove_dir_all(output).expect("cleanup capability feature temp");
+    }
+
+    #[test]
+    fn capability_sync_counts_host_cli_auth_proof_notes_as_honest_blockers() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-capability-host-cli-auth-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&output).expect("create capability feature temp");
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: None,
+            capabilities: vec![CapabilityRecord {
+                harness: "local".to_string(),
+                kind: "cli".to_string(),
+                name: "gh".to_string(),
+                status: "available-server".to_string(),
+                portability_class: "host-local".to_string(),
+                source_path: "/source/bin/gh".to_string(),
+                bridge_hint: Some("server inventory only".to_string()),
+                hash: None,
+                notes: vec![
+                    "PATH inventory; executable availability is host-local".to_string(),
+                    "memd:host-cli-install-plan:#!/bin/sh\necho install gh\n".to_string(),
+                    "memd:host-auth-status:unauthenticated".to_string(),
+                    "memd:host-auth-check:gh auth status".to_string(),
+                    "memd:host-auth-proof:local-probe".to_string(),
+                    "memd:host-auth-output-stored:false".to_string(),
+                ],
+            }],
+        };
+
+        let feature = capability_sync_feature(&output, &registry, None);
+
+        assert_eq!(feature.status, "partial");
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|item| item == "host_cli_auth_proofs=1")
+        );
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|item| item == "host_cli_auth_unauthenticated=1")
+        );
+        assert!(
+            !feature
+                .gaps
+                .iter()
+                .any(|gap| gap.contains("lack server-synced auth proof notes"))
+        );
+        assert!(
+            feature
+                .gaps
+                .iter()
+                .any(|gap| gap == "1 host CLI auth checks are unauthenticated on this machine")
         );
 
         fs::remove_dir_all(output).expect("cleanup capability feature temp");

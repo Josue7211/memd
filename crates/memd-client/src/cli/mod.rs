@@ -1445,7 +1445,7 @@ async fn pull_capabilities_from_server(
         .iter()
         .map(capability_identity)
         .collect::<std::collections::BTreeSet<_>>();
-    let registry = CapabilityRegistry {
+    let mut registry = CapabilityRegistry {
         generated_at: Utc::now(),
         project_root: project_root.as_ref().map(|path| path.display().to_string()),
         capabilities: pulled
@@ -1454,6 +1454,7 @@ async fn pull_capabilities_from_server(
             .map(|record| localize_pulled_capability(record, &local_keys))
             .collect(),
     };
+    annotate_capability_registry_host_cli_auth_notes(&mut registry);
     let bridges = detect_capability_bridges();
     write_bundle_capability_registry(output, &registry)?;
     write_bundle_capability_bridges(output, &bridges)?;
