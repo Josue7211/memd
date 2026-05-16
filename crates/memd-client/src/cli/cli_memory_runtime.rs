@@ -669,6 +669,53 @@ mod tests {
     }
 
     #[test]
+    fn source_ids_fall_back_to_bundle_source_registry() {
+        let project =
+            std::env::temp_dir().join(format!("memd-context-source-ids-{}", uuid::Uuid::new_v4()));
+        let output = project.join(".memd");
+        fs::create_dir_all(&output).expect("create temp bundle");
+        write_bundle_source_registry(
+            &output,
+            &BootstrapSourceRegistry {
+                project: "memd".to_string(),
+                project_root: project.display().to_string(),
+                imported_at: Utc::now(),
+                sources: vec![
+                    BootstrapSourceRecord {
+                        path: "AGENTS.md".to_string(),
+                        kind: "policy".to_string(),
+                        hash: "965cdc34ae7e16543b2f948d9ff356e56ff11d90ee45824da0d72632868f0f8d"
+                            .to_string(),
+                        bytes: 1947,
+                        lines: 36,
+                        present: true,
+                        imported_at: Utc::now(),
+                        modified_at: None,
+                    },
+                    BootstrapSourceRecord {
+                        path: "missing.md".to_string(),
+                        kind: "doc".to_string(),
+                        hash: "missinghash".to_string(),
+                        bytes: 0,
+                        lines: 0,
+                        present: false,
+                        imported_at: Utc::now(),
+                        modified_at: None,
+                    },
+                ],
+            },
+        )
+        .expect("write source registry");
+
+        let lines = fallback_source_id_lines(&output, 3);
+
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0], "- source:AGENTS.md kind=policy hash=965cdc34ae7e");
+
+        fs::remove_dir_all(project).expect("cleanup temp bundle");
+    }
+
+    #[test]
     fn tiny_prompt_packet_prioritizes_host_cli_auth_gaps_over_skill_overflow() {
         fn cap(
             harness: &str,
@@ -1143,12 +1190,15 @@ fn render_prompt_context_packet(
     } else {
         "- omitted; pass --include-hive".to_string()
     };
-    let source_ids = context
+    let mut source_ids = context
         .records
         .iter()
         .take(budget.source_id_lines)
         .map(|record| format!("- {}", record.id))
         .collect::<Vec<_>>();
+    if source_ids.is_empty() {
+        source_ids = fallback_source_id_lines(&bundle_root, budget.source_id_lines);
+    }
     let source_ids = if source_ids.is_empty() {
         "- none".to_string()
     } else {
@@ -1182,6 +1232,25 @@ fn render_prompt_context_packet(
         source_ids
     );
     clamp_packet_for_model_tier(packet, model_tier)
+}
+
+fn fallback_source_id_lines(bundle_root: &Path, limit: usize) -> Vec<String> {
+    let Ok(Some(registry)) = read_bundle_source_registry(bundle_root) else {
+        return Vec::new();
+    };
+    registry
+        .sources
+        .iter()
+        .filter(|source| source.present)
+        .take(limit)
+        .map(|source| {
+            let hash = source.hash.chars().take(12).collect::<String>();
+            format!(
+                "- source:{} kind={} hash={}",
+                source.path, source.kind, hash
+            )
+        })
+        .collect()
 }
 
 fn render_prompt_voice_contract(voice_mode: &str) -> &'static str {
