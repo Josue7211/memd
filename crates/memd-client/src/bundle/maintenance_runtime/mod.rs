@@ -1328,22 +1328,39 @@ pub(crate) fn build_capabilities_response_from_registry(
         entry.bridge_actions += 1;
     }
 
+    let discovered = filtered.len();
+    let universal = filtered
+        .iter()
+        .filter(|record| is_universal_class(&record.portability_class))
+        .count();
+    let bridgeable = filtered
+        .iter()
+        .filter(|record| is_bridgeable_class(&record.portability_class))
+        .count();
+    let harness_native = filtered
+        .iter()
+        .filter(|record| is_harness_native_class(&record.portability_class))
+        .count();
+    let compact_records_for_materialization =
+        capabilities_materialize_plan(args) || capabilities_materialize(args);
+    let records = filtered
+        .into_iter()
+        .take(record_limit)
+        .map(|mut record| {
+            if compact_records_for_materialization {
+                record.notes = compact_capability_notes_for_materialization(&record.notes);
+            }
+            record
+        })
+        .collect();
+
     Ok(CapabilitiesResponse {
         bundle_root: output.display().to_string(),
         generated_at: registry.generated_at,
-        discovered: filtered.len(),
-        universal: filtered
-            .iter()
-            .filter(|record| is_universal_class(&record.portability_class))
-            .count(),
-        bridgeable: filtered
-            .iter()
-            .filter(|record| is_bridgeable_class(&record.portability_class))
-            .count(),
-        harness_native: filtered
-            .iter()
-            .filter(|record| is_harness_native_class(&record.portability_class))
-            .count(),
+        discovered,
+        universal,
+        bridgeable,
+        harness_native,
         bridge_actions: bridges.actions.len(),
         wired_harnesses: bridge_harnesses.len(),
         filters: serde_json::json!({
@@ -1367,8 +1384,25 @@ pub(crate) fn build_capabilities_response_from_registry(
             })
             .transpose()?,
         harnesses: harnesses.into_values().collect(),
-        records: filtered.into_iter().take(record_limit).collect(),
+        records,
     })
+}
+
+fn compact_capability_notes_for_materialization(notes: &[String]) -> Vec<String> {
+    notes
+        .iter()
+        .map(|note| {
+            if note.starts_with(CAPABILITY_PAYLOAD_TEXT_PREFIX) {
+                "memd:payload-text:<omitted; see materialization actions>".to_string()
+            } else if note.starts_with(CAPABILITY_PAYLOAD_FILE_JSON_PREFIX) {
+                "memd:payload-file-json:<omitted; see materialization actions>".to_string()
+            } else if note.starts_with(HOST_CLI_INSTALL_PLAN_PREFIX) {
+                "memd:host-cli-install-plan:<omitted; see materialization actions>".to_string()
+            } else {
+                note.clone()
+            }
+        })
+        .collect()
 }
 
 fn build_capability_materialization_report(
@@ -3049,6 +3083,10 @@ mod capability_materialization_tests {
 
         assert!(json.contains("restore-from-payload"));
         assert!(!json.contains("Secret-ish payload"));
+
+        let full_json = serde_json::to_string(&report).expect("serialize full report");
+        assert!(full_json.contains("memd:payload-text:<omitted"));
+        assert!(!full_json.contains("Secret-ish payload"));
 
         fs::remove_dir_all(root).ok();
     }
