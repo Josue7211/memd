@@ -1385,19 +1385,25 @@ async fn push_capabilities_to_server(
         queue_offline_sync_payload(output, OfflineSyncPayload::Capabilities(req), &error)?;
         anyhow::bail!(error);
     }
-    match tokio::time::timeout(capability_sync_timeout(), client.capabilities_sync(&req)).await {
-        Ok(Ok(_)) => return Ok(()),
-        Ok(Err(error)) => {
-            let error = format!("{error:#}");
-            queue_offline_sync_payload(output, OfflineSyncPayload::Capabilities(req), &error)?;
-            anyhow::bail!(error);
-        }
-        Err(error) => {
-            let error = format!("capability sync timed out: {error}");
-            queue_offline_sync_payload(output, OfflineSyncPayload::Capabilities(req), &error)?;
-            anyhow::bail!(error);
+    let chunk_size = capability_sync_chunk_size();
+    for chunk in capability_sync_request_chunks(&req, chunk_size) {
+        match tokio::time::timeout(capability_sync_timeout(), client.capabilities_sync(&chunk))
+            .await
+        {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => {
+                let error = format!("{error:#}");
+                queue_offline_sync_payload(output, OfflineSyncPayload::Capabilities(chunk), &error)?;
+                anyhow::bail!(error);
+            }
+            Err(error) => {
+                let error = format!("capability sync timed out: {error}");
+                queue_offline_sync_payload(output, OfflineSyncPayload::Capabilities(chunk), &error)?;
+                anyhow::bail!(error);
+            }
         }
     }
+    Ok(())
 }
 
 fn capability_sync_timeout() -> Duration {
@@ -1407,6 +1413,83 @@ fn capability_sync_timeout() -> Duration {
         .filter(|seconds| *seconds >= 2)
         .map(Duration::from_secs)
         .unwrap_or_else(|| Duration::from_secs(10))
+}
+
+fn capability_sync_chunk_size() -> usize {
+    std::env::var("MEMD_CAPABILITY_SYNC_CHUNK_RECORDS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|records| *records >= 1)
+        .unwrap_or(100)
+}
+
+fn capability_sync_request_chunks(
+    req: &memd_schema::CapabilitySyncRequest,
+    chunk_size: usize,
+) -> Vec<memd_schema::CapabilitySyncRequest> {
+    let chunk_size = chunk_size.max(1);
+    if req.records.is_empty() {
+        return Vec::new();
+    }
+    req.records
+        .chunks(chunk_size)
+        .map(|records| memd_schema::CapabilitySyncRequest {
+            project: req.project.clone(),
+            namespace: req.namespace.clone(),
+            workspace: req.workspace.clone(),
+            user_id: req.user_id.clone(),
+            agent: req.agent.clone(),
+            records: records.to_vec(),
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod capability_sync_chunk_tests {
+    use super::*;
+
+    fn record(name: &str) -> memd_schema::CapabilityRecord {
+        memd_schema::CapabilityRecord {
+            harness: "codex".to_string(),
+            kind: "skill".to_string(),
+            name: name.to_string(),
+            status: "available".to_string(),
+            portability_class: "harness-native".to_string(),
+            source_path: format!("/tmp/{name}"),
+            bridge_hint: None,
+            hash: None,
+            notes: Vec::new(),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            user_id: None,
+            agent: Some("codex".to_string()),
+            updated_at: None,
+        }
+    }
+
+    #[test]
+    fn capability_sync_request_chunks_keep_scope_and_bound_payload_size() {
+        let req = memd_schema::CapabilitySyncRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            user_id: None,
+            agent: Some("codex".to_string()),
+            records: (0..205).map(|index| record(&format!("cap-{index}"))).collect(),
+        };
+
+        let chunks = capability_sync_request_chunks(&req, 100);
+
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks[0].records.len(), 100);
+        assert_eq!(chunks[1].records.len(), 100);
+        assert_eq!(chunks[2].records.len(), 5);
+        assert!(chunks.iter().all(|chunk| chunk.project == req.project));
+        assert!(chunks.iter().all(|chunk| chunk.namespace == req.namespace));
+        assert!(chunks.iter().all(|chunk| chunk.workspace == req.workspace));
+        assert!(chunks.iter().all(|chunk| chunk.agent == req.agent));
+    }
 }
 
 async fn pull_capabilities_from_server(
