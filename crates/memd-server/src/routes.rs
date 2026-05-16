@@ -2630,29 +2630,76 @@ fn server_context_capability_lines(state: &AppState, req: &ContextRequest) -> Ve
         harness: None,
         kind: None,
         query: None,
-        limit: Some(12),
+        limit: Some(100),
     }) {
-        Ok(response) if !response.records.is_empty() => response
-            .records
-            .iter()
-            .map(|record| {
-                format!(
-                    "- {}:{} `{}` status={} portability={} source={} sync=server",
-                    server_prompt_safe_line(&record.harness),
-                    server_prompt_safe_line(&record.kind),
-                    server_prompt_safe_line(&record.name),
-                    server_prompt_safe_line(&record.status),
-                    server_prompt_safe_line(&record.portability_class),
-                    server_prompt_safe_line(&record.source_path),
-                )
-            })
-            .collect(),
+        Ok(response) if !response.records.is_empty() => {
+            let mut records = response.records;
+            records.sort_by_key(server_context_capability_priority);
+            records
+                .iter()
+                .map(|record| {
+                    let auth_status = capability_note_suffix(record, "memd:host-auth-status:");
+                    let auth_check = capability_note_suffix(record, "memd:host-auth-check:");
+                    let host_auth = match (auth_status, auth_check) {
+                        (Some(status), Some(check)) => format!(
+                            " auth_status={} auth_check={}",
+                            server_prompt_safe_line(status),
+                            server_prompt_safe_line(check)
+                        ),
+                        (Some(status), None) => {
+                            format!(" auth_status={}", server_prompt_safe_line(status))
+                        }
+                        _ => String::new(),
+                    };
+                    format!(
+                        "- {}:{} `{}` status={} portability={} source={}{} sync=server",
+                        server_prompt_safe_line(&record.harness),
+                        server_prompt_safe_line(&record.kind),
+                        server_prompt_safe_line(&record.name),
+                        server_prompt_safe_line(&record.status),
+                        server_prompt_safe_line(&record.portability_class),
+                        server_prompt_safe_line(&record.source_path),
+                        host_auth,
+                    )
+                })
+                .collect()
+        }
         Ok(_) => vec!["- none synced; capability sync unhealthy or empty".to_string()],
         Err(error) => vec![format!(
             "- unavailable: capability list failed: {}",
             server_prompt_safe_line(&error.to_string())
         )],
     }
+}
+
+fn server_context_capability_priority(
+    record: &memd_schema::CapabilityRecord,
+) -> (u8, String, String, String) {
+    let class = record.portability_class.to_ascii_lowercase();
+    let kind = record.kind.to_ascii_lowercase();
+    let priority = if kind == "cli" || class == "host-local" {
+        0
+    } else if class == "harness-native" {
+        1
+    } else {
+        2
+    };
+    (
+        priority,
+        record.harness.clone(),
+        record.kind.clone(),
+        record.name.clone(),
+    )
+}
+
+fn capability_note_suffix<'a>(
+    record: &'a memd_schema::CapabilityRecord,
+    prefix: &str,
+) -> Option<&'a str> {
+    record
+        .notes
+        .iter()
+        .find_map(|note| note.strip_prefix(prefix))
 }
 
 fn server_context_access_lines(state: &AppState, req: &ContextRequest) -> Vec<String> {

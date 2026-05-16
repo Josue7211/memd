@@ -10490,6 +10490,129 @@ async fn context_packet_matrix_preserves_core_truth_across_target_harnesses() {
 }
 
 #[tokio::test]
+async fn context_packet_prioritizes_host_cli_auth_guidance_for_fresh_harnesses() {
+    let (dir, state) = temp_state("memd-context-host-cli-auth-guidance");
+    let project = "memd-context-host-cli-auth";
+    let namespace = "main";
+
+    let mut records = (0..20)
+        .map(|index| CapabilityRecord {
+            harness: "codex".to_string(),
+            kind: "skill".to_string(),
+            name: format!("skill-{index}"),
+            status: "installed".to_string(),
+            portability_class: "harness-native".to_string(),
+            source_path: format!("/remote/skill-{index}.md"),
+            bridge_hint: None,
+            hash: None,
+            notes: Vec::new(),
+            project: None,
+            namespace: None,
+            workspace: None,
+            user_id: None,
+            agent: None,
+            updated_at: None,
+        })
+        .collect::<Vec<_>>();
+    records.push(CapabilityRecord {
+        harness: "local".to_string(),
+        kind: "cli".to_string(),
+        name: "opencode".to_string(),
+        status: "installed".to_string(),
+        portability_class: "host-local".to_string(),
+        source_path: "/opt/bin/opencode".to_string(),
+        bridge_hint: Some("host-local CLI; auth state is machine-specific".to_string()),
+        hash: None,
+        notes: vec![
+            "memd:host-auth-status:unauthenticated".to_string(),
+            "memd:host-auth-check:opencode auth status".to_string(),
+            "memd:host-auth-proof:local-probe".to_string(),
+            "memd:host-auth-output-stored:false".to_string(),
+        ],
+        project: None,
+        namespace: None,
+        workspace: None,
+        user_id: None,
+        agent: None,
+        updated_at: None,
+    });
+    records.push(CapabilityRecord {
+        harness: "local".to_string(),
+        kind: "cli".to_string(),
+        name: "wrangler".to_string(),
+        status: "installed".to_string(),
+        portability_class: "host-local".to_string(),
+        source_path: "/opt/bin/wrangler".to_string(),
+        bridge_hint: Some("host-local CLI; auth state is machine-specific".to_string()),
+        hash: None,
+        notes: vec![
+            "memd:host-auth-status:authenticated".to_string(),
+            "memd:host-auth-check:wrangler whoami".to_string(),
+            "memd:host-auth-proof:local-probe".to_string(),
+            "memd:host-auth-output-stored:false".to_string(),
+        ],
+        project: None,
+        namespace: None,
+        workspace: None,
+        user_id: None,
+        agent: None,
+        updated_at: None,
+    });
+
+    state
+        .store
+        .upsert_capabilities(&CapabilitySyncRequest {
+            project: Some(project.to_string()),
+            namespace: Some(namespace.to_string()),
+            workspace: Some("shared".to_string()),
+            user_id: None,
+            agent: None,
+            records,
+        })
+        .expect("seed capabilities");
+
+    let Json(packet) = get_context_packet(
+        State(state.clone()),
+        Query(ContextPacketRequest {
+            project: Some(project.to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("shared".to_string()),
+            visibility: None,
+            route: None,
+            intent: Some(RetrievalIntent::CurrentTask),
+            limit: Some(8),
+            max_chars_per_item: Some(520),
+            model_tier: Some("tiny".to_string()),
+            safety: Some("strict".to_string()),
+            include_capabilities: true,
+            include_access: true,
+            include_hive: false,
+        }),
+    )
+    .await
+    .expect("context packet");
+
+    assert!(
+        packet.packet.contains("local:cli `opencode`"),
+        "fresh harness packet should surface host-local CLI inventory before skill overflow"
+    );
+    assert!(
+        packet.packet.contains("auth_status=unauthenticated"),
+        "fresh harness packet should expose auth status without secret output"
+    );
+    assert!(
+        packet.packet.contains("auth_check=opencode auth status"),
+        "fresh harness packet should say how to verify or ask for access"
+    );
+    assert!(packet.packet.contains("local:cli `wrangler`"));
+    assert!(packet.packet.contains("auth_status=authenticated"));
+    assert!(!packet.packet.contains("stdout="));
+    assert!(!packet.packet.contains("stderr="));
+
+    std::fs::remove_dir_all(dir).expect("cleanup context host CLI temp dir");
+}
+
+#[tokio::test]
 async fn hive_handoff_reaches_target_context_packet() {
     let (dir, state) = temp_state("memd-hive-handoff-context-packet-25-5");
     seed_hive_route_state(&state);
