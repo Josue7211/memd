@@ -227,13 +227,14 @@ pub(crate) fn render_feature_summary(report: &MemoryOsFeatureReport) -> String {
 
 pub(crate) fn render_health_summary(report: &MemoryOsHealthReport) -> String {
     format!(
-        "health status={} features={} hygiene={} token_risk={} market_claim={} market_blockers={} access={} sync_pending={} sync_failed={} sync_kinds={} token_source={} measured_tokens_saved={} server_events={} estimated_tokens_saved={} bundle={}",
+        "health status={} features={} hygiene={} token_risk={} market_claim={} market_blockers={} market_blocker_detail={} access={} sync_pending={} sync_failed={} sync_kinds={} token_source={} measured_tokens_saved={} server_events={} estimated_tokens_saved={} bundle={}",
         report.status,
         report.features.status,
         report.features.hygiene_status,
         report.features.token_risk,
         report.features.market_claim.status,
         report.features.market_claim.blockers.len(),
+        market_blocker_detail_summary(&report.features.market_claim.blockers),
         report.access.status,
         report.sync_queue.store.pending + report.sync_queue.sync.pending,
         report.sync_queue.store.failed + report.sync_queue.sync.failed,
@@ -244,6 +245,38 @@ pub(crate) fn render_health_summary(report: &MemoryOsHealthReport) -> String {
         report.token_savings.estimated_tokens_saved,
         report.bundle_root
     )
+}
+
+fn market_blocker_detail_summary(blockers: &[String]) -> String {
+    let details: Vec<String> = blockers
+        .iter()
+        .filter_map(|blocker| {
+            let label = if blocker.contains("Supermemory") {
+                "supermemory"
+            } else if blocker.contains("full external public proof") {
+                "full_public"
+            } else {
+                "other"
+            };
+            blocker_detail_value(blocker, "missing_requirements")
+                .map(|value| format!("{label}:missing_requirements={value}"))
+                .or_else(|| {
+                    blocker_detail_value(blocker, "missing_explicit_env")
+                        .map(|value| format!("{label}:missing_explicit_env={value}"))
+                })
+        })
+        .collect();
+    if details.is_empty() {
+        "none".to_string()
+    } else {
+        details.join(";")
+    }
+}
+
+fn blocker_detail_value(blocker: &str, key: &str) -> Option<String> {
+    let marker = format!("{key}=");
+    let (_, tail) = blocker.split_once(&marker)?;
+    tail.split_whitespace().next().map(str::to_string)
 }
 
 pub(crate) fn merge_health_server_token_savings(
@@ -2547,7 +2580,10 @@ mod tests {
                 market_claim: MarketClaimGate {
                     status: "blocked".to_string(),
                     evidence: Vec::new(),
-                    blockers: vec!["test blocker".to_string()],
+                    blockers: vec![
+                        "Supermemory same-fixture replay not pass: status=blocked report=supermemory.json missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact reason=missing approved Supermemory credential and replay artifacts".to_string(),
+                        "full external public proof not pass: status=blocked report=full.json missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL reason=full external public proof is intentionally opt-in".to_string(),
+                    ],
                 },
                 features: Vec::new(),
             },
@@ -2619,7 +2655,10 @@ mod tests {
         assert!(summary.contains("hygiene=noisy"));
         assert!(summary.contains("token_risk=medium"));
         assert!(summary.contains("market_claim=blocked"));
-        assert!(summary.contains("market_blockers=1"));
+        assert!(summary.contains("market_blockers=2"));
+        assert!(summary.contains(
+            "market_blocker_detail=supermemory:missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact;full_public:missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL"
+        ));
         assert!(summary.contains("token_source=server"));
         assert!(summary.contains("server_events=2"));
     }
