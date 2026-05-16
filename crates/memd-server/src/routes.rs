@@ -809,6 +809,11 @@ fn fuzzy_item_score(item: &MemoryItem, query: &str) -> f64 {
         .as_deref()
         .map(|path| char_ngram_jaccard(&query_lower, &path.to_ascii_lowercase(), 3))
         .unwrap_or(0.0);
+    let path_token_bonus = item
+        .source_path
+        .as_deref()
+        .map(|path| path_token_match_score(&query_tokens, path))
+        .unwrap_or(0.0);
     let id_bonus = if item.id.to_string().starts_with(query_lower.trim()) {
         1.0
     } else {
@@ -819,9 +824,39 @@ fn fuzzy_item_score(item: &MemoryItem, query: &str) -> f64 {
         + edit_bonus * 0.34
         + trigram_bonus * 0.18
         + acronym_bonus * 0.10
-        + path_bonus * 0.06
+        + path_bonus * 0.04
+        + path_token_bonus * 0.16
         + id_bonus * 0.12)
         .clamp(0.0, 1.0)
+}
+
+fn path_token_match_score(query_tokens: &[String], path: &str) -> f64 {
+    if query_tokens.is_empty() {
+        return 0.0;
+    }
+    let path_tokens = rerank_tokenize(path);
+    if path_tokens.is_empty() {
+        return 0.0;
+    }
+    query_tokens
+        .iter()
+        .map(|query_token| {
+            path_tokens
+                .iter()
+                .map(|path_token| {
+                    if path_token == query_token
+                        || path_token.contains(query_token.as_str())
+                        || query_token.contains(path_token.as_str())
+                    {
+                        1.0
+                    } else {
+                        normalized_edit_similarity(query_token, path_token)
+                    }
+                })
+                .fold(0.0_f64, f64::max)
+        })
+        .sum::<f64>()
+        / query_tokens.len() as f64
 }
 
 fn normalized_edit_similarity(left: &str, right: &str) -> f64 {
@@ -4953,6 +4988,37 @@ mod search_fabric_tests {
 
         assert_eq!(ranks.first().map(|(id, _)| *id), Some(typo.id));
         assert!(ranks.first().map(|(_, score)| *score).unwrap_or_default() > 0.30);
+    }
+
+    #[test]
+    fn fuzzy_lane_recovers_split_path_and_command_tokens_without_rag() {
+        let guard = item(
+            "Dev server startup procedure: use scripts/dev-server-guard.sh --port <port> -- <command...> before launching web apps.",
+            Some("scripts/dev-server-guard.sh"),
+            vec!["procedure", "dev-server"],
+        );
+        let generic = item(
+            "Dev server notes: prefer one running local server and avoid duplicate ports.",
+            Some("docs/dev/servers.md"),
+            vec!["procedure"],
+        );
+        let items = vec![
+            MemoryViewItem {
+                item: generic,
+                entity: None,
+                source_trust_score: 0.8,
+            },
+            MemoryViewItem {
+                item: guard.clone(),
+                entity: None,
+                source_trust_score: 0.8,
+            },
+        ];
+
+        let ranks = fuzzy_search_candidates(&items, "dev serber gard script port command", None);
+
+        assert_eq!(ranks.first().map(|(id, _)| *id), Some(guard.id));
+        assert!(ranks.first().map(|(_, score)| *score).unwrap_or_default() > 0.45);
     }
 
     #[test]
