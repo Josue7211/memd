@@ -841,7 +841,7 @@ fn capability_sync_feature(
             ),
             "server capability sync/list routes round-trip records with project/workspace/user/agent scope".to_string(),
             "capability list query searches persisted payload metadata such as source paths".to_string(),
-            "server authority proof simulates PC-A syncing skills/plugins and PC-B listing available plus unavailable capabilities with target-equivalent guidance; this proves inventory sync, not install/materialization".to_string(),
+            "server authority proof simulates PC-A syncing skills/plugins and PC-B listing available plus unavailable capabilities with target-equivalent guidance; materializer readiness is tracked separately".to_string(),
         ]
         .into_iter()
         .chain(inventory.evidence)
@@ -900,26 +900,6 @@ fn capability_materializer_audit(registry: &CapabilityRegistry) -> CapabilityInv
         .count();
     let (expected_host_cli_records, missing_expected_host_clis) =
         expected_host_cli_inventory(registry);
-    let mut evidence = vec![
-        "server_backed_inventory=present".to_string(),
-        "fresh_machine_materializer=partial".to_string(),
-        "server-synced text payloads can be materialized for small harness assets".to_string(),
-        "server-synced payload sets can restore bounded skill/plugin text files".to_string(),
-        format!("payload_text_records={payload_text_records}"),
-        format!("payload_file_set_records={payload_file_set_records}"),
-        format!("materialization_installable={materialization_installable}"),
-        format!("materialization_missing={materialization_missing}"),
-        "tiny prompt packets merge local host CLI auth gaps ahead of skill overflow".to_string(),
-        format!("host_cli_install_plans={host_cli_install_plans}"),
-        format!("host_cli_auth_proofs={host_cli_auth_proofs}"),
-        format!("host_cli_auth_authenticated={host_cli_auth_authenticated}"),
-        format!("host_cli_auth_unknown={host_cli_auth_unknown}"),
-        format!("host_cli_auth_unauthenticated={host_cli_auth_unauthenticated}"),
-        format!(
-            "expected_host_cli_records={expected_host_cli_records}/{}",
-            EXPECTED_HOST_CLIS.len()
-        ),
-    ];
     let missing_records = registry
         .capabilities
         .iter()
@@ -959,15 +939,47 @@ fn capability_materializer_audit(registry: &CapabilityRegistry) -> CapabilityInv
             "{host_cli_without_auth_proof} host CLI records lack server-synced auth proof notes"
         ));
     }
-    if host_cli_auth_unknown > 0 || host_cli_auth_unauthenticated > 0 {
-        evidence.push(format!(
-            "host_cli_auth_gaps_surface_as_prompt_guidance=unknown:{host_cli_auth_unknown} unauthenticated:{host_cli_auth_unauthenticated}"
-        ));
-    }
     if !missing_expected_host_clis.is_empty() {
         gaps.push(format!(
             "missing expected host CLI capability records: {}",
             missing_expected_host_clis.join(",")
+        ));
+    }
+    let materializer_status = if materialization_missing > 0 {
+        "missing-payloads"
+    } else if host_cli_without_install_plan > 0
+        || host_cli_without_auth_proof > 0
+        || !missing_expected_host_clis.is_empty()
+    {
+        "partial-host-local"
+    } else if host_cli_auth_unknown > 0 || host_cli_auth_unauthenticated > 0 {
+        "ready-with-host-cli-auth-guidance"
+    } else {
+        "ready"
+    };
+    let mut evidence = vec![
+        "server_backed_inventory=present".to_string(),
+        format!("fresh_machine_materializer={materializer_status}"),
+        "server-synced text payloads can be materialized for small harness assets".to_string(),
+        "server-synced payload sets can restore bounded skill/plugin text files".to_string(),
+        format!("payload_text_records={payload_text_records}"),
+        format!("payload_file_set_records={payload_file_set_records}"),
+        format!("materialization_installable={materialization_installable}"),
+        format!("materialization_missing={materialization_missing}"),
+        "tiny prompt packets merge local host CLI auth gaps ahead of skill overflow".to_string(),
+        format!("host_cli_install_plans={host_cli_install_plans}"),
+        format!("host_cli_auth_proofs={host_cli_auth_proofs}"),
+        format!("host_cli_auth_authenticated={host_cli_auth_authenticated}"),
+        format!("host_cli_auth_unknown={host_cli_auth_unknown}"),
+        format!("host_cli_auth_unauthenticated={host_cli_auth_unauthenticated}"),
+        format!(
+            "expected_host_cli_records={expected_host_cli_records}/{}",
+            EXPECTED_HOST_CLIS.len()
+        ),
+    ];
+    if host_cli_auth_unknown > 0 || host_cli_auth_unauthenticated > 0 {
+        evidence.push(format!(
+            "host_cli_auth_gaps_surface_as_prompt_guidance=unknown:{host_cli_auth_unknown} unauthenticated:{host_cli_auth_unauthenticated}"
         ));
     }
     let missing_assets = missing_records
@@ -3135,6 +3147,12 @@ mod tests {
             feature
                 .evidence
                 .iter()
+                .any(|item| item == "fresh_machine_materializer=missing-payloads")
+        );
+        assert!(
+            feature
+                .evidence
+                .iter()
                 .any(|item| item == "payload_file_set_records=1")
         );
         assert!(
@@ -3194,6 +3212,12 @@ mod tests {
         let feature = capability_sync_feature(&output, &registry, None);
 
         assert_eq!(feature.status, "partial");
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|item| item == "fresh_machine_materializer=partial-host-local")
+        );
         assert!(
             feature
                 .evidence
@@ -3274,6 +3298,12 @@ mod tests {
             feature
                 .evidence
                 .iter()
+                .any(|item| item == "fresh_machine_materializer=partial-host-local")
+        );
+        assert!(
+            feature
+                .evidence
+                .iter()
                 .any(|item| item == "host_cli_auth_proofs=1")
         );
         assert!(
@@ -3316,6 +3346,12 @@ mod tests {
             .find(|feature| feature.id == "capability_sync")
             .expect("capability sync feature");
 
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|item| item == "fresh_machine_materializer=ready-with-host-cli-auth-guidance")
+        );
         assert!(
             feature
                 .evidence
