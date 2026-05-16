@@ -1,5 +1,6 @@
 {
   "market_claim": "blocked",
+  "missing_explicit_env": [],
   "reason": "full external public proof is intentionally opt-in",
   "required": "Set ALLOW_FULL_PUBLIC_PROOF=1 plus an explicit PUBLIC_BENCH_LIMIT, PUBLIC_BENCH_TIMEOUT, and RUN_LABEL if you really intend to run the long full-public proof. Do not run this during incremental implementation.",
   "status": "blocked",
