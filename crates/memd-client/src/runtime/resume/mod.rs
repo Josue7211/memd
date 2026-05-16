@@ -1245,6 +1245,29 @@ mod tests {
     }
 
     #[test]
+    fn latest_raw_spine_next_action_uses_newest_matching_record() {
+        let root =
+            std::env::temp_dir().join(format!("memd-raw-next-newest-{}", uuid::Uuid::new_v4()));
+        let bundle = root.join(".memd");
+        let state = bundle.join("state");
+        std::fs::create_dir_all(&state).expect("create state");
+        std::fs::write(
+            state.join("raw-spine.jsonl"),
+            r#"{"id":"raw-old","tags":["next-agent"],"content_preview":"CURRENT NEXT ACTION: old capability-sync handoff","recorded_at":"2026-05-15T19:10:49Z"}
+{"id":"raw-middle","tags":["checkpoint","current-task"],"content_preview":"status: ordinary checkpoint","recorded_at":"2026-05-16T18:40:00Z"}
+{"id":"raw-new","tags":["next-agent","recovery"],"content_preview":"CURRENT NEXT ACTION: continue Supermemory replay and full public proof blockers","recorded_at":"2026-05-16T18:43:04Z"}"#,
+        )
+        .expect("write raw spine");
+
+        let raw_next = latest_raw_spine_next_action(&bundle).expect("raw next action");
+
+        assert!(raw_next.contains("raw-new"));
+        assert!(raw_next.contains("Supermemory replay"));
+        assert!(!raw_next.contains("old capability-sync"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn resume_defaults_bind_repo_identity_without_runtime_config() {
         let _cwd_lock = lock_cwd_mutation();
         let temp_root =
@@ -2763,7 +2786,7 @@ fn latest_raw_spine_next_action(output: &Path) -> Option<String> {
     let raw = std::fs::read_to_string(path).ok()?;
     raw.lines()
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .find_map(|value| {
+        .filter_map(|value| {
             let content = value
                 .get("content_preview")
                 .and_then(|value| value.as_str())
@@ -2800,6 +2823,7 @@ fn latest_raw_spine_next_action(output: &Path) -> Option<String> {
                 "id={id} | stage=raw | kind=decision | status=active | tags={tag_text} | upd={upd} | c={content}"
             ))
         })
+        .max_by_key(|record| record_updated_at(record).unwrap_or(0))
 }
 
 fn record_updated_at(record: &str) -> Option<i64> {
