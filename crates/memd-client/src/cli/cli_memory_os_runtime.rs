@@ -903,6 +903,7 @@ fn capability_materializer_audit(registry: &CapabilityRegistry) -> CapabilityInv
         format!("payload_file_set_records={payload_file_set_records}"),
         format!("materialization_installable={materialization_installable}"),
         format!("materialization_missing={materialization_missing}"),
+        "tiny prompt packets merge local host CLI auth gaps ahead of skill overflow".to_string(),
         format!("host_cli_install_plans={host_cli_install_plans}"),
         format!("host_cli_auth_proofs={host_cli_auth_proofs}"),
         format!("host_cli_auth_authenticated={host_cli_auth_authenticated}"),

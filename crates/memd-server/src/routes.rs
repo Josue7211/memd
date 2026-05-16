@@ -2689,14 +2689,14 @@ fn server_context_capability_lines(state: &AppState, req: &ContextRequest) -> Ve
                         _ => String::new(),
                     };
                     format!(
-                        "- {}:{} `{}` status={} portability={} source={}{} sync=server",
+                        "- {}:{} `{}` status={} portability={}{} source={} sync=server",
                         server_prompt_safe_line(&record.harness),
                         server_prompt_safe_line(&record.kind),
                         server_prompt_safe_line(&record.name),
                         server_prompt_safe_line(&record.status),
                         server_prompt_safe_line(&record.portability_class),
-                        server_prompt_safe_line(&record.source_path),
                         host_auth,
+                        server_prompt_safe_line(&record.source_path),
                     )
                 })
                 .collect()
@@ -2714,12 +2714,18 @@ fn server_context_capability_priority(
 ) -> (u8, String, String, String) {
     let class = record.portability_class.to_ascii_lowercase();
     let kind = record.kind.to_ascii_lowercase();
-    let priority = if kind == "cli" || class == "host-local" {
+    let host_cli = kind == "cli" || class == "host-local";
+    let auth_status = capability_note_suffix(record, "memd:host-auth-status:")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let priority = if host_cli && auth_status != "authenticated" {
         0
-    } else if class == "harness-native" {
+    } else if host_cli {
         1
-    } else {
+    } else if class == "harness-native" {
         2
+    } else {
+        3
     };
     (
         priority,

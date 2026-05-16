@@ -535,6 +535,169 @@ mod tests {
     }
 
     #[test]
+    fn tiny_prompt_packet_prioritizes_host_cli_auth_gaps_over_skill_overflow() {
+        fn cap(
+            harness: &str,
+            kind: &str,
+            name: &str,
+            portability: &str,
+            auth_status: Option<&str>,
+        ) -> memd_schema::CapabilityRecord {
+            let mut notes = Vec::new();
+            if let Some(status) = auth_status {
+                notes.push(format!("memd:host-auth-status:{status}"));
+                notes.push(format!("memd:host-auth-check:{name} auth status"));
+                notes.push("memd:host-auth-proof:local-probe".to_string());
+                notes.push("memd:host-auth-output-stored:false".to_string());
+            }
+            memd_schema::CapabilityRecord {
+                harness: harness.to_string(),
+                kind: kind.to_string(),
+                name: name.to_string(),
+                status: "installed".to_string(),
+                portability_class: portability.to_string(),
+                source_path: format!("/very/long/source/path/{name}/that/should/not/hide/auth"),
+                bridge_hint: None,
+                hash: None,
+                notes,
+                project: None,
+                namespace: None,
+                workspace: None,
+                user_id: None,
+                agent: None,
+                updated_at: None,
+            }
+        }
+
+        let mut records = (0..8)
+            .map(|idx| {
+                cap(
+                    "codex",
+                    "skill",
+                    &format!("tool-{idx}"),
+                    "harness-native",
+                    None,
+                )
+            })
+            .collect::<Vec<_>>();
+        records.push(cap("local", "cli", "claude", "host-local", Some("unknown")));
+        records.push(cap("local", "cli", "codex", "host-local", Some("unknown")));
+        records.push(cap(
+            "local",
+            "cli",
+            "opencode",
+            "host-local",
+            Some("unauthenticated"),
+        ));
+        records.push(cap(
+            "local",
+            "cli",
+            "supabase",
+            "host-local",
+            Some("unauthenticated"),
+        ));
+        records.push(cap(
+            "local",
+            "cli",
+            "wrangler",
+            "host-local",
+            Some("authenticated"),
+        ));
+        let capabilities =
+            format_context_capability_section(records, Some("codex"), Some("server"));
+        let context = memd_schema::CompactContextResponse {
+            route: memd_schema::RetrievalRoute::Auto,
+            intent: memd_schema::RetrievalIntent::CurrentTask,
+            retrieval_order: vec![memd_schema::MemoryScope::Project],
+            records: vec![memd_schema::CompactMemoryRecord {
+                id: uuid::Uuid::new_v4(),
+                record: "Current task: prepare fresh harness prompt.".to_string(),
+            }],
+        };
+        let packet = render_prompt_context_packet(
+            "ollama",
+            "strict",
+            &context,
+            &ContextPacketOptions {
+                model_tier: Some("tiny".to_string()),
+                include_capabilities: true,
+                capabilities_section: Some(capabilities),
+                ..ContextPacketOptions::default()
+            },
+        );
+
+        assert!(packet.contains("local:cli `claude`"));
+        assert!(packet.contains("local:cli `codex`"));
+        assert!(packet.contains("local:cli `opencode`"));
+        assert!(packet.contains("local:cli `supabase`"));
+        assert!(packet.contains("auth_status=unauthenticated"));
+        assert!(packet.contains("auth_status=unknown"));
+        assert!(packet.contains("auth_check=opencode auth status"));
+        assert!(!packet.contains("codex:skill `tool-0`"));
+    }
+
+    #[test]
+    fn server_prompt_capabilities_merge_local_host_cli_gaps() {
+        fn cap(
+            harness: &str,
+            kind: &str,
+            name: &str,
+            portability: &str,
+            auth_status: Option<&str>,
+        ) -> memd_schema::CapabilityRecord {
+            let mut notes = Vec::new();
+            if let Some(status) = auth_status {
+                notes.push(format!("memd:host-auth-status:{status}"));
+                notes.push(format!("memd:host-auth-check:{name} auth status"));
+            }
+            memd_schema::CapabilityRecord {
+                harness: harness.to_string(),
+                kind: kind.to_string(),
+                name: name.to_string(),
+                status: "installed".to_string(),
+                portability_class: portability.to_string(),
+                source_path: format!("/src/{name}"),
+                bridge_hint: None,
+                hash: None,
+                notes,
+                project: None,
+                namespace: None,
+                workspace: None,
+                user_id: None,
+                agent: None,
+                updated_at: None,
+            }
+        }
+
+        let mut server_records = vec![cap("opencode", "command", "gstack", "harness-native", None)];
+        merge_local_host_cli_capabilities(
+            &mut server_records,
+            vec![
+                cap(
+                    "local",
+                    "cli",
+                    "opencode",
+                    "host-local",
+                    Some("unauthenticated"),
+                ),
+                cap("codex", "skill", "ignored", "harness-native", None),
+            ],
+        );
+        let section =
+            format_context_capability_section(server_records, Some("codex"), Some("server"));
+
+        assert!(
+            section
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .contains("local:cli `opencode`")
+        );
+        assert!(section.contains("auth_status=unauthenticated"));
+        assert!(!section.contains("codex:skill `ignored`"));
+    }
+
+    #[test]
     fn prompt_packet_enforces_model_tier_budgets() {
         let huge_packet = "# memd context packet\n\n## Token Budget\n- use Source IDs as durable recall handles\n\n## Active Truth\n"
             .to_string()
@@ -1002,10 +1165,10 @@ async fn fetch_server_capabilities_section(
         namespace: None,
         workspace: req.workspace.clone(),
         user_id: None,
-        harness: req.agent.clone(),
+        harness: None,
         kind: None,
         query: None,
-        limit: Some(8),
+        limit: Some(100),
     };
     let response = tokio::time::timeout(
         Duration::from_millis(750),
@@ -1017,24 +1180,127 @@ async fn fetch_server_capabilities_section(
     if response.records.is_empty() {
         return None;
     }
-    Some(
-        response
-            .records
-            .iter()
-            .map(|record| {
-                format!(
-                    "- {}:{} `{}` status={} portability={} source={} sync=server",
-                    record.harness,
-                    record.kind,
-                    prompt_safe_line(&record.name),
-                    record.status,
-                    record.portability_class,
-                    prompt_safe_line(&record.source_path)
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
+    let mut records = response.records;
+    merge_local_host_cli_capabilities(
+        &mut records,
+        local_context_capability_records(&default_bundle_root_path()),
+    );
+    Some(format_context_capability_section(
+        records,
+        req.agent.as_deref(),
+        Some("server"),
+    ))
+}
+
+fn merge_local_host_cli_capabilities(
+    records: &mut Vec<memd_schema::CapabilityRecord>,
+    local_records: Vec<memd_schema::CapabilityRecord>,
+) {
+    let mut seen = records
+        .iter()
+        .map(context_capability_key)
+        .collect::<std::collections::BTreeSet<_>>();
+    for record in local_records {
+        let class = record.portability_class.to_ascii_lowercase();
+        let kind = record.kind.to_ascii_lowercase();
+        if kind != "cli" && class != "host-local" {
+            continue;
+        }
+        if seen.insert(context_capability_key(&record)) {
+            records.push(record);
+        }
+    }
+}
+
+fn format_context_capability_section(
+    mut records: Vec<memd_schema::CapabilityRecord>,
+    requested_harness: Option<&str>,
+    sync: Option<&str>,
+) -> String {
+    records.sort_by_key(|record| context_capability_priority(record, requested_harness));
+    records
+        .iter()
+        .map(|record| format_context_capability_line(record, sync))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn format_context_capability_line(
+    record: &memd_schema::CapabilityRecord,
+    sync: Option<&str>,
+) -> String {
+    let auth_status = capability_note_suffix(record, "memd:host-auth-status:");
+    let auth_check = capability_note_suffix(record, "memd:host-auth-check:");
+    let host_auth = match (auth_status, auth_check) {
+        (Some(status), Some(check)) => format!(
+            " auth_status={} auth_check={}",
+            prompt_safe_line(status),
+            prompt_safe_line(check)
+        ),
+        (Some(status), None) => format!(" auth_status={}", prompt_safe_line(status)),
+        _ => String::new(),
+    };
+    let sync = sync
+        .map(|sync| format!(" sync={}", prompt_safe_line(sync)))
+        .unwrap_or_default();
+    format!(
+        "- {}:{} `{}` status={} portability={}{} source={}{}",
+        prompt_safe_line(&record.harness),
+        prompt_safe_line(&record.kind),
+        prompt_safe_line(&record.name),
+        prompt_safe_line(&record.status),
+        prompt_safe_line(&record.portability_class),
+        host_auth,
+        prompt_safe_line(&record.source_path),
+        sync
     )
+}
+
+fn context_capability_priority(
+    record: &memd_schema::CapabilityRecord,
+    requested_harness: Option<&str>,
+) -> (u8, String, String, String) {
+    let class = record.portability_class.to_ascii_lowercase();
+    let kind = record.kind.to_ascii_lowercase();
+    let host_cli = kind == "cli" || class == "host-local";
+    let auth_status = capability_note_suffix(record, "memd:host-auth-status:")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let priority = if host_cli && auth_status != "authenticated" {
+        0
+    } else if host_cli {
+        1
+    } else if requested_harness.is_some_and(|harness| harness == record.harness) {
+        2
+    } else if class == "harness-native" {
+        3
+    } else {
+        4
+    };
+    (
+        priority,
+        record.harness.clone(),
+        record.kind.clone(),
+        record.name.clone(),
+    )
+}
+
+fn context_capability_key(record: &memd_schema::CapabilityRecord) -> (String, String, String) {
+    (
+        record.harness.clone(),
+        record.kind.clone(),
+        record.name.clone(),
+    )
+}
+
+fn capability_note_suffix<'a>(
+    record: &'a memd_schema::CapabilityRecord,
+    prefix: &str,
+) -> Option<&'a str> {
+    record
+        .notes
+        .iter()
+        .find_map(|note| note.strip_prefix(prefix))
 }
 
 async fn fetch_server_access_section(client: &MemdClient, req: &ContextRequest) -> Option<String> {
@@ -1154,6 +1420,14 @@ fn render_task_state_section(
 }
 
 fn render_context_capabilities_section(bundle_root: &Path) -> String {
+    let records = local_context_capability_records(bundle_root);
+    if records.is_empty() {
+        return "- none discovered; memd capability sync is unhealthy".to_string();
+    }
+    format_context_capability_section(records, None, None)
+}
+
+fn local_context_capability_records(bundle_root: &Path) -> Vec<memd_schema::CapabilityRecord> {
     let args = CapabilitiesArgs {
         command: None,
         output: bundle_root.to_path_buf(),
@@ -1161,34 +1435,36 @@ fn render_context_capabilities_section(bundle_root: &Path) -> String {
         kind: None,
         portability: None,
         query: None,
-        limit: 8,
+        limit: 100,
         summary: false,
         json: false,
         materialize_plan: false,
         materialize: false,
     };
     let Ok(response) = run_capabilities_command(&args) else {
-        return "- unavailable: capability registry read failed".to_string();
+        return Vec::new();
     };
-    if response.records.is_empty() {
-        return "- none discovered; memd capability sync is unhealthy".to_string();
-    }
     response
         .records
-        .iter()
-        .map(|record| {
-            format!(
-                "- {}:{} `{}` status={} portability={} source={}",
-                record.harness,
-                record.kind,
-                prompt_safe_line(&record.name),
-                record.status,
-                record.portability_class,
-                prompt_safe_line(&record.source_path)
-            )
+        .into_iter()
+        .map(|record| memd_schema::CapabilityRecord {
+            harness: record.harness,
+            kind: record.kind,
+            name: record.name,
+            status: record.status,
+            portability_class: record.portability_class,
+            source_path: record.source_path,
+            bridge_hint: record.bridge_hint,
+            hash: record.hash,
+            notes: record.notes,
+            project: None,
+            namespace: None,
+            workspace: None,
+            user_id: None,
+            agent: None,
+            updated_at: None,
         })
         .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn render_context_access_section(bundle_root: &Path, agent: &str) -> String {
