@@ -1810,11 +1810,19 @@ pub(crate) fn merge_server_token_savings_report(
     mut report: TokenSavingsReport,
     server: memd_schema::TokenSavingsListResponse,
 ) -> TokenSavingsReport {
-    report.source = "server".to_string();
     report.server_events = server.total;
     report.server_measured_input_tokens = server.measured_input_tokens;
     report.server_measured_output_tokens = server.measured_output_tokens;
     report.server_measured_tokens_saved = server.measured_tokens_saved;
+    if server.total == 0 && report.ledger_events > 0 {
+        report.source = "local".to_string();
+        report.notes.push(
+            "server token ledger was empty; preserved local measured ledger instead of hiding dogfood evidence"
+                .to_string(),
+        );
+        return report;
+    }
+    report.source = "server".to_string();
     report.ledger_events = server.total;
     report.measured_input_tokens = server.measured_input_tokens;
     report.measured_output_tokens = server.measured_output_tokens;
@@ -2339,6 +2347,58 @@ mod tests {
         assert_eq!(merged.wasted_giant_diff_tokens, 2000);
 
         fs::remove_dir_all(output).expect("cleanup token merge temp");
+    }
+
+    #[test]
+    fn empty_server_token_savings_preserves_local_measured_ledger() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-token-savings-server-empty-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(output.join("state")).expect("create token temp");
+        let req = ContextRequest {
+            project: Some("memd".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: Some(memd_schema::RetrievalIntent::CurrentTask),
+            limit: None,
+            max_chars_per_item: None,
+        };
+
+        record_context_token_savings(&output, &req, Some("tiny"), 3, 4000, 1000)
+            .expect("record local token savings")
+            .expect("local token savings entry");
+        let local = build_token_savings_report(&output, None);
+        let merged = merge_server_token_savings_report(
+            local,
+            memd_schema::TokenSavingsListResponse {
+                total: 0,
+                measured_input_tokens: 0,
+                measured_output_tokens: 0,
+                measured_tokens_saved: 0,
+                wasted_events: 0,
+                wasted_tokens: 0,
+                wasted_raw_reread_tokens: 0,
+                wasted_giant_diff_tokens: 0,
+                wasted_cache_exposure_tokens: 0,
+                records: Vec::new(),
+            },
+        );
+
+        assert_eq!(merged.source, "local");
+        assert_eq!(merged.server_events, 0);
+        assert_eq!(merged.ledger_events, 1);
+        assert_eq!(merged.measured_tokens_saved, 750);
+        assert!(
+            merged
+                .notes
+                .iter()
+                .any(|note| note.contains("server token ledger was empty"))
+        );
+
+        fs::remove_dir_all(output).expect("cleanup empty server token temp");
     }
 
     #[test]
