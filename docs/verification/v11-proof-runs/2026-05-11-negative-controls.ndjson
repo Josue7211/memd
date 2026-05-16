@@ -1,0 +1,4 @@
+{"control": "suppress_project_isolation", "expected_failure": true, "fired": true, "generated_at": "2026-05-12T03:18:42.859471+00:00"}
+{"control": "drop_t4_correction", "expected_failure": true, "fired": true, "generated_at": "2026-05-12T03:18:42.859471+00:00"}
+{"control": "mute_silent_correction_detector", "expected_failure": true, "fired": true, "generated_at": "2026-05-12T03:18:42.859471+00:00"}
+{"control": "ignore_cost_target", "expected_failure": true, "fired": true, "generated_at": "2026-05-12T03:18:42.859471+00:00"}

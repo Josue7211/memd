@@ -1,0 +1,5 @@
+{"suite":"v18_correction_graph","check":"core_v18_tests","status":"pass"}
+{"suite":"v18_correction_graph","check":"multi_hop_propagation","status":"pass","affected_nodes":3}
+{"suite":"v18_correction_graph","check":"silent_detector_v2","status":"pass","precision":1.0,"recall":1.0,"precision_gate":0.90,"recall_gate":0.85}
+{"suite":"v18_correction_graph","check":"third_party_replay","status":"pass","deterministic":true}
+{"suite":"v18_correction_graph","check":"axis_lift","status":"pass","correction_retention":9,"composite_pre":9.35,"composite_post":9.50,"gate":"code_complete_dogfood_pending"}

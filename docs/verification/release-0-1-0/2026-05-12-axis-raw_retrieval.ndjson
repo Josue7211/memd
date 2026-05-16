@@ -1,0 +1,1 @@
+{"axis": "raw_retrieval", "generated_at": "2026-05-12T18:44:11.264390+00:00", "metric": {"convomem": 0.052, "locomo": 0.05, "longmemeval": 0.055, "membench": 0.055}, "pass": true, "scenario": "public_bench_margin_sweep", "score": 9}

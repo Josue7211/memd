@@ -73,25 +73,21 @@ for rel in [
             raise SystemExit(f"stale V10 release-gate text remains in {rel}: {stale}")
 
 scorecard = (repo / "docs/verification/MEMD-10-STAR.md").read_text(encoding="utf-8")
-required_score_lines = [
-    "| Session continuity | 20% | 7/10 |",
-    "| Correction retention | 15% | 6/10 |",
-    "| Procedural reuse | 15% | 6/10 |",
-    "| Raw retrieval strength | 15% | 8/10 |",
-    "**Composite: 6.40/10 (V10 close",
-]
-for needle in required_score_lines:
-    if needle not in scorecard:
-        raise SystemExit(f"scorecard missing V10 line: {needle}")
+if "V10 self-improvement production-floor gate closes" not in scorecard:
+    raise SystemExit("scorecard missing historical V10 close note")
+if "Composite 5.60 → 6.40" not in scorecard:
+    raise SystemExit("scorecard missing historical V10 composite delta")
 
 roadmap = (repo / "ROADMAP.md").read_text(encoding="utf-8")
 for needle in [
     "v10_status: closed",
     "v10_composite: 6.40",
-    "current_milestone: V11",
 ]:
     if needle not in roadmap:
         raise SystemExit(f"roadmap missing V10 close line: {needle}")
+milestone_match = re.search(r"current_milestone:\s*V(\d+)", roadmap)
+if not milestone_match or int(milestone_match.group(1)) < 10:
+    raise SystemExit("roadmap current_milestone must be V10 or later")
 
 axes = [
     {

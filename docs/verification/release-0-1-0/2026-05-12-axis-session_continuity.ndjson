@@ -1,0 +1,1 @@
+{"axis": "session_continuity", "generated_at": "2026-05-12T18:44:11.264390+00:00", "metric": {"compaction_cycles": 4, "conflicts_resolved": 1, "dormant_focus_rehydrated": true, "wake_median_tokens": 1440}, "pass": true, "scenario": "cross_device_crdt_plus_dormant_30d_recovery", "score": 9}

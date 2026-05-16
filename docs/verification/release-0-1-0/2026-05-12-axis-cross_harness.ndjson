@@ -1,0 +1,1 @@
+{"axis": "cross_harness", "generated_at": "2026-05-12T18:44:11.264390+00:00", "metric": {"lift_claimed": false, "parity_delta": 0.0}, "pass": true, "scenario": "v12_protocol_parity_integration", "score": 8}

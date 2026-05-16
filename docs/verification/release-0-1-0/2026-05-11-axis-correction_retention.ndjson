@@ -1,0 +1,1 @@
+{"axis": "correction_retention", "generated_at": "2026-05-12T03:18:47.467356+00:00", "metric": {"affected": ["y", "z"], "next_session_value": "postgres-derived", "provenance_edges": 3}, "pass": true, "scenario": "multi_hop_correction_x_to_y_z_next_session", "score": 8}

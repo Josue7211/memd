@@ -1,0 +1,5 @@
+{"suite":"v16_sync","check":"core_v16_tests","status":"pass"}
+{"suite":"v16_sync","check":"three_device_crdt_merge","status":"pass","devices":3,"conflicts_seen":1,"conflicts_resolved":1}
+{"suite":"v16_sync","check":"post_sync_visibility","status":"pass","max_visibility_ms":1800,"gate_ms":2000}
+{"suite":"v16_sync","check":"cross_device_replay","status":"pass","identical_state":true}
+{"suite":"v16_sync","check":"axis_lift","status":"pass","session_continuity":10,"cross_harness":9,"composite_pre":8.70,"composite_post":9.05,"gate":"code_complete_dogfood_pending"}

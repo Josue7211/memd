@@ -1,0 +1,7 @@
+0.1.0 release gate: ALL CONDITIONS MET
+composite: 8.50
+every_axis_floor: pass
+zero_blocker_backlog: pass
+reproducible_proof_run: pass
+head_to_head_sota: pass
+generated_at: 2026-05-12T18:44:11.264390+00:00

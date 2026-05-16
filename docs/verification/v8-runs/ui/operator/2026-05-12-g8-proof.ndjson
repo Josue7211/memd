@@ -1,0 +1,5 @@
+{"type":"metric","axis":"token_efficiency","cost_ledger_visible":true,"budget_tunable":true,"budget_cap_after_edit":2000}
+{"type":"metric","axis":"trust_provenance","provenance_depth_max":3,"correction_history_visible":true,"alternate_candidates_visible":true}
+{"type":"metric","axis":"session_continuity","continuity_data_visible":true}
+{"type":"metric","suite":"configure","configure_suite":{"pass_count":7,"fail_count":0}}
+{"type":"metric","suite":"browser","console_errors":0,"memory_inspector_filter_visible_nodes":1}

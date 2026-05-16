@@ -59,7 +59,18 @@ async function launchChromium() {
       return chromium.launch({ headless: true, executablePath });
     }
   }
-  return chromium.launch({ headless: true });
+  try {
+    return await chromium.launch({ headless: true });
+  } catch (err) {
+    const message = String(err && err.message ? err.message : err);
+    if (message.includes('Executable doesn') || message.includes('browserType.launch')) {
+      throw new Error(
+        'Playwright Chromium is missing. Run `npx playwright@1.59.1 install chromium` ' +
+        'or set PLAYWRIGHT_CHROMIUM_EXECUTABLE to a Chrome/Chromium binary.'
+      );
+    }
+    throw err;
+  }
 }
 
 (async () => {
