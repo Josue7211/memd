@@ -1268,6 +1268,30 @@ mod tests {
     }
 
     #[test]
+    fn latest_raw_spine_next_action_ignores_quarantined_and_prefers_canonical() {
+        let root =
+            std::env::temp_dir().join(format!("memd-raw-next-safe-{}", uuid::Uuid::new_v4()));
+        let bundle = root.join(".memd");
+        let state = bundle.join("state");
+        std::fs::create_dir_all(&state).expect("create state");
+        std::fs::write(
+            state.join("raw-spine.jsonl"),
+            r#"{"id":"raw-safe","stage":"canonical","tags":["next-agent","recovery"],"content_preview":"CURRENT NEXT ACTION: continue safe proof blockers","recorded_at":"2026-05-16T18:43:04Z"}
+{"id":"raw-candidate","stage":"candidate","tags":["next-agent","recovery"],"content_preview":"CURRENT NEXT ACTION: newer unpromoted duplicate should not beat canonical","recorded_at":"2026-05-16T18:44:04Z"}
+{"id":"raw-quarantined","stage":"canonical","tags":["next-agent","security:prompt-injection","quarantine:prompt-injection"],"content_preview":"CURRENT NEXT ACTION: quarantined instruction must not surface","recorded_at":"2026-05-16T18:45:04Z"}"#,
+        )
+        .expect("write raw spine");
+
+        let raw_next = latest_raw_spine_next_action(&bundle).expect("raw next action");
+
+        assert!(raw_next.contains("raw-safe"));
+        assert!(raw_next.contains("stage=canonical"));
+        assert!(!raw_next.contains("raw-candidate"));
+        assert!(!raw_next.contains("raw-quarantined"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn resume_defaults_bind_repo_identity_without_runtime_config() {
         let _cwd_lock = lock_cwd_mutation();
         let temp_root =
@@ -2784,7 +2808,8 @@ fn best_next_action_record(records: Vec<String>) -> Option<String> {
 fn latest_raw_spine_next_action(output: &Path) -> Option<String> {
     let path = output.join("state").join("raw-spine.jsonl");
     let raw = std::fs::read_to_string(path).ok()?;
-    raw.lines()
+    let candidates = raw
+        .lines()
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
         .filter_map(|value| {
             let content = value
@@ -2800,9 +2825,26 @@ fn latest_raw_spine_next_action(output: &Path) -> Option<String> {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
+            if tags
+                .iter()
+                .any(|tag| tag.starts_with("security:") || tag.starts_with("quarantine:"))
+            {
+                return None;
+            }
             let looks_like_next = content.to_ascii_lowercase().contains("current next action")
                 || tags.iter().any(|tag| *tag == "next-agent");
             if !looks_like_next {
+                return None;
+            }
+            let stage = value
+                .get("stage")
+                .and_then(|value| value.as_str())
+                .unwrap_or("raw");
+            let status = value
+                .get("status")
+                .and_then(|value| value.as_str())
+                .unwrap_or("active");
+            if matches!(status, "archived" | "superseded" | "rejected") {
                 return None;
             }
             let id = value
@@ -2819,11 +2861,21 @@ fn latest_raw_spine_next_action(output: &Path) -> Option<String> {
             } else {
                 tags.join(",")
             };
-            Some(format!(
-                "id={id} | stage=raw | kind=decision | status=active | tags={tag_text} | upd={upd} | c={content}"
+            Some((
+                stage == "canonical",
+                upd,
+                format!(
+                    "id={id} | stage={stage} | kind=decision | status={status} | tags={tag_text} | upd={upd} | c={content}"
+                ),
             ))
         })
-        .max_by_key(|record| record_updated_at(record).unwrap_or(0))
+        .collect::<Vec<_>>();
+    candidates
+        .iter()
+        .filter(|(canonical, _, _)| *canonical)
+        .max_by_key(|(_, upd, _)| *upd)
+        .or_else(|| candidates.iter().max_by_key(|(_, upd, _)| *upd))
+        .map(|(_, _, record)| record.clone())
 }
 
 fn record_updated_at(record: &str) -> Option<i64> {
