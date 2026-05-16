@@ -1539,9 +1539,12 @@ fn build_market_claim_gate(features: &[MemoryOsFeature]) -> MarketClaimGate {
             path.display()
         )),
         Some((path, status)) => blockers.push(format!(
-            "Supermemory same-fixture replay not pass: status={} report={}",
+            "Supermemory same-fixture replay not pass: status={} report={}{}",
             status,
-            path.display()
+            path.display(),
+            report_blocker_detail(&path)
+                .map(|detail| format!(" {detail}"))
+                .unwrap_or_default()
         )),
         None => blockers.push("Supermemory same-fixture replay report missing".to_string()),
     }
@@ -1569,9 +1572,12 @@ fn build_market_claim_gate(features: &[MemoryOsFeature]) -> MarketClaimGate {
             path.display()
         )),
         Some((path, status)) => blockers.push(format!(
-            "full external public proof not pass: status={} report={}",
+            "full external public proof not pass: status={} report={}{}",
             status,
-            path.display()
+            path.display(),
+            report_blocker_detail(&path)
+                .map(|detail| format!(" {detail}"))
+                .unwrap_or_default()
         )),
         None => blockers.push(
             "full external public proof report missing; sampled/stratified proof is not a 25/5 market claim"
@@ -1616,6 +1622,38 @@ fn report_status(path: &Path) -> Option<String> {
         .get("status")
         .and_then(|status| status.as_str())
         .map(str::to_string)
+}
+
+fn report_blocker_detail(path: &Path) -> Option<String> {
+    let raw = fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let mut parts = Vec::new();
+    for key in ["missing_requirements", "missing_explicit_env"] {
+        if let Some(items) = json_string_array(&value, key) {
+            if !items.is_empty() {
+                parts.push(format!("{key}={}", items.join(",")));
+            }
+        }
+    }
+    if let Some(reason) = value
+        .get("reason")
+        .and_then(|reason| reason.as_str())
+        .filter(|reason| !reason.trim().is_empty())
+    {
+        parts.push(format!("reason={}", reason.trim()));
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
+}
+
+fn json_string_array(value: &serde_json::Value, key: &str) -> Option<Vec<String>> {
+    Some(
+        value
+            .get(key)?
+            .as_array()?
+            .iter()
+            .filter_map(|item| item.as_str().map(str::to_string))
+            .collect(),
+    )
 }
 
 fn sync_queue_evidence(queue: Option<&OfflineQueueStatus>) -> Vec<String> {
@@ -3409,6 +3447,41 @@ mod tests {
         assert!(summary.contains("blockers="));
 
         fs::remove_dir_all(output).expect("cleanup feature temp");
+    }
+
+    #[test]
+    fn report_blocker_detail_surfaces_missing_requirements_without_secret_values() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-report-blocker-detail-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).expect("create report detail temp");
+        let report = dir.join("blocked.json");
+        fs::write(
+            &report,
+            serde_json::json!({
+                "status": "blocked",
+                "missing_requirements": [
+                    "approved_supermemory_access_route_or_process_credential",
+                    "supermemory_same_fixture_replay_artifact"
+                ],
+                "missing_explicit_env": ["ALLOW_FULL_PUBLIC_PROOF=1"],
+                "reason": "blocked proof gate",
+                "credential_env_present": false
+            })
+            .to_string(),
+        )
+        .expect("write report detail fixture");
+
+        let detail = report_blocker_detail(&report).expect("report blocker detail");
+        assert!(detail.contains(
+            "missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact"
+        ));
+        assert!(detail.contains("missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1"));
+        assert!(detail.contains("reason=blocked proof gate"));
+        assert!(!detail.contains("SUPERMEMORY_API_KEY"));
+
+        fs::remove_dir_all(dir).expect("cleanup report detail temp");
     }
 
     #[test]
