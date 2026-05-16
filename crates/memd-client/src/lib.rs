@@ -108,10 +108,7 @@ impl MemdClient {
         // blocks `wake`/`resume` indefinitely instead of surfacing as an
         // error. Override via `MEMD_HTTP_TIMEOUT_SECS` if a specific
         // workflow needs longer.
-        let request_timeout = std::env::var("MEMD_HTTP_TIMEOUT_SECS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(15);
+        let request_timeout = memd_http_timeout_secs();
         let connect_timeout = std::env::var("MEMD_HTTP_CONNECT_TIMEOUT_SECS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
@@ -728,6 +725,14 @@ impl MemdClient {
     }
 }
 
+fn memd_http_timeout_secs() -> u64 {
+    std::env::var("MEMD_HTTP_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|seconds| *seconds >= 2)
+        .unwrap_or(30)
+}
+
 async fn decode_response<T>(response: reqwest::Response) -> anyhow::Result<T>
 where
     T: serde::de::DeserializeOwned,
@@ -767,7 +772,7 @@ fn normalize_base_url(input: &str) -> anyhow::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_base_url;
+    use super::{memd_http_timeout_secs, normalize_base_url};
 
     #[test]
     fn normalizes_host_only_url() {
@@ -788,5 +793,27 @@ mod tests {
     #[test]
     fn rejects_path() {
         assert!(normalize_base_url("http://localhost:8787/api").is_err());
+    }
+
+    #[test]
+    fn default_http_timeout_allows_live_inventory_responses() {
+        let old_timeout = std::env::var_os("MEMD_HTTP_TIMEOUT_SECS");
+        unsafe {
+            std::env::remove_var("MEMD_HTTP_TIMEOUT_SECS");
+        }
+
+        assert_eq!(memd_http_timeout_secs(), 30);
+
+        unsafe {
+            std::env::set_var("MEMD_HTTP_TIMEOUT_SECS", "9");
+        }
+        assert_eq!(memd_http_timeout_secs(), 9);
+
+        unsafe {
+            match old_timeout {
+                Some(value) => std::env::set_var("MEMD_HTTP_TIMEOUT_SECS", value),
+                None => std::env::remove_var("MEMD_HTTP_TIMEOUT_SECS"),
+            }
+        }
     }
 }

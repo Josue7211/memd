@@ -560,6 +560,115 @@ mod tests {
     }
 
     #[test]
+    fn context_auxiliary_timeout_tolerates_live_server_latency() {
+        let old_timeout = std::env::var_os("MEMD_CONTEXT_AUX_TIMEOUT_SECS");
+        unsafe {
+            std::env::remove_var("MEMD_CONTEXT_AUX_TIMEOUT_SECS");
+        }
+
+        assert_eq!(context_server_auxiliary_timeout(), Duration::from_secs(5));
+
+        unsafe {
+            std::env::set_var("MEMD_CONTEXT_AUX_TIMEOUT_SECS", "2");
+        }
+        assert_eq!(context_server_auxiliary_timeout(), Duration::from_secs(2));
+
+        unsafe {
+            match old_timeout {
+                Some(value) => std::env::set_var("MEMD_CONTEXT_AUX_TIMEOUT_SECS", value),
+                None => std::env::remove_var("MEMD_CONTEXT_AUX_TIMEOUT_SECS"),
+            }
+        }
+    }
+
+    #[test]
+    fn context_capability_line_keeps_sync_marker_before_long_source() {
+        let line = format_context_capability_line(
+            &memd_schema::CapabilityRecord {
+                harness: "codex".to_string(),
+                kind: "skill".to_string(),
+                name: "capability-sync".to_string(),
+                status: "installed".to_string(),
+                portability_class: "harness-native".to_string(),
+                source_path: "/very/long/path/that/can/be/clipped/by/tiny/model/tier/SKILL.md"
+                    .to_string(),
+                bridge_hint: None,
+                hash: None,
+                notes: Vec::new(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                user_id: None,
+                agent: Some("codex".to_string()),
+                updated_at: None,
+            },
+            Some("server"),
+        );
+
+        assert!(line.contains("portability=harness-native sync=server source="));
+    }
+
+    #[test]
+    fn local_context_capabilities_load_full_inventory_before_priority_sort() {
+        let project = std::env::temp_dir().join(format!(
+            "memd-context-capabilities-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = project.join(".memd");
+        fs::create_dir_all(&output).expect("create temp bundle");
+        fs::create_dir_all(project.join(".git")).expect("create temp git marker");
+
+        let mut capabilities = (0..120)
+            .map(|idx| CapabilityRecord {
+                harness: "alpha".to_string(),
+                kind: "skill".to_string(),
+                name: format!("skill-{idx:03}"),
+                status: "discovered".to_string(),
+                portability_class: "harness-native".to_string(),
+                source_path: format!("/tmp/skill-{idx:03}/SKILL.md"),
+                bridge_hint: None,
+                hash: None,
+                notes: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        capabilities.push(CapabilityRecord {
+            harness: "local".to_string(),
+            kind: "cli".to_string(),
+            name: "codex".to_string(),
+            status: "installed".to_string(),
+            portability_class: "host-local".to_string(),
+            source_path: "/usr/local/bin/codex".to_string(),
+            bridge_hint: None,
+            hash: None,
+            notes: vec![
+                "memd:host-auth-status:unknown".to_string(),
+                "memd:host-auth-check:open Codex on this machine".to_string(),
+                "memd:host-cli-path-status:on-path".to_string(),
+            ],
+        });
+        write_bundle_capability_registry(
+            &output,
+            &CapabilityRegistry {
+                generated_at: Utc::now(),
+                project_root: Some(project.display().to_string()),
+                capabilities,
+            },
+        )
+        .expect("write capability registry");
+
+        let records = local_context_capability_records(&output);
+
+        assert!(
+            records.iter().any(|record| record.harness == "local"
+                && record.kind == "cli"
+                && record.name == "codex"),
+            "host-local CLI record must survive large pulled inventories"
+        );
+
+        fs::remove_dir_all(project).expect("cleanup temp bundle");
+    }
+
+    #[test]
     fn tiny_prompt_packet_prioritizes_host_cli_auth_gaps_over_skill_overflow() {
         fn cap(
             harness: &str,
@@ -1256,7 +1365,7 @@ async fn fetch_server_capabilities_section(
         limit: Some(100),
     };
     let response = tokio::time::timeout(
-        Duration::from_millis(750),
+        context_server_auxiliary_timeout(),
         client.capabilities_list(&list_req),
     )
     .await
@@ -1275,6 +1384,15 @@ async fn fetch_server_capabilities_section(
         req.agent.as_deref(),
         Some("server"),
     ))
+}
+
+fn context_server_auxiliary_timeout() -> Duration {
+    std::env::var("MEMD_CONTEXT_AUX_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds >= 1)
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(5))
 }
 
 fn merge_local_host_cli_capabilities(
@@ -1342,17 +1460,17 @@ fn format_context_capability_line(
         .map(|sync| format!(" sync={}", prompt_safe_line(sync)))
         .unwrap_or_default();
     format!(
-        "- {}:{} `{}` status={} portability={}{}{}{} source={}{}",
+        "- {}:{} `{}` status={} portability={}{}{}{}{} source={}",
         prompt_safe_line(&record.harness),
         prompt_safe_line(&record.kind),
         prompt_safe_line(&record.name),
         prompt_safe_line(&record.status),
         prompt_safe_line(&record.portability_class),
+        sync,
         host_path,
         install_plan,
         host_auth,
-        prompt_safe_line(&record.source_path),
-        sync
+        prompt_safe_line(&record.source_path)
     )
 }
 
@@ -1414,7 +1532,7 @@ async fn fetch_server_access_section(client: &MemdClient, req: &ContextRequest) 
         limit: Some(8),
     };
     let response = tokio::time::timeout(
-        Duration::from_millis(750),
+        context_server_auxiliary_timeout(),
         client.access_routes_list(&list_req),
     )
     .await
@@ -1535,7 +1653,7 @@ fn local_context_capability_records(bundle_root: &Path) -> Vec<memd_schema::Capa
         kind: None,
         portability: None,
         query: None,
-        limit: 100,
+        limit: 5_000,
         summary: false,
         json: false,
         materialize_plan: false,

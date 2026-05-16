@@ -1605,6 +1605,28 @@ mod capability_sync_chunk_tests {
             }
         }
     }
+
+    #[test]
+    fn capability_pull_timeout_allows_full_live_inventory() {
+        let old_timeout = std::env::var_os("MEMD_CAPABILITY_PULL_TIMEOUT_SECS");
+        unsafe {
+            std::env::remove_var("MEMD_CAPABILITY_PULL_TIMEOUT_SECS");
+        }
+
+        assert_eq!(capability_pull_timeout(), Duration::from_secs(30));
+
+        unsafe {
+            std::env::set_var("MEMD_CAPABILITY_PULL_TIMEOUT_SECS", "7");
+        }
+        assert_eq!(capability_pull_timeout(), Duration::from_secs(7));
+
+        unsafe {
+            match old_timeout {
+                Some(value) => std::env::set_var("MEMD_CAPABILITY_PULL_TIMEOUT_SECS", value),
+                None => std::env::remove_var("MEMD_CAPABILITY_PULL_TIMEOUT_SECS"),
+            }
+        }
+    }
 }
 
 async fn pull_capabilities_from_server(
@@ -1631,7 +1653,8 @@ async fn pull_capabilities_from_server(
         anyhow::bail!("server not reachable at {base_url}");
     }
     let pulled =
-        match tokio::time::timeout(Duration::from_secs(2), client.capabilities_list(&req)).await {
+        match tokio::time::timeout(capability_pull_timeout(), client.capabilities_list(&req)).await
+        {
             Ok(Ok(response)) => response,
             Ok(Err(error)) => anyhow::bail!("{error:#}"),
             Err(error) => anyhow::bail!("capability pull timed out: {error}"),
@@ -1667,6 +1690,15 @@ fn capability_pull_record_limit() -> usize {
         .and_then(|value| value.trim().parse::<usize>().ok())
         .filter(|value| *value >= 100)
         .unwrap_or(5_000)
+}
+
+fn capability_pull_timeout() -> Duration {
+    std::env::var("MEMD_CAPABILITY_PULL_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds >= 2)
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(30))
 }
 
 fn capability_identity(record: &CapabilityRecord) -> String {
