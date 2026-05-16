@@ -1340,7 +1340,12 @@ fn build_capability_materialization_report(
         .count();
     let installable = actions
         .iter()
-        .filter(|action| action.status == "present" || action.status == "installable")
+        .filter(|action| {
+            matches!(
+                action.status.as_str(),
+                "present" | "installable" | "installer-ready"
+            )
+        })
         .count();
     let host_local = actions
         .iter()
@@ -1680,7 +1685,7 @@ fn apply_capability_materialization(
                 .with_context(|| format!("write host CLI install plan {}", target.display()))?;
         }
         set_host_cli_install_plan_executable(&target)?;
-        action.status = "missing".to_string();
+        action.status = "installer-ready".to_string();
         action.reason = if changed {
             "wrote machine-approved host CLI install plan; run it with MEMD_HOST_CLI_INSTALL_APPROVED=1 to install on this machine, then authenticate and rerun capability sync".to_string()
         } else {
@@ -1947,7 +1952,7 @@ mod capability_materialization_tests {
     }
 
     #[test]
-    fn host_cli_install_plan_materializes_but_keeps_cli_missing() {
+    fn host_cli_install_plan_materializes_as_installer_ready() {
         let bundle = std::env::temp_dir().join(format!(
             "memd-host-cli-install-plan-{}",
             uuid::Uuid::new_v4()
@@ -1990,13 +1995,15 @@ mod capability_materialization_tests {
 
         assert_eq!(report.status, "partial-applied");
         assert!(report.applied >= 1);
-        assert!(report.missing >= 1);
+        assert_eq!(report.missing, 0);
+        assert!(report.host_local >= 1);
+        assert!(!report.fresh_machine_ready);
         let action = report
             .actions
             .iter()
             .find(|action| action.name == "memd-test-gh")
             .expect("memd-test-gh action");
-        assert_eq!(action.status, "missing");
+        assert_eq!(action.status, "installer-ready");
         assert_eq!(action.action, "write-host-cli-install-plan");
         assert!(action.reason.contains("MEMD_HOST_CLI_INSTALL_APPROVED=1"));
         let plan_path = bundle
@@ -2039,8 +2046,10 @@ mod capability_materialization_tests {
             .iter()
             .find(|action| action.name == "memd-test-gh")
             .expect("second memd-test-gh action");
+        assert_eq!(second_action.status, "installer-ready");
         assert!(second_action.reason.contains("already materialized"));
         assert_eq!(second_report.applied, 0);
+        assert_eq!(second_report.missing, 0);
 
         fs::remove_dir_all(bundle).ok();
     }
