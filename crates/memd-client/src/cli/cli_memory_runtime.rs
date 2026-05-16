@@ -716,6 +716,79 @@ mod tests {
     }
 
     #[test]
+    fn context_token_savings_counts_fallback_source_ids() {
+        let project = std::env::temp_dir().join(format!(
+            "memd-context-source-count-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = project.join(".memd");
+        fs::create_dir_all(&output).expect("create temp bundle");
+        write_bundle_source_registry(
+            &output,
+            &BootstrapSourceRegistry {
+                project: "memd".to_string(),
+                project_root: project.display().to_string(),
+                imported_at: Utc::now(),
+                sources: vec![
+                    BootstrapSourceRecord {
+                        path: "AGENTS.md".to_string(),
+                        kind: "policy".to_string(),
+                        hash: "965cdc34ae7e16543b2f948d9ff356e56ff11d90ee45824da0d72632868f0f8d"
+                            .to_string(),
+                        bytes: 1947,
+                        lines: 36,
+                        present: true,
+                        imported_at: Utc::now(),
+                        modified_at: None,
+                    },
+                    BootstrapSourceRecord {
+                        path: "CLAUDE.md".to_string(),
+                        kind: "policy".to_string(),
+                        hash: "8a97d3c7481a295e9114896162cf54a67defbba2ac0e603a42a07815d5b6e46f"
+                            .to_string(),
+                        bytes: 1477,
+                        lines: 31,
+                        present: true,
+                        imported_at: Utc::now(),
+                        modified_at: None,
+                    },
+                ],
+            },
+        )
+        .expect("write source registry");
+        let context = memd_schema::CompactContextResponse {
+            route: memd_schema::RetrievalRoute::Auto,
+            intent: memd_schema::RetrievalIntent::CurrentTask,
+            retrieval_order: vec![memd_schema::MemoryScope::Project],
+            records: Vec::new(),
+        };
+
+        let (source_records, baseline_text_chars) =
+            context_packet_token_accounting(&context, &output, Some("tiny"));
+
+        assert_eq!(source_records, 2);
+        assert_eq!(baseline_text_chars, 3424);
+
+        fs::remove_dir_all(project).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn token_budget_reuses_fallback_source_ids_without_memory_records() {
+        let context = memd_schema::CompactContextResponse {
+            route: memd_schema::RetrievalRoute::Auto,
+            intent: memd_schema::RetrievalIntent::CurrentTask,
+            retrieval_order: vec![memd_schema::MemoryScope::Project],
+            records: Vec::new(),
+        };
+
+        let section = render_token_budget_section(&context, "tiny", true);
+
+        assert!(section.contains("Source IDs as durable recall handles"));
+        assert!(section.contains("do not reread unchanged raw sources"));
+        assert!(!section.contains("no source IDs available"));
+    }
+
+    #[test]
     fn tiny_prompt_packet_prioritizes_host_cli_auth_gaps_over_skill_overflow() {
         fn cap(
             harness: &str,
@@ -1004,16 +1077,16 @@ pub(crate) async fn run_context_command(
             &compact,
             &packet_options,
         );
-        let baseline_text_chars = compact
-            .records
-            .iter()
-            .map(|record| record.record.chars().count())
-            .sum::<usize>();
+        let (source_records, baseline_text_chars) = context_packet_token_accounting(
+            &compact,
+            &default_bundle_root_path(),
+            packet_options.model_tier.as_deref(),
+        );
         if let Err(error) = record_context_token_savings(
             &default_bundle_root_path(),
             &req,
             packet_options.model_tier.as_deref(),
-            compact.records.len(),
+            source_records,
             baseline_text_chars,
             packet.chars().count(),
         ) {
@@ -1151,9 +1224,19 @@ fn render_prompt_context_packet(
     };
 
     let bundle_root = default_bundle_root_path();
+    let mut source_ids = context
+        .records
+        .iter()
+        .take(budget.source_id_lines)
+        .map(|record| format!("- {}", record.id))
+        .collect::<Vec<_>>();
+    if source_ids.is_empty() {
+        source_ids = fallback_source_id_lines(&bundle_root, budget.source_id_lines);
+    }
+    let has_source_ids = !source_ids.is_empty();
     let task_state = render_task_state_section(context, model_tier);
     let knowledge_gaps = render_knowledge_gaps_section(context);
-    let token_budget = render_token_budget_section(context, model_tier);
+    let token_budget = render_token_budget_section(context, model_tier, has_source_ids);
     let capabilities = if options.include_capabilities {
         compact_packet_section(
             options
@@ -1190,15 +1273,6 @@ fn render_prompt_context_packet(
     } else {
         "- omitted; pass --include-hive".to_string()
     };
-    let mut source_ids = context
-        .records
-        .iter()
-        .take(budget.source_id_lines)
-        .map(|record| format!("- {}", record.id))
-        .collect::<Vec<_>>();
-    if source_ids.is_empty() {
-        source_ids = fallback_source_id_lines(&bundle_root, budget.source_id_lines);
-    }
     let source_ids = if source_ids.is_empty() {
         "- none".to_string()
     } else {
@@ -1253,6 +1327,35 @@ fn fallback_source_id_lines(bundle_root: &Path, limit: usize) -> Vec<String> {
         .collect()
 }
 
+fn context_packet_token_accounting(
+    context: &memd_schema::CompactContextResponse,
+    bundle_root: &Path,
+    model_tier: Option<&str>,
+) -> (usize, usize) {
+    if !context.records.is_empty() {
+        let baseline_text_chars = context
+            .records
+            .iter()
+            .map(|record| record.record.chars().count())
+            .sum::<usize>();
+        return (context.records.len(), baseline_text_chars);
+    }
+    let budget = packet_section_budget(model_tier.unwrap_or("cloud"));
+    let Ok(Some(registry)) = read_bundle_source_registry(bundle_root) else {
+        return (0, 0);
+    };
+    let sources = registry
+        .sources
+        .iter()
+        .filter(|source| source.present)
+        .take(budget.source_id_lines)
+        .collect::<Vec<_>>();
+    (
+        sources.len(),
+        sources.iter().map(|source| source.bytes).sum::<usize>(),
+    )
+}
+
 fn render_prompt_voice_contract(voice_mode: &str) -> &'static str {
     match voice_mode {
         "normal" => "normal prose; keep replies direct and token-efficient",
@@ -1271,8 +1374,9 @@ fn render_prompt_voice_contract(voice_mode: &str) -> &'static str {
 fn render_token_budget_section(
     context: &memd_schema::CompactContextResponse,
     model_tier: &str,
+    has_source_ids: bool,
 ) -> String {
-    if context.records.is_empty() {
+    if !has_source_ids {
         return "- no source IDs available; ask or look up before rereading large raw context"
             .to_string();
     }
