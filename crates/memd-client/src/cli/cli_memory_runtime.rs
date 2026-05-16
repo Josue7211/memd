@@ -533,6 +533,31 @@ mod tests {
         assert!(packet.contains("bitwarden status=installed"));
         assert!(packet.contains("queen_session"));
     }
+
+    #[test]
+    fn prompt_packet_enforces_model_tier_budgets() {
+        let huge_packet = "# memd context packet\n\n## Token Budget\n- use Source IDs as durable recall handles\n\n## Active Truth\n"
+            .to_string()
+            + &"source-backed fact ".repeat(5000);
+
+        for (tier, max_tokens) in [("tiny", 1000usize), ("small", 2000), ("medium", 8000)] {
+            let packet = clamp_packet_for_model_tier(huge_packet.clone(), tier);
+
+            assert!(
+                packet.chars().count() <= max_tokens * 4,
+                "{tier} packet exceeded char budget"
+            );
+            assert!(
+                packet.contains("packet clipped to model-tier token budget"),
+                "{tier} packet should mark clipping"
+            );
+            assert!(packet.contains("## Token Budget"));
+        }
+
+        let cloud_packet = clamp_packet_for_model_tier(huge_packet, "cloud");
+        assert!(cloud_packet.chars().count() > 8000 * 4);
+        assert!(!cloud_packet.contains("packet clipped to model-tier token budget"));
+    }
 }
 
 pub(crate) async fn run_context_command(

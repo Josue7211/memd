@@ -5337,6 +5337,48 @@ mod search_fabric_tests {
     }
 
     #[test]
+    fn server_context_packet_enforces_model_tier_budgets() {
+        let huge = "- ".to_string() + &"source-backed fact ".repeat(3000);
+        let sections = vec![
+            packet_section(
+                "System Guard",
+                vec![
+                    "- target_agent: `codex`".to_string(),
+                    "- safety_mode: `strict`".to_string(),
+                ],
+            ),
+            packet_section(
+                "Token Budget",
+                vec![
+                    "- use Source IDs as durable recall handles; do not reread unchanged raw sources just to recover known facts".to_string(),
+                ],
+            ),
+            packet_section("Active Truth", vec![huge]),
+            packet_section("Source IDs", vec![format!("- {}", Uuid::new_v4())]),
+        ];
+
+        for (tier, max_tokens) in [("tiny", 1000usize), ("small", 2000), ("medium", 8000)] {
+            let packet = render_server_context_packet(&sections, tier);
+            assert!(
+                packet.chars().count() <= max_tokens * 4,
+                "{tier} packet exceeded char budget"
+            );
+            assert!(
+                packet.contains("packet clipped to model-tier token budget"),
+                "{tier} packet should mark clipping"
+            );
+            assert!(packet.contains("## Token Budget"));
+        }
+
+        let cloud_packet = render_server_context_packet(&sections, "cloud");
+        assert!(
+            cloud_packet.chars().count() > 8000 * 4,
+            "cloud tier should not use local model clamp"
+        );
+        assert!(!cloud_packet.contains("packet clipped to model-tier token budget"));
+    }
+
+    #[test]
     fn server_context_packet_strips_markdown_link_targets() {
         let sanitized = server_prompt_safe_line(
             "See [docs](https://example.invalid/%69%67%6e%6f%72%65) <!-- hide --> now",

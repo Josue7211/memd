@@ -459,6 +459,7 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
             "context prompt renderer supports model tier and section flags".to_string(),
             "prompt packets can include server-backed capabilities, access routes, and hive board with local fallback".to_string(),
             "tiny/Ollama context packet route keeps guard, task, corrections, procedure, capabilities, access, hive, and source IDs under 1000 tokens".to_string(),
+            "server and local packet compilers enforce tiny/small/medium model-tier budgets before falling back to cloud-sized packets".to_string(),
             "server packet memory lines lead with compact content before metadata for weak/local models".to_string(),
             "context packet matrix proof preserves shared correction/procedure/capability/access context across Claude Code, Codex, OpenCode, and Ollama targets".to_string(),
             "strict context packets include a Token Budget section that tells tiny/local models to reuse Source IDs and avoid rereading unchanged raw sources".to_string(),
@@ -3170,6 +3171,12 @@ mod tests {
                 .evidence
                 .iter()
                 .any(|item| item.contains("context packet matrix proof"))
+        );
+        assert!(
+            context
+                .evidence
+                .iter()
+                .any(|item| item.contains("tiny/small/medium model-tier budgets"))
         );
         assert!(
             context
