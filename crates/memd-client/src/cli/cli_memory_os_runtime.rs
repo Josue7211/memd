@@ -96,6 +96,8 @@ pub(crate) struct TokenSavingsReport {
     pub(crate) measured_input_tokens: usize,
     pub(crate) measured_output_tokens: usize,
     pub(crate) measured_tokens_saved: usize,
+    pub(crate) source_reuse_events: usize,
+    pub(crate) source_reuse_tokens: usize,
     pub(crate) wasted_events: usize,
     pub(crate) wasted_tokens: usize,
     pub(crate) wasted_raw_reread_tokens: usize,
@@ -314,13 +316,15 @@ pub(crate) fn render_secrets_summary(report: &SecretProviderReport) -> String {
 
 pub(crate) fn render_tokens_summary(report: &TokenSavingsReport) -> String {
     format!(
-        "tokens_saved source={} measured={} events={} server_measured={} server_events={} estimated={} wasted={} wasted_events={} source_records={} source_tokens={} wake_tokens={} bundle={}",
+        "tokens_saved source={} measured={} events={} server_measured={} server_events={} estimated={} source_reuse={} source_reuse_events={} wasted={} wasted_events={} source_records={} source_tokens={} wake_tokens={} bundle={}",
         report.source,
         report.measured_tokens_saved,
         report.ledger_events,
         report.server_measured_tokens_saved,
         report.server_events,
         report.estimated_tokens_saved,
+        report.source_reuse_tokens,
+        report.source_reuse_events,
         report.wasted_tokens,
         report.wasted_events,
         report.source_records,
@@ -567,6 +571,7 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
             path_evidence("token_savings_ledger", &token_savings_ledger_path(output)),
             "context packet savings are measured locally and syncable to memd-server".to_string(),
             "source-read attribution records saved tokens when a source-registry hash/path is referenced instead of reread".to_string(),
+            "source-ID reuse checks count source_read_avoided events and tokens locally and after server sync".to_string(),
             "wasted-token telemetry records raw source rereads, giant diffs, and repo cache exposure with wasted token estimates".to_string(),
             "Token Budget prompt section instructs agents to reuse Source IDs, avoid rereading unchanged raw sources, and reread only for exact quotes, current file contents, or changed source hashes".to_string(),
             "server authority replay proof syncs token savings payloads after backend outage".to_string(),
@@ -1759,6 +1764,15 @@ fn build_token_savings_report(output: &Path, since: Option<String>) -> TokenSavi
         .iter()
         .map(|entry| entry.tokens_saved)
         .sum::<usize>();
+    let source_reuse_events = ledger
+        .iter()
+        .filter(|entry| entry.operation == "source_read_avoided")
+        .count();
+    let source_reuse_tokens = ledger
+        .iter()
+        .filter(|entry| entry.operation == "source_read_avoided")
+        .map(|entry| entry.tokens_saved)
+        .sum::<usize>();
     let wasted_events = ledger
         .iter()
         .filter(|entry| entry.wasted_tokens > 0)
@@ -1789,6 +1803,8 @@ fn build_token_savings_report(output: &Path, since: Option<String>) -> TokenSavi
         measured_input_tokens,
         measured_output_tokens,
         measured_tokens_saved,
+        source_reuse_events,
+        source_reuse_tokens,
         wasted_events,
         wasted_tokens,
         wasted_raw_reread_tokens,
@@ -1827,6 +1843,8 @@ pub(crate) fn merge_server_token_savings_report(
     report.measured_input_tokens = server.measured_input_tokens;
     report.measured_output_tokens = server.measured_output_tokens;
     report.measured_tokens_saved = server.measured_tokens_saved;
+    report.source_reuse_events = server.source_reuse_events;
+    report.source_reuse_tokens = server.source_reuse_tokens;
     if server.wasted_events > 0 || server.wasted_tokens > 0 {
         report.wasted_events = server.wasted_events;
         report.wasted_tokens = server.wasted_tokens;
@@ -2252,6 +2270,8 @@ mod tests {
         assert!(entry.reason.contains("sha256-roadmap"));
         assert_eq!(report.ledger_events, 1);
         assert_eq!(report.measured_tokens_saved, entry.tokens_saved);
+        assert_eq!(report.source_reuse_events, 1);
+        assert_eq!(report.source_reuse_tokens, entry.tokens_saved);
         assert_eq!(report.source_records, 1);
         assert!(report.estimated_source_tokens >= entry.baseline_input_tokens);
 
@@ -2301,6 +2321,8 @@ mod tests {
         assert_eq!(report.wasted_tokens, 6000);
         assert_eq!(report.measured_input_tokens, 0);
         assert_eq!(report.measured_tokens_saved, 0);
+        assert_eq!(report.source_reuse_events, 0);
+        assert_eq!(report.source_reuse_tokens, 0);
         assert!(summary.contains("wasted=6000"));
         assert!(summary.contains("wasted_events=3"));
 
@@ -2328,6 +2350,8 @@ mod tests {
                 measured_input_tokens: 1000,
                 measured_output_tokens: 300,
                 measured_tokens_saved: 700,
+                source_reuse_events: 1,
+                source_reuse_tokens: 250,
                 wasted_events: 1,
                 wasted_tokens: 2000,
                 wasted_raw_reread_tokens: 0,
@@ -2342,6 +2366,8 @@ mod tests {
         assert_eq!(merged.server_events, 2);
         assert_eq!(merged.measured_tokens_saved, 700);
         assert_eq!(merged.server_measured_tokens_saved, 700);
+        assert_eq!(merged.source_reuse_events, 1);
+        assert_eq!(merged.source_reuse_tokens, 250);
         assert_eq!(merged.wasted_events, 1);
         assert_eq!(merged.wasted_tokens, 2000);
         assert_eq!(merged.wasted_giant_diff_tokens, 2000);
@@ -2378,6 +2404,8 @@ mod tests {
                 measured_input_tokens: 0,
                 measured_output_tokens: 0,
                 measured_tokens_saved: 0,
+                source_reuse_events: 0,
+                source_reuse_tokens: 0,
                 wasted_events: 0,
                 wasted_tokens: 0,
                 wasted_raw_reread_tokens: 0,
@@ -2467,6 +2495,8 @@ mod tests {
                 measured_input_tokens: 1000,
                 measured_output_tokens: 300,
                 measured_tokens_saved: 700,
+                source_reuse_events: 1,
+                source_reuse_tokens: 250,
                 wasted_events: 0,
                 wasted_tokens: 0,
                 wasted_raw_reread_tokens: 0,
@@ -2723,6 +2753,12 @@ mod tests {
                 .evidence
                 .iter()
                 .any(|item| item.contains("source-read attribution records saved tokens"))
+        );
+        assert!(
+            tokens
+                .evidence
+                .iter()
+                .any(|item| item.contains("source-ID reuse checks count"))
         );
         assert!(
             tokens

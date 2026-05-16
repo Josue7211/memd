@@ -91,6 +91,26 @@ fn token_savings_upsert_and_list_summarizes_cross_harness_records() {
         ts: now,
         updated_at: None,
     };
+    let source_reuse_record = TokenSavingsRecord {
+        id: Uuid::new_v4(),
+        operation: "source_read_avoided".to_string(),
+        project: Some("memd".to_string()),
+        namespace: Some("main".to_string()),
+        workspace: Some("core".to_string()),
+        user_id: None,
+        agent: Some("codex".to_string()),
+        model_tier: None,
+        intent: Some("SourceRead".to_string()),
+        source_records: 1,
+        baseline_input_tokens: 500,
+        output_tokens: 20,
+        tokens_saved: 480,
+        wasted_tokens: 0,
+        waste_kind: None,
+        reason: "source ID reused instead of rereading ROADMAP.md".to_string(),
+        ts: now,
+        updated_at: None,
+    };
 
     let sync = store
         .upsert_token_savings(&TokenSavingsSyncRequest {
@@ -99,7 +119,7 @@ fn token_savings_upsert_and_list_summarizes_cross_harness_records() {
             workspace: Some("core".to_string()),
             user_id: None,
             agent: None,
-            records: vec![record, waste_record],
+            records: vec![record, waste_record, source_reuse_record],
         })
         .expect("upsert token savings");
     let list = store
@@ -114,11 +134,13 @@ fn token_savings_upsert_and_list_summarizes_cross_harness_records() {
         })
         .expect("list token savings");
 
-    assert_eq!(sync.upserted, 2);
-    assert_eq!(list.total, 2);
-    assert_eq!(list.measured_input_tokens, 1000);
-    assert_eq!(list.measured_output_tokens, 250);
-    assert_eq!(list.measured_tokens_saved, 750);
+    assert_eq!(sync.upserted, 3);
+    assert_eq!(list.total, 3);
+    assert_eq!(list.measured_input_tokens, 1500);
+    assert_eq!(list.measured_output_tokens, 270);
+    assert_eq!(list.measured_tokens_saved, 1230);
+    assert_eq!(list.source_reuse_events, 1);
+    assert_eq!(list.source_reuse_tokens, 480);
     assert_eq!(list.wasted_events, 1);
     assert_eq!(list.wasted_tokens, 2000);
     assert_eq!(list.wasted_giant_diff_tokens, 2000);

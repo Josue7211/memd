@@ -192,6 +192,10 @@ pub struct TokenSavingsListResponse {
     pub measured_output_tokens: usize,
     pub measured_tokens_saved: usize,
     #[serde(default)]
+    pub source_reuse_events: usize,
+    #[serde(default)]
+    pub source_reuse_tokens: usize,
+    #[serde(default)]
     pub wasted_events: usize,
     #[serde(default)]
     pub wasted_tokens: usize,

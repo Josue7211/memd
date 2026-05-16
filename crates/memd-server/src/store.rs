@@ -4687,6 +4687,15 @@ impl SqliteStore {
                 .filter(|record| record.waste_kind.is_none())
                 .map(|record| record.tokens_saved)
                 .sum(),
+            source_reuse_events: records
+                .iter()
+                .filter(|record| record.operation == "source_read_avoided")
+                .count(),
+            source_reuse_tokens: records
+                .iter()
+                .filter(|record| record.operation == "source_read_avoided")
+                .map(|record| record.tokens_saved)
+                .sum(),
             wasted_events: records
                 .iter()
                 .filter(|record| record.wasted_tokens > 0)
