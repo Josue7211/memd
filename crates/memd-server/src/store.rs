@@ -1,15 +1,21 @@
+#![allow(dead_code)]
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context;
 use memd_schema::{
-    AgentProfileRequest, AgentProfileUpsertRequest, CoordinationMode, DecayAgeDistribution,
-    DecayRunMetrics, DivergenceBranch, DivergenceDecision, DivergenceRequest, DivergenceSummary,
-    EntityLinkRequest, EntityLinksRequest, EntitySearchHit, EntitySearchRequest, HiveBoardRequest,
-    HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecord, HiveClaimRecoverRequest,
-    HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse,
-    HiveCoordinationInboxRequest, HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord,
-    HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
+    AccessRouteListRequest, AccessRouteListResponse, AccessRouteRecord, AccessRouteSyncRequest,
+    AccessRouteSyncResponse, AgentProfileRequest, AgentProfileUpsertRequest, CapabilityListRequest,
+    CapabilityListResponse, CapabilityRecord, CapabilitySyncRequest, CapabilitySyncResponse,
+    CoordinationMode, DecayAgeDistribution, DecayRunMetrics, DevServerLeaseAcquireRequest,
+    DevServerLeaseRecord, DevServerLeaseReleaseRequest, DevServerLeasesRequest,
+    DevServerLeasesResponse, DivergenceBranch, DivergenceDecision, DivergenceRequest,
+    DivergenceSummary, EntityLinkRequest, EntityLinksRequest, EntitySearchHit, EntitySearchRequest,
+    HiveBoardRequest, HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecord,
+    HiveClaimRecoverRequest, HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest,
+    HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
+    HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
     HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
     HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse, HiveRosterResponse,
     HiveSessionRecord, HiveSessionRetireRequest, HiveSessionRetireResponse,
@@ -17,8 +23,9 @@ use memd_schema::{
     HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, MemoryAgentProfile,
     MemoryConsolidationRequest, MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord,
     MemoryEntityRecord, MemoryEventRecord, MemoryItem, SalienceHistogram, SourceMemoryRecord,
-    SourceMemoryRequest, SourceMemoryResponse, WorkspaceMemoryRecord, WorkspaceMemoryRequest,
-    WorkspaceMemoryResponse,
+    SourceMemoryRequest, SourceMemoryResponse, TokenSavingsListRequest, TokenSavingsListResponse,
+    TokenSavingsRecord, TokenSavingsSyncRequest, TokenSavingsSyncResponse, WorkspaceMemoryRecord,
+    WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use uuid::Uuid;
@@ -350,6 +357,65 @@ impl SqliteStore {
             CREATE INDEX IF NOT EXISTS idx_memory_agent_profiles_updated_at
               ON memory_agent_profiles(updated_at DESC);
 
+            CREATE TABLE IF NOT EXISTS capabilities (
+              capability_key TEXT PRIMARY KEY,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              user_id TEXT,
+              harness TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              name TEXT NOT NULL,
+              status TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_capabilities_scope
+              ON capabilities(project, namespace, workspace, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_capabilities_user
+              ON capabilities(user_id, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_capabilities_kind
+              ON capabilities(harness, kind, name);
+
+            CREATE TABLE IF NOT EXISTS access_routes (
+              route_key TEXT PRIMARY KEY,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              user_id TEXT,
+              provider TEXT NOT NULL,
+              status TEXT NOT NULL,
+              scope TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_access_routes_scope
+              ON access_routes(project, namespace, workspace, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_access_routes_provider
+              ON access_routes(provider, status, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_access_routes_user
+              ON access_routes(user_id, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS token_savings (
+              token_savings_id TEXT PRIMARY KEY,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              user_id TEXT,
+              agent TEXT,
+              operation TEXT NOT NULL,
+              model_tier TEXT,
+              intent TEXT,
+              ts TEXT NOT NULL,
+              tokens_saved INTEGER NOT NULL,
+              updated_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_token_savings_scope
+              ON token_savings(project, namespace, workspace, ts DESC);
+            CREATE INDEX IF NOT EXISTS idx_token_savings_agent
+              ON token_savings(agent, ts DESC);
+
             CREATE TABLE IF NOT EXISTS hive_messages (
               id TEXT PRIMARY KEY,
               to_session TEXT NOT NULL,
@@ -378,6 +444,26 @@ impl SqliteStore {
               ON hive_claims(session, expires_at DESC);
             CREATE INDEX IF NOT EXISTS idx_hive_claims_project_namespace
               ON hive_claims(project, namespace, expires_at DESC);
+
+            CREATE TABLE IF NOT EXISTS dev_server_leases (
+              scope TEXT PRIMARY KEY,
+              session TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              repo_hash TEXT NOT NULL,
+              host TEXT NOT NULL,
+              port INTEGER NOT NULL,
+              expires_at TEXT NOT NULL,
+              last_heartbeat_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_dev_server_leases_session
+              ON dev_server_leases(session, expires_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_dev_server_leases_project_namespace
+              ON dev_server_leases(project, namespace, expires_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_dev_server_leases_repo_port
+              ON dev_server_leases(repo_hash, host, port, expires_at DESC);
 
             CREATE TABLE IF NOT EXISTS hive_tasks (
               task_id TEXT PRIMARY KEY,
@@ -1544,8 +1630,8 @@ impl SqliteStore {
             if !wanted.contains(&item_id) {
                 continue;
             }
-            let entity: MemoryEntityRecord = serde_json::from_str(&payload)
-                .context("deserialize latest entity payload")?;
+            let entity: MemoryEntityRecord =
+                serde_json::from_str(&payload).context("deserialize latest entity payload")?;
             out.insert(item_id, entity);
         }
         Ok(out)
@@ -2449,7 +2535,7 @@ impl SqliteStore {
             bound.push(n);
         }
         let rows = stmt
-            .query_map(rusqlite::params_from_iter(bound.into_iter()), |row| {
+            .query_map(rusqlite::params_from_iter(bound), |row| {
                 let id_str: String = row.get(0)?;
                 let vec_bytes: Vec<u8> = row.get(1)?;
                 Ok((id_str, vec_bytes))
@@ -2555,23 +2641,23 @@ impl SqliteStore {
             hasher.update([0xff]);
             scanned += 1;
 
-            if let Some((prev_entity, prev_at, prev_id)) = &prev {
-                if prev_entity == &entity_id && recorded_at < *prev_at {
-                    violations += 1;
-                    if first_violation.is_none()
-                        && let (Ok(earlier), Ok(later)) =
-                            (Uuid::parse_str(prev_id), Uuid::parse_str(&id))
-                    {
-                        if let Ok(entity_uuid) = Uuid::parse_str(&entity_id) {
-                            first_violation = Some(memd_schema::SpineViolation {
-                                entity_id: entity_uuid,
-                                earlier_event_id: earlier,
-                                later_event_id: later,
-                                earlier_recorded_at: *prev_at,
-                                later_recorded_at: recorded_at,
-                            });
-                        }
-                    }
+            if let Some((prev_entity, prev_at, prev_id)) = &prev
+                && prev_entity == &entity_id
+                && recorded_at < *prev_at
+            {
+                violations += 1;
+                if first_violation.is_none()
+                    && let (Ok(earlier), Ok(later)) =
+                        (Uuid::parse_str(prev_id), Uuid::parse_str(&id))
+                    && let Ok(entity_uuid) = Uuid::parse_str(&entity_id)
+                {
+                    first_violation = Some(memd_schema::SpineViolation {
+                        entity_id: entity_uuid,
+                        earlier_event_id: earlier,
+                        later_event_id: later,
+                        earlier_recorded_at: *prev_at,
+                        later_recorded_at: recorded_at,
+                    });
                 }
             }
 
@@ -3075,6 +3161,245 @@ impl SqliteStore {
             );
         }
         Ok(HiveClaimsResponse { claims })
+    }
+
+    pub(crate) fn prune_expired_dev_server_leases(&self) -> anyhow::Result<()> {
+        let conn = self.connect()?;
+        conn.execute(
+            "DELETE FROM dev_server_leases WHERE expires_at <= ?1",
+            params![chrono::Utc::now().to_rfc3339()],
+        )
+        .context("prune expired dev server leases")?;
+        Ok(())
+    }
+
+    pub fn acquire_dev_server_lease(
+        &self,
+        request: &DevServerLeaseAcquireRequest,
+    ) -> anyhow::Result<DevServerLeasesResponse> {
+        self.prune_expired_dev_server_leases()?;
+        let now = chrono::Utc::now();
+        let scope = request.scope.trim().to_string();
+        let session = request.session.trim().to_string();
+        let expires_at = now + chrono::TimeDelta::seconds(request.ttl_seconds.max(1) as i64);
+        let conn = self.connect()?;
+        let existing = conn
+            .query_row(
+                "SELECT payload_json FROM dev_server_leases WHERE scope = ?1",
+                params![scope.as_str()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch existing dev server lease")?;
+        let mut receipt_kind = "dev_server_acquire";
+
+        if let Some(payload) = existing {
+            let existing_lease: DevServerLeaseRecord =
+                serde_json::from_str(&payload).context("deserialize existing dev server lease")?;
+            if existing_lease.session != session && existing_lease.expires_at > now {
+                let stale_cutoff =
+                    now - chrono::TimeDelta::seconds(request.stale_after_seconds.max(1) as i64);
+                if !request.recover_stale || existing_lease.last_heartbeat_at > stale_cutoff {
+                    self.record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+                        kind: "dev_server_conflict".to_string(),
+                        actor_session: session.clone(),
+                        actor_agent: request.effective_agent.clone().or(request.agent.clone()),
+                        target_session: Some(existing_lease.session.clone()),
+                        task_id: None,
+                        scope: Some(scope.clone()),
+                        project: request.project.clone(),
+                        namespace: request.namespace.clone(),
+                        workspace: request.workspace.clone(),
+                        summary: format!(
+                            "Dev server {} is already leased by {}.",
+                            request.url, existing_lease.session
+                        ),
+                    })?;
+                    anyhow::bail!(
+                        "dev_server_conflict: scope '{}' already leased by {}",
+                        scope,
+                        existing_lease
+                            .effective_agent
+                            .as_deref()
+                            .unwrap_or(existing_lease.session.as_str())
+                    );
+                }
+                receipt_kind = "dev_server_recover";
+            } else {
+                receipt_kind = "dev_server_heartbeat";
+            }
+        }
+
+        let lease = DevServerLeaseRecord {
+            scope: scope.clone(),
+            host: request.host.trim().to_string(),
+            port: request.port,
+            url: request.url.trim().to_string(),
+            repo_root: request.repo_root.trim().to_string(),
+            repo_hash: request.repo_hash.trim().to_string(),
+            command: request.command.clone(),
+            session: session.clone(),
+            tab_id: request.tab_id.clone(),
+            agent: request.agent.clone(),
+            effective_agent: request.effective_agent.clone(),
+            project: request.project.clone(),
+            namespace: request.namespace.clone(),
+            workspace: request.workspace.clone(),
+            host_name: request.host_name.clone(),
+            pid: request.pid,
+            acquired_at: now,
+            last_heartbeat_at: now,
+            expires_at,
+        };
+
+        let payload_json = serde_json::to_string(&lease).context("serialize dev server lease")?;
+        conn.execute(
+            r#"
+            INSERT INTO dev_server_leases
+              (scope, session, project, namespace, workspace, repo_hash, host, port, expires_at, last_heartbeat_at, payload_json)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            ON CONFLICT(scope) DO UPDATE SET
+              session = excluded.session,
+              project = excluded.project,
+              namespace = excluded.namespace,
+              workspace = excluded.workspace,
+              repo_hash = excluded.repo_hash,
+              host = excluded.host,
+              port = excluded.port,
+              expires_at = excluded.expires_at,
+              last_heartbeat_at = excluded.last_heartbeat_at,
+              payload_json = excluded.payload_json
+            "#,
+            params![
+                lease.scope.as_str(),
+                lease.session.as_str(),
+                &lease.project,
+                &lease.namespace,
+                &lease.workspace,
+                lease.repo_hash.as_str(),
+                lease.host.as_str(),
+                lease.port,
+                lease.expires_at.to_rfc3339(),
+                lease.last_heartbeat_at.to_rfc3339(),
+                payload_json,
+            ],
+        )
+        .context("upsert dev server lease")?;
+
+        self.record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+            kind: receipt_kind.to_string(),
+            actor_session: lease.session.clone(),
+            actor_agent: lease.effective_agent.clone().or(lease.agent.clone()),
+            target_session: None,
+            task_id: None,
+            scope: Some(lease.scope.clone()),
+            project: lease.project.clone(),
+            namespace: lease.namespace.clone(),
+            workspace: lease.workspace.clone(),
+            summary: format!("{} {}", receipt_kind, lease.url),
+        })?;
+
+        Ok(DevServerLeasesResponse {
+            leases: vec![lease],
+        })
+    }
+
+    pub fn release_dev_server_lease(
+        &self,
+        request: &DevServerLeaseReleaseRequest,
+    ) -> anyhow::Result<DevServerLeasesResponse> {
+        let conn = self.connect()?;
+        let payload = conn
+            .query_row(
+                "SELECT payload_json FROM dev_server_leases WHERE scope = ?1",
+                params![request.scope.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch dev server lease for release")?;
+        let Some(payload) = payload else {
+            return Ok(DevServerLeasesResponse { leases: Vec::new() });
+        };
+        let lease: DevServerLeaseRecord =
+            serde_json::from_str(&payload).context("deserialize dev server lease for release")?;
+        if lease.session != request.session.trim() {
+            anyhow::bail!(
+                "dev_server_release_denied: scope '{}' is leased by {}",
+                lease.scope,
+                lease.session
+            );
+        }
+        conn.execute(
+            "DELETE FROM dev_server_leases WHERE scope = ?1 AND session = ?2",
+            params![request.scope.trim(), request.session.trim()],
+        )
+        .context("release dev server lease")?;
+        self.record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+            kind: "dev_server_release".to_string(),
+            actor_session: lease.session.clone(),
+            actor_agent: lease.effective_agent.clone().or(lease.agent.clone()),
+            target_session: None,
+            task_id: None,
+            scope: Some(lease.scope.clone()),
+            project: lease.project.clone(),
+            namespace: lease.namespace.clone(),
+            workspace: lease.workspace.clone(),
+            summary: format!("Released dev server lease {}", lease.url),
+        })?;
+        Ok(DevServerLeasesResponse {
+            leases: vec![lease],
+        })
+    }
+
+    pub fn dev_server_leases(
+        &self,
+        request: &DevServerLeasesRequest,
+    ) -> anyhow::Result<DevServerLeasesResponse> {
+        self.prune_expired_dev_server_leases()?;
+        let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
+        let active_only = request.active_only.unwrap_or(true);
+        let conn = self.connect()?;
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT payload_json
+                FROM dev_server_leases
+                WHERE (?1 IS NULL OR session = ?1)
+                  AND (?2 IS NULL OR project = ?2)
+                  AND (?3 IS NULL OR namespace = ?3)
+                  AND (?4 IS NULL OR workspace = ?4)
+                  AND (?5 IS NULL OR repo_hash = ?5)
+                  AND (?6 = 0 OR expires_at > ?7)
+                ORDER BY last_heartbeat_at DESC
+                LIMIT ?8
+                "#,
+            )
+            .context("prepare dev server leases query")?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let rows = stmt
+            .query_map(
+                params![
+                    request.session.clone(),
+                    request.project.clone(),
+                    request.namespace.clone(),
+                    request.workspace.clone(),
+                    request.repo_hash.clone(),
+                    if active_only { 1 } else { 0 },
+                    now,
+                    limit,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .context("query dev server leases")?;
+        let mut leases = Vec::new();
+        for row in rows {
+            let payload = row.context("read dev server lease row")?;
+            leases.push(
+                serde_json::from_str::<DevServerLeaseRecord>(&payload)
+                    .context("deserialize dev server lease payload")?,
+            );
+        }
+        Ok(DevServerLeasesResponse { leases })
     }
 
     pub fn upsert_hive_session(
@@ -3947,6 +4272,442 @@ impl SqliteStore {
             .context("list ingestion manifest")?;
         Ok(entries)
     }
+
+    pub fn upsert_capabilities(
+        &self,
+        req: &CapabilitySyncRequest,
+    ) -> anyhow::Result<CapabilitySyncResponse> {
+        let conn = self.connect()?;
+        let now = chrono::Utc::now();
+        let mut records = Vec::new();
+        for input in &req.records {
+            if input.harness.trim().is_empty()
+                || input.kind.trim().is_empty()
+                || input.name.trim().is_empty()
+            {
+                continue;
+            }
+            let mut record = input.clone();
+            record.project = record.project.or_else(|| req.project.clone());
+            record.namespace = record.namespace.or_else(|| req.namespace.clone());
+            record.workspace = record.workspace.or_else(|| req.workspace.clone());
+            record.user_id = record.user_id.or_else(|| req.user_id.clone());
+            record.agent = record.agent.or_else(|| req.agent.clone());
+            record.updated_at = Some(now);
+            let key = capability_key(&record);
+            let payload_json = serde_json::to_string(&record).context("serialize capability")?;
+            conn.execute(
+                r#"
+                INSERT INTO capabilities (
+                  capability_key, project, namespace, workspace, user_id, harness, kind, name, status, updated_at, payload_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                ON CONFLICT(capability_key) DO UPDATE SET
+                  project = excluded.project,
+                  namespace = excluded.namespace,
+                  workspace = excluded.workspace,
+                  user_id = excluded.user_id,
+                  harness = excluded.harness,
+                  kind = excluded.kind,
+                  name = excluded.name,
+                  status = excluded.status,
+                  updated_at = excluded.updated_at,
+                  payload_json = excluded.payload_json
+                "#,
+                params![
+                    key,
+                    record.project,
+                    record.namespace,
+                    record.workspace,
+                    record.user_id,
+                    record.harness,
+                    record.kind,
+                    record.name,
+                    record.status,
+                    now.to_rfc3339(),
+                    payload_json,
+                ],
+            )
+            .context("upsert capability")?;
+            records.push(record);
+        }
+        Ok(CapabilitySyncResponse {
+            upserted: records.len(),
+            total: self
+                .list_capabilities(&CapabilityListRequest {
+                    project: req.project.clone(),
+                    namespace: req.namespace.clone(),
+                    workspace: req.workspace.clone(),
+                    user_id: req.user_id.clone(),
+                    harness: None,
+                    kind: None,
+                    query: None,
+                    limit: Some(500),
+                })?
+                .total,
+            records,
+        })
+    }
+
+    pub fn list_capabilities(
+        &self,
+        req: &CapabilityListRequest,
+    ) -> anyhow::Result<CapabilityListResponse> {
+        let conn = self.connect()?;
+        let limit = req.limit.unwrap_or(100).clamp(1, 5_000);
+        let query = req
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("%{}%", value.to_ascii_lowercase()));
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT payload_json
+            FROM capabilities
+            WHERE (?1 IS NULL OR project = ?1)
+              AND (?2 IS NULL OR namespace = ?2)
+              AND (?3 IS NULL OR workspace = ?3)
+              AND (?4 IS NULL OR user_id = ?4)
+              AND (?5 IS NULL OR harness = ?5)
+              AND (?6 IS NULL OR kind = ?6)
+              AND (
+                ?7 IS NULL
+                OR lower(name) LIKE ?7
+                OR lower(harness) LIKE ?7
+                OR lower(kind) LIKE ?7
+                OR lower(payload_json) LIKE ?7
+              )
+            ORDER BY updated_at DESC, harness ASC, kind ASC, name ASC
+            LIMIT ?8
+            "#,
+        )?;
+        let records = stmt
+            .query_map(
+                params![
+                    req.project,
+                    req.namespace,
+                    req.workspace,
+                    req.user_id,
+                    req.harness,
+                    req.kind,
+                    query,
+                    limit as i64,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .context("query capabilities")?
+            .map(|row| {
+                let payload = row?;
+                serde_json::from_str::<CapabilityRecord>(&payload).map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(err),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .context("read capabilities")?;
+        Ok(CapabilityListResponse {
+            total: records.len(),
+            records,
+        })
+    }
+
+    pub fn upsert_access_routes(
+        &self,
+        req: &AccessRouteSyncRequest,
+    ) -> anyhow::Result<AccessRouteSyncResponse> {
+        let conn = self.connect()?;
+        let now = chrono::Utc::now();
+        let mut routes = Vec::new();
+        for input in &req.routes {
+            if input.id.trim().is_empty() || input.provider.trim().is_empty() {
+                continue;
+            }
+            if input.secret_values_stored {
+                continue;
+            }
+            let mut route = input.clone();
+            route.project = route.project.or_else(|| req.project.clone());
+            route.namespace = route.namespace.or_else(|| req.namespace.clone());
+            route.workspace = route.workspace.or_else(|| req.workspace.clone());
+            route.user_id = route.user_id.or_else(|| req.user_id.clone());
+            route.agent = route.agent.or_else(|| req.agent.clone());
+            route.updated_at = Some(now);
+            let key = access_route_key(&route);
+            let payload_json = serde_json::to_string(&route).context("serialize access route")?;
+            conn.execute(
+                r#"
+                INSERT INTO access_routes (
+                  route_key, project, namespace, workspace, user_id, provider, status, scope, updated_at, payload_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                ON CONFLICT(route_key) DO UPDATE SET
+                  project = excluded.project,
+                  namespace = excluded.namespace,
+                  workspace = excluded.workspace,
+                  user_id = excluded.user_id,
+                  provider = excluded.provider,
+                  status = excluded.status,
+                  scope = excluded.scope,
+                  updated_at = excluded.updated_at,
+                  payload_json = excluded.payload_json
+                "#,
+                params![
+                    key,
+                    route.project,
+                    route.namespace,
+                    route.workspace,
+                    route.user_id,
+                    route.provider,
+                    route.status,
+                    route.scope,
+                    now.to_rfc3339(),
+                    payload_json,
+                ],
+            )
+            .context("upsert access route")?;
+            routes.push(route);
+        }
+        Ok(AccessRouteSyncResponse {
+            upserted: routes.len(),
+            total: self
+                .list_access_routes(&AccessRouteListRequest {
+                    project: req.project.clone(),
+                    namespace: req.namespace.clone(),
+                    workspace: req.workspace.clone(),
+                    user_id: req.user_id.clone(),
+                    provider: None,
+                    query: None,
+                    limit: Some(500),
+                })?
+                .total,
+            routes,
+        })
+    }
+
+    pub fn list_access_routes(
+        &self,
+        req: &AccessRouteListRequest,
+    ) -> anyhow::Result<AccessRouteListResponse> {
+        let conn = self.connect()?;
+        let limit = req.limit.unwrap_or(100).clamp(1, 500);
+        let query = req
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("%{}%", value.to_ascii_lowercase()));
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT payload_json
+            FROM access_routes
+            WHERE (?1 IS NULL OR project = ?1)
+              AND (?2 IS NULL OR namespace = ?2)
+              AND (?3 IS NULL OR workspace = ?3)
+              AND (?4 IS NULL OR user_id = ?4)
+              AND (?5 IS NULL OR provider = ?5)
+              AND (
+                ?6 IS NULL
+                OR lower(provider) LIKE ?6
+                OR lower(status) LIKE ?6
+                OR lower(scope) LIKE ?6
+                OR lower(payload_json) LIKE ?6
+              )
+            ORDER BY updated_at DESC, provider ASC, scope ASC
+            LIMIT ?7
+            "#,
+        )?;
+        let routes = stmt
+            .query_map(
+                params![
+                    req.project,
+                    req.namespace,
+                    req.workspace,
+                    req.user_id,
+                    req.provider,
+                    query,
+                    limit as i64,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .context("query access routes")?
+            .map(|row| {
+                let payload = row?;
+                serde_json::from_str::<AccessRouteRecord>(&payload).map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(err),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .context("read access routes")?;
+        Ok(AccessRouteListResponse {
+            total: routes.len(),
+            routes,
+        })
+    }
+
+    pub fn upsert_token_savings(
+        &self,
+        req: &TokenSavingsSyncRequest,
+    ) -> anyhow::Result<TokenSavingsSyncResponse> {
+        let conn = self.connect()?;
+        let now = chrono::Utc::now();
+        let mut records = Vec::new();
+        for input in &req.records {
+            let mut record = input.clone();
+            record.project = record.project.or_else(|| req.project.clone());
+            record.namespace = record.namespace.or_else(|| req.namespace.clone());
+            record.workspace = record.workspace.or_else(|| req.workspace.clone());
+            record.user_id = record.user_id.or_else(|| req.user_id.clone());
+            record.agent = record.agent.or_else(|| req.agent.clone());
+            record.updated_at = Some(now);
+            let payload_json =
+                serde_json::to_string(&record).context("serialize token savings record")?;
+            conn.execute(
+                r#"
+                INSERT INTO token_savings (
+                  token_savings_id, project, namespace, workspace, user_id, agent,
+                  operation, model_tier, intent, ts, tokens_saved, updated_at, payload_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                ON CONFLICT(token_savings_id) DO UPDATE SET
+                  project = excluded.project,
+                  namespace = excluded.namespace,
+                  workspace = excluded.workspace,
+                  user_id = excluded.user_id,
+                  agent = excluded.agent,
+                  operation = excluded.operation,
+                  model_tier = excluded.model_tier,
+                  intent = excluded.intent,
+                  ts = excluded.ts,
+                  tokens_saved = excluded.tokens_saved,
+                  updated_at = excluded.updated_at,
+                  payload_json = excluded.payload_json
+                "#,
+                params![
+                    record.id.to_string(),
+                    record.project,
+                    record.namespace,
+                    record.workspace,
+                    record.user_id,
+                    record.agent,
+                    record.operation,
+                    record.model_tier,
+                    record.intent,
+                    record.ts.to_rfc3339(),
+                    record.tokens_saved as i64,
+                    now.to_rfc3339(),
+                    payload_json,
+                ],
+            )
+            .context("upsert token savings")?;
+            records.push(record);
+        }
+        Ok(TokenSavingsSyncResponse {
+            upserted: records.len(),
+            total: self
+                .list_token_savings(&TokenSavingsListRequest {
+                    project: req.project.clone(),
+                    namespace: req.namespace.clone(),
+                    workspace: req.workspace.clone(),
+                    user_id: req.user_id.clone(),
+                    agent: req.agent.clone(),
+                    since: None,
+                    limit: Some(500),
+                })?
+                .total,
+            records,
+        })
+    }
+
+    pub fn list_token_savings(
+        &self,
+        req: &TokenSavingsListRequest,
+    ) -> anyhow::Result<TokenSavingsListResponse> {
+        let conn = self.connect()?;
+        let limit = req.limit.unwrap_or(100).clamp(1, 1000);
+        let since = req.since.map(|value| value.to_rfc3339());
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT payload_json
+            FROM token_savings
+            WHERE (?1 IS NULL OR project = ?1)
+              AND (?2 IS NULL OR namespace = ?2)
+              AND (?3 IS NULL OR workspace = ?3)
+              AND (?4 IS NULL OR user_id = ?4)
+              AND (?5 IS NULL OR agent = ?5)
+              AND (?6 IS NULL OR ts >= ?6)
+            ORDER BY ts DESC
+            LIMIT ?7
+            "#,
+        )?;
+        let records = stmt
+            .query_map(
+                params![
+                    req.project,
+                    req.namespace,
+                    req.workspace,
+                    req.user_id,
+                    req.agent,
+                    since,
+                    limit as i64,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .context("query token savings")?
+            .map(|row| {
+                let payload = row?;
+                serde_json::from_str::<TokenSavingsRecord>(&payload).map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(err),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .context("read token savings")?;
+        Ok(TokenSavingsListResponse {
+            total: records.len(),
+            measured_input_tokens: records
+                .iter()
+                .map(|record| record.baseline_input_tokens)
+                .sum(),
+            measured_output_tokens: records.iter().map(|record| record.output_tokens).sum(),
+            measured_tokens_saved: records.iter().map(|record| record.tokens_saved).sum(),
+            records,
+        })
+    }
+}
+
+fn capability_key(record: &CapabilityRecord) -> String {
+    [
+        record.project.as_deref().unwrap_or(""),
+        record.namespace.as_deref().unwrap_or(""),
+        record.workspace.as_deref().unwrap_or(""),
+        record.user_id.as_deref().unwrap_or(""),
+        record.harness.as_str(),
+        record.kind.as_str(),
+        record.name.as_str(),
+        record.source_path.as_str(),
+    ]
+    .join("\u{1f}")
+}
+
+fn access_route_key(record: &AccessRouteRecord) -> String {
+    [
+        record.project.as_deref().unwrap_or(""),
+        record.namespace.as_deref().unwrap_or(""),
+        record.workspace.as_deref().unwrap_or(""),
+        record.user_id.as_deref().unwrap_or(""),
+        record.provider.as_str(),
+        record.id.as_str(),
+        record.scope.as_str(),
+    ]
+    .join("\u{1f}")
 }
 
 #[derive(Debug, Clone)]

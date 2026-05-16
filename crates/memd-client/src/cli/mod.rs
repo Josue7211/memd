@@ -1577,6 +1577,23 @@ mod capability_sync_chunk_tests {
             serde_json::to_vec(chunk).expect("serialize chunk").len() <= 10 * 1024
         }));
     }
+
+    #[test]
+    fn capability_pull_record_limit_defaults_to_full_inventory() {
+        let old_limit = std::env::var_os("MEMD_CAPABILITY_PULL_LIMIT");
+        unsafe {
+            std::env::remove_var("MEMD_CAPABILITY_PULL_LIMIT");
+        }
+
+        assert_eq!(capability_pull_record_limit(), 5_000);
+
+        unsafe {
+            match old_limit {
+                Some(value) => std::env::set_var("MEMD_CAPABILITY_PULL_LIMIT", value),
+                None => std::env::remove_var("MEMD_CAPABILITY_PULL_LIMIT"),
+            }
+        }
+    }
 }
 
 async fn pull_capabilities_from_server(
@@ -1597,7 +1614,7 @@ async fn pull_capabilities_from_server(
         harness: args.harness.clone(),
         kind: args.kind.clone(),
         query: args.query.clone(),
-        limit: None,
+        limit: Some(capability_pull_record_limit()),
     };
     if !base_url_reachable(base_url, Duration::from_millis(250)) {
         anyhow::bail!("server not reachable at {base_url}");
@@ -1631,6 +1648,14 @@ async fn pull_capabilities_from_server(
     build_capabilities_response_from_registry(
         args, output, &registry, &bridges, "pull", true, args.limit,
     )
+}
+
+fn capability_pull_record_limit() -> usize {
+    std::env::var("MEMD_CAPABILITY_PULL_LIMIT")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|value| *value >= 100)
+        .unwrap_or(5_000)
 }
 
 fn capability_identity(record: &CapabilityRecord) -> String {

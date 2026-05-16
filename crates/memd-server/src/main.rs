@@ -53,46 +53,52 @@ use chrono::Utc;
 pub(crate) use keys::{apply_lifecycle, canonical_key, redundancy_key, validate_source_quality};
 use memd_rag::RagClient;
 use memd_schema::{
-    AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest, AssociativeRecallHit,
-    AssociativeRecallRequest, AssociativeRecallResponse, AtlasExpandRequest, AtlasExpandResponse,
-    AtlasExploreRequest, AtlasExploreResponse, AtlasListTrailsRequest, AtlasListTrailsResponse,
-    AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest, AtlasRenameRegionResponse,
-    AtlasSaveTrailRequest, AtlasSaveTrailResponse, CandidateMemoryRequest, CandidateMemoryResponse,
-    CompactContextResponse, CompactMemoryRecord, ConsolidateEpisodesRequest,
-    ConsolidateEpisodesResponse, ContextRequest, ContextResponse, CorrectMemoryRequest,
-    CorrectMemoryResponse, DecayDiagnosticsResponse, DedupScanRequest, DedupScanResponse,
-    DivergenceRequest, DivergenceSummary, EntityLinkRequest, EntityLinkResponse,
-    EntityLinksRequest, EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse,
-    EntitySearchHit, EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest,
-    ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse,
-    HiveBoardRequest, HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecoverRequest,
-    HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse,
-    HiveCoordinationInboxRequest, HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest,
-    HiveCoordinationReceiptsRequest, HiveCoordinationReceiptsResponse, HiveFollowRequest,
-    HiveFollowResponse, HiveMessageAckRequest, HiveMessageInboxRequest, HiveMessageSendRequest,
-    HiveMessagesResponse, HiveQueenActionRequest, HiveQueenActionResponse, HiveRosterRequest,
-    HiveRosterResponse, HiveSessionAutoRetireRequest, HiveSessionAutoRetireResponse,
-    HiveSessionRetireRequest, HiveSessionRetireResponse, HiveSessionUpsertRequest,
-    HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskUpsertRequest,
-    HiveTasksRequest, HiveTasksResponse, InboxDismissRequest, InboxDismissResponse,
-    InboxMemoryItem, IngestLanesRequest, IngestLanesResponse, ListEpisodesRequest,
-    ListEpisodesResponse, MaintainReport, MaintainReportRequest, MemoryConsolidationRequest,
-    MemoryConsolidationResponse, MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse,
-    MemoryDrainRequest, MemoryDrainResponse, MemoryEntityLinkRecord, MemoryEntityRecord,
-    MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
-    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
-    MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, ProcedureDetectRequest,
-    ProcedureDetectResponse, ProcedureListRequest, ProcedureListResponse, ProcedureMatchRequest,
-    ProcedureMatchResponse, ProcedurePromoteRequest, ProcedurePromoteResponse,
-    ProcedureRecordRequest, ProcedureRecordResponse, ProcedureRetireRequest,
-    ProcedureRetireResponse, ProcedureUseRequest, ProcedureUseResponse, PromoteMemoryRequest,
-    PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, RetrievalIntent,
-    RetrievalRoute, SearchMemoryRequest, SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
-    SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
-    SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
-    SourceMemoryRequest, SourceMemoryResponse, SourceQuality, StoreMemoryRequest,
-    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
-    VerifyMemoryResponse, VisibleMemoryArtifactDetailResponse, VisibleMemorySnapshotResponse,
+    AccessRouteListRequest, AccessRouteListResponse, AccessRouteSyncRequest,
+    AccessRouteSyncResponse, AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest,
+    AssociativeRecallHit, AssociativeRecallRequest, AssociativeRecallResponse, AtlasExpandRequest,
+    AtlasExpandResponse, AtlasExploreRequest, AtlasExploreResponse, AtlasListTrailsRequest,
+    AtlasListTrailsResponse, AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest,
+    AtlasRenameRegionResponse, AtlasSaveTrailRequest, AtlasSaveTrailResponse,
+    CandidateMemoryRequest, CandidateMemoryResponse, CapabilityListRequest, CapabilityListResponse,
+    CapabilitySyncRequest, CapabilitySyncResponse, CompactContextResponse, CompactMemoryRecord,
+    ConsolidateEpisodesRequest, ConsolidateEpisodesResponse, ContextPacketRequest,
+    ContextPacketResponse, ContextPacketSection, ContextRequest, ContextResponse,
+    CorrectMemoryRequest, CorrectMemoryResponse, DecayDiagnosticsResponse, DedupScanRequest,
+    DedupScanResponse, DevServerLeaseAcquireRequest, DevServerLeaseReleaseRequest,
+    DevServerLeasesRequest, DevServerLeasesResponse, DivergenceRequest, DivergenceSummary,
+    EntityLinkRequest, EntityLinkResponse, EntityLinksRequest, EntityLinksResponse,
+    EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit, EntitySearchRequest,
+    EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest,
+    ExplainMemoryResponse, HealthResponse, HiveBoardRequest, HiveBoardResponse,
+    HiveClaimAcquireRequest, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
+    HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
+    HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
+    HiveCoordinationReceiptsResponse, HiveFollowRequest, HiveFollowResponse, HiveMessageAckRequest,
+    HiveMessageInboxRequest, HiveMessageSendRequest, HiveMessagesResponse, HiveQueenActionRequest,
+    HiveQueenActionResponse, HiveRosterRequest, HiveRosterResponse, HiveSessionAutoRetireRequest,
+    HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
+    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
+    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxDismissRequest,
+    InboxDismissResponse, InboxMemoryItem, IngestLanesRequest, IngestLanesResponse,
+    ListEpisodesRequest, ListEpisodesResponse, MaintainReport, MaintainReportRequest,
+    MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryContextFrame,
+    MemoryDecayRequest, MemoryDecayResponse, MemoryDrainRequest, MemoryDrainResponse,
+    MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest,
+    MemoryInboxResponse, MemoryItem, MemoryKind, MemoryMaintenanceReportRequest,
+    MemoryMaintenanceReportResponse, MemoryPolicyResponse, MemoryScope, MemoryStage, MemoryStatus,
+    MemoryVisibility, ProcedureDetectRequest, ProcedureDetectResponse, ProcedureListRequest,
+    ProcedureListResponse, ProcedureMatchRequest, ProcedureMatchResponse, ProcedurePromoteRequest,
+    ProcedurePromoteResponse, ProcedureRecordRequest, ProcedureRecordResponse,
+    ProcedureRetireRequest, ProcedureRetireResponse, ProcedureUseRequest, ProcedureUseResponse,
+    PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse,
+    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SearchMemoryResponse,
+    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
+    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
+    SkillPolicyApplyResponse, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
+    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
+    TokenSavingsListRequest, TokenSavingsListResponse, TokenSavingsRecord, TokenSavingsSyncRequest,
+    TokenSavingsSyncResponse, VerifyMemoryRequest, VerifyMemoryResponse,
+    VisibleMemoryArtifactDetailResponse, VisibleMemorySnapshotResponse,
     VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse, WorkingMemoryRequest,
     WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
@@ -266,10 +272,10 @@ impl AppState {
             }
 
             // Auto-expire excess status items to prevent noise accumulation
-            if item.kind == MemoryKind::Status {
-                if let Err(e) = self.expire_excess_status_items(&item, 4) {
-                    warn!(error = %format_args!("{e:#}"), "expire_excess_status_items");
-                }
+            if item.kind == MemoryKind::Status
+                && let Err(e) = self.expire_excess_status_items(&item, 4)
+            {
+                warn!(error = %format_args!("{e:#}"), "expire_excess_status_items");
             }
 
             // Auto-link co-occurring entities within the same project.
@@ -611,7 +617,7 @@ impl AppState {
             return Ok(());
         }
         // Sort oldest first
-        status_items.sort_by(|a, b| a.updated_at.cmp(&b.updated_at));
+        status_items.sort_by_key(|a| a.updated_at);
         let expire_count = status_items.len() - max_keep + 1;
         for item in status_items.into_iter().take(expire_count) {
             let mut expired = item;
@@ -793,10 +799,10 @@ fn handle_cli_subcommand(db_path: &str) -> Option<i32> {
                         bytes,
                         db.display()
                     );
-                    if let Some(parent) = out.parent() {
-                        if let Err(e) = backup::rotate_snapshots(parent, 5) {
-                            warn!(error = %format_args!("{e:#}"), "rotate snapshots failed");
-                        }
+                    if let Some(parent) = out.parent()
+                        && let Err(e) = backup::rotate_snapshots(parent, 5)
+                    {
+                        warn!(error = %format_args!("{e:#}"), "rotate snapshots failed");
                     }
                     Some(0)
                 }
@@ -883,7 +889,7 @@ async fn main() {
                 Some(std::sync::Arc::new(e))
             }
             Err(err) => {
-                error!(error = %format_args!("{err:#}"), "failed to init fastembed; intrinsic dense disabled");
+                error!(error = %format_args!("{err:#}"), "failed to init intrinsic dense embedder; intrinsic dense disabled");
                 None
             }
         }
@@ -908,6 +914,12 @@ async fn main() {
         .route("/api/memory/search", get(search_memory_get))
         .route("/api/diagnostics/spine/verify", get(status::verify_spine))
         .route("/api/diagnostics/latency", get(status::get_latency))
+        .route("/capabilities", get(get_capabilities))
+        .route("/capabilities/sync", post(post_capabilities_sync))
+        .route("/access/routes", get(get_access_routes))
+        .route("/access/routes/sync", post(post_access_routes_sync))
+        .route("/tokens/savings", get(get_token_savings))
+        .route("/tokens/savings/sync", post(post_token_savings_sync))
         .route("/memory/store", post(store_memory))
         .route("/memory/candidates", post(store_candidate))
         .route("/memory/promote", post(promote_memory))
@@ -919,6 +931,7 @@ async fn main() {
         .route("/memory/authority/search", post(search_memory_authority))
         .route("/memory/context", get(get_context))
         .route("/memory/context/compact", get(get_compact_context))
+        .route("/memory/context/packet", get(get_context_packet))
         .route("/memory/working", get(get_working_memory))
         .route("/memory/inbox", get(get_inbox))
         .route("/memory/entity", get(get_entity))
@@ -971,6 +984,15 @@ async fn main() {
             post(post_hive_claim_recover),
         )
         .route("/coordination/claims", get(get_hive_claims))
+        .route(
+            "/coordination/dev-servers/acquire",
+            post(post_dev_server_lease_acquire),
+        )
+        .route(
+            "/coordination/dev-servers/release",
+            post(post_dev_server_lease_release),
+        )
+        .route("/coordination/dev-servers", get(get_dev_server_leases))
         .route(
             "/coordination/sessions/upsert",
             post(post_hive_session_upsert),
