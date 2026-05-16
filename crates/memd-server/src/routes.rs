@@ -607,12 +607,17 @@ fn rerank_tokenize(text: &str) -> Vec<String> {
 }
 
 fn split_identifier_token(token: &str) -> Vec<String> {
+    let chars = token.chars().collect::<Vec<_>>();
     let mut out = Vec::new();
     let mut current = String::new();
-    let mut previous: Option<char> = None;
-    for ch in token.chars() {
+    for (idx, ch) in chars.iter().copied().enumerate() {
+        let previous = idx.checked_sub(1).and_then(|prev| chars.get(prev)).copied();
+        let next = chars.get(idx + 1).copied();
         let starts_new_word = previous.is_some_and(|prev| {
             (prev.is_ascii_lowercase() && ch.is_ascii_uppercase())
+                || (prev.is_ascii_uppercase()
+                    && ch.is_ascii_uppercase()
+                    && next.is_some_and(|next| next.is_ascii_lowercase()))
                 || (prev.is_ascii_alphabetic() && ch.is_ascii_digit())
                 || (prev.is_ascii_digit() && ch.is_ascii_alphabetic())
         });
@@ -620,7 +625,6 @@ fn split_identifier_token(token: &str) -> Vec<String> {
             out.push(std::mem::take(&mut current));
         }
         current.push(ch);
-        previous = Some(ch);
     }
     if !current.is_empty() {
         out.push(current);

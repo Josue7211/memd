@@ -9810,6 +9810,12 @@ async fn search_memory_no_rag_public_corpus_scores_traceable_recall() {
             vec!["harness", "guard"],
         ),
         (
+            "acronym_path",
+            "The HTTP server URL contract belongs to the service status proof.",
+            Some("docs/runbooks/HTTPServerURL.md"),
+            vec!["http", "server", "status"],
+        ),
+        (
             "acronym",
             "RRF means Reciprocal Rank Fusion and combines lexical, fuzzy, atlas, and rerank lanes.",
             Some("docs/retrieval/rrf.md"),
@@ -9906,6 +9912,7 @@ async fn search_memory_no_rag_public_corpus_scores_traceable_recall() {
         ("command", "memd rag sync prove command"),
         ("path", "integrations/ollama/README strict prompt packet"),
         ("camel_path", "dev server guard runtime helper"),
+        ("acronym_path", "http server url status proof"),
         ("acronym", "what does RRF combine lexical fuzzy atlas"),
         ("name", "Maya Cloudflare workers backend runbook"),
         ("procedure", "dev server guard port 3000 procedure"),
