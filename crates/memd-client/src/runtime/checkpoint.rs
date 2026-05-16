@@ -1701,13 +1701,12 @@ pub(crate) fn update_roadmap_state(updates: &[(String, String)]) -> anyhow::Resu
     update_roadmap_state_in(updates, None)
 }
 
-/// Auto-commit tracked dirty files before checkpointing.
+/// Auto-commit one atomic tracked dirty set before checkpointing.
 ///
 /// If `repo_root` is Some, uses that as the git repo. Otherwise detects via CWD.
 /// Returns `Ok(Some(hash))` if a commit was made, `Ok(None)` if the tree was clean.
-/// Uses `git add -u` (tracked files only) to avoid staging secrets or binaries.
-/// Refuses broad dirty trees by default; override with
-/// `MEMD_AUTO_COMMIT_MAX_TRACKED_FILES` when a wider scoped commit is intentional.
+/// Stages explicit tracked paths only to avoid sweeping untracked secrets or
+/// unrelated tracked work. Refuses broad or multi-scope dirty trees by default.
 pub(crate) fn git_auto_commit_if_dirty_in(
     message: &str,
     repo_root: Option<&std::path::Path>,
@@ -1727,20 +1726,12 @@ pub(crate) fn git_auto_commit_if_dirty_in(
         }
     };
 
-    // Check if working tree is dirty
-    let status = std::process::Command::new("git")
-        .args(["status", "--porcelain"])
-        .current_dir(&repo_dir)
-        .output()?;
+    let dirty_paths = tracked_dirty_paths(&repo_dir)?;
+    if dirty_paths.is_empty() {
+        return Ok(None); // clean tree or only untracked files
+    }
 
-    let status_text = String::from_utf8_lossy(&status.stdout);
-    if status_text.trim().is_empty() {
-        return Ok(None); // clean tree
-    }
-    let tracked_dirty_count = count_tracked_dirty_status_lines(&status_text);
-    if tracked_dirty_count == 0 {
-        return Ok(None); // only untracked files exist
-    }
+    let tracked_dirty_count = dirty_paths.len();
     let max_tracked_files = auto_commit_max_tracked_files();
     if tracked_dirty_count > max_tracked_files {
         anyhow::bail!(
@@ -1748,28 +1739,35 @@ pub(crate) fn git_auto_commit_if_dirty_in(
         );
     }
 
-    // Stage tracked files only (git add -u avoids untracked/secrets)
-    let add = std::process::Command::new("git")
-        .args(["add", "-u"])
-        .current_dir(&repo_dir)
-        .output()?;
+    let scopes = tracked_dirty_atomic_scopes(&dirty_paths);
+    if scopes.len() > 1 {
+        anyhow::bail!(
+            "refusing memd auto-commit: tracked dirty set spans multiple atomic scopes ({}); commit one scope at a time",
+            scopes.join(", ")
+        );
+    }
+
+    let mut add = std::process::Command::new("git");
+    add.arg("add")
+        .arg("--")
+        .args(&dirty_paths)
+        .current_dir(&repo_dir);
+    let add = add.output()?;
 
     if !add.status.success() {
         anyhow::bail!(
-            "git add -u failed: {}",
+            "git add tracked paths failed: {}",
             String::from_utf8_lossy(&add.stderr)
         );
     }
 
-    // Verify something is actually staged (git add -u might be a no-op
-    // if all changes were untracked)
+    // Verify something is actually staged.
     let diff_staged = std::process::Command::new("git")
         .args(["diff", "--cached", "--quiet"])
         .current_dir(&repo_dir)
         .output()?;
 
     if diff_staged.status.success() {
-        // Nothing staged — only untracked files exist
         return Ok(None);
     }
 
@@ -1811,14 +1809,47 @@ fn auto_commit_max_tracked_files() -> usize {
         .unwrap_or(5)
 }
 
-fn count_tracked_dirty_status_lines(status_text: &str) -> usize {
-    status_text
+fn tracked_dirty_paths(repo_dir: &str) -> anyhow::Result<Vec<String>> {
+    let diff = std::process::Command::new("git")
+        .args(["diff", "--name-only", "HEAD", "--"])
+        .current_dir(repo_dir)
+        .output()?;
+    if !diff.status.success() {
+        return Ok(Vec::new());
+    }
+    let mut paths = String::from_utf8_lossy(&diff.stdout)
         .lines()
-        .filter(|line| {
-            let trimmed = line.trim_start();
-            !trimmed.is_empty() && !trimmed.starts_with("??")
-        })
-        .count()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
+fn tracked_dirty_atomic_scopes(paths: &[String]) -> Vec<String> {
+    let mut scopes = paths
+        .iter()
+        .map(|path| tracked_dirty_atomic_scope(path))
+        .collect::<Vec<_>>();
+    scopes.sort();
+    scopes.dedup();
+    scopes
+}
+
+fn tracked_dirty_atomic_scope(path: &str) -> String {
+    let parts = path.split('/').collect::<Vec<_>>();
+    match parts.as_slice() {
+        ["crates", krate, ..] => format!("crates/{krate}"),
+        ["docs", area, ..] => format!("docs/{area}"),
+        ["integrations", area, ..] => format!("integrations/{area}"),
+        ["scripts", "verify", ..] => "scripts/verify".to_string(),
+        ["scripts", ..] => "scripts".to_string(),
+        [single] => single.to_string(),
+        [first, ..] => first.to_string(),
+        [] => "unknown".to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -2475,6 +2506,74 @@ mod tests {
         assert!(
             staged.success(),
             "broad auto-commit guard should not stage files"
+        );
+
+        fs::remove_dir_all(temp_root).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn git_auto_commit_refuses_multi_scope_dirty_tree_under_file_limit() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "memd-auto-commit-multi-scope-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(temp_root.join("crates/memd-client")).expect("create crate dir");
+        fs::create_dir_all(temp_root.join("docs/contracts")).expect("create docs dir");
+
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git init");
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git config email");
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git config name");
+
+        fs::write(temp_root.join("crates/memd-client/lib.rs"), "initial\n")
+            .expect("write crate file");
+        fs::write(temp_root.join("docs/contracts/auto-commit.md"), "initial\n")
+            .expect("write docs file");
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git add");
+        std::process::Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git commit initial");
+
+        fs::write(temp_root.join("crates/memd-client/lib.rs"), "modified\n")
+            .expect("modify crate file");
+        fs::write(
+            temp_root.join("docs/contracts/auto-commit.md"),
+            "modified\n",
+        )
+        .expect("modify docs file");
+
+        let err = git_auto_commit_if_dirty_in("test: should refuse", Some(&temp_root))
+            .expect_err("multi-scope dirty tree should be rejected");
+        assert!(
+            err.to_string().contains("multiple atomic scopes"),
+            "unexpected error: {err}"
+        );
+
+        let staged = std::process::Command::new("git")
+            .args(["diff", "--cached", "--quiet"])
+            .current_dir(&temp_root)
+            .status()
+            .expect("git diff cached");
+        assert!(
+            staged.success(),
+            "multi-scope auto-commit guard should not stage files"
         );
 
         fs::remove_dir_all(temp_root).expect("cleanup temp root");
