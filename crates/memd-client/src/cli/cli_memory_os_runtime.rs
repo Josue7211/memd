@@ -323,8 +323,9 @@ pub(crate) fn render_tokens_summary(report: &TokenSavingsReport) -> String {
 }
 
 fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
-    let capability_registry =
+    let mut capability_registry =
         build_bundle_capability_registry(infer_bundle_project_root(output).as_deref());
+    annotate_capability_registry_host_cli_auth_notes(&mut capability_registry);
     let config = read_memory_os_bundle_config(output).ok();
     let sync_queue = offline_queue_status(output).ok();
     let source_registry_path = output.join("state").join("source-registry.json");
@@ -986,6 +987,14 @@ fn capability_materialization_counts(registry: &CapabilityRegistry) -> (usize, u
 }
 
 fn capability_has_fresh_machine_payload(record: &CapabilityRecord) -> bool {
+    if (record.portability_class == "host-local" || record.kind == "cli")
+        && record
+            .notes
+            .iter()
+            .any(|note| note.starts_with("memd:host-cli-install-plan:"))
+    {
+        return true;
+    }
     if capability_has_payload_text(record) || capability_has_payload_file_set(record) {
         return record.portability_class != "host-local" && record.kind != "cli";
     }
@@ -2833,14 +2842,7 @@ mod tests {
             feature
                 .evidence
                 .iter()
-                .any(|item| item == "materialization_missing=1")
-        );
-        assert!(
-            feature
-                .gaps
-                .iter()
-                .any(|gap| gap
-                    == "host-local CLI availability cannot be restored by memd sync alone")
+                .any(|item| item == "materialization_missing=0")
         );
         assert!(
             feature
@@ -2917,6 +2919,37 @@ mod tests {
                 .gaps
                 .iter()
                 .any(|gap| gap == "1 host CLI auth checks are unauthenticated on this machine")
+        );
+
+        fs::remove_dir_all(output).expect("cleanup capability feature temp");
+    }
+
+    #[test]
+    fn feature_registry_audits_live_host_cli_auth_notes() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-feature-host-cli-auth-live-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&output).expect("create capability feature temp");
+
+        let report = build_feature_report(&output);
+        let feature = report
+            .features
+            .iter()
+            .find(|feature| feature.id == "capability_sync")
+            .expect("capability sync feature");
+
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|item| item == "host_cli_auth_proofs=6")
+        );
+        assert!(
+            !feature
+                .gaps
+                .iter()
+                .any(|gap| gap.contains("lack server-synced auth proof notes"))
         );
 
         fs::remove_dir_all(output).expect("cleanup capability feature temp");
