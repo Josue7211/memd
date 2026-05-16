@@ -1386,19 +1386,28 @@ async fn push_capabilities_to_server(
         anyhow::bail!(error);
     }
     let chunk_size = capability_sync_chunk_size();
-    for chunk in capability_sync_request_chunks(&req, chunk_size) {
+    let max_payload_bytes = capability_sync_max_payload_bytes();
+    for chunk in capability_sync_request_chunks(&req, chunk_size, max_payload_bytes) {
         match tokio::time::timeout(capability_sync_timeout(), client.capabilities_sync(&chunk))
             .await
         {
             Ok(Ok(_)) => {}
             Ok(Err(error)) => {
                 let error = format!("{error:#}");
-                queue_offline_sync_payload(output, OfflineSyncPayload::Capabilities(chunk), &error)?;
+                queue_offline_sync_payload(
+                    output,
+                    OfflineSyncPayload::Capabilities(chunk),
+                    &error,
+                )?;
                 anyhow::bail!(error);
             }
             Err(error) => {
                 let error = format!("capability sync timed out: {error}");
-                queue_offline_sync_payload(output, OfflineSyncPayload::Capabilities(chunk), &error)?;
+                queue_offline_sync_payload(
+                    output,
+                    OfflineSyncPayload::Capabilities(chunk),
+                    &error,
+                )?;
                 anyhow::bail!(error);
             }
         }
@@ -1423,25 +1432,70 @@ fn capability_sync_chunk_size() -> usize {
         .unwrap_or(100)
 }
 
+fn capability_sync_max_payload_bytes() -> usize {
+    std::env::var("MEMD_CAPABILITY_SYNC_MAX_PAYLOAD_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|bytes| *bytes >= 4096)
+        .unwrap_or(512 * 1024)
+}
+
 fn capability_sync_request_chunks(
     req: &memd_schema::CapabilitySyncRequest,
     chunk_size: usize,
+    max_payload_bytes: usize,
 ) -> Vec<memd_schema::CapabilitySyncRequest> {
     let chunk_size = chunk_size.max(1);
+    let max_payload_bytes = max_payload_bytes.max(4096);
     if req.records.is_empty() {
         return Vec::new();
     }
-    req.records
-        .chunks(chunk_size)
-        .map(|records| memd_schema::CapabilitySyncRequest {
-            project: req.project.clone(),
-            namespace: req.namespace.clone(),
-            workspace: req.workspace.clone(),
-            user_id: req.user_id.clone(),
-            agent: req.agent.clone(),
-            records: records.to_vec(),
-        })
-        .collect()
+    let mut chunks = Vec::new();
+    let mut current = Vec::new();
+    for record in &req.records {
+        if current.len() >= chunk_size {
+            chunks.push(capability_sync_chunk_request(
+                req,
+                std::mem::take(&mut current),
+            ));
+        }
+        current.push(record.clone());
+        if current.len() > 1 && capability_sync_payload_len(req, &current) > max_payload_bytes {
+            let last = current.pop().expect("current chunk has last record");
+            chunks.push(capability_sync_chunk_request(
+                req,
+                std::mem::take(&mut current),
+            ));
+            current.push(last);
+        }
+    }
+    if !current.is_empty() {
+        chunks.push(capability_sync_chunk_request(req, current));
+    }
+    chunks
+}
+
+fn capability_sync_chunk_request(
+    req: &memd_schema::CapabilitySyncRequest,
+    records: Vec<memd_schema::CapabilityRecord>,
+) -> memd_schema::CapabilitySyncRequest {
+    memd_schema::CapabilitySyncRequest {
+        project: req.project.clone(),
+        namespace: req.namespace.clone(),
+        workspace: req.workspace.clone(),
+        user_id: req.user_id.clone(),
+        agent: req.agent.clone(),
+        records,
+    }
+}
+
+fn capability_sync_payload_len(
+    req: &memd_schema::CapabilitySyncRequest,
+    records: &[memd_schema::CapabilityRecord],
+) -> usize {
+    serde_json::to_vec(&capability_sync_chunk_request(req, records.to_vec()))
+        .map(|bytes| bytes.len())
+        .unwrap_or(usize::MAX)
 }
 
 #[cfg(test)]
@@ -1476,10 +1530,12 @@ mod capability_sync_chunk_tests {
             workspace: Some("shared".to_string()),
             user_id: None,
             agent: Some("codex".to_string()),
-            records: (0..205).map(|index| record(&format!("cap-{index}"))).collect(),
+            records: (0..205)
+                .map(|index| record(&format!("cap-{index}")))
+                .collect(),
         };
 
-        let chunks = capability_sync_request_chunks(&req, 100);
+        let chunks = capability_sync_request_chunks(&req, 100, 512 * 1024);
 
         assert_eq!(chunks.len(), 3);
         assert_eq!(chunks[0].records.len(), 100);
@@ -1489,6 +1545,37 @@ mod capability_sync_chunk_tests {
         assert!(chunks.iter().all(|chunk| chunk.namespace == req.namespace));
         assert!(chunks.iter().all(|chunk| chunk.workspace == req.workspace));
         assert!(chunks.iter().all(|chunk| chunk.agent == req.agent));
+    }
+
+    #[test]
+    fn capability_sync_request_chunks_respect_payload_byte_limit() {
+        let mut req = memd_schema::CapabilitySyncRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            user_id: None,
+            agent: Some("codex".to_string()),
+            records: (0..10)
+                .map(|index| record(&format!("cap-{index}")))
+                .collect(),
+        };
+        for record in &mut req.records {
+            record.notes = vec!["x".repeat(2048)];
+        }
+
+        let chunks = capability_sync_request_chunks(&req, 100, 10 * 1024);
+
+        assert!(chunks.len() > 1);
+        assert_eq!(
+            chunks
+                .iter()
+                .map(|chunk| chunk.records.len())
+                .sum::<usize>(),
+            req.records.len()
+        );
+        assert!(chunks.iter().all(|chunk| {
+            serde_json::to_vec(chunk).expect("serialize chunk").len() <= 10 * 1024
+        }));
     }
 }
 
