@@ -27,8 +27,8 @@ done <"$UNTRACKED_LIST"
 
 visible_cache_paths="$(
   {
-    git ls-files 'docs/verification/**/cache/**' 'docs/verification/**/external-public-cache/**'
-    git ls-files -o --exclude-standard 'docs/verification/**/cache/**' 'docs/verification/**/external-public-cache/**'
+    git ls-files 'docs/verification/**/cache/**' 'docs/verification/**/*cache*/**'
+    git ls-files -o --exclude-standard 'docs/verification/**/cache/**' 'docs/verification/**/*cache*/**'
   } | sort -u
 )"
 visible_cache_count="$(

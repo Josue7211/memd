@@ -799,6 +799,11 @@ fn raw_benchmark_cache_paths(repo_root: &Path) -> Vec<PathBuf> {
             .join("verification")
             .join("25-5-memory-os-runs")
             .join("external-public-cache"),
+        repo_root
+            .join("docs")
+            .join("verification")
+            .join("25-5-memory-os-runs")
+            .join("promptwall-cache"),
     ]
 }
 
@@ -3012,6 +3017,25 @@ mod tests {
         );
 
         fs::remove_dir_all(repo).expect("cleanup repo hygiene temp");
+    }
+
+    #[test]
+    fn repo_hygiene_audits_promptwall_cache_path() {
+        let repo = std::env::temp_dir().join(format!(
+            "memd-feature-promptwall-cache-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let cache_path = repo
+            .join("docs")
+            .join("verification")
+            .join("25-5-memory-os-runs")
+            .join("promptwall-cache");
+
+        assert!(
+            raw_benchmark_cache_paths(&repo)
+                .iter()
+                .any(|path| path == &cache_path)
+        );
     }
 
     #[test]
