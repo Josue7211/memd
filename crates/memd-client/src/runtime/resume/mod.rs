@@ -82,16 +82,33 @@ fn compact_record_kind(record: &str) -> Option<&'static str> {
 }
 
 fn working_eviction_count(working: &memd_schema::WorkingMemoryResponse) -> usize {
-    working
+    let reported_count = working
         .compaction_quality
         .as_ref()
         .map(|quality| quality.evicted)
-        .unwrap_or_else(|| working.evicted.len())
-        .max(working.evicted.len())
+        .unwrap_or_else(|| working.evicted.len());
+
+    if working.evicted.is_empty() {
+        return reported_count;
+    }
+
+    let detailed_loss = working
+        .evicted
+        .iter()
+        .filter(|evicted| !is_refresh_status_eviction(&evicted.record, &evicted.reason))
+        .count();
+    detailed_loss + reported_count.saturating_sub(working.evicted.len())
 }
 
 fn working_has_loss(working: &memd_schema::WorkingMemoryResponse) -> bool {
     working.truncated || working_eviction_count(working) > 0
+}
+
+fn is_refresh_status_eviction(record: &str, reason: &str) -> bool {
+    if !reason.contains("evicted_by_status_cap") || !is_status_record_text(record) {
+        return false;
+    }
+    is_recoverable_status_decision(record) || is_recoverable_status_fact(record)
 }
 
 fn resume_refresh_recommended(
@@ -1134,7 +1151,9 @@ mod tests {
 
     #[test]
     fn lossless_full_working_packet_does_not_force_refresh() {
-        use memd_schema::{CompactMemoryRecord, CompactionQualityReport};
+        use memd_schema::{
+            CompactMemoryRecord, CompactionQualityReport, WorkingMemoryEvictionRecord,
+        };
         use std::collections::BTreeMap;
 
         let mut snapshot = ResumeSnapshot::empty();
@@ -1183,6 +1202,34 @@ mod tests {
             &snapshot.inbox
         ));
         assert_eq!(snapshot.context_pressure(), "medium");
+
+        snapshot.working.compaction_quality = Some(CompactionQualityReport {
+            admitted: 7,
+            evicted: 2,
+            per_kind_admitted: BTreeMap::new(),
+            per_kind_evicted: BTreeMap::new(),
+            chars_per_kind_admitted: BTreeMap::new(),
+            budget_chars: 1600,
+            used_chars: 1540,
+        });
+        snapshot.working.evicted = [
+            "id=wake-refresh | kind=status | tags=checkpoint,current-task,auto-short-term,bundle-refresh,refresh | c=status: wake project=memd focus=current task",
+            "id=next | kind=status | tags=checkpoint,current-task,continuity | c=CURRENT NEXT ACTION after commit 117f7f9",
+        ]
+        .into_iter()
+        .map(|record| WorkingMemoryEvictionRecord {
+            id: uuid::Uuid::new_v4(),
+            record: record.to_string(),
+            reason: "evicted_by_status_cap;kind=Status;status=active".to_string(),
+        })
+        .collect();
+
+        assert!(!resume_refresh_recommended(
+            None,
+            &snapshot.working,
+            &snapshot.inbox
+        ));
+        assert_eq!(snapshot.context_pressure(), "low");
     }
 
     #[test]
