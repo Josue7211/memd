@@ -210,7 +210,7 @@ fn render_recovery_identity_line(output: &Path, snapshot: &ResumeSnapshot) -> St
     if let Some(detail) = crate::cli::live_state_blocker_detail(output) {
         parts.push(format!(
             "live_state_blockers={}",
-            compact_inline(&detail, 260)
+            compact_inline(&detail, 640)
         ));
     }
     format!("- recovery {}\n\n", parts.join(" | "))
@@ -1296,6 +1296,20 @@ mod tests {
       "record_count": 0,
       "endpoints": [],
       "last_error": "provide CLAWCONTROL_API_KEY or MC_API_KEY"
+    },
+    {
+      "source_app": "clawcontrol",
+      "status": "missing_approval",
+      "checked_at": "2026-05-17T06:00:00Z",
+      "api_base": "approved-communications",
+      "api_bases": ["approved-communications"],
+      "auth_configured": false,
+      "visible_page": "not_applicable",
+      "produced": [],
+      "missing": ["messages", "email"],
+      "record_count": 0,
+      "endpoints": [],
+      "last_error": "no approved communications file configured"
     }
   ]
 }"#,
@@ -1324,6 +1338,16 @@ mod tests {
         assert!(
             markdown.contains(
                 "access_route=\"memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex\""
+            ),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("clawcontrol:status=missing_approval"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains(
+                "access_route=\"memd access route --output .memd --purpose approved-communications-file --provider process-env --agent codex\""
             ),
             "{markdown}"
         );
