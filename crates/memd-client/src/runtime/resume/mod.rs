@@ -2236,6 +2236,37 @@ mod handoff_quality_tests {
     }
 
     #[test]
+    fn bundle_refresh_status_records_raise_handoff_quality() {
+        let mut snapshot = ResumeSnapshot::empty();
+        for record in [
+            "id=resume | kind=status | tags=resume_state,session_state | c=compact session continuity state",
+            "id=wake-a | kind=status | tags=checkpoint,current-task,auto-short-term,bundle-refresh,resume | c=status: wake project=memd working=2",
+            "id=wake-b | kind=status | tags=checkpoint,current-task,auto-short-term,bundle-refresh,refresh | c=status: wake project=memd focus=current task",
+            "id=wake-c | kind=status | tags=checkpoint,current-task,auto-short-term,bundle-refresh,resume | c=status: wake project=memd repo clean",
+        ] {
+            snapshot
+                .working
+                .records
+                .push(memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: record.to_string(),
+                });
+        }
+        let preferences = vec![
+            "id=next | kind=decision | c=CURRENT NEXT ACTION after commit 98fb520".to_string(),
+        ];
+        let signals = recoverable_signal_counts(&snapshot.context, &snapshot.working, &preferences);
+        let mut score = HandoffQualityScore::from_report(&report(0, 0, 2, 1100));
+
+        score.include_recoverable_signals(signals.facts, signals.decisions, signals.total);
+
+        assert!(signals.facts >= 3, "{signals:?}");
+        assert!(signals.decisions >= 2, "{signals:?}");
+        assert!(signals.total >= 5, "{signals:?}");
+        assert!(score.is_acceptable());
+    }
+
+    #[test]
     fn truncated_handoff_penalizes_trust_score() {
         // Utilization near 1.0 → trust proxy below 1.0.
         let score = HandoffQualityScore::from_report(&report(3, 2, 2, 4000));
@@ -3085,6 +3116,9 @@ fn is_recoverable_status_decision(record: &str) -> bool {
         || normalized.contains("next action")
         || normalized.contains("next=")
         || normalized.contains("fix partial handoff quality")
+        || normalized.contains("current-task")
+        || normalized.contains("resume_state")
+        || normalized.contains("session_state")
 }
 
 fn is_recoverable_status_fact(record: &str) -> bool {
@@ -3098,6 +3132,10 @@ fn is_recoverable_status_fact(record: &str) -> bool {
         || normalized.contains("auth_required")
         || normalized.contains("git_commit")
         || normalized.contains("tree clean")
+        || normalized.contains("status: wake")
+        || normalized.contains("bundle-refresh")
+        || normalized.contains("resume_state")
+        || normalized.contains("session_state")
 }
 
 fn is_procedural_record_text(record: &str) -> bool {
