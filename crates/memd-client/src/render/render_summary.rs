@@ -144,6 +144,63 @@ fn render_handoff_user_prompt(
     )
 }
 
+fn render_prompt_live_state_capsule(bundle: &Path) -> String {
+    let Ok(report) = crate::cli::live_state_report(bundle) else {
+        return "- authority=memd-live-state present-tense_only=true | status=unavailable | action=run `memd live-state status` before answering current app facts".to_string();
+    };
+    let fresh = report
+        .requirements
+        .iter()
+        .filter(|requirement| requirement.status == "fresh")
+        .map(|requirement| requirement.module.as_str())
+        .collect::<Vec<_>>();
+    let unmet = report
+        .requirements
+        .iter()
+        .filter(|requirement| requirement.status != "fresh")
+        .map(|requirement| requirement.module.as_str())
+        .collect::<Vec<_>>();
+    let tasks = report
+        .sync_tasks
+        .iter()
+        .take(6)
+        .map(|task| {
+            format!(
+                "sync_task:{}:{} scope={} privacy={} visibility={} media_agentsecrets={}",
+                task.source_app,
+                task.module,
+                task.required_scope,
+                task.privacy,
+                task.visibility,
+                task.agentsecrets_required_for_media
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut lines = vec![
+        "- authority=memd-live-state present-tense_only=true | freshness_rule=trust only fresh records | privacy_rule=messages/email private metadata/redacted approved scope; media refs require AgentSecrets; no raw chat/mail bodies or raw media".to_string(),
+        format!(
+            "- status={} | state_map_fresh={} | state_map_unmet={} | sync_required={} | reason={}",
+            report.status,
+            render_compact_module_list(&fresh),
+            render_compact_module_list(&unmet),
+            report.sync_required,
+            compact_inline(&report.refresh_reason, 180)
+        ),
+    ];
+    if !tasks.is_empty() {
+        lines.push(format!("- {}", tasks.join(" | ")));
+    }
+    lines.join("\n")
+}
+
+fn render_compact_module_list(modules: &[&str]) -> String {
+    if modules.is_empty() {
+        "none".to_string()
+    } else {
+        modules.join(",")
+    }
+}
+
 pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
     let mut output = String::new();
     let continuity = snapshot.continuity_capsule();
@@ -172,6 +229,11 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
         output.push_str(&format!(" | age={}", age_minutes));
     }
     output.push_str(&format!(" | ref={}\n", snapshot.refresh_recommended));
+    output.push_str("\n## LS\n\n");
+    output.push_str(&render_prompt_live_state_capsule(
+        &crate::bundle::default_bundle_root_path(),
+    ));
+    output.push('\n');
     let hints = snapshot.optimization_hints();
     if !hints.is_empty() {
         output.push_str(&format!(
@@ -432,6 +494,11 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
         dirty_count,
         quality
     ));
+    if let Some(bundle) = snapshot.target_bundle.as_deref() {
+        output.push_str("\n## LS\n\n");
+        output.push_str(&render_prompt_live_state_capsule(Path::new(bundle)));
+        output.push('\n');
+    }
     output.push_str("\n## User Prompt\n\n");
     output.push_str("- give next agent:\n");
     output.push_str("```text\n");
@@ -799,6 +866,78 @@ mod tests {
             "{prompt}"
         );
         assert!(prompt.contains("- blocker=One review item is still open"));
+    }
+
+    #[test]
+    fn render_handoff_prompt_surfaces_live_state_authority_capsule() {
+        let project = std::env::temp_dir().join(format!(
+            "memd-handoff-live-state-capsule-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = project.join(".memd");
+        fs::create_dir_all(output.join("state")).expect("create live-state temp dir");
+        fs::write(
+            output.join("state").join("live-app-state.json"),
+            r#"{
+  "version": 1,
+  "updated_at": "2026-05-17T09:00:00Z",
+  "records": [
+    {
+      "id": "clawcontrol:calendar:primary",
+      "source_app": "clawcontrol",
+      "module": "calendar",
+      "scope": "primary",
+      "visibility": "private",
+      "privacy": "metadata",
+      "approved": true,
+      "agentsecrets_approved": false,
+      "labels": ["live-app-state", "calendar", "metadata"],
+      "summary": "calendar fixture fresh",
+      "payload": {"events":[]},
+      "payload_hash": "abc",
+      "captured_at": "2026-05-17T09:00:00Z",
+      "updated_at": "2026-05-17T09:00:00Z",
+      "expires_at": "2999-01-01T00:00:00Z"
+    }
+  ]
+}"#,
+        )
+        .expect("write live-state fixture");
+        let handoff = crate::HandoffSnapshot {
+            generated_at: chrono::Utc::now(),
+            resume: sample_resume_snapshot(),
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            voice_mode: "caveman-ultra".to_string(),
+            target_session: Some("session-noether".to_string()),
+            target_bundle: Some(output.display().to_string()),
+        };
+
+        let prompt = render_handoff_prompt(&handoff);
+
+        assert!(prompt.contains("## LS"), "{prompt}");
+        assert!(prompt.contains("authority=memd-live-state"), "{prompt}");
+        assert!(
+            prompt.contains("freshness_rule=trust only fresh records"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("privacy_rule=messages/email private metadata/redacted"),
+            "{prompt}"
+        );
+        assert!(prompt.contains("state_map_fresh=calendar"), "{prompt}");
+        assert!(
+            prompt.contains("state_map_unmet=visible_page,reminders,todos,messages,email"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("sync_task:clawcontrol:messages"),
+            "{prompt}"
+        );
+        assert!(prompt.contains("media_agentsecrets=true"), "{prompt}");
+
+        fs::remove_dir_all(project).expect("cleanup live-state temp bundle");
     }
 
     #[test]
