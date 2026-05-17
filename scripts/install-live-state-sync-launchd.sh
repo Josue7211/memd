@@ -34,7 +34,9 @@ Environment:
 
 The generated launchd job runs scripts/live-state-sync-clawcontrol.sh every
 INTERVAL_SECS seconds. The sync script only imports when memd live-state is
-missing, stale, or due, so frequent launchd checks are safe.
+missing, stale, or due, so frequent launchd checks are safe. If the live
+producer is unavailable and no existing records can be imported, the script
+prints live-state status evidence and exits 2 to mean "sync still required".
 USAGE
 }
 
