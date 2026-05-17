@@ -116,6 +116,7 @@ pub(crate) struct LiveAppStateRecord {
 pub(crate) struct LiveAppStateReport {
     pub(crate) status: String,
     pub(crate) path: String,
+    pub(crate) source_status_path: String,
     pub(crate) checked_at: chrono::DateTime<Utc>,
     pub(crate) next_refresh_at: chrono::DateTime<Utc>,
     pub(crate) refresh_reason: String,
@@ -131,7 +132,43 @@ pub(crate) struct LiveAppStateReport {
     pub(crate) sync_actions: Vec<String>,
     pub(crate) sync_tasks: Vec<LiveAppStateSyncTask>,
     pub(crate) requirements: Vec<LiveAppStateRequirementStatus>,
+    pub(crate) source_unavailable: usize,
+    pub(crate) source_statuses: Vec<LiveAppStateSourceStatus>,
     pub(crate) records: Vec<LiveAppStateRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub(crate) struct LiveAppStateSourceStatusStore {
+    pub(crate) version: u32,
+    pub(crate) updated_at: Option<chrono::DateTime<Utc>>,
+    #[serde(default)]
+    pub(crate) sources: Vec<LiveAppStateSourceStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct LiveAppStateSourceStatus {
+    pub(crate) source_app: String,
+    pub(crate) status: String,
+    pub(crate) checked_at: chrono::DateTime<Utc>,
+    pub(crate) api_base: Option<String>,
+    pub(crate) visible_page: Option<String>,
+    #[serde(default)]
+    pub(crate) produced: Vec<String>,
+    #[serde(default)]
+    pub(crate) missing: Vec<String>,
+    pub(crate) record_count: usize,
+    #[serde(default)]
+    pub(crate) endpoints: Vec<LiveAppStateSourceEndpointStatus>,
+    pub(crate) last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct LiveAppStateSourceEndpointStatus {
+    pub(crate) module: String,
+    pub(crate) path: String,
+    pub(crate) ok: bool,
+    pub(crate) status: i64,
+    pub(crate) error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -199,6 +236,10 @@ pub(crate) fn live_app_state_path(output: &Path) -> PathBuf {
     output.join("state").join("live-app-state.json")
 }
 
+pub(crate) fn live_app_source_status_path(output: &Path) -> PathBuf {
+    output.join("state").join("live-app-source-status.json")
+}
+
 pub(crate) fn read_live_app_state(output: &Path) -> anyhow::Result<LiveAppStateStore> {
     let path = live_app_state_path(output);
     if !path.exists() {
@@ -212,6 +253,23 @@ pub(crate) fn read_live_app_state(output: &Path) -> anyhow::Result<LiveAppStateS
         .with_context(|| format!("read live app state {}", path.display()))?;
     let mut store: LiveAppStateStore = serde_json::from_str(&text)
         .with_context(|| format!("parse live app state {}", path.display()))?;
+    store.version = store.version.max(1);
+    Ok(store)
+}
+
+fn read_live_app_source_status(output: &Path) -> anyhow::Result<LiveAppStateSourceStatusStore> {
+    let path = live_app_source_status_path(output);
+    if !path.exists() {
+        return Ok(LiveAppStateSourceStatusStore {
+            version: 1,
+            updated_at: None,
+            sources: Vec::new(),
+        });
+    }
+    let text = std::fs::read_to_string(&path)
+        .with_context(|| format!("read live app source status {}", path.display()))?;
+    let mut store: LiveAppStateSourceStatusStore = serde_json::from_str(&text)
+        .with_context(|| format!("parse live app source status {}", path.display()))?;
     store.version = store.version.max(1);
     Ok(store)
 }
@@ -251,6 +309,11 @@ pub(crate) fn render_live_app_state_section(output: &Path, limit: usize) -> Stri
         compact_live_state_text(&refresh_reason, 180),
         LIVE_STATE_DEFAULT_REFRESH_SECS
     ));
+    if let Ok(source_status_store) = read_live_app_source_status(output) {
+        lines.extend(render_live_state_source_status_lines(
+            &source_status_store.sources,
+        ));
+    }
     lines.extend(render_live_state_sync_task_lines(&records, now));
     lines.extend(render_live_state_requirement_lines(&records, now));
     lines.join("\n")
@@ -488,7 +551,9 @@ fn sync_live_state(args: &LiveStateSyncArgs) -> anyhow::Result<LiveAppStateRepor
 
 pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateReport> {
     let path = live_app_state_path(output);
+    let source_status_path = live_app_source_status_path(output);
     let store = read_live_app_state(output)?;
+    let source_status_store = read_live_app_source_status(output)?;
     let now = Utc::now();
     let fresh = store
         .records
@@ -512,6 +577,11 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
     let sync_required = requirement_missing > 0 || requirement_stale > 0;
     let sync_actions = live_state_sync_actions(&requirements);
     let sync_tasks = live_state_sync_tasks(&requirements);
+    let source_unavailable = source_status_store
+        .sources
+        .iter()
+        .filter(|source| source.status != "ok")
+        .count();
     let (next_refresh_at, refresh_reason) =
         live_state_next_refresh(&store.records, now, &requirements);
     Ok(LiveAppStateReport {
@@ -527,6 +597,7 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
             "fresh".to_string()
         },
         path: path.display().to_string(),
+        source_status_path: source_status_path.display().to_string(),
         checked_at: now,
         next_refresh_at,
         refresh_reason,
@@ -545,6 +616,8 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
         sync_actions,
         sync_tasks,
         requirements,
+        source_unavailable,
+        source_statuses: source_status_store.sources,
         records: store.records,
     })
 }
@@ -861,6 +934,34 @@ fn render_live_state_requirement_lines(
         .collect()
 }
 
+fn render_live_state_source_status_lines(sources: &[LiveAppStateSourceStatus]) -> Vec<String> {
+    sources
+        .iter()
+        .map(|source| {
+            let api_base = source.api_base.as_deref().unwrap_or("unknown");
+            let visible_page = source.visible_page.as_deref().unwrap_or("unknown");
+            let missing = if source.missing.is_empty() {
+                "none".to_string()
+            } else {
+                source.missing.join(",")
+            };
+            let error = source.last_error.as_deref().unwrap_or("none");
+            format!(
+                "source_status:{} status={} checked_at={} api_base={} visible_page={} produced={} missing={} endpoints={} error=\"{}\"",
+                source.source_app,
+                source.status,
+                source.checked_at.to_rfc3339(),
+                shell_quote(api_base),
+                visible_page,
+                source.record_count,
+                missing,
+                source.endpoints.len(),
+                compact_live_state_text(error, 160)
+            )
+        })
+        .collect()
+}
+
 fn render_live_state_sync_task_lines(
     records: &[LiveAppStateRecord],
     now: chrono::DateTime<Utc>,
@@ -1096,7 +1197,7 @@ fn sync_payload_hint(module: &str) -> &'static str {
 
 pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
     let mut lines = vec![format!(
-        "live_state status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={} sync_tasks={} next_refresh_at={} refresh_reason=\"{}\" contract={} path={}",
+        "live_state status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={} sync_tasks={} source_unavailable={} next_refresh_at={} refresh_reason=\"{}\" contract={} path={} source_status_path={}",
         report.status,
         report.total,
         report.fresh,
@@ -1107,10 +1208,12 @@ pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
         report.sync_required,
         report.sync_actions.len(),
         report.sync_tasks.len(),
+        report.source_unavailable,
         report.next_refresh_at.to_rfc3339(),
         compact_live_state_text(&report.refresh_reason, 160),
         report.producer_contract_version,
-        report.path
+        report.path,
+        report.source_status_path
     )];
     lines.extend(report.records.iter().take(12).map(|record| {
         format!(
@@ -1142,6 +1245,9 @@ pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
             requirement.privacy_route
         )
     }));
+    lines.extend(render_live_state_source_status_lines(
+        &report.source_statuses,
+    ));
     lines.extend(
         report
             .sync_actions
@@ -1765,5 +1871,56 @@ mod tests {
         assert!(batch_template.contains(r#""scope": "approved""#));
         assert!(batch_template.contains(r#""agentsecretsApproved": false"#));
         assert!(batch_template.contains(r#""raw_media_stored": false"#));
+    }
+
+    #[test]
+    fn live_state_status_surfaces_source_unavailable_diagnostics() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let output = root.path().join(".memd");
+        let source_status_path = live_app_source_status_path(&output);
+        std::fs::create_dir_all(source_status_path.parent().expect("state dir"))
+            .expect("create state dir");
+        std::fs::write(
+            &source_status_path,
+            r#"{
+  "version": 1,
+  "updated_at": "2026-05-17T06:00:00Z",
+  "sources": [
+    {
+      "source_app": "clawcontrol",
+      "status": "unavailable",
+      "checked_at": "2026-05-17T06:00:00Z",
+      "api_base": "http://127.0.0.1:3000",
+      "visible_page": "missing",
+      "produced": [],
+      "missing": ["visible_page", "calendar", "todos", "reminders", "messages", "email"],
+      "record_count": 0,
+      "endpoints": [
+        {"module": "calendar", "path": "/api/calendar", "ok": false, "status": 0, "error": "unreachable"}
+      ],
+      "last_error": "missing live-state surfaces: visible_page, calendar, todos, reminders, messages, email"
+    }
+  ]
+}"#,
+        )
+        .expect("write source status");
+
+        let report = live_state_report(&output).expect("status report");
+        assert_eq!(report.source_unavailable, 1);
+        assert_eq!(
+            report.source_status_path,
+            source_status_path.display().to_string()
+        );
+        assert_eq!(report.source_statuses[0].source_app, "clawcontrol");
+        assert_eq!(report.source_statuses[0].missing.len(), 6);
+
+        let summary = render_live_state_summary(&report);
+        assert!(summary.contains("source_unavailable=1"));
+        assert!(summary.contains("source_status:clawcontrol status=unavailable"));
+        assert!(summary.contains("missing=visible_page,calendar,todos,reminders,messages,email"));
+
+        let section = render_live_app_state_section(&output, 8);
+        assert!(section.contains("source_status:clawcontrol status=unavailable"));
+        assert!(section.contains("api_base=http://127.0.0.1:3000"));
     }
 }

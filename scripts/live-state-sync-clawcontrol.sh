@@ -25,8 +25,9 @@ if [[ "$CAPTURE_HTTP" == "1" || "$CAPTURE_HTTP" == "true" ]]; then
     echo "live-state-sync-clawcontrol: capture script not executable: $CAPTURE_SCRIPT" >&2
     exit 127
   fi
+  AUTHORITY_MEMD_OUTPUT="$MEMD_OUTPUT"
   set +e
-  MEMD_BIN="$MEMD_BIN" MEMD_OUTPUT="$CLAWCONTROL_MEMD_OUTPUT" "$CAPTURE_SCRIPT"
+  MEMD_BIN="$MEMD_BIN" MEMD_OUTPUT="$CLAWCONTROL_MEMD_OUTPUT" SOURCE_STATUS_OUTPUT="$AUTHORITY_MEMD_OUTPUT" "$CAPTURE_SCRIPT"
   capture_status=$?
   set -e
   if [[ "$capture_status" -eq 2 ]]; then

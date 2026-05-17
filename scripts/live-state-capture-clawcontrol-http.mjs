@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const apiBase = (process.env.CLAWCONTROL_API_BASE || 'http://127.0.0.1:3000').replace(/\/+$/, '');
 const memdBin = process.env.MEMD_BIN || 'memd';
 const memdOutput = process.env.MEMD_OUTPUT || new URL('../.memd', import.meta.url).pathname;
+const sourceStatusOutput = process.env.SOURCE_STATUS_OUTPUT || '';
 const timeoutMs = Number(process.env.TIMEOUT_MS || '1500');
 const freshnessSecs = Math.max(60, Number(process.env.FRESHNESS_SECS || '86400'));
 const dryRun = process.env.DRY_RUN === '1' || process.env.DRY_RUN === 'true';
@@ -213,7 +215,9 @@ const visible = visiblePageRecord();
 if (visible) records.push(visible);
 
 const probe = {
+  sourceApp: 'clawcontrol',
   apiBase,
+  checkedAt: new Date().toISOString(),
   timeoutMs,
   visiblePage: visible ? 'present' : 'missing',
   endpoints: [],
@@ -232,10 +236,42 @@ for (const endpoint of endpoints) {
   records.push(recordFor(endpoint, result.data, summarize(endpoint.module, result.data)));
 }
 
+function writeSourceStatus(produced, missing) {
+  if (!sourceStatusOutput) return;
+  const stateDir = join(sourceStatusOutput, 'state');
+  mkdirSync(stateDir, { recursive: true });
+  const ok = missing.length === 0;
+  const status = {
+    version: 1,
+    updated_at: probe.checkedAt,
+    sources: [
+      {
+        source_app: 'clawcontrol',
+        status: ok ? 'ok' : 'unavailable',
+        checked_at: probe.checkedAt,
+        api_base: apiBase,
+        visible_page: probe.visiblePage,
+        produced,
+        missing,
+        record_count: produced.length,
+        endpoints: probe.endpoints,
+        last_error: ok
+          ? null
+          : `missing live-state surfaces: ${missing.join(', ')}`,
+      },
+    ],
+  };
+  writeFileSync(
+    join(stateDir, 'live-app-source-status.json'),
+    `${JSON.stringify(status, null, 2)}\n`,
+  );
+}
+
 if (probeOnly) {
   const produced = records.map((record) => record.module);
   const required = ['visible_page', ...endpoints.map((endpoint) => endpoint.module)];
   const missing = required.filter((module) => !produced.includes(module));
+  writeSourceStatus(produced, missing);
   console.log(
     JSON.stringify(
       {
@@ -252,9 +288,17 @@ if (probeOnly) {
 }
 
 if (records.length === 0) {
+  writeSourceStatus([], ['visible_page', ...endpoints.map((endpoint) => endpoint.module)]);
   console.error(`live-state-capture-clawcontrol-http: no reachable live endpoints at ${apiBase}`);
   process.exit(2);
 }
+
+writeSourceStatus(
+  records.map((record) => record.module),
+  ['visible_page', ...endpoints.map((endpoint) => endpoint.module)].filter(
+    (module) => !records.some((record) => record.module === module),
+  ),
+);
 
 const batch = JSON.stringify({ records }, null, 2);
 if (dryRun) {
