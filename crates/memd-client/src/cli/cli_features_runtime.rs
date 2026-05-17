@@ -67,7 +67,11 @@ fn native_handoff_feature(output: &Path) -> P0Feature {
     let mem = fs::read_to_string(&mem_path).unwrap_or_default();
     let recovery_line = wake.contains("- recovery voice=");
     let quality_ready = wake.contains("quality=ready:") || mem.contains("quality=ready:");
-    let continuity = wake.contains("next=") && wake.contains("blocker=") && wake.contains("dirty=");
+    let continuity = wake.contains("next=")
+        && (wake.contains("blocker=")
+            || wake.contains("proof_blockers=")
+            || wake.contains("live_state_blockers="))
+        && wake.contains("dirty=");
     let next_action_content = wake_recovery_next_has_action_content(&wake);
     let status = if recovery_line && quality_ready && continuity && next_action_content {
         "working"
@@ -109,7 +113,17 @@ fn wake_recovery_next_has_action_content(wake: &str) -> bool {
         .find(|line| line.starts_with("- recovery "))
         .and_then(|line| line.split("next=").nth(1))
         .is_some_and(|next| {
-            let next = next.split(" | blocker=").next().unwrap_or(next).trim();
+            let next = next
+                .split(" | blocker=")
+                .next()
+                .unwrap_or(next)
+                .split(" | proof_blockers=")
+                .next()
+                .unwrap_or(next)
+                .split(" | live_state_blockers=")
+                .next()
+                .unwrap_or(next)
+                .trim();
             next.contains("CURRENT NEXT ACTION")
                 || next.contains(": implement ")
                 || next.contains(": fix ")
@@ -667,6 +681,20 @@ mod tests {
                 .evidence
                 .iter()
                 .any(|line| line == "next_action_content=true")
+        );
+
+        fs::write(
+            bundle.join("wake.md"),
+            "- recovery voice=caveman-ultra | quality=ready:0.96 | dirty=0 | next=abc: CURRENT NEXT ACTION: continue live-state authority | proof_blockers=full_public:missing_explicit_env=RUN_LABEL | live_state_blockers=clawcontrol:status=auth_required missing=messages,email\n",
+        )
+        .expect("write proof-blocker wake");
+        let feature = native_handoff_feature(&bundle);
+        assert_eq!(feature.status, "working");
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|line| line == "native_continuity=true")
         );
 
         fs::remove_dir_all(bundle).ok();

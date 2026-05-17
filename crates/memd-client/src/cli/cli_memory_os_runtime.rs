@@ -878,7 +878,9 @@ fn native_handoff_recovery_feature(
     let voice_mode = read_bundle_voice_mode(output).unwrap_or_else(default_voice_mode);
     let has_recovery_line = wake.contains("- recovery voice=");
     let has_native_continuity = wake.contains("next=")
-        && wake.contains("blocker=")
+        && (wake.contains("blocker=")
+            || wake.contains("proof_blockers=")
+            || wake.contains("live_state_blockers="))
         && (wake.contains("dirty=") || mem.contains("dirty="));
     let quality_ready = wake.contains("quality=ready:") || mem.contains("quality=ready:");
     let quality_partial = wake.contains("quality=partial:") || mem.contains("quality=partial:");
@@ -3402,6 +3404,39 @@ mod tests {
                 .any(|item| item.contains("not proven ready"))
         );
         assert_eq!(report.status, "partial");
+
+        fs::remove_dir_all(output).expect("cleanup feature temp");
+    }
+
+    #[test]
+    fn feature_registry_accepts_proof_blocker_recovery_capsule() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-feature-handoff-proof-blockers-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&output).expect("create feature temp");
+        fs::write(
+            output.join("wake.md"),
+            "# wake\n\n- recovery voice=caveman-ultra | quality=ready:0.99 | dirty=0 | next=abc: CURRENT NEXT ACTION: continue live-state authority | proof_blockers=full_public:missing_explicit_env=RUN_LABEL | live_state_blockers=clawcontrol:status=auth_required missing=messages,email\n",
+        )
+        .expect("write wake");
+        fs::write(output.join("mem.md"), "# mem\n").expect("write mem");
+
+        let report = build_feature_report(&output);
+        let handoff = report
+            .features
+            .iter()
+            .find(|feature| feature.id == "native_handoff_recovery")
+            .expect("native handoff feature");
+
+        assert_eq!(handoff.status, "working");
+        assert!(
+            handoff
+                .evidence
+                .iter()
+                .any(|item| item == "native_continuity=true")
+        );
+        assert!(handoff.gaps.is_empty());
 
         fs::remove_dir_all(output).expect("cleanup feature temp");
     }
