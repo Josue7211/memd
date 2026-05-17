@@ -2979,6 +2979,7 @@ pub(crate) struct LiveStateArgs {
 pub(crate) enum LiveStateSubcommand {
     Ingest(LiveStateIngestArgs),
     IngestBatch(LiveStateIngestBatchArgs),
+    Import(LiveStateImportArgs),
     Status(LiveStateStatusArgs),
 }
 
@@ -3043,6 +3044,27 @@ pub(crate) struct LiveStateIngestBatchArgs {
     /// File containing a ClawControl-style {"records":[...]} live-state batch.
     #[arg(long)]
     pub(crate) input_file: Option<PathBuf>,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct LiveStateImportArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    /// Import records from another .memd output directory.
+    #[arg(long)]
+    pub(crate) from_output: PathBuf,
+
+    /// Only import records from this source app.
+    #[arg(long)]
+    pub(crate) source: Option<String>,
+
+    /// Skip records that are already expired in the source map.
+    #[arg(long)]
+    pub(crate) fresh_only: bool,
 
     #[arg(long)]
     pub(crate) json: bool,

@@ -260,6 +260,7 @@ pub(crate) fn run_live_state_command(args: &LiveStateArgs) -> anyhow::Result<Liv
     match &args.command {
         LiveStateSubcommand::Ingest(ingest) => ingest_live_state(ingest),
         LiveStateSubcommand::IngestBatch(batch) => ingest_live_state_batch(batch),
+        LiveStateSubcommand::Import(import) => import_live_state(import),
         LiveStateSubcommand::Status(status) => live_state_report(&status.output),
     }
 }
@@ -403,6 +404,63 @@ fn ingest_live_state_batch(args: &LiveStateIngestBatchArgs) -> anyhow::Result<Li
         };
         store.records.retain(|existing| existing.id != record.id);
         store.records.push(record);
+    }
+
+    store
+        .records
+        .sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    write_live_app_state(&args.output, &store)?;
+    live_state_report(&args.output)
+}
+
+fn import_live_state(args: &LiveStateImportArgs) -> anyhow::Result<LiveAppStateReport> {
+    let source_filter = args.source.as_deref().map(normalize_key);
+    let now = Utc::now();
+    let source_store = read_live_app_state(&args.from_output)?;
+    let mut imported = 0usize;
+    let mut store = read_live_app_state(&args.output)?;
+    store.version = LIVE_STATE_VERSION;
+    store.updated_at = Some(now);
+
+    for record in source_store.records {
+        if source_filter
+            .as_deref()
+            .is_some_and(|source| record.source_app != source)
+        {
+            continue;
+        }
+        if args.fresh_only && record.expires_at <= now {
+            continue;
+        }
+        if record.summary.trim().is_empty() {
+            bail!("live state summary is required");
+        }
+        let validation_args = LiveStateIngestArgs {
+            output: args.output.clone(),
+            source: record.source_app.clone(),
+            module: record.module.clone(),
+            scope: record.scope.clone(),
+            visibility: record.visibility.clone(),
+            privacy: record.privacy.clone(),
+            approved: record.approved,
+            agentsecrets_approved: record.agentsecrets_approved,
+            freshness_secs: (record.expires_at - record.captured_at)
+                .num_seconds()
+                .max(60),
+            label: record.labels.clone(),
+            summary: record.summary.clone(),
+            payload_json: None,
+            payload_file: None,
+            json: args.json,
+        };
+        validate_live_state_privacy(&validation_args, &record.payload)?;
+        store.records.retain(|existing| existing.id != record.id);
+        store.records.push(record);
+        imported += 1;
+    }
+
+    if imported == 0 {
+        bail!("no live-state records imported");
     }
 
     store
@@ -1481,6 +1539,42 @@ mod tests {
             record.id == "clawcontrol:visible_page:current"
                 && record.summary.contains("route=/calendar")
         }));
+    }
+
+    #[test]
+    fn live_state_import_copies_clawcontrol_bundle_records() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let source_output = root.path().join("clawcontrol/.memd");
+        let dest_output = root.path().join("memd/.memd");
+        let template = live_state_report(&dest_output).expect("empty status");
+        let batch_args = LiveStateIngestBatchArgs {
+            output: source_output.clone(),
+            stdin: false,
+            input_json: Some(render_live_state_batch_template(&template)),
+            input_file: None,
+            json: false,
+        };
+        ingest_live_state_batch(&batch_args).expect("source batch ingest");
+
+        let import_args = LiveStateImportArgs {
+            output: dest_output,
+            from_output: source_output,
+            source: Some("clawcontrol".to_string()),
+            fresh_only: true,
+            json: false,
+        };
+        let report = import_live_state(&import_args).expect("import live state");
+
+        assert_eq!(report.total, 6);
+        assert_eq!(report.status, "fresh");
+        assert_eq!(report.requirement_missing, 0);
+        assert!(!report.sync_required);
+        assert!(
+            report
+                .records
+                .iter()
+                .all(|record| record.source_app == "clawcontrol")
+        );
     }
 
     #[test]
