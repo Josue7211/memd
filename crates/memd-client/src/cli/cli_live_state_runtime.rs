@@ -322,6 +322,7 @@ pub(crate) fn render_live_app_state_section(output: &Path, limit: usize) -> Stri
         lines.extend(render_live_state_source_status_lines(
             &source_status_store.sources,
             now,
+            &requirements,
         ));
     }
     lines.extend(render_live_state_sync_task_lines(&records, now));
@@ -1027,6 +1028,7 @@ fn live_state_source_status_is_fresh(
 fn render_live_state_source_status_lines(
     sources: &[LiveAppStateSourceStatus],
     now: chrono::DateTime<Utc>,
+    requirements: &[LiveAppStateRequirementStatus],
 ) -> Vec<String> {
     sources
         .iter()
@@ -1047,8 +1049,11 @@ fn render_live_state_source_status_lines(
             let fresh_until =
                 source.checked_at + Duration::seconds(LIVE_STATE_SOURCE_STATUS_FRESH_SECS);
             let freshness = if fresh_until > now { "fresh" } else { "stale" };
+            let state_map_fresh = source_requirement_modules(requirements, &source.source_app, "fresh");
+            let state_map_unmet =
+                source_requirement_modules_not_status(requirements, &source.source_app, "fresh");
             format!(
-                "source_status:{} status={} freshness={} checked_at={} fresh_until={} api_base={} api_bases={} auth_configured={} visible_page={} produced={} missing={} endpoints={} error=\"{}\"",
+                "source_status:{} status={} freshness={} checked_at={} fresh_until={} api_base={} api_bases={} auth_configured={} visible_page={} produced={} missing={} state_map_fresh={} state_map_unmet={} endpoints={} error=\"{}\"",
                 source.source_app,
                 source.status,
                 freshness,
@@ -1060,11 +1065,45 @@ fn render_live_state_source_status_lines(
                 visible_page,
                 source.record_count,
                 missing,
+                render_module_list(&state_map_fresh),
+                render_module_list(&state_map_unmet),
                 source.endpoints.len(),
                 compact_live_state_text(error, 160)
             )
         })
         .collect()
+}
+
+fn source_requirement_modules(
+    requirements: &[LiveAppStateRequirementStatus],
+    source_app: &str,
+    status: &str,
+) -> Vec<String> {
+    requirements
+        .iter()
+        .filter(|requirement| requirement.source_app == source_app && requirement.status == status)
+        .map(|requirement| requirement.module.clone())
+        .collect()
+}
+
+fn source_requirement_modules_not_status(
+    requirements: &[LiveAppStateRequirementStatus],
+    source_app: &str,
+    status: &str,
+) -> Vec<String> {
+    requirements
+        .iter()
+        .filter(|requirement| requirement.source_app == source_app && requirement.status != status)
+        .map(|requirement| requirement.module.clone())
+        .collect()
+}
+
+fn render_module_list(modules: &[String]) -> String {
+    if modules.is_empty() {
+        "none".to_string()
+    } else {
+        modules.join(",")
+    }
 }
 
 fn render_live_state_sync_task_lines(
@@ -1355,6 +1394,7 @@ pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
     lines.extend(render_live_state_source_status_lines(
         &report.source_statuses,
         report.checked_at,
+        &report.requirements,
     ));
     lines.extend(
         report
@@ -2042,6 +2082,11 @@ mod tests {
         assert!(summary.contains("auth_configured=false"));
         assert!(summary.contains("freshness=stale"));
         assert!(summary.contains("missing=visible_page,calendar,todos,reminders,messages,email"));
+        assert!(summary.contains("state_map_fresh=none"));
+        assert!(
+            summary
+                .contains("state_map_unmet=visible_page,calendar,reminders,todos,messages,email")
+        );
 
         let section = render_live_app_state_section(&output, 8);
         assert!(section.contains("source_status:clawcontrol status=unavailable"));
@@ -2163,6 +2208,19 @@ mod tests {
         assert!(
             detail.contains(clawcontrol_api_key_access_route_command()),
             "{detail}"
+        );
+        let summary = render_live_state_summary(&report);
+        assert!(
+            summary.contains("missing=visible_page,calendar,todos,reminders,messages,email"),
+            "{summary}"
+        );
+        assert!(
+            summary.contains("state_map_fresh=calendar,reminders,todos"),
+            "{summary}"
+        );
+        assert!(
+            summary.contains("state_map_unmet=visible_page,messages,email"),
+            "{summary}"
         );
     }
 }
