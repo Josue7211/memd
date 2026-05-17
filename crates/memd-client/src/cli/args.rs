@@ -2980,6 +2980,7 @@ pub(crate) enum LiveStateSubcommand {
     Ingest(LiveStateIngestArgs),
     IngestBatch(LiveStateIngestBatchArgs),
     Import(LiveStateImportArgs),
+    Sync(LiveStateSyncArgs),
     Status(LiveStateStatusArgs),
 }
 
@@ -3065,6 +3066,31 @@ pub(crate) struct LiveStateImportArgs {
     /// Skip records that are already expired in the source map.
     #[arg(long)]
     pub(crate) fresh_only: bool,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct LiveStateSyncArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    /// Import from this .memd output directory when the authority map is missing, stale, or due.
+    #[arg(long)]
+    pub(crate) from_output: PathBuf,
+
+    /// Only sync records from this source app.
+    #[arg(long, default_value = "clawcontrol")]
+    pub(crate) source: String,
+
+    /// Also sync when next_refresh_at is within this many seconds.
+    #[arg(long, default_value_t = 0)]
+    pub(crate) due_within_secs: i64,
+
+    /// Allow importing stale source records. Fresh-only is the default.
+    #[arg(long)]
+    pub(crate) allow_stale: bool,
 
     #[arg(long)]
     pub(crate) json: bool,

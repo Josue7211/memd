@@ -261,6 +261,7 @@ pub(crate) fn run_live_state_command(args: &LiveStateArgs) -> anyhow::Result<Liv
         LiveStateSubcommand::Ingest(ingest) => ingest_live_state(ingest),
         LiveStateSubcommand::IngestBatch(batch) => ingest_live_state_batch(batch),
         LiveStateSubcommand::Import(import) => import_live_state(import),
+        LiveStateSubcommand::Sync(sync) => sync_live_state(sync),
         LiveStateSubcommand::Status(status) => live_state_report(&status.output),
     }
 }
@@ -468,6 +469,21 @@ fn import_live_state(args: &LiveStateImportArgs) -> anyhow::Result<LiveAppStateR
         .sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
     write_live_app_state(&args.output, &store)?;
     live_state_report(&args.output)
+}
+
+fn sync_live_state(args: &LiveStateSyncArgs) -> anyhow::Result<LiveAppStateReport> {
+    let report = live_state_report(&args.output)?;
+    if !live_state_check_required(&report, args.due_within_secs) {
+        return Ok(report);
+    }
+    let import = LiveStateImportArgs {
+        output: args.output.clone(),
+        from_output: args.from_output.clone(),
+        source: Some(args.source.clone()),
+        fresh_only: !args.allow_stale,
+        json: args.json,
+    };
+    import_live_state(&import)
 }
 
 pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateReport> {
@@ -1575,6 +1591,41 @@ mod tests {
                 .iter()
                 .all(|record| record.source_app == "clawcontrol")
         );
+    }
+
+    #[test]
+    fn live_state_sync_imports_only_when_authority_needs_refresh() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let source_output = root.path().join("clawcontrol/.memd");
+        let dest_output = root.path().join("memd/.memd");
+        let template = live_state_report(&dest_output).expect("empty status");
+        let batch_args = LiveStateIngestBatchArgs {
+            output: source_output.clone(),
+            stdin: false,
+            input_json: Some(render_live_state_batch_template(&template)),
+            input_file: None,
+            json: false,
+        };
+        ingest_live_state_batch(&batch_args).expect("source batch ingest");
+
+        let sync_args = LiveStateSyncArgs {
+            output: dest_output.clone(),
+            from_output: source_output.clone(),
+            source: "clawcontrol".to_string(),
+            due_within_secs: 0,
+            allow_stale: false,
+            json: false,
+        };
+        let synced = sync_live_state(&sync_args).expect("sync imports missing authority");
+        assert_eq!(synced.status, "fresh");
+        assert_eq!(synced.requirement_missing, 0);
+        assert_eq!(synced.total, 6);
+
+        let source_path = live_app_state_path(&source_output);
+        std::fs::remove_file(source_path).expect("remove source map");
+        let no_op = sync_live_state(&sync_args).expect("fresh authority does not need source");
+        assert_eq!(no_op.status, "fresh");
+        assert_eq!(no_op.total, 6);
     }
 
     #[test]
