@@ -43,7 +43,7 @@ if [[ "$CAPTURE_HTTP" == "1" || "$CAPTURE_HTTP" == "true" ]]; then
         bridge_status=$?
         set -e
         if [[ "$bridge_status" -eq 0 ]]; then
-          echo "live-state-sync-clawcontrol: mac-bridge fallback captured calendar/reminders/todos metadata" >&2
+          echo "live-state-sync-clawcontrol: mac-bridge fallback captured visible_page/calendar/reminders/todos metadata" >&2
         elif [[ "$bridge_status" -eq 2 ]]; then
           echo "live-state-sync-clawcontrol: mac-bridge fallback unavailable" >&2
         else

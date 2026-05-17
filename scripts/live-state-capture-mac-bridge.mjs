@@ -15,6 +15,7 @@ const timeoutMs = Number(process.env.TIMEOUT_MS || '2500');
 const freshnessSecs = Math.max(60, Number(process.env.FRESHNESS_SECS || '3600'));
 const fixtureDir = process.env.MAC_BRIDGE_FIXTURE_DIR || '';
 const dryRun = process.env.DRY_RUN === '1' || process.env.DRY_RUN === 'true';
+const captureVisiblePage = process.env.CAPTURE_VISIBLE_PAGE !== '0' && process.env.CAPTURE_VISIBLE_PAGE !== 'false';
 
 function readEnvFile(path) {
   try {
@@ -132,8 +133,44 @@ function record({ module, scope, summary, payload }) {
   };
 }
 
+function currentBranch() {
+  const result = spawnSync('git', ['-C', root, 'branch', '--show-current'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  return compact(result.stdout || 'unknown', 80) || 'unknown';
+}
+
+function visiblePageRecord() {
+  const cwd = process.env.VISIBLE_PAGE_CWD || root;
+  const branch = process.env.VISIBLE_PAGE_BRANCH || currentBranch();
+  const title = process.env.VISIBLE_PAGE_TITLE || `Codex workspace: ${root.split('/').filter(Boolean).pop() || 'workspace'}`;
+  const route = process.env.VISIBLE_PAGE_ROUTE || `workspace:${cwd}`;
+  return record({
+    module: 'visible_page',
+    scope: 'current',
+    summary: `visible page: ${compact(title, 80)} route=${compact(route, 120)} branch=${compact(branch, 48)}`,
+    payload: {
+      app: 'codex',
+      producer: 'mac-bridge-fallback',
+      title,
+      route,
+      cwd,
+      branch,
+      facts: [
+        'current surface is the local Codex workspace',
+        'private metadata only; no screen pixels or document bodies stored',
+      ],
+    },
+  });
+}
+
 const records = [];
 const errors = [];
+
+if (captureVisiblePage) {
+  records.push(visiblePageRecord());
+}
 
 try {
   const calendar = calendarEvents(await fetchBridge('/calendar?pastDays=0&futureDays=30'));
