@@ -553,6 +553,7 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
             path_evidence("live_app_state_map", &live_state_path),
             "memd live-state ingest stores present-tense app/module state in a freshness-bounded state map".to_string(),
             "context packets include Live App State so chat and module-builder prompts can consume current app facts".to_string(),
+            "strict context packets make Live App State the only authority for present-tense app/page/calendar/reminder/todo/message/email facts and forbid inventing current personal data".to_string(),
             "sensitive modules such as messages, texts, and email require private visibility and approved/redacted/metadata privacy labels".to_string(),
             "message media attachments require AgentSecrets approval and raw media is rejected from the memd state map".to_string(),
         ]
