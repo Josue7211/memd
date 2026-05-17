@@ -81,6 +81,37 @@ fn compact_record_kind(record: &str) -> Option<&'static str> {
     }
 }
 
+fn working_eviction_count(working: &memd_schema::WorkingMemoryResponse) -> usize {
+    working
+        .compaction_quality
+        .as_ref()
+        .map(|quality| quality.evicted)
+        .unwrap_or_else(|| working.evicted.len())
+        .max(working.evicted.len())
+}
+
+fn working_has_loss(working: &memd_schema::WorkingMemoryResponse) -> bool {
+    working.truncated || working_eviction_count(working) > 0
+}
+
+fn resume_refresh_recommended(
+    resume_state_age_minutes: Option<i64>,
+    working: &memd_schema::WorkingMemoryResponse,
+    inbox: &memd_schema::MemoryInboxResponse,
+) -> bool {
+    let working_loss = working_has_loss(working);
+    let admission_limit = working.policy.admission_limit.max(1);
+    let admission_loss = working.records.len() >= admission_limit && working_loss;
+    let tight_budget_loss = working.remaining_chars <= 200 && working_loss;
+
+    resume_state_age_minutes.is_some_and(|age_minutes| age_minutes >= 15)
+        || working.truncated
+        || tight_budget_loss
+        || admission_loss
+        || inbox.items.len() >= 5
+        || working.rehydration_queue.len() >= 4
+}
+
 fn trim_resume_context_records(
     context: &mut memd_schema::CompactContextResponse,
     working: &memd_schema::WorkingMemoryResponse,
@@ -345,13 +376,8 @@ pub(crate) async fn read_bundle_resume(
     let previous_state = read_bundle_resume_state(&args.output)?;
     let change_summary = describe_resume_state_changes(previous_state.as_ref(), &current_state);
     let resume_state_age_minutes = previous_state.as_ref().map(BundleResumeState::age_minutes);
-    let refresh_recommended = resume_state_age_minutes.is_some_and(|age_minutes| age_minutes >= 15)
-        || working.truncated
-        || working.remaining_chars <= 200
-        || working.records.len() >= 8
-        || inbox.items.len() >= 5
-        || working.rehydration_queue.len() >= 4
-        || context.records.len() >= 6;
+    let refresh_recommended =
+        resume_refresh_recommended(resume_state_age_minutes, &working, &inbox);
     let claims = read_bundle_claims(&args.output).unwrap_or_default();
 
     // E2: Atlas region hints for wake packet
@@ -1107,6 +1133,59 @@ mod tests {
             .get_or_init(|| Mutex::new(()))
             .lock()
             .expect("cwd mutation lock poisoned")
+    }
+
+    #[test]
+    fn lossless_full_working_packet_does_not_force_refresh() {
+        use memd_schema::{CompactMemoryRecord, CompactionQualityReport};
+        use std::collections::BTreeMap;
+
+        let mut snapshot = ResumeSnapshot::empty();
+        snapshot.context.records = (0..8)
+            .map(|index| CompactMemoryRecord {
+                id: uuid::Uuid::new_v4(),
+                record: format!("stable context item {index}"),
+            })
+            .collect();
+        snapshot.working.budget_chars = 1600;
+        snapshot.working.used_chars = 1540;
+        snapshot.working.remaining_chars = 60;
+        snapshot.working.policy.admission_limit = 8;
+        snapshot.working.records = (0..7)
+            .map(|index| CompactMemoryRecord {
+                id: uuid::Uuid::new_v4(),
+                record: format!("stable working item {index}"),
+            })
+            .collect();
+        snapshot.working.compaction_quality = Some(CompactionQualityReport {
+            admitted: 7,
+            evicted: 0,
+            per_kind_admitted: BTreeMap::new(),
+            per_kind_evicted: BTreeMap::new(),
+            chars_per_kind_admitted: BTreeMap::new(),
+            budget_chars: 1600,
+            used_chars: 1540,
+        });
+
+        assert!(!resume_refresh_recommended(
+            None,
+            &snapshot.working,
+            &snapshot.inbox
+        ));
+        assert_eq!(snapshot.context_pressure(), "low");
+
+        snapshot
+            .working
+            .compaction_quality
+            .as_mut()
+            .expect("quality")
+            .evicted = 1;
+        assert!(resume_refresh_recommended(
+            None,
+            &snapshot.working,
+            &snapshot.inbox
+        ));
+        assert_eq!(snapshot.context_pressure(), "medium");
     }
 
     #[test]
@@ -2718,9 +2797,10 @@ impl ResumeSnapshot {
     }
 
     pub(crate) fn context_pressure(&self) -> &'static str {
-        let tokens = self.estimated_prompt_tokens();
+        let core_tokens = self.core_prompt_tokens();
+        let estimated_tokens = self.estimated_prompt_tokens();
         if self.working.truncated
-            || tokens >= 1_800
+            || core_tokens >= 1_800
             || self.inbox.items.len() >= 5
             || self.redundant_context_items() >= 3
             || self
@@ -2729,8 +2809,9 @@ impl ResumeSnapshot {
                 .is_some_and(|semantic| semantic.items.len() >= 4)
         {
             "high"
-        } else if tokens >= 1_000
-            || self.working.remaining_chars <= 200
+        } else if core_tokens >= 1_000
+            || estimated_tokens >= 1_800
+            || (self.working.remaining_chars <= 200 && working_has_loss(&self.working))
             || self.inbox.items.len() >= 3
             || self.working.rehydration_queue.len() >= 4
             || self.redundant_context_items() >= 1
