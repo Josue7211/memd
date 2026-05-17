@@ -299,11 +299,15 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                 LiveStateSubcommand::Ingest(args) => args.json,
                 LiveStateSubcommand::Status(args) => args.json,
             };
+            let check = matches!(&args.command, LiveStateSubcommand::Status(args) if args.check);
             let response = run_live_state_command(&args)?;
             if json {
                 print_json(&response)?;
             } else {
                 println!("{}", render_live_state_summary(&response));
+            }
+            if check && response.sync_required {
+                return Err(anyhow::Error::new(LiveStateCheckExitCode(2)));
             }
         }
         Commands::Secrets(args) => {

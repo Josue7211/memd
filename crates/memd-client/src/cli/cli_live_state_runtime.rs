@@ -4,10 +4,22 @@ use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::fmt;
 
 const LIVE_STATE_VERSION: u32 = 1;
 const LIVE_STATE_PRODUCER_CONTRACT_VERSION: u32 = 1;
 const LIVE_STATE_DEFAULT_REFRESH_SECS: i64 = 86_400;
+
+#[derive(Debug)]
+pub(crate) struct LiveStateCheckExitCode(pub(crate) i32);
+
+impl fmt::Display for LiveStateCheckExitCode {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "live-state sync required")
+    }
+}
+
+impl std::error::Error for LiveStateCheckExitCode {}
 
 #[derive(Debug, Clone, Copy)]
 struct LiveAppStateRequirement {

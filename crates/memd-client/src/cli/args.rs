@@ -3036,6 +3036,10 @@ pub(crate) struct LiveStateStatusArgs {
 
     #[arg(long)]
     pub(crate) summary: bool,
+
+    /// Exit non-zero when a producer sync is required.
+    #[arg(long)]
+    pub(crate) check: bool,
 }
 
 #[derive(Debug, Clone, Args)]

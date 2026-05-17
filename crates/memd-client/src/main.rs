@@ -419,6 +419,9 @@ async fn main() -> anyhow::Result<()> {
             if let Some(exit) = err.downcast_ref::<cli::HookEnforceExitCode>() {
                 std::process::exit(exit.0);
             }
+            if let Some(exit) = err.downcast_ref::<cli::LiveStateCheckExitCode>() {
+                std::process::exit(exit.0);
+            }
             Err(err)
         }
     }
