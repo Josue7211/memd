@@ -115,6 +115,7 @@ pub(crate) async fn run_lookup_arm_inner(
     if response.items.is_empty() {
         response = lookup_resume_snapshot_fallback(base_url, &args, &req).await?;
     }
+    response = overlay_wake_current_handoff(&args.output, &args.query, &req, response);
     let escalation_hint =
         (response.items.is_empty() && escalation_hint_enabled() && escalation::detect(&args.query))
             .then(|| escalation::hint_line(&args.query));
@@ -125,6 +126,102 @@ pub(crate) async fn run_lookup_arm_inner(
         json: args.json,
         escalation_hint,
     })
+}
+
+fn overlay_wake_current_handoff(
+    output: &Path,
+    query: &str,
+    req: &memd_schema::SearchMemoryRequest,
+    mut response: memd_schema::SearchMemoryResponse,
+) -> memd_schema::SearchMemoryResponse {
+    if !lookup_query_requests_handoff_state(query) {
+        return response;
+    }
+
+    let Some(item) = wake_current_handoff_item(output, req) else {
+        return response;
+    };
+    response.items.retain(|existing| existing.id != item.id);
+    response.items.insert(0, item);
+    let limit = req.limit.unwrap_or(LOOKUP_DEPTH_RECORD_CAP).max(1);
+    response.items.truncate(limit);
+    response
+}
+
+fn lookup_query_requests_handoff_state(query: &str) -> bool {
+    let terms = crate::runtime::lookup_query_terms(query);
+    terms.iter().any(|term| term == "handoff")
+        && (terms.iter().any(|term| term == "continuity")
+            || terms.iter().any(|term| term == "next")
+            || terms.iter().any(|term| term == "action")
+            || terms.iter().any(|term| term == "current"))
+}
+
+fn wake_current_handoff_item(
+    output: &Path,
+    req: &memd_schema::SearchMemoryRequest,
+) -> Option<memd_schema::MemoryItem> {
+    let wake = fs::read_to_string(output.join("wake.md")).ok()?;
+    let recovery_line = wake
+        .lines()
+        .find(|line| line.trim_start().starts_with("- recovery voice="))?;
+    let next = wake_recovery_field(recovery_line, "next")
+        .filter(|value| !value.eq_ignore_ascii_case("none"))?;
+    let blocker = wake_recovery_field(recovery_line, "blocker").unwrap_or("none");
+    let proof_blockers = wake_recovery_field(recovery_line, "proof_blockers").unwrap_or("none");
+    let id = next
+        .split_once(':')
+        .and_then(|(candidate, _)| uuid::Uuid::parse_str(candidate.trim()).ok())
+        .unwrap_or_else(uuid::Uuid::new_v4);
+    let content = format!(
+        "Status: current handoff next action from wake.md. next={next} | blocker={blocker} | proof_blockers={proof_blockers}"
+    );
+
+    Some(memd_schema::MemoryItem {
+        id,
+        content,
+        redundancy_key: Some("local:wake:current-handoff-next-action".to_string()),
+        belief_branch: None,
+        preferred: true,
+        kind: memd_schema::MemoryKind::Status,
+        scope: memd_schema::MemoryScope::Project,
+        project: req.project.clone(),
+        namespace: req.namespace.clone(),
+        workspace: req.workspace.clone(),
+        visibility: req
+            .visibility
+            .unwrap_or(memd_schema::MemoryVisibility::Private),
+        source_agent: None,
+        source_system: Some("wake.md".to_string()),
+        source_path: Some(output.join("wake.md").display().to_string()),
+        source_quality: Some(memd_schema::SourceQuality::Canonical),
+        confidence: 1.0,
+        ttl_seconds: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        last_verified_at: Some(chrono::Utc::now()),
+        supersedes: Vec::new(),
+        tags: vec![
+            "current-task".to_string(),
+            "handoff".to_string(),
+            "wake".to_string(),
+            "lookup-overlay".to_string(),
+        ],
+        status: memd_schema::MemoryStatus::Active,
+        stage: memd_schema::MemoryStage::Canonical,
+        lane: Some("continuity".to_string()),
+        version: 1,
+        correction_meta: None,
+    })
+}
+
+fn wake_recovery_field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let marker = format!("{key}=");
+    let start = line.find(&marker)? + marker.len();
+    let rest = &line[start..];
+    let end = rest.find(" | ").unwrap_or(rest.len());
+    let value = rest[..end].trim();
+    (!value.is_empty()).then_some(value)
 }
 
 async fn lookup_resume_snapshot_fallback(
@@ -380,5 +477,58 @@ mod tests {
         assert_eq!(item.confidence, 0.90);
         assert!(item.tags.contains(&"next-agent".to_string()));
         assert!(item.tags.contains(&"lookup-fallback".to_string()));
+    }
+
+    #[test]
+    fn handoff_lookup_overlays_current_wake_next_action() {
+        let dir = std::env::temp_dir().join(format!("memd-wake-overlay-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp bundle");
+        std::fs::write(
+            dir.join("wake.md"),
+            "# wake\n\n- recovery voice=caveman-ultra | quality=ready:0.96 | dirty=0 | next=c79d1cb5-920f-4f76-8366-81c02daf4d09: Decision: current next action is live-state coverage | blocker=refresh recommended | proof_blockers=full_public:missing_explicit_env=RUN_LABEL\n",
+        )
+        .expect("write wake");
+
+        let req = memd_schema::SearchMemoryRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            visibility: Some(memd_schema::MemoryVisibility::Private),
+            limit: Some(3),
+            ..memd_schema::SearchMemoryRequest::default()
+        };
+        let stale = resume_fallback_item(
+            "id=07ab23c6-7653-4228-a6b9-6281eaf3a726 | stage=canonical | scope=project | kind=decision | status=active | c=old bridge done memory".to_string(),
+            &req,
+        );
+        let response = memd_schema::SearchMemoryResponse {
+            route: memd_schema::RetrievalRoute::ProjectFirst,
+            intent: memd_schema::RetrievalIntent::General,
+            items: vec![stale],
+            trace: None,
+        };
+
+        let overlaid =
+            overlay_wake_current_handoff(&dir, "handoff continuity next action", &req, response);
+
+        assert_eq!(overlaid.items.len(), 2);
+        assert_eq!(
+            overlaid.items[0].id,
+            uuid::Uuid::parse_str("c79d1cb5-920f-4f76-8366-81c02daf4d09").expect("uuid")
+        );
+        assert_eq!(overlaid.items[0].kind, memd_schema::MemoryKind::Status);
+        assert!(overlaid.items[0].preferred);
+        assert!(overlaid.items[0].content.contains("current next action"));
+        assert!(
+            overlaid.items[0]
+                .content
+                .contains("proof_blockers=full_public")
+        );
+        assert!(
+            overlaid.items[0]
+                .tags
+                .contains(&"lookup-overlay".to_string())
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
 }
