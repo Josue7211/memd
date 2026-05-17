@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 
-import { mkdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
 
 const root = new URL('..', import.meta.url).pathname.replace(/\/+$/, '');
 const envFile = process.env.MAC_BRIDGE_ENV || join(root, 'integrations', 'mac-bridge', '.env');
@@ -134,11 +133,13 @@ function record({ module, scope, summary, payload }) {
 }
 
 function currentBranch() {
-  const result = spawnSync('git', ['-C', root, 'branch', '--show-current'], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-  });
-  return compact(result.stdout || 'unknown', 80) || 'unknown';
+  try {
+    const head = readFileSync(join(root, '.git', 'HEAD'), 'utf8').trim();
+    const match = head.match(/^ref:\s+refs\/heads\/(.+)$/);
+    return compact(match ? match[1] : head.slice(0, 12), 80) || 'unknown';
+  } catch {
+    return 'unknown';
+  }
 }
 
 function visiblePageRecord() {

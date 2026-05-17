@@ -6,16 +6,61 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-branch="$(git rev-parse --abbrev-ref HEAD)"
-commit="$(git rev-parse --short HEAD)"
-dirty="clean"
-if [[ -n "$(git status --porcelain)" ]]; then
-  dirty="dirty"
+git_head="$(cat .git/HEAD 2>/dev/null || true)"
+branch="unknown"
+commit="unknown"
+if [[ "$git_head" == ref:\ refs/heads/* ]]; then
+  branch="${git_head#ref: refs/heads/}"
+  ref_path=".git/refs/heads/$branch"
+  if [[ -f "$ref_path" ]]; then
+    commit="$(cut -c1-8 "$ref_path")"
+  elif [[ -f .git/packed-refs ]]; then
+    commit="$(awk -v ref="refs/heads/$branch" '$2 == ref {print substr($1, 1, 8); exit}' .git/packed-refs)"
+    commit="${commit:-unknown}"
+  fi
+elif [[ -n "$git_head" ]]; then
+  commit="$(printf '%s' "$git_head" | cut -c1-8)"
+fi
+
+if [[ "${MEMD_SKIP_GIT_STATUS:-0}" == "1" || "${MEMD_SKIP_GIT_STATUS:-0}" == "true" ]]; then
+  dirty="unknown"
+else
+  dirty="$(
+    python3 - <<'PY'
+import os
+import subprocess
+import sys
+
+timeout = float(os.environ.get("MEMD_GIT_STATUS_TIMEOUT", "5"))
+try:
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        timeout=timeout,
+    )
+except subprocess.TimeoutExpired:
+    print("unknown")
+    sys.exit(0)
+except OSError:
+    print("unknown")
+    sys.exit(0)
+
+if result.returncode != 0:
+    print("unknown")
+elif result.stdout.strip():
+    print("dirty")
+else:
+    print("clean")
+PY
+  )"
 fi
 
 if [[ "$dirty" != "clean" && "${MEMD_ALLOW_DIRTY_DEPLOY:-0}" != "1" ]]; then
   cat >&2 <<MSG
-memd-server deploy blocked: working tree is dirty.
+memd-server deploy blocked: working tree is $dirty.
 Commit or clean changes, then rerun.
 To override for an explicit emergency deploy, set MEMD_ALLOW_DIRTY_DEPLOY=1.
 MSG
@@ -23,7 +68,9 @@ MSG
 fi
 
 status_url="${MEMD_SERVER_STATUS_URL:-}"
-if [[ -z "$status_url" && -f ".memd/config.json" ]]; then
+if [[ "${MEMD_SKIP_SERVER_STATUS:-0}" == "1" || "${MEMD_SKIP_SERVER_STATUS:-0}" == "true" ]]; then
+  status_url=""
+elif [[ -z "$status_url" && -f ".memd/config.json" ]]; then
   status_url="$(
     python3 - <<'PY'
 import json
@@ -52,11 +99,15 @@ server_benchmark_gate=""
 server_latency_p95_ms=""
 server_blockers=""
 
-if [[ -n "$status_url" ]]; then
+if [[ "${MEMD_SKIP_SERVER_STATUS:-0}" == "1" || "${MEMD_SKIP_SERVER_STATUS:-0}" == "true" ]]; then
+  server_status="skipped"
+  server_blockers="server status probe skipped by MEMD_SKIP_SERVER_STATUS"
+elif [[ -n "$status_url" ]]; then
   probe_output="$(
     python3 - "$status_url" "$commit" <<'PY'
 import json
 import os
+import signal
 import sys
 import urllib.error
 import urllib.request
@@ -64,6 +115,15 @@ import urllib.request
 url = sys.argv[1]
 local_commit = sys.argv[2]
 timeout = float(os.environ.get("MEMD_SERVER_STATUS_TIMEOUT", "3"))
+alarm_secs = max(1, int(timeout) + 1)
+
+def alarm_handler(_signum, _frame):
+    print("status=unavailable")
+    print(f"blockers=status probe timed out after {timeout}s")
+    raise SystemExit(0)
+
+signal.signal(signal.SIGALRM, alarm_handler)
+signal.alarm(alarm_secs)
 
 try:
     with urllib.request.urlopen(url, timeout=timeout) as response:
@@ -73,6 +133,8 @@ except (OSError, json.JSONDecodeError, urllib.error.URLError) as exc:
     print("status=unavailable")
     print(f"blockers=status probe failed: {exc}")
     raise SystemExit(0)
+finally:
+    signal.alarm(0)
 
 if status_code < 200 or status_code >= 300:
     print("status=unavailable")

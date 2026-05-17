@@ -1054,14 +1054,30 @@ pub(crate) fn run_capabilities_command(
     args: &CapabilitiesArgs,
 ) -> anyhow::Result<CapabilitiesResponse> {
     let output = capabilities_output(args);
-    let project_root = infer_bundle_project_root(output);
-    let mut registry = build_bundle_capability_registry(project_root.as_deref());
+    let persisted = read_bundle_capability_registry(output)?;
+    let use_persisted_without_refresh = matches!(
+        &args.command,
+        Some(CapabilitiesSubcommand::Status(_)) | Some(CapabilitiesSubcommand::Sync(_))
+    ) && persisted.is_some()
+        && !env_flag_enabled("MEMD_CAPABILITIES_REFRESH");
+    let project_root = if use_persisted_without_refresh {
+        None
+    } else {
+        infer_bundle_project_root(output)
+    };
+    let mut registry = if use_persisted_without_refresh {
+        persisted.clone().expect("persisted registry checked above")
+    } else {
+        build_bundle_capability_registry(project_root.as_deref())
+    };
     let bridges = detect_capability_bridges();
     if matches!(&args.command, Some(CapabilitiesSubcommand::Sync(_))) {
         annotate_capability_registry_host_cli_auth_notes(&mut registry);
         write_bundle_capability_registry(output, &registry)?;
         write_bundle_capability_bridges(output, &bridges)?;
-    } else if let Some(persisted) = read_bundle_capability_registry(output)? {
+    } else if let Some(persisted) = persisted
+        && !use_persisted_without_refresh
+    {
         registry = merge_capability_registries(registry, persisted);
     }
     let record_limit = if matches!(&args.command, Some(CapabilitiesSubcommand::Sync(_))) {
@@ -1078,6 +1094,15 @@ pub(crate) fn run_capabilities_command(
         matches!(&args.command, Some(CapabilitiesSubcommand::Sync(_))),
         record_limit,
     )
+}
+
+fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name).ok().is_some_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on" | "enabled"
+        )
+    })
 }
 
 fn merge_capability_registries(
@@ -2177,6 +2202,49 @@ mod capability_materialization_tests {
             hash: None,
             notes: Vec::new(),
         }
+    }
+
+    #[test]
+    fn capability_sync_uses_persisted_registry_without_forced_refresh() {
+        let bundle = std::env::temp_dir().join(format!(
+            "memd-capability-sync-persisted-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(bundle.join("state")).expect("create bundle state");
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: None,
+            capabilities: vec![capability(
+                "codex",
+                "skill",
+                "persisted-only",
+                "universal",
+                "/tmp/persisted-only/SKILL.md",
+            )],
+        };
+        write_bundle_capability_registry(&bundle, &registry).expect("write registry");
+
+        let report = run_capabilities_command(&CapabilitiesArgs {
+            command: Some(CapabilitiesSubcommand::Sync(CapabilitiesSyncArgs {
+                output: bundle.clone(),
+                json: false,
+            })),
+            output: bundle.clone(),
+            harness: None,
+            kind: None,
+            portability: None,
+            query: None,
+            limit: 12,
+            summary: false,
+            json: false,
+            materialize_plan: false,
+            materialize: false,
+        })
+        .expect("capability sync report");
+
+        assert_eq!(report.records.len(), 1);
+        assert_eq!(report.records[0].name, "persisted-only");
+        fs::remove_dir_all(bundle).expect("cleanup capability temp");
     }
 
     #[test]

@@ -476,8 +476,13 @@ pub(crate) fn render_tokens_summary(report: &TokenSavingsReport) -> String {
 }
 
 fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
-    let mut capability_registry =
-        build_bundle_capability_registry(infer_bundle_project_root(output).as_deref());
+    let mut capability_registry = if cli_memory_os_env_flag_enabled("MEMD_CAPABILITIES_REFRESH") {
+        build_bundle_capability_registry(infer_bundle_project_root(output).as_deref())
+    } else if let Ok(Some(registry)) = read_bundle_capability_registry(output) {
+        registry
+    } else {
+        build_bundle_capability_registry(infer_bundle_project_root(output).as_deref())
+    };
     annotate_capability_registry_host_cli_auth_notes(&mut capability_registry);
     let config = read_memory_os_bundle_config(output).ok();
     let sync_queue = offline_queue_status(output).ok();
@@ -940,6 +945,15 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
         market_claim: build_market_claim_gate(&features),
         features,
     }
+}
+
+fn cli_memory_os_env_flag_enabled(name: &str) -> bool {
+    std::env::var(name).ok().is_some_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on" | "enabled"
+        )
+    })
 }
 
 fn native_handoff_recovery_feature(
@@ -2077,7 +2091,7 @@ fn build_access_report(output: &Path, resource: Option<&str>, agent: Option<&str
         source: "security CLI".to_string(),
     });
 
-    routes.extend(process_env_access_routes(scope, agent));
+    routes.extend(process_env_access_routes_for_report(resource, scope, agent));
 
     let status = access_report_status(&routes);
     AccessReport {
@@ -2174,6 +2188,26 @@ fn process_env_access_routes(scope: &str, agent: Option<&str>) -> Vec<AccessRout
             "process environment missing approved ref".to_string()
         },
     }]
+}
+
+const DEFAULT_PROCESS_ENV_ACCESS_ROUTE_SCOPES: &[&str] = &[
+    "clawcontrol-api-key",
+    "approved-communications-file",
+    "supermemory-api-key",
+];
+
+fn process_env_access_routes_for_report(
+    resource: Option<&str>,
+    scope: &str,
+    agent: Option<&str>,
+) -> Vec<AccessRouteRecord> {
+    if resource.is_some() {
+        return process_env_access_routes(scope, agent);
+    }
+    DEFAULT_PROCESS_ENV_ACCESS_ROUTE_SCOPES
+        .iter()
+        .flat_map(|scope| process_env_access_routes(scope, agent))
+        .collect()
 }
 
 struct ProcessEnvAccessRouteConfig {
@@ -4617,6 +4651,37 @@ mod tests {
                 .notes
                 .iter()
                 .any(|note| note.contains("refs-only routes"))
+        );
+
+        fs::remove_dir_all(output).expect("cleanup access temp");
+    }
+
+    #[test]
+    fn access_sync_includes_required_process_env_authority_routes() {
+        let output =
+            std::env::temp_dir().join(format!("memd-access-sync-routes-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&output).expect("create access temp");
+        let args = AccessArgs {
+            command: AccessSubcommand::Sync(AccessSyncArgs {
+                output: output.clone(),
+                json: false,
+            }),
+        };
+
+        let report = run_access_command(&args).expect("access sync report");
+        let route_ids = report
+            .routes
+            .iter()
+            .map(|route| route.id.as_str())
+            .collect::<Vec<_>>();
+        assert!(route_ids.contains(&"process-env:clawcontrol-api-key"));
+        assert!(route_ids.contains(&"process-env:approved-communications-file"));
+        assert!(route_ids.contains(&"process-env:supermemory-api-key"));
+        assert!(
+            report
+                .routes
+                .iter()
+                .all(|route| !route.secret_values_stored)
         );
 
         fs::remove_dir_all(output).expect("cleanup access temp");
