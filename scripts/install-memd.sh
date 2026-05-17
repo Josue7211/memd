@@ -49,6 +49,25 @@ memd_supports_current_cli() {
   "$candidate" live-state --help >/dev/null 2>&1
 }
 
+memd_source_newer_than_binary() {
+  local candidate="$1"
+  [ -x "$candidate" ] || return 0
+  local repo_root
+  repo_root="$(detect_repo_root 2>/dev/null)" || return 1
+  find \
+    "$repo_root/Cargo.lock" \
+    "$repo_root/crates/memd-client/Cargo.toml" \
+    "$repo_root/crates/memd-client/src" \
+    "$repo_root/scripts/install-memd.sh" \
+    -type f -newer "$candidate" -print -quit 2>/dev/null | grep -q .
+}
+
+memd_is_current_for_checkout() {
+  local candidate="$1"
+  memd_supports_current_cli "$candidate" || return 1
+  ! memd_source_newer_than_binary "$candidate"
+}
+
 install_memd_from_source() {
   command -v cargo >/dev/null 2>&1 || fail "Rust cargo missing. Install Rust, then rerun this script."
   REPO_ROOT="$(detect_repo_root)" || fail "run from a memd checkout or set MEMD_REPO=/path/to/memd"
@@ -59,12 +78,12 @@ install_memd_from_source() {
 mkdir -p "$BIN_DIR"
 
 EXISTING_MEMD="$(command -v memd 2>/dev/null || true)"
-if [ -n "$EXISTING_MEMD" ] && memd_supports_current_cli "$EXISTING_MEMD"; then
+if [ -n "$EXISTING_MEMD" ] && memd_is_current_for_checkout "$EXISTING_MEMD"; then
   say "found current memd at $EXISTING_MEMD"
 elif [ -n "$EXISTING_MEMD" ]; then
   say "found stale memd at $EXISTING_MEMD; rebuilding"
   install_memd_from_source
-elif memd_supports_current_cli "$MEMD_BIN"; then
+elif memd_is_current_for_checkout "$MEMD_BIN"; then
   say "found current memd at $MEMD_BIN"
 elif [ -x "$MEMD_BIN" ]; then
   say "found stale memd at $MEMD_BIN; rebuilding"
