@@ -227,7 +227,7 @@ pub(crate) fn render_feature_summary(report: &MemoryOsFeatureReport) -> String {
 
 pub(crate) fn render_health_summary(report: &MemoryOsHealthReport) -> String {
     format!(
-        "health status={} features={} hygiene={} token_risk={} market_claim={} market_blockers={} market_blocker_detail={} access={} sync_pending={} sync_failed={} sync_kinds={} token_source={} measured_tokens_saved={} server_events={} estimated_tokens_saved={} bundle={}",
+        "health status={} features={} hygiene={} token_risk={} market_claim={} market_blockers={} market_blocker_detail={} live_state_blocker_detail={} access={} sync_pending={} sync_failed={} sync_kinds={} token_source={} measured_tokens_saved={} server_events={} estimated_tokens_saved={} bundle={}",
         report.status,
         report.features.status,
         report.features.hygiene_status,
@@ -235,6 +235,7 @@ pub(crate) fn render_health_summary(report: &MemoryOsHealthReport) -> String {
         report.features.market_claim.status,
         report.features.market_claim.blockers.len(),
         market_blocker_detail_summary(&report.features.market_claim.blockers),
+        live_state_blocker_detail_summary(&report.features.features),
         report.access.status,
         report.sync_queue.store.pending + report.sync_queue.sync.pending,
         report.sync_queue.store.failed + report.sync_queue.sync.failed,
@@ -266,6 +267,36 @@ fn market_blocker_detail_summary(blockers: &[String]) -> String {
                 })
         })
         .collect();
+    if details.is_empty() {
+        "none".to_string()
+    } else {
+        details.join(";")
+    }
+}
+
+fn live_state_blocker_detail_summary(features: &[MemoryOsFeature]) -> String {
+    let details: Vec<String> = features
+        .iter()
+        .find(|feature| feature.id == "live_app_state_authority")
+        .map(|feature| {
+            feature
+                .gaps
+                .iter()
+                .filter(|gap| {
+                    gap.contains("live app state source")
+                        || gap.contains("live app state blocker detail")
+                        || gap.contains("no fresh live app state records")
+                        || gap.contains("live app source status checks are stale")
+                })
+                .map(|gap| {
+                    gap.split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                        .replace(',', ";")
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     if details.is_empty() {
         "none".to_string()
     } else {
@@ -682,18 +713,14 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
                         } else {
                             source.missing.join(",")
                         };
-                        let access_route = if source.source_app == "clawcontrol"
-                            && source.status == "auth_required"
-                        {
-                            " access_route=\"memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex\""
-                        } else {
-                            ""
-                        };
                         format!(
                             "live app state source {} is {} missing={}",
                             source.source_app, source.status, missing
-                        ) + access_route
+                        )
                     }));
+                    if let Some(detail) = live_state_blocker_detail_from_report(report) {
+                        blockers.push(format!("live app state blocker detail: {detail}"));
+                    }
                     blockers
                 })
                 .unwrap_or_else(|| vec!["live app state status unavailable".to_string()])
@@ -2815,7 +2842,15 @@ mod tests {
                         "full external public proof not pass: status=blocked report=full.json missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL reason=full external public proof is intentionally opt-in".to_string(),
                     ],
                 },
-                features: Vec::new(),
+                features: vec![feature(
+                    "live_app_state_authority",
+                    "partial",
+                    Vec::new(),
+                    vec![
+                        "live app state source clawcontrol is auth_required missing=visible_page,calendar".to_string(),
+                        "live app state blocker detail: clawcontrol:status=auth_required missing=visible_page,calendar access_route=\"memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex\"".to_string(),
+                    ],
+                )],
             },
             access: AccessReport {
                 generated_at: now,
@@ -2889,6 +2924,9 @@ mod tests {
         assert!(summary.contains(
             "market_blocker_detail=supermemory:missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact;full_public:missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL"
         ));
+        assert!(summary.contains("live_state_blocker_detail="));
+        assert!(summary.contains("clawcontrol:status=auth_required"));
+        assert!(summary.contains("access route --output .memd --purpose clawcontrol-api-key"));
         assert!(summary.contains("token_source=server"));
         assert!(summary.contains("server_events=2"));
     }

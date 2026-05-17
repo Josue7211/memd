@@ -643,6 +643,55 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
     })
 }
 
+pub(crate) fn clawcontrol_api_key_access_route_command() -> &'static str {
+    "memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex"
+}
+
+pub(crate) fn live_state_blocker_detail(output: &Path) -> Option<String> {
+    live_state_report(output)
+        .ok()
+        .and_then(|report| live_state_blocker_detail_from_report(&report))
+}
+
+pub(crate) fn live_state_blocker_detail_from_report(report: &LiveAppStateReport) -> Option<String> {
+    let mut details = Vec::new();
+    for source in report
+        .source_statuses
+        .iter()
+        .filter(|source| source.status != "ok")
+    {
+        let missing = if source.missing.is_empty() {
+            "none".to_string()
+        } else {
+            source.missing.join(",")
+        };
+        let access_route = if source.source_app == "clawcontrol" && source.status == "auth_required"
+        {
+            format!(
+                " access_route=\"{}\"",
+                clawcontrol_api_key_access_route_command()
+            )
+        } else {
+            String::new()
+        };
+        details.push(format!(
+            "{}:status={} missing={}{}",
+            source.source_app, source.status, missing, access_route
+        ));
+    }
+
+    if details.is_empty()
+        && (report.sync_required || report.requirement_missing > 0 || report.requirement_stale > 0)
+    {
+        details.push(format!(
+            "requirements_missing={} requirements_stale={} sync_required={}",
+            report.requirement_missing, report.requirement_stale, report.sync_required
+        ));
+    }
+
+    (!details.is_empty()).then(|| details.join(";"))
+}
+
 pub(crate) fn live_state_check_required(report: &LiveAppStateReport, due_within_secs: i64) -> bool {
     if report.sync_required {
         return true;
@@ -1985,5 +2034,58 @@ mod tests {
         assert!(section.contains("source_status:clawcontrol status=unavailable"));
         assert!(section.contains("freshness=stale"));
         assert!(section.contains("api_base=http://127.0.0.1:3000"));
+    }
+
+    #[test]
+    fn live_state_blocker_detail_surfaces_clawcontrol_access_route() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let output = root.path().join(".memd");
+        let source_status_path = live_app_source_status_path(&output);
+        std::fs::create_dir_all(source_status_path.parent().expect("state dir"))
+            .expect("create state dir");
+        std::fs::write(
+            &source_status_path,
+            r#"{
+  "version": 1,
+  "updated_at": "2026-05-17T06:00:00Z",
+  "sources": [
+    {
+      "source_app": "clawcontrol",
+      "status": "auth_required",
+      "checked_at": "2026-05-17T06:00:00Z",
+      "api_base": "http://127.0.0.1:3010",
+      "api_bases": ["http://127.0.0.1:3010", "http://127.0.0.1:3000"],
+      "auth_configured": false,
+      "visible_page": "missing",
+      "produced": [],
+      "missing": ["visible_page", "calendar", "todos", "reminders", "messages", "email"],
+      "record_count": 0,
+      "endpoints": [
+        {"module": "calendar", "path": "/api/calendar", "ok": false, "status": 401, "error": "HTTP 401"}
+      ],
+      "last_error": "provide CLAWCONTROL_API_KEY or MC_API_KEY for X-API-Key auth"
+    }
+  ]
+}"#,
+        )
+        .expect("write source status");
+
+        let report = live_state_report(&output).expect("status report");
+        let detail = live_state_blocker_detail_from_report(&report).expect("blocker detail");
+
+        assert!(
+            detail.contains("clawcontrol:status=auth_required"),
+            "{detail}"
+        );
+        assert!(
+            detail.contains("missing=visible_page,calendar,todos,reminders,messages,email"),
+            "{detail}"
+        );
+        assert!(
+            detail.contains(clawcontrol_api_key_access_route_command()),
+            "{detail}"
+        );
+        assert!(!detail.contains("CLAWCONTROL_API_KEY="), "{detail}");
+        assert!(!detail.contains("MC_API_KEY="), "{detail}");
     }
 }

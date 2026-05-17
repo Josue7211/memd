@@ -118,6 +118,7 @@ fn handoff_json_string_array(value: &serde_json::Value, key: &str) -> Option<Vec
 fn render_handoff_user_prompt(
     snapshot: &crate::HandoffSnapshot,
     proof_blockers: Option<&str>,
+    live_state_blockers: Option<&str>,
 ) -> String {
     let continuity = snapshot.resume.continuity_capsule();
     let project = snapshot.resume.project.as_deref().unwrap_or("this repo");
@@ -136,9 +137,10 @@ fn render_handoff_user_prompt(
     let dirty_count =
         crate::workflow::repo_dirty_count_from_changes(&snapshot.resume.recent_repo_changes);
     let proof = proof_blockers.unwrap_or("none recorded");
+    let live_state = live_state_blockers.unwrap_or("none recorded");
 
     format!(
-        "Pick up `{project}` / `{namespace}` from memd handoff. First inspect `git status --short --untracked-files=all`, `.memd/wake.md`, and `memd lookup --output .memd --query \"handoff continuity next action\"`. Continue: {next}. Current blocker: {blocker}. Proof blockers: {proof}. Visibility: {visibility}. Dirty count at handoff: {dirty_count}. Keep commits atomic and leave tree clean."
+        "Pick up `{project}` / `{namespace}` from memd handoff. First inspect `git status --short --untracked-files=all`, `.memd/wake.md`, and `memd lookup --output .memd --query \"handoff continuity next action\"`. Continue: {next}. Current blocker: {blocker}. Proof blockers: {proof}. Live-state blockers: {live_state}. Visibility: {visibility}. Dirty count at handoff: {dirty_count}. Keep commits atomic and leave tree clean."
     )
 }
 
@@ -392,6 +394,10 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
     let mut output = String::new();
     let continuity = snapshot.resume.continuity_capsule();
     let proof_blockers = handoff_proof_blocker_detail(snapshot);
+    let live_state_blockers = snapshot
+        .target_bundle
+        .as_deref()
+        .and_then(|bundle| crate::cli::live_state_blocker_detail(Path::new(bundle)));
     output.push_str("# h\n\n");
     output.push_str(&format!(
         "- at={} | p={} | n={} | a={} | voice={} | w={} | v={} | r={} | i={}\n",
@@ -432,6 +438,7 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
     output.push_str(&render_handoff_user_prompt(
         snapshot,
         proof_blockers.as_deref(),
+        live_state_blockers.as_deref(),
     ));
     output.push_str("\n```\n");
 
@@ -463,6 +470,7 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
         || continuity.next_action.is_some()
         || continuity.blocker.is_some()
         || proof_blockers.is_some()
+        || live_state_blockers.is_some()
     {
         output.push_str("\n## C\n\n");
         if let Some(current_task) = continuity.current_task.as_deref() {
@@ -486,6 +494,12 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
         if let Some(detail) = proof_blockers.as_deref() {
             output.push_str(&format!(
                 "- proof_blockers={}\n",
+                compact_inline(detail, 260)
+            ));
+        }
+        if let Some(detail) = live_state_blockers.as_deref() {
+            output.push_str(&format!(
+                "- live_state_blockers={}\n",
                 compact_inline(detail, 260)
             ));
         }
@@ -798,8 +812,11 @@ mod tests {
             .join("docs")
             .join("verification")
             .join("25-5-memory-os-runs");
+        let source_status_path = output.join("state").join("live-app-source-status.json");
         fs::create_dir_all(&output).expect("create temp bundle");
         fs::create_dir_all(&report_dir).expect("create report dir");
+        fs::create_dir_all(source_status_path.parent().expect("state dir"))
+            .expect("create source status state dir");
         fs::write(
             report_dir.join("2026-05-16-supermemory-head-to-head.json"),
             serde_json::json!({
@@ -826,6 +843,30 @@ mod tests {
             .to_string(),
         )
         .expect("write full public report");
+        fs::write(
+            &source_status_path,
+            r#"{
+  "version": 1,
+  "updated_at": "2026-05-17T06:00:00Z",
+  "sources": [
+    {
+      "source_app": "clawcontrol",
+      "status": "auth_required",
+      "checked_at": "2026-05-17T06:00:00Z",
+      "api_base": "http://127.0.0.1:3010",
+      "api_bases": ["http://127.0.0.1:3010"],
+      "auth_configured": false,
+      "visible_page": "missing",
+      "produced": [],
+      "missing": ["visible_page", "calendar"],
+      "record_count": 0,
+      "endpoints": [],
+      "last_error": "provide CLAWCONTROL_API_KEY or MC_API_KEY"
+    }
+  ]
+}"#,
+        )
+        .expect("write live app source status");
 
         let handoff = crate::HandoffSnapshot {
             generated_at: chrono::Utc::now(),
@@ -841,7 +882,22 @@ mod tests {
         let prompt = render_handoff_prompt(&handoff);
 
         assert!(prompt.contains("proof_blockers=supermemory:missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact;full_public:missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL"), "{prompt}");
+        assert!(
+            prompt.contains("Live-state blockers: clawcontrol:status=auth_required"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("- live_state_blockers=clawcontrol:status=auth_required"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains(
+                "access_route=\"memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex\""
+            ),
+            "{prompt}"
+        );
         assert!(!prompt.contains("SUPERMEMORY_API_KEY"));
+        assert!(!prompt.contains("CLAWCONTROL_API_KEY="));
 
         fs::remove_dir_all(project).expect("cleanup proof blocker temp bundle");
     }

@@ -207,6 +207,12 @@ fn render_recovery_identity_line(output: &Path, snapshot: &ResumeSnapshot) -> St
     if let Some(detail) = recovery_proof_blocker_detail(output) {
         parts.push(format!("proof_blockers={}", compact_inline(&detail, 260)));
     }
+    if let Some(detail) = crate::cli::live_state_blocker_detail(output) {
+        parts.push(format!(
+            "live_state_blockers={}",
+            compact_inline(&detail, 260)
+        ));
+    }
     format!("- recovery {}\n\n", parts.join(" | "))
 }
 
@@ -1240,8 +1246,11 @@ mod tests {
             .join("docs")
             .join("verification")
             .join("25-5-memory-os-runs");
+        let source_status_path = output.join("state").join("live-app-source-status.json");
         fs::create_dir_all(&output).expect("create temp bundle");
         fs::create_dir_all(&report_dir).expect("create report dir");
+        fs::create_dir_all(source_status_path.parent().expect("state dir"))
+            .expect("create source status state dir");
         fs::write(
             report_dir.join("2026-05-16-supermemory-head-to-head.json"),
             serde_json::json!({
@@ -1268,6 +1277,30 @@ mod tests {
             .to_string(),
         )
         .expect("write full public report");
+        fs::write(
+            &source_status_path,
+            r#"{
+  "version": 1,
+  "updated_at": "2026-05-17T06:00:00Z",
+  "sources": [
+    {
+      "source_app": "clawcontrol",
+      "status": "auth_required",
+      "checked_at": "2026-05-17T06:00:00Z",
+      "api_base": "http://127.0.0.1:3010",
+      "api_bases": ["http://127.0.0.1:3010"],
+      "auth_configured": false,
+      "visible_page": "missing",
+      "produced": [],
+      "missing": ["visible_page", "calendar"],
+      "record_count": 0,
+      "endpoints": [],
+      "last_error": "provide CLAWCONTROL_API_KEY or MC_API_KEY"
+    }
+  ]
+}"#,
+        )
+        .expect("write live app source status");
 
         let mut snapshot = sample_snapshot();
         snapshot.handoff_quality = Some(HandoffQualityScore {
@@ -1284,7 +1317,18 @@ mod tests {
         let markdown = render_bundle_wakeup_markdown(&output, &snapshot, false);
 
         assert!(markdown.contains("proof_blockers=supermemory:missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact;full_public:missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL"), "{markdown}");
+        assert!(
+            markdown.contains("live_state_blockers=clawcontrol:status=auth_required"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains(
+                "access_route=\"memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex\""
+            ),
+            "{markdown}"
+        );
         assert!(!markdown.contains("SUPERMEMORY_API_KEY"));
+        assert!(!markdown.contains("CLAWCONTROL_API_KEY="));
 
         fs::remove_dir_all(project).expect("cleanup proof blocker temp bundle");
     }
