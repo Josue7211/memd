@@ -1151,6 +1151,32 @@ pub(crate) fn render_live_state_command_lines(report: &LiveAppStateReport) -> St
     lines.join("\n")
 }
 
+pub(crate) fn render_live_state_batch_template(report: &LiveAppStateReport) -> String {
+    let records = report
+        .sync_tasks
+        .iter()
+        .map(|task| {
+            let payload = serde_json::from_str::<Value>(&task.payload_hint)
+                .unwrap_or_else(|_| Value::String(task.payload_hint.clone()));
+            serde_json::json!({
+                "sourceApp": task.source_app,
+                "module": task.module,
+                "scope": task.required_scope,
+                "visibility": task.visibility,
+                "privacy": task.privacy,
+                "approved": task.approved_required,
+                "agentsecretsApproved": false,
+                "freshnessSecs": task.freshness_secs,
+                "labels": task.labels,
+                "summary": task.summary_hint,
+                "payload": payload,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_string_pretty(&serde_json::json!({ "records": records }))
+        .expect("serialize live-state batch template")
+}
+
 fn shell_quote(value: &str) -> String {
     if value.is_empty() {
         return "''".to_string();
@@ -1586,5 +1612,13 @@ mod tests {
         assert!(commands.contains("--module messages"));
         assert!(commands.contains("--scope approved"));
         assert!(commands.contains("'approved text-message metadata"));
+
+        let batch_template = render_live_state_batch_template(&report);
+        assert!(batch_template.contains(r#""records""#));
+        assert!(batch_template.contains(r#""sourceApp": "clawcontrol""#));
+        assert!(batch_template.contains(r#""module": "messages""#));
+        assert!(batch_template.contains(r#""scope": "approved""#));
+        assert!(batch_template.contains(r#""agentsecretsApproved": false"#));
+        assert!(batch_template.contains(r#""raw_media_stored": false"#));
     }
 }

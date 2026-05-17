@@ -303,10 +303,14 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             let tasks = matches!(&args.command, LiveStateSubcommand::Status(args) if args.tasks);
             let commands =
                 matches!(&args.command, LiveStateSubcommand::Status(args) if args.commands);
+            let batch_template =
+                matches!(&args.command, LiveStateSubcommand::Status(args) if args.batch_template);
             let check = matches!(&args.command, LiveStateSubcommand::Status(args) if args.check);
             let response = run_live_state_command(&args)?;
             if json {
                 print_json(&response)?;
+            } else if batch_template {
+                println!("{}", render_live_state_batch_template(&response));
             } else if commands {
                 println!("{}", render_live_state_command_lines(&response));
             } else if tasks {

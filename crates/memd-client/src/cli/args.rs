@@ -3067,6 +3067,10 @@ pub(crate) struct LiveStateStatusArgs {
     #[arg(long)]
     pub(crate) commands: bool,
 
+    /// Print a ClawControl-style {"records":[...]} producer batch template.
+    #[arg(long)]
+    pub(crate) batch_template: bool,
+
     /// Exit non-zero when a producer sync is required.
     #[arg(long)]
     pub(crate) check: bool,
