@@ -559,15 +559,23 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
         .into_iter()
         .chain(live_state.iter().map(|report| {
             format!(
-                "live_state_status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={}",
+                "live_state_status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={}",
                 report.status,
                 report.total,
                 report.fresh,
                 report.stale,
                 report.requirement_fresh,
                 report.requirement_stale,
-                report.requirement_missing
+                report.requirement_missing,
+                report.sync_required,
+                report.sync_actions.len()
             )
+        }))
+        .chain(live_state.iter().flat_map(|report| {
+            report
+                .sync_actions
+                .iter()
+                .map(|action| format!("live_state_sync_action={action}"))
         }))
         .chain(live_state.iter().flat_map(|report| {
             report.requirements.iter().map(|requirement| {

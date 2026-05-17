@@ -107,6 +107,8 @@ pub(crate) struct LiveAppStateReport {
     pub(crate) requirement_fresh: usize,
     pub(crate) requirement_stale: usize,
     pub(crate) requirement_missing: usize,
+    pub(crate) sync_required: bool,
+    pub(crate) sync_actions: Vec<String>,
     pub(crate) requirements: Vec<LiveAppStateRequirementStatus>,
     pub(crate) records: Vec<LiveAppStateRecord>,
 }
@@ -248,6 +250,8 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
         .iter()
         .filter(|requirement| requirement.status == "missing")
         .count();
+    let sync_required = requirement_missing > 0 || requirement_stale > 0;
+    let sync_actions = live_state_sync_actions(&requirements);
     Ok(LiveAppStateReport {
         status: if requirement_missing > 0 {
             "missing_requirements".to_string()
@@ -267,6 +271,8 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
         requirement_fresh,
         requirement_stale,
         requirement_missing,
+        sync_required,
+        sync_actions,
         requirements,
         records: store.records,
     })
@@ -590,9 +596,22 @@ fn live_state_requirement_statuses(
         .collect()
 }
 
+fn live_state_sync_actions(requirements: &[LiveAppStateRequirementStatus]) -> Vec<String> {
+    requirements
+        .iter()
+        .filter(|requirement| requirement.status != "fresh")
+        .map(|requirement| {
+            format!(
+                "{}:{} status={} action={}",
+                requirement.source_app, requirement.module, requirement.status, requirement.action
+            )
+        })
+        .collect()
+}
+
 pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
     let mut lines = vec![format!(
-        "live_state status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} path={}",
+        "live_state status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={} path={}",
         report.status,
         report.total,
         report.fresh,
@@ -600,6 +619,8 @@ pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
         report.requirement_fresh,
         report.requirement_stale,
         report.requirement_missing,
+        report.sync_required,
+        report.sync_actions.len(),
         report.path
     )];
     lines.extend(report.records.iter().take(12).map(|record| {
@@ -632,6 +653,12 @@ pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
             requirement.privacy_route
         )
     }));
+    lines.extend(
+        report
+            .sync_actions
+            .iter()
+            .map(|action| format!("sync_action:{action}")),
+    );
     lines.join("\n")
 }
 
@@ -849,5 +876,16 @@ mod tests {
             LIVE_APP_STATE_REQUIREMENTS.len()
         );
         assert_eq!(report.requirement_fresh, 0);
+        assert!(report.sync_required);
+        assert_eq!(report.sync_actions.len(), LIVE_APP_STATE_REQUIREMENTS.len());
+        assert!(
+            report
+                .sync_actions
+                .iter()
+                .any(|action| action.contains("clawcontrol:visible_page status=missing"))
+        );
+        let summary = render_live_state_summary(&report);
+        assert!(summary.contains("sync_required=true"));
+        assert!(summary.contains("sync_action:clawcontrol:calendar status=missing"));
     }
 }
