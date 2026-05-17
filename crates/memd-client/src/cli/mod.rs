@@ -300,10 +300,14 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                 LiveStateSubcommand::Status(args) => args.json,
             };
             let tasks = matches!(&args.command, LiveStateSubcommand::Status(args) if args.tasks);
+            let commands =
+                matches!(&args.command, LiveStateSubcommand::Status(args) if args.commands);
             let check = matches!(&args.command, LiveStateSubcommand::Status(args) if args.check);
             let response = run_live_state_command(&args)?;
             if json {
                 print_json(&response)?;
+            } else if commands {
+                println!("{}", render_live_state_command_lines(&response));
             } else if tasks {
                 println!("{}", render_live_state_task_lines(&response));
             } else {

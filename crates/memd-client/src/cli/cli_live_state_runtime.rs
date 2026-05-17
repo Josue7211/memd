@@ -962,6 +962,48 @@ pub(crate) fn render_live_state_task_lines(report: &LiveAppStateReport) -> Strin
     lines.join("\n")
 }
 
+pub(crate) fn render_live_state_command_lines(report: &LiveAppStateReport) -> String {
+    if report.sync_tasks.is_empty() {
+        return format!(
+            "# live_state_commands sync_required=false next_refresh_at={} reason={}",
+            shell_quote(&report.next_refresh_at.to_rfc3339()),
+            shell_quote(&report.refresh_reason)
+        );
+    }
+    let mut lines = vec![format!(
+        "# live_state_commands sync_required={} count={} next_refresh_at={} reason={}",
+        report.sync_required,
+        report.sync_tasks.len(),
+        shell_quote(&report.next_refresh_at.to_rfc3339()),
+        shell_quote(&report.refresh_reason)
+    )];
+    lines.extend(report.sync_tasks.iter().map(|task| {
+        task.ingest_argv
+            .iter()
+            .map(|arg| shell_quote(arg))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }));
+    lines.push(
+        "# replace template payload_json/summary with current producer data before running"
+            .to_string(),
+    );
+    lines.join("\n")
+}
+
+fn shell_quote(value: &str) -> String {
+    if value.is_empty() {
+        return "''".to_string();
+    }
+    if value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | ':' | '='))
+    {
+        return value.to_string();
+    }
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1278,5 +1320,12 @@ mod tests {
         assert!(tasks.contains("task source=clawcontrol module=visible_page"));
         assert!(tasks.contains("task source=clawcontrol module=messages"));
         assert!(tasks.contains("media_agentsecrets=true"));
+
+        let commands = render_live_state_command_lines(&report);
+        assert!(commands.contains("# live_state_commands sync_required=true count=6"));
+        assert!(commands.contains("memd live-state ingest"));
+        assert!(commands.contains("--module messages"));
+        assert!(commands.contains("--scope approved"));
+        assert!(commands.contains("'approved text-message metadata"));
     }
 }

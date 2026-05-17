@@ -3041,6 +3041,10 @@ pub(crate) struct LiveStateStatusArgs {
     #[arg(long)]
     pub(crate) tasks: bool,
 
+    /// Print shell command templates for each pending producer task.
+    #[arg(long)]
+    pub(crate) commands: bool,
+
     /// Exit non-zero when a producer sync is required.
     #[arg(long)]
     pub(crate) check: bool,
