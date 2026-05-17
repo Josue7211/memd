@@ -3037,6 +3037,10 @@ pub(crate) struct LiveStateStatusArgs {
     #[arg(long)]
     pub(crate) summary: bool,
 
+    /// Print one producer task per line for shell schedulers.
+    #[arg(long)]
+    pub(crate) tasks: bool,
+
     /// Exit non-zero when a producer sync is required.
     #[arg(long)]
     pub(crate) check: bool,

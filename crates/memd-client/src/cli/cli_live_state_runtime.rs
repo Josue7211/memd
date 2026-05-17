@@ -929,6 +929,39 @@ pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
     lines.join("\n")
 }
 
+pub(crate) fn render_live_state_task_lines(report: &LiveAppStateReport) -> String {
+    if report.sync_tasks.is_empty() {
+        return format!(
+            "live_state_tasks sync_required=false next_refresh_at={} reason=\"{}\"",
+            report.next_refresh_at.to_rfc3339(),
+            compact_live_state_text(&report.refresh_reason, 160)
+        );
+    }
+    let mut lines = vec![format!(
+        "live_state_tasks sync_required={} count={} next_refresh_at={} reason=\"{}\"",
+        report.sync_required,
+        report.sync_tasks.len(),
+        report.next_refresh_at.to_rfc3339(),
+        compact_live_state_text(&report.refresh_reason, 160)
+    )];
+    lines.extend(report.sync_tasks.iter().map(|task| {
+        format!(
+            "task source={} module={} scope={} status={} privacy={} visibility={} freshness_secs={} media_agentsecrets={} labels={} action=\"{}\"",
+            task.source_app,
+            task.module,
+            task.required_scope,
+            task.status,
+            task.privacy,
+            task.visibility,
+            task.freshness_secs,
+            task.agentsecrets_required_for_media,
+            task.labels.join(","),
+            compact_live_state_text(&task.action, 220)
+        )
+    }));
+    lines.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1239,5 +1272,11 @@ mod tests {
         assert!(summary.contains("contract=1"));
         assert!(summary.contains("sync_action:clawcontrol:calendar status=missing"));
         assert!(summary.contains("sync_task:clawcontrol:messages"));
+
+        let tasks = render_live_state_task_lines(&report);
+        assert!(tasks.contains("live_state_tasks sync_required=true count=6"));
+        assert!(tasks.contains("task source=clawcontrol module=visible_page"));
+        assert!(tasks.contains("task source=clawcontrol module=messages"));
+        assert!(tasks.contains("media_agentsecrets=true"));
     }
 }
