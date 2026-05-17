@@ -15,6 +15,7 @@ MAC_BRIDGE_CAPTURE_SCRIPT="${MAC_BRIDGE_CAPTURE_SCRIPT:-$ROOT/scripts/live-state
 APPROVED_COMMUNICATIONS_FALLBACK="${APPROVED_COMMUNICATIONS_FALLBACK:-1}"
 APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT="${APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT:-$ROOT/scripts/live-state-capture-approved-communications.mjs}"
 CAPTURE_UNAVAILABLE=0
+FALLBACK_CAPTURED=0
 
 if ! command -v "$MEMD_BIN" >/dev/null 2>&1; then
   if [[ -x "$ROOT/target/debug/memd" ]]; then
@@ -45,6 +46,7 @@ if [[ "$CAPTURE_HTTP" == "1" || "$CAPTURE_HTTP" == "true" ]]; then
         bridge_status=$?
         set -e
         if [[ "$bridge_status" -eq 0 ]]; then
+          FALLBACK_CAPTURED=1
           echo "live-state-sync-clawcontrol: mac-bridge fallback captured visible_page/calendar/reminders/todos metadata" >&2
         elif [[ "$bridge_status" -eq 2 ]]; then
           echo "live-state-sync-clawcontrol: mac-bridge fallback unavailable" >&2
@@ -62,6 +64,7 @@ if [[ "$CAPTURE_HTTP" == "1" || "$CAPTURE_HTTP" == "true" ]]; then
         communications_status=$?
         set -e
         if [[ "$communications_status" -eq 0 ]]; then
+          FALLBACK_CAPTURED=1
           echo "live-state-sync-clawcontrol: approved communications fallback captured messages/email metadata" >&2
         elif [[ "$communications_status" -eq 2 ]]; then
           echo "live-state-sync-clawcontrol: approved communications fallback unavailable" >&2
@@ -88,6 +91,21 @@ args=(
 
 if [[ "$ALLOW_STALE" == "1" || "$ALLOW_STALE" == "true" ]]; then
   args+=(--allow-stale)
+fi
+
+if [[ "$CAPTURE_UNAVAILABLE" == "1" && "$FALLBACK_CAPTURED" == "1" ]]; then
+  set +e
+  "$MEMD_BIN" live-state status --output "$MEMD_OUTPUT" --check --due-within-secs "$DUE_WITHIN_SECS" >/dev/null
+  status_check=$?
+  set -e
+  if [[ "$status_check" -ne 0 ]]; then
+    echo "live-state-sync-clawcontrol: fallback records captured; live-state still requires sync" >&2
+    "$MEMD_BIN" live-state status --output "$MEMD_OUTPUT" --tasks
+    exit "$status_check"
+  fi
+  echo "live-state-sync-clawcontrol: fallback records satisfy live-state requirements" >&2
+  "$MEMD_BIN" live-state status --output "$MEMD_OUTPUT"
+  exit 0
 fi
 
 if [[ "$CAPTURE_UNAVAILABLE" == "1" ]]; then
