@@ -279,12 +279,25 @@ fn live_state_blocker_detail_summary(features: &[MemoryOsFeature]) -> String {
         .iter()
         .find(|feature| feature.id == "live_app_state_authority")
         .map(|feature| {
+            let corrected_details = feature
+                .gaps
+                .iter()
+                .filter(|gap| gap.contains("live app state blocker detail"))
+                .map(|gap| {
+                    gap.split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                        .replace(',', ";")
+                })
+                .collect::<Vec<_>>();
+            if !corrected_details.is_empty() {
+                return corrected_details;
+            }
             feature
                 .gaps
                 .iter()
                 .filter(|gap| {
                     gap.contains("live app state source")
-                        || gap.contains("live app state blocker detail")
                         || gap.contains("no fresh live app state records")
                         || gap.contains("live app source status checks are stale")
                 })
