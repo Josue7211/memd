@@ -591,9 +591,16 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
                     source.missing.join(",")
                 };
                 format!(
-                    "live_state_source_status={} status={} visible_page={} produced={} missing={} endpoints={} last_error={}",
+                    "live_state_source_status={} status={} api_base={} api_bases={} auth_configured={} visible_page={} produced={} missing={} endpoints={} last_error={}",
                     source.source_app,
                     source.status,
+                    source.api_base.as_deref().unwrap_or("unknown"),
+                    if source.api_bases.is_empty() {
+                        source.api_base.as_deref().unwrap_or("unknown").to_string()
+                    } else {
+                        source.api_bases.join(",")
+                    },
+                    source.auth_configured,
                     source.visible_page.as_deref().unwrap_or("unknown"),
                     source.record_count,
                     missing,
@@ -3797,6 +3804,8 @@ mod tests {
       "status": "unavailable",
       "checked_at": "2026-05-17T06:00:00Z",
       "api_base": "http://127.0.0.1:3000",
+      "api_bases": ["http://127.0.0.1:3010", "http://127.0.0.1:3000"],
+      "auth_configured": false,
       "visible_page": "missing",
       "produced": [],
       "missing": ["visible_page", "calendar", "todos", "reminders", "messages", "email"],
@@ -3842,6 +3851,18 @@ mod tests {
                 .evidence
                 .iter()
                 .any(|item| item.contains("live_state_source_status=clawcontrol"))
+        );
+        assert!(
+            live_state
+                .evidence
+                .iter()
+                .any(|item| item.contains("auth_configured=false"))
+        );
+        assert!(
+            live_state
+                .evidence
+                .iter()
+                .any(|item| item.contains("api_bases=http://127.0.0.1:3010,http://127.0.0.1:3000"))
         );
         assert!(
             live_state

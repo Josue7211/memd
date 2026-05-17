@@ -154,6 +154,10 @@ pub(crate) struct LiveAppStateSourceStatus {
     pub(crate) status: String,
     pub(crate) checked_at: chrono::DateTime<Utc>,
     pub(crate) api_base: Option<String>,
+    #[serde(default)]
+    pub(crate) api_bases: Vec<String>,
+    #[serde(default)]
+    pub(crate) auth_configured: bool,
     pub(crate) visible_page: Option<String>,
     #[serde(default)]
     pub(crate) produced: Vec<String>,
@@ -169,6 +173,8 @@ pub(crate) struct LiveAppStateSourceStatus {
 pub(crate) struct LiveAppStateSourceEndpointStatus {
     pub(crate) module: String,
     pub(crate) path: String,
+    #[serde(default, alias = "apiBase")]
+    pub(crate) api_base: Option<String>,
     pub(crate) ok: bool,
     pub(crate) status: i64,
     pub(crate) error: Option<String>,
@@ -964,6 +970,11 @@ fn render_live_state_source_status_lines(
         .iter()
         .map(|source| {
             let api_base = source.api_base.as_deref().unwrap_or("unknown");
+            let api_bases = if source.api_bases.is_empty() {
+                api_base.to_string()
+            } else {
+                source.api_bases.join(",")
+            };
             let visible_page = source.visible_page.as_deref().unwrap_or("unknown");
             let missing = if source.missing.is_empty() {
                 "none".to_string()
@@ -975,13 +986,15 @@ fn render_live_state_source_status_lines(
                 source.checked_at + Duration::seconds(LIVE_STATE_SOURCE_STATUS_FRESH_SECS);
             let freshness = if fresh_until > now { "fresh" } else { "stale" };
             format!(
-                "source_status:{} status={} freshness={} checked_at={} fresh_until={} api_base={} visible_page={} produced={} missing={} endpoints={} error=\"{}\"",
+                "source_status:{} status={} freshness={} checked_at={} fresh_until={} api_base={} api_bases={} auth_configured={} visible_page={} produced={} missing={} endpoints={} error=\"{}\"",
                 source.source_app,
                 source.status,
                 freshness,
                 source.checked_at.to_rfc3339(),
                 fresh_until.to_rfc3339(),
                 shell_quote(api_base),
+                api_bases,
+                source.auth_configured,
                 visible_page,
                 source.record_count,
                 missing,
@@ -1924,6 +1937,8 @@ mod tests {
       "status": "unavailable",
       "checked_at": "2026-05-17T06:00:00Z",
       "api_base": "http://127.0.0.1:3000",
+      "api_bases": ["http://127.0.0.1:3010", "http://127.0.0.1:3000"],
+      "auth_configured": false,
       "visible_page": "missing",
       "produced": [],
       "missing": ["visible_page", "calendar", "todos", "reminders", "messages", "email"],
@@ -1947,12 +1962,22 @@ mod tests {
             source_status_path.display().to_string()
         );
         assert_eq!(report.source_statuses[0].source_app, "clawcontrol");
+        assert_eq!(
+            report.source_statuses[0].api_bases,
+            vec![
+                "http://127.0.0.1:3010".to_string(),
+                "http://127.0.0.1:3000".to_string()
+            ]
+        );
+        assert!(!report.source_statuses[0].auth_configured);
         assert_eq!(report.source_statuses[0].missing.len(), 6);
 
         let summary = render_live_state_summary(&report);
         assert!(summary.contains("source_unavailable=1"));
         assert!(summary.contains("source_stale=1"));
         assert!(summary.contains("source_status:clawcontrol status=unavailable"));
+        assert!(summary.contains("api_bases=http://127.0.0.1:3010,http://127.0.0.1:3000"));
+        assert!(summary.contains("auth_configured=false"));
         assert!(summary.contains("freshness=stale"));
         assert!(summary.contains("missing=visible_page,calendar,todos,reminders,messages,email"));
 
