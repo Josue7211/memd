@@ -1239,7 +1239,7 @@ fn render_prompt_context_packet(
     let token_budget = render_token_budget_section(context, model_tier, has_source_ids);
     let live_state = compact_packet_section(
         render_live_app_state_section(&bundle_root, 6),
-        8,
+        9,
         budget.section_line_chars,
     );
     let capabilities = if options.include_capabilities {

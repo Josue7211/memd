@@ -6,6 +6,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 const LIVE_STATE_VERSION: u32 = 1;
+const LIVE_STATE_PRODUCER_CONTRACT_VERSION: u32 = 1;
+const LIVE_STATE_DEFAULT_REFRESH_SECS: i64 = 86_400;
 
 #[derive(Debug, Clone, Copy)]
 struct LiveAppStateRequirement {
@@ -101,6 +103,11 @@ pub(crate) struct LiveAppStateRecord {
 pub(crate) struct LiveAppStateReport {
     pub(crate) status: String,
     pub(crate) path: String,
+    pub(crate) checked_at: chrono::DateTime<Utc>,
+    pub(crate) next_refresh_at: chrono::DateTime<Utc>,
+    pub(crate) refresh_reason: String,
+    pub(crate) refresh_policy: String,
+    pub(crate) producer_contract_version: u32,
     pub(crate) total: usize,
     pub(crate) fresh: usize,
     pub(crate) stale: usize,
@@ -192,6 +199,15 @@ pub(crate) fn render_live_app_state_section(output: &Path, limit: usize) -> Stri
         );
     }
 
+    let requirements = live_state_requirement_statuses(&records, now);
+    let (next_refresh_at, refresh_reason) = live_state_next_refresh(&records, now, &requirements);
+    lines.push(format!(
+        "- refresh_policy contract={} next_refresh_at={} reason=\"{}\" policy=\"immediate on missing/stale; otherwise before earliest expiry; default_ttl={}s\"",
+        LIVE_STATE_PRODUCER_CONTRACT_VERSION,
+        next_refresh_at.to_rfc3339(),
+        compact_live_state_text(&refresh_reason, 180),
+        LIVE_STATE_DEFAULT_REFRESH_SECS
+    ));
     lines.extend(render_live_state_sync_task_lines(&records, now));
     lines.extend(render_live_state_requirement_lines(&records, now));
     lines.join("\n")
@@ -274,6 +290,8 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
     let sync_required = requirement_missing > 0 || requirement_stale > 0;
     let sync_actions = live_state_sync_actions(&requirements);
     let sync_tasks = live_state_sync_tasks(&requirements);
+    let (next_refresh_at, refresh_reason) =
+        live_state_next_refresh(&store.records, now, &requirements);
     Ok(LiveAppStateReport {
         status: if requirement_missing > 0 {
             "missing_requirements".to_string()
@@ -287,6 +305,14 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
             "fresh".to_string()
         },
         path: path.display().to_string(),
+        checked_at: now,
+        next_refresh_at,
+        refresh_reason,
+        refresh_policy: format!(
+            "refresh immediately when any required surface is missing/stale; otherwise refresh before earliest expiry; default producer ttl={}s",
+            LIVE_STATE_DEFAULT_REFRESH_SECS
+        ),
+        producer_contract_version: LIVE_STATE_PRODUCER_CONTRACT_VERSION,
         total: store.records.len(),
         fresh,
         stale,
@@ -661,6 +687,46 @@ fn live_state_sync_actions(requirements: &[LiveAppStateRequirementStatus]) -> Ve
         .collect()
 }
 
+fn live_state_next_refresh(
+    records: &[LiveAppStateRecord],
+    now: chrono::DateTime<Utc>,
+    requirements: &[LiveAppStateRequirementStatus],
+) -> (chrono::DateTime<Utc>, String) {
+    if let Some(requirement) = requirements
+        .iter()
+        .find(|requirement| requirement.status == "missing")
+    {
+        return (
+            now,
+            format!(
+                "missing required live-state surface {}:{}",
+                requirement.source_app, requirement.module
+            ),
+        );
+    }
+    if let Some(requirement) = requirements
+        .iter()
+        .find(|requirement| requirement.status == "stale")
+    {
+        return (
+            now,
+            format!(
+                "stale required live-state surface {}:{}",
+                requirement.source_app, requirement.module
+            ),
+        );
+    }
+    let Some(next_expiry) = records
+        .iter()
+        .filter(|record| record.expires_at > now)
+        .map(|record| record.expires_at)
+        .min()
+    else {
+        return (now, "no live-state records available".to_string());
+    };
+    (next_expiry, "earliest live-state record expiry".to_string())
+}
+
 fn live_state_sync_tasks(
     requirements: &[LiveAppStateRequirementStatus],
 ) -> Vec<LiveAppStateSyncTask> {
@@ -679,7 +745,7 @@ fn live_state_sync_task(requirement: &LiveAppStateRequirementStatus) -> LiveAppS
         requirement.module.as_str(),
         "messages" | "email" | "text_messages" | "texts" | "imessage" | "mail"
     );
-    let freshness_secs = 86_400;
+    let freshness_secs = LIVE_STATE_DEFAULT_REFRESH_SECS;
     let labels = default_sync_labels(&requirement.module);
     let summary_hint = sync_summary_hint(&requirement.module).to_string();
     let payload_hint = sync_payload_hint(&requirement.module).to_string();
@@ -776,7 +842,7 @@ fn sync_payload_hint(module: &str) -> &'static str {
 
 pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
     let mut lines = vec![format!(
-        "live_state status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={} sync_tasks={} path={}",
+        "live_state status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={} sync_tasks={} next_refresh_at={} refresh_reason=\"{}\" contract={} path={}",
         report.status,
         report.total,
         report.fresh,
@@ -787,6 +853,9 @@ pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
         report.sync_required,
         report.sync_actions.len(),
         report.sync_tasks.len(),
+        report.next_refresh_at.to_rfc3339(),
+        compact_live_state_text(&report.refresh_reason, 160),
+        report.producer_contract_version,
         report.path
     )];
     lines.extend(report.records.iter().take(12).map(|record| {
@@ -1040,6 +1109,9 @@ mod tests {
         let output = root.path().join(".memd");
         let section = render_live_app_state_section(&output, 8);
         assert!(section.contains("no fresh live app state"));
+        assert!(section.contains("refresh_policy contract=1"));
+        assert!(section.contains("reason=\"missing required live-state surface"));
+        assert!(section.contains("default_ttl=86400s"));
         assert!(section.contains("required:clawcontrol:visible_page"));
         assert!(section.contains("required:clawcontrol:calendar"));
         assert!(section.contains("required:clawcontrol:reminders"));
@@ -1058,6 +1130,14 @@ mod tests {
         );
         assert_eq!(report.requirement_fresh, 0);
         assert!(report.sync_required);
+        assert_eq!(report.checked_at, report.next_refresh_at);
+        assert_eq!(report.producer_contract_version, 1);
+        assert!(report.refresh_reason.contains("missing required"));
+        assert!(
+            report
+                .refresh_policy
+                .contains("default producer ttl=86400s")
+        );
         assert_eq!(report.sync_actions.len(), LIVE_APP_STATE_REQUIREMENTS.len());
         assert_eq!(report.sync_tasks.len(), LIVE_APP_STATE_REQUIREMENTS.len());
         assert!(
@@ -1082,6 +1162,8 @@ mod tests {
         );
         let summary = render_live_state_summary(&report);
         assert!(summary.contains("sync_required=true"));
+        assert!(summary.contains("next_refresh_at="));
+        assert!(summary.contains("contract=1"));
         assert!(summary.contains("sync_action:clawcontrol:calendar status=missing"));
         assert!(summary.contains("sync_task:clawcontrol:messages"));
     }
