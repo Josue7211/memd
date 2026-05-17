@@ -12,6 +12,8 @@ CAPTURE_HTTP="${CAPTURE_HTTP:-1}"
 CAPTURE_SCRIPT="${CAPTURE_SCRIPT:-$ROOT/scripts/live-state-capture-clawcontrol-http.mjs}"
 MAC_BRIDGE_FALLBACK="${MAC_BRIDGE_FALLBACK:-1}"
 MAC_BRIDGE_CAPTURE_SCRIPT="${MAC_BRIDGE_CAPTURE_SCRIPT:-$ROOT/scripts/live-state-capture-mac-bridge.mjs}"
+APPROVED_COMMUNICATIONS_FALLBACK="${APPROVED_COMMUNICATIONS_FALLBACK:-1}"
+APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT="${APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT:-$ROOT/scripts/live-state-capture-approved-communications.mjs}"
 CAPTURE_UNAVAILABLE=0
 
 if ! command -v "$MEMD_BIN" >/dev/null 2>&1; then
@@ -51,6 +53,23 @@ if [[ "$CAPTURE_HTTP" == "1" || "$CAPTURE_HTTP" == "true" ]]; then
         fi
       else
         echo "live-state-sync-clawcontrol: mac-bridge fallback script not executable: $MAC_BRIDGE_CAPTURE_SCRIPT" >&2
+      fi
+    fi
+    if [[ "$APPROVED_COMMUNICATIONS_FALLBACK" == "1" || "$APPROVED_COMMUNICATIONS_FALLBACK" == "true" ]]; then
+      if [[ -x "$APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT" ]]; then
+        set +e
+        MEMD_BIN="$MEMD_BIN" MEMD_OUTPUT="$MEMD_OUTPUT" "$APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT"
+        communications_status=$?
+        set -e
+        if [[ "$communications_status" -eq 0 ]]; then
+          echo "live-state-sync-clawcontrol: approved communications fallback captured messages/email metadata" >&2
+        elif [[ "$communications_status" -eq 2 ]]; then
+          echo "live-state-sync-clawcontrol: approved communications fallback unavailable" >&2
+        else
+          exit "$communications_status"
+        fi
+      else
+        echo "live-state-sync-clawcontrol: approved communications fallback script not executable: $APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT" >&2
       fi
     fi
   elif [[ "$capture_status" -ne 0 ]]; then
