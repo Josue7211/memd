@@ -656,6 +656,14 @@ pub(crate) fn live_state_unmet_modules_for_source(
     report: &LiveAppStateReport,
     source: &LiveAppStateSourceStatus,
 ) -> Vec<String> {
+    if source.api_base.as_deref() == Some("approved-communications")
+        || source
+            .api_bases
+            .iter()
+            .any(|base| base == "approved-communications")
+    {
+        return source.missing.clone();
+    }
     let unmet = report
         .requirements
         .iter()
@@ -677,7 +685,20 @@ pub(crate) fn live_state_blocker_detail(output: &Path) -> Option<String> {
         .and_then(|report| live_state_blocker_detail_from_report(&report))
 }
 
+pub(crate) fn live_state_recovery_blocker_detail(output: &Path) -> Option<String> {
+    live_state_report(output)
+        .ok()
+        .and_then(|report| live_state_blocker_detail_from_report_with_options(&report, false))
+}
+
 pub(crate) fn live_state_blocker_detail_from_report(report: &LiveAppStateReport) -> Option<String> {
+    live_state_blocker_detail_from_report_with_options(report, true)
+}
+
+fn live_state_blocker_detail_from_report_with_options(
+    report: &LiveAppStateReport,
+    include_producer_route: bool,
+) -> Option<String> {
     let mut details = Vec::new();
     for source in report
         .source_statuses
@@ -706,7 +727,9 @@ pub(crate) fn live_state_blocker_detail_from_report(report: &LiveAppStateReport)
         } else {
             String::new()
         };
-        let producer_route = if source.source_app == "clawcontrol"
+        let producer_route = if !include_producer_route {
+            String::new()
+        } else if source.source_app == "clawcontrol"
             && matches!(source.status.as_str(), "auth_required" | "unavailable")
         {
             let api_bases = if source.api_bases.is_empty() {

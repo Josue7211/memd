@@ -209,7 +209,7 @@ fn render_recovery_identity_line(output: &Path, snapshot: &ResumeSnapshot) -> St
             compact_inline(&detail, 260)
         ));
     }
-    if let Some(detail) = crate::cli::live_state_blocker_detail(output) {
+    if let Some(detail) = crate::cli::live_state_recovery_blocker_detail(output) {
         parts.push(format!(
             "live_state_blockers={}",
             compact_inline(&detail, 640)

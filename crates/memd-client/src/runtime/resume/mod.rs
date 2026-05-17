@@ -1472,6 +1472,28 @@ mod tests {
     }
 
     #[test]
+    fn continuity_blocker_ignores_medium_refresh_pressure_without_explicit_blocker() {
+        let mut snapshot = ResumeSnapshot::empty();
+        snapshot.refresh_recommended = true;
+        snapshot.preferences = vec![
+            "id=next | kind=decision | tags=next-agent,recovery | upd=1778958400 | c=CURRENT NEXT ACTION: continue live-state authority work.".to_string(),
+        ];
+
+        assert_eq!(snapshot.context_pressure(), "low");
+
+        let continuity = snapshot.continuity_capsule();
+
+        assert!(
+            continuity
+                .next_action
+                .as_deref()
+                .unwrap_or_default()
+                .contains("continue live-state authority")
+        );
+        assert_eq!(continuity.blocker, None);
+    }
+
+    #[test]
     fn resume_defaults_bind_repo_identity_without_runtime_config() {
         let _cwd_lock = lock_cwd_mutation();
         let temp_root =
@@ -2803,7 +2825,7 @@ impl ResumeSnapshot {
                     .map(|value| compact_inline(value.trim(), 180))
             })
             .or_else(|| {
-                self.refresh_recommended
+                (self.refresh_recommended && self.refresh_pressure_is_blocking())
                     .then(|| "refresh recommended due to context pressure".to_string())
             });
 
@@ -2880,8 +2902,10 @@ impl ResumeSnapshot {
                 redundant
             ));
         }
-        if self.refresh_recommended {
+        if self.refresh_recommended && self.refresh_pressure_is_blocking() {
             lines.push("blocker: refresh recommended due to context pressure".to_string());
+        } else if self.refresh_recommended {
+            lines.push("pressure: refresh recommended; action=watch prompt growth".to_string());
         }
         if self.working.rehydration_queue.is_empty() {
             lines.push("blocker: rehydration queue empty".to_string());
@@ -3029,6 +3053,17 @@ impl ResumeSnapshot {
         } else {
             "low"
         }
+    }
+
+    fn refresh_pressure_is_blocking(&self) -> bool {
+        self.working.truncated
+            || self.core_prompt_tokens() >= 1_800
+            || self.inbox.items.len() >= 5
+            || self.redundant_context_items() >= 3
+            || self
+                .semantic
+                .as_ref()
+                .is_some_and(|semantic| semantic.items.len() >= 4)
     }
 
     pub(crate) fn optimization_hints(&self) -> Vec<String> {
