@@ -739,10 +739,11 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
                             }),
                     );
                     blockers.extend(report.source_statuses.iter().filter(|source| source.status != "ok").map(|source| {
-                        let missing = if source.missing.is_empty() {
+                        let missing_modules = live_state_unmet_modules_for_source(report, source);
+                        let missing = if missing_modules.is_empty() {
                             "none".to_string()
                         } else {
-                            source.missing.join(",")
+                            missing_modules.join(",")
                         };
                         format!(
                             "live app state source {} is {} missing={}",
@@ -4104,6 +4105,158 @@ mod tests {
         assert!(live_state.gaps.iter().any(|gap| {
             gap.contains("access route --output .memd --purpose clawcontrol-api-key")
         }));
+
+        fs::remove_dir_all(output).expect("cleanup feature temp");
+    }
+
+    #[test]
+    fn feature_registry_live_state_source_gaps_use_state_map_unmet_modules() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-feature-live-state-state-map-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let state_path = live_app_state_path(&output);
+        let source_status_path = live_app_source_status_path(&output);
+        fs::create_dir_all(state_path.parent().expect("state dir")).expect("create state dir");
+
+        let now = Utc::now();
+        let expires = now + chrono::Duration::hours(1);
+        let records = vec![
+            serde_json::json!({
+                "id": "clawcontrol:visible_page:current",
+                "source_app": "clawcontrol",
+                "module": "visible_page",
+                "scope": "current",
+                "visibility": "private",
+                "privacy": "metadata",
+                "approved": true,
+                "agentsecrets_approved": false,
+                "labels": ["live-app-state", "visible_page", "metadata"],
+                "summary": "visible page fallback fresh",
+                "payload": {"producer": "mac-bridge"},
+                "payload_hash": "visible-page-hash",
+                "captured_at": now,
+                "updated_at": now,
+                "expires_at": expires
+            }),
+            serde_json::json!({
+                "id": "clawcontrol:calendar:primary",
+                "source_app": "clawcontrol",
+                "module": "calendar",
+                "scope": "primary",
+                "visibility": "private",
+                "privacy": "metadata",
+                "approved": true,
+                "agentsecrets_approved": false,
+                "labels": ["live-app-state", "calendar", "metadata"],
+                "summary": "calendar fallback fresh",
+                "payload": {"producer": "mac-bridge", "events": []},
+                "payload_hash": "calendar-hash",
+                "captured_at": now,
+                "updated_at": now,
+                "expires_at": expires
+            }),
+            serde_json::json!({
+                "id": "clawcontrol:reminders:default",
+                "source_app": "clawcontrol",
+                "module": "reminders",
+                "scope": "default",
+                "visibility": "private",
+                "privacy": "metadata",
+                "approved": true,
+                "agentsecrets_approved": false,
+                "labels": ["live-app-state", "reminders", "metadata"],
+                "summary": "reminders fallback fresh",
+                "payload": {"producer": "mac-bridge", "reminders": []},
+                "payload_hash": "reminders-hash",
+                "captured_at": now,
+                "updated_at": now,
+                "expires_at": expires
+            }),
+            serde_json::json!({
+                "id": "clawcontrol:todos:default",
+                "source_app": "clawcontrol",
+                "module": "todos",
+                "scope": "default",
+                "visibility": "private",
+                "privacy": "metadata",
+                "approved": true,
+                "agentsecrets_approved": false,
+                "labels": ["live-app-state", "todos", "metadata"],
+                "summary": "todos fallback fresh",
+                "payload": {"producer": "mac-bridge", "todos": []},
+                "payload_hash": "todos-hash",
+                "captured_at": now,
+                "updated_at": now,
+                "expires_at": expires
+            }),
+        ];
+        fs::write(
+            &state_path,
+            serde_json::json!({
+                "version": 1,
+                "updated_at": now,
+                "records": records
+            })
+            .to_string(),
+        )
+        .expect("write live state");
+        fs::write(
+            &source_status_path,
+            serde_json::json!({
+                "version": 1,
+                "updated_at": now,
+                "sources": [
+                    {
+                        "source_app": "clawcontrol",
+                        "status": "auth_required",
+                        "checked_at": now,
+                        "api_base": "http://127.0.0.1:3010",
+                        "api_bases": ["http://127.0.0.1:3010"],
+                        "auth_configured": false,
+                        "visible_page": "missing",
+                        "produced": [],
+                        "missing": ["visible_page", "calendar", "todos", "reminders", "messages", "email"],
+                        "record_count": 0,
+                        "endpoints": [],
+                        "last_error": "missing live-state surfaces"
+                    },
+                    {
+                        "source_app": "clawcontrol",
+                        "status": "missing_approval",
+                        "checked_at": now,
+                        "api_base": "approved-communications",
+                        "api_bases": ["approved-communications"],
+                        "auth_configured": false,
+                        "visible_page": "not_applicable",
+                        "produced": [],
+                        "missing": ["messages", "email"],
+                        "record_count": 0,
+                        "endpoints": [],
+                        "last_error": "no approved communications file configured"
+                    }
+                ]
+            })
+            .to_string(),
+        )
+        .expect("write source status");
+
+        let report = build_feature_report(&output);
+        let live_state = report
+            .features
+            .iter()
+            .find(|feature| feature.id == "live_app_state_authority")
+            .expect("live state feature");
+        let gaps = live_state.gaps.join(";");
+
+        assert!(gaps.contains("source clawcontrol is auth_required missing=messages,email"));
+        assert!(gaps.contains("source clawcontrol is missing_approval missing=messages,email"));
+        assert!(
+            !gaps.contains("auth_required missing=visible_page,calendar"),
+            "{gaps}"
+        );
+        assert!(gaps.contains("clawcontrol:status=auth_required missing=messages,email"));
+        assert!(gaps.contains("clawcontrol:status=missing_approval missing=messages,email"));
 
         fs::remove_dir_all(output).expect("cleanup feature temp");
     }

@@ -652,6 +652,25 @@ pub(crate) fn approved_communications_access_route_command() -> &'static str {
     "memd access route --output .memd --purpose approved-communications-file --provider process-env --agent codex"
 }
 
+pub(crate) fn live_state_unmet_modules_for_source(
+    report: &LiveAppStateReport,
+    source: &LiveAppStateSourceStatus,
+) -> Vec<String> {
+    let unmet = report
+        .requirements
+        .iter()
+        .filter(|requirement| {
+            requirement.source_app == source.source_app && requirement.status != "fresh"
+        })
+        .map(|requirement| requirement.module.clone())
+        .collect::<Vec<_>>();
+    if unmet.is_empty() {
+        source.missing.clone()
+    } else {
+        unmet
+    }
+}
+
 pub(crate) fn live_state_blocker_detail(output: &Path) -> Option<String> {
     live_state_report(output)
         .ok()
@@ -665,19 +684,7 @@ pub(crate) fn live_state_blocker_detail_from_report(report: &LiveAppStateReport)
         .iter()
         .filter(|source| source.status != "ok")
     {
-        let unmet = report
-            .requirements
-            .iter()
-            .filter(|requirement| {
-                requirement.source_app == source.source_app && requirement.status != "fresh"
-            })
-            .map(|requirement| requirement.module.clone())
-            .collect::<Vec<_>>();
-        let missing_modules = if unmet.is_empty() {
-            &source.missing
-        } else {
-            &unmet
-        };
+        let missing_modules = live_state_unmet_modules_for_source(report, source);
         let missing = if missing_modules.is_empty() {
             "none".to_string()
         } else {
