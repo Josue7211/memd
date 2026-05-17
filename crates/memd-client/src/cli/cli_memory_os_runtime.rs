@@ -539,6 +539,7 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
     ));
     let live_state = live_state_report(output).ok();
     let live_state_path = live_app_state_path(output);
+    let live_state_source_status_path = live_app_source_status_path(output);
     let live_state_ready = live_state.as_ref().is_some_and(|report| {
         report.fresh > 0 && report.requirement_missing == 0 && report.requirement_stale == 0
     });
@@ -551,7 +552,9 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
         },
         vec![
             path_evidence("live_app_state_map", &live_state_path),
+            path_evidence("live_app_source_status", &live_state_source_status_path),
             "memd live-state ingest stores present-tense app/module state in a freshness-bounded state map".to_string(),
+            "memd persists producer source-health so out-of-sync live app state is diagnosable from the authority bundle".to_string(),
             "context packets include Live App State so chat and module-builder prompts can consume current app facts".to_string(),
             "strict context packets make Live App State the only authority for present-tense app/page/calendar/reminder/todo/message/email facts and forbid inventing current personal data".to_string(),
             "sensitive modules such as messages, texts, and email require private visibility and approved/redacted/metadata privacy labels".to_string(),
@@ -560,7 +563,7 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
         .into_iter()
         .chain(live_state.iter().map(|report| {
             format!(
-                "live_state_status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={} sync_tasks={} next_refresh_at={} refresh_reason={} contract={}",
+                "live_state_status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={} sync_tasks={} source_unavailable={} source_statuses={} next_refresh_at={} refresh_reason={} contract={}",
                 report.status,
                 report.total,
                 report.fresh,
@@ -571,10 +574,31 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
                 report.sync_required,
                 report.sync_actions.len(),
                 report.sync_tasks.len(),
+                report.source_unavailable,
+                report.source_statuses.len(),
                 report.next_refresh_at.to_rfc3339(),
                 report.refresh_reason,
                 report.producer_contract_version
             )
+        }))
+        .chain(live_state.iter().flat_map(|report| {
+            report.source_statuses.iter().map(|source| {
+                let missing = if source.missing.is_empty() {
+                    "none".to_string()
+                } else {
+                    source.missing.join(",")
+                };
+                format!(
+                    "live_state_source_status={} status={} visible_page={} produced={} missing={} endpoints={} last_error={}",
+                    source.source_app,
+                    source.status,
+                    source.visible_page.as_deref().unwrap_or("unknown"),
+                    source.record_count,
+                    missing,
+                    source.endpoints.len(),
+                    source.last_error.as_deref().unwrap_or("none")
+                )
+            })
         }))
         .chain(live_state.iter().flat_map(|report| {
             report
@@ -637,6 +661,17 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
                                 )
                             }),
                     );
+                    blockers.extend(report.source_statuses.iter().filter(|source| source.status != "ok").map(|source| {
+                        let missing = if source.missing.is_empty() {
+                            "none".to_string()
+                        } else {
+                            source.missing.join(",")
+                        };
+                        format!(
+                            "live app state source {} is {} missing={}",
+                            source.source_app, source.status, missing
+                        )
+                    }));
                     blockers
                 })
                 .unwrap_or_else(|| vec!["live app state status unavailable".to_string()])
@@ -3730,6 +3765,76 @@ mod tests {
         );
         assert_eq!(access.status, "working");
         assert!(access.gaps.is_empty());
+
+        fs::remove_dir_all(output).expect("cleanup feature temp");
+    }
+
+    #[test]
+    fn feature_registry_surfaces_live_state_source_health() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-feature-live-state-health-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let source_status_path = live_app_source_status_path(&output);
+        fs::create_dir_all(source_status_path.parent().expect("state dir"))
+            .expect("create state dir");
+        fs::write(
+            &source_status_path,
+            r#"{
+  "version": 1,
+  "updated_at": "2026-05-17T06:00:00Z",
+  "sources": [
+    {
+      "source_app": "clawcontrol",
+      "status": "unavailable",
+      "checked_at": "2026-05-17T06:00:00Z",
+      "api_base": "http://127.0.0.1:3000",
+      "visible_page": "missing",
+      "produced": [],
+      "missing": ["visible_page", "calendar", "todos", "reminders", "messages", "email"],
+      "record_count": 0,
+      "endpoints": [
+        {"module": "calendar", "path": "/api/calendar", "ok": false, "status": 0, "error": "unreachable"}
+      ],
+      "last_error": "missing live-state surfaces: visible_page, calendar, todos, reminders, messages, email"
+    }
+  ]
+}"#,
+        )
+        .expect("write source status");
+
+        let report = build_feature_report(&output);
+        let live_state = report
+            .features
+            .iter()
+            .find(|feature| feature.id == "live_app_state_authority")
+            .expect("live state feature");
+
+        assert_eq!(live_state.status, "partial");
+        assert!(
+            live_state
+                .evidence
+                .iter()
+                .any(|item| item.contains("live_app_source_status"))
+        );
+        assert!(
+            live_state
+                .evidence
+                .iter()
+                .any(|item| item.contains("source_unavailable=1"))
+        );
+        assert!(
+            live_state
+                .evidence
+                .iter()
+                .any(|item| item.contains("live_state_source_status=clawcontrol"))
+        );
+        assert!(
+            live_state
+                .gaps
+                .iter()
+                .any(|gap| gap.contains("source clawcontrol is unavailable"))
+        );
 
         fs::remove_dir_all(output).expect("cleanup feature temp");
     }
