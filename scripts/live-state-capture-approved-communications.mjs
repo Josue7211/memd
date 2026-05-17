@@ -221,6 +221,22 @@ function isoish(value) {
   return Number.isNaN(date.getTime()) ? compact(raw, 80) : date.toISOString();
 }
 
+function redactedSnippet(record, module) {
+  const raw = text(record.redactedSnippet) || text(record.redacted_snippet);
+  if (!raw) return '';
+  if (
+    record.redacted !== true &&
+    record.redactionApproved !== true &&
+    record.redactedApproved !== true
+  ) {
+    throw new Error(`${module} redacted snippet requires redacted=true or redactionApproved=true`);
+  }
+  if (looksLikeRawMedia(raw)) {
+    throw new Error(`${module} redacted snippet must not contain raw media`);
+  }
+  return compact(raw, 160);
+}
+
 function sanitizeMessage(item) {
   const record = asRecord(item);
   assertNoRawContent(record);
@@ -235,6 +251,7 @@ function sanitizeMessage(item) {
     unreadCount,
     lastAt,
     topic: compact(text(record.topic) || text(record.summary), 120),
+    redactedSnippet: redactedSnippet(record, 'messages'),
     hasAttachments: hasMediaRef(record),
   };
 }
@@ -249,6 +266,7 @@ function sanitizeEmail(item) {
     folder: compact(text(record.folder) || 'INBOX', 48),
     receivedAt: isoish(record.receivedAt ?? record.date ?? record.updatedAt),
     unread: record.unread === true || record.read === false,
+    redactedSnippet: redactedSnippet(record, 'email'),
     hasAttachments: hasMediaRef(record),
   };
 }
@@ -283,10 +301,15 @@ function recordsFromDocument(document, preferredModule = '') {
   if (messages.length) {
     const sanitized = messages.map(sanitizeMessage).slice(0, 12);
     const hasAttachments = sanitized.some((item) => item.hasAttachments);
+    const hasRedactedSnippet = sanitized.some((item) => item.redactedSnippet);
     records.push(
       record({
         module: 'messages',
-        labels: ['no-raw-chat', ...(hasAttachments ? ['media-metadata'] : [])],
+        labels: [
+          'no-raw-chat',
+          ...(hasRedactedSnippet ? ['redacted-snippet'] : []),
+          ...(hasAttachments ? ['media-metadata'] : []),
+        ],
         agentsecretsApproved: hasAttachments,
         summary:
           sanitized.length === 0
@@ -295,7 +318,8 @@ function recordsFromDocument(document, preferredModule = '') {
                 `messages: approved metadata loaded; conversations=${sanitized.length}`,
                 ...sanitized.slice(0, 8).map((item) => {
                   const unread = item.unreadCount > 0 ? ` | unread ${item.unreadCount}` : '';
-                  return `- ${item.contact}${unread}${item.topic ? ` | ${item.topic}` : ''}`;
+                  const snippet = item.redactedSnippet ? ` | redacted: ${item.redactedSnippet}` : '';
+                  return `- ${item.contact}${unread}${item.topic ? ` | ${item.topic}` : ''}${snippet}`;
                 }),
               ].join('\n'),
         payload: { conversations: sanitized },
@@ -307,10 +331,15 @@ function recordsFromDocument(document, preferredModule = '') {
   if (emails.length) {
     const sanitized = emails.map(sanitizeEmail).slice(0, 12);
     const hasAttachments = sanitized.some((item) => item.hasAttachments);
+    const hasRedactedSnippet = sanitized.some((item) => item.redactedSnippet);
     records.push(
       record({
         module: 'email',
-        labels: ['no-raw-mail', ...(hasAttachments ? ['media-metadata'] : [])],
+        labels: [
+          'no-raw-mail',
+          ...(hasRedactedSnippet ? ['redacted-snippet'] : []),
+          ...(hasAttachments ? ['media-metadata'] : []),
+        ],
         agentsecretsApproved: hasAttachments,
         summary:
           sanitized.length === 0
@@ -319,7 +348,8 @@ function recordsFromDocument(document, preferredModule = '') {
                 `email: approved metadata loaded; inbox_items=${sanitized.length}`,
                 ...sanitized.slice(0, 8).map((item) => {
                   const unread = item.unread ? ' | unread' : '';
-                  return `- ${item.from}: ${item.subject}${unread}`;
+                  const snippet = item.redactedSnippet ? ` | redacted: ${item.redactedSnippet}` : '';
+                  return `- ${item.from}: ${item.subject}${unread}${snippet}`;
                 }),
               ].join('\n'),
         payload: { emails: sanitized },
