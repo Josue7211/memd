@@ -1203,18 +1203,26 @@ fn live_state_requirement_statuses(
     LIVE_APP_STATE_REQUIREMENTS
         .iter()
         .map(|requirement| {
-            let matching = records.iter().find(|record| {
-                record.source_app == requirement.source_app
-                    && record.module == requirement.module
-                    && requirement
-                        .accepted_scopes
-                        .iter()
-                        .any(|scope| record.scope == *scope)
-            });
-            let status = match matching {
-                Some(record) if record.expires_at > now => "fresh",
-                Some(_) => "stale",
-                None => "missing",
+            let mut fresh_scope = None;
+            let mut stale_scope = None;
+            for record in records.iter().filter(|record| {
+                live_state_record_matches_requirement(record, requirement)
+                    && live_state_record_eligible_for_requirement(record, requirement)
+            }) {
+                if record.expires_at > now {
+                    fresh_scope = Some(record.scope.clone());
+                    break;
+                }
+                if stale_scope.is_none() {
+                    stale_scope = Some(record.scope.clone());
+                }
+            }
+            let (status, matched_scope) = if let Some(scope) = fresh_scope {
+                ("fresh", Some(scope))
+            } else if let Some(scope) = stale_scope {
+                ("stale", Some(scope))
+            } else {
+                ("missing", None)
             };
             LiveAppStateRequirementStatus {
                 source_app: requirement.source_app.to_string(),
@@ -1226,12 +1234,45 @@ fn live_state_requirement_statuses(
                     .map(|scope| (*scope).to_string())
                     .collect(),
                 status: status.to_string(),
-                matched_scope: matching.map(|record| record.scope.clone()),
+                matched_scope,
                 privacy_route: requirement.privacy_route.to_string(),
                 action: requirement.action.to_string(),
             }
         })
         .collect()
+}
+
+fn live_state_record_matches_requirement(
+    record: &LiveAppStateRecord,
+    requirement: &LiveAppStateRequirement,
+) -> bool {
+    record.source_app == requirement.source_app
+        && record.module == requirement.module
+        && requirement
+            .accepted_scopes
+            .iter()
+            .any(|scope| record.scope == *scope)
+}
+
+fn live_state_record_eligible_for_requirement(
+    record: &LiveAppStateRecord,
+    requirement: &LiveAppStateRequirement,
+) -> bool {
+    if !sensitive_communication_module(requirement.module) {
+        return true;
+    }
+    record.approved
+        && record.visibility == "private"
+        && safe_communication_requirement_privacy(&record.privacy)
+        && (!communication_record_has_media(record) || record.agentsecrets_approved)
+}
+
+fn safe_communication_requirement_privacy(privacy: &str) -> bool {
+    matches!(privacy, "metadata" | "redacted" | "approved")
+}
+
+fn communication_record_has_media(record: &LiveAppStateRecord) -> bool {
+    labels_contain_media(&record.labels) || payload_contains_media_hint(&record.payload)
 }
 
 fn live_state_sync_actions(requirements: &[LiveAppStateRequirementStatus]) -> Vec<String> {
@@ -1642,6 +1683,48 @@ mod tests {
     }
 
     #[test]
+    fn live_state_requirement_ignores_unapproved_messages_for_required_freshness() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let output = root.path().join(".memd");
+        let args = LiveStateIngestArgs {
+            output: output.clone(),
+            source: "clawcontrol".to_string(),
+            module: "messages".to_string(),
+            scope: "current".to_string(),
+            visibility: "private".to_string(),
+            privacy: "metadata".to_string(),
+            approved: false,
+            agentsecrets_approved: false,
+            freshness_secs: 300,
+            label: vec!["messages".to_string()],
+            summary: "unapproved message metadata fixture".to_string(),
+            payload_json: Some(
+                r#"{"mode":"metadata-only","threads":[],"raw_media_stored":false}"#.to_string(),
+            ),
+            payload_file: None,
+            json: false,
+        };
+
+        let report = ingest_live_state(&args).expect("metadata ingest");
+        let messages_requirement = report
+            .requirements
+            .iter()
+            .find(|requirement| requirement.module == "messages")
+            .expect("messages requirement");
+        assert_eq!(report.total, 1);
+        assert_eq!(report.fresh, 1);
+        assert_eq!(messages_requirement.status, "missing");
+        assert_eq!(messages_requirement.matched_scope, None);
+        assert!(report.sync_required);
+        assert!(
+            report
+                .sync_actions
+                .iter()
+                .any(|action| action.contains("clawcontrol:messages status=missing"))
+        );
+    }
+
+    #[test]
     fn live_state_rejects_public_personal_calendar_state() {
         let root = tempfile::tempdir().expect("tempdir");
         let args = LiveStateIngestArgs {
@@ -1843,6 +1926,7 @@ mod tests {
                     "scope": "current",
                     "visibility": "private",
                     "privacy": "metadata",
+                    "approved": true,
                     "agentsecretsApproved": false,
                     "freshnessSecs": 300,
                     "labels": ["live-app-state", "messages"],
@@ -1855,6 +1939,7 @@ mod tests {
                     "scope": "current",
                     "visibility": "private",
                     "privacy": "metadata",
+                    "approved": true,
                     "agentsecretsApproved": false,
                     "freshnessSecs": 300,
                     "labels": ["live-app-state", "email"],
@@ -1959,23 +2044,26 @@ mod tests {
         let root = tempfile::tempdir().expect("tempdir");
         let output = root.path().join(".memd");
         let mut report = live_state_report(&output).expect("empty status");
-        for (module, scope, payload_json) in [
+        for (module, scope, approved, payload_json) in [
             (
                 "visible_page",
                 "current",
+                false,
                 r#"{"route":"/calendar","title":"Calendar","facts":[]}"#,
             ),
-            ("calendar", "primary", r#"{"events":[]}"#),
-            ("reminders", "default", r#"{"reminders":[]}"#),
-            ("todos", "default", r#"{"todos":[]}"#),
+            ("calendar", "primary", false, r#"{"events":[]}"#),
+            ("reminders", "default", false, r#"{"reminders":[]}"#),
+            ("todos", "default", false, r#"{"todos":[]}"#),
             (
                 "messages",
                 "approved",
+                true,
                 r#"{"mode":"metadata-only","threads":[],"raw_media_stored":false}"#,
             ),
             (
                 "email",
                 "approved",
+                true,
                 r#"{"mode":"approved-metadata","messages":[],"raw_body_stored":false}"#,
             ),
         ] {
@@ -1986,7 +2074,7 @@ mod tests {
                 scope: scope.to_string(),
                 visibility: "private".to_string(),
                 privacy: "metadata".to_string(),
-                approved: false,
+                approved,
                 agentsecrets_approved: false,
                 freshness_secs: 60,
                 label: vec![module.to_string()],
