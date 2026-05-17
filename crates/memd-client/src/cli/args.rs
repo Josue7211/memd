@@ -3040,6 +3040,10 @@ pub(crate) struct LiveStateStatusArgs {
     /// Exit non-zero when a producer sync is required.
     #[arg(long)]
     pub(crate) check: bool,
+
+    /// With --check, also exit non-zero when next_refresh_at is within this many seconds.
+    #[arg(long, default_value_t = 0)]
+    pub(crate) due_within_secs: i64,
 }
 
 #[derive(Debug, Clone, Args)]

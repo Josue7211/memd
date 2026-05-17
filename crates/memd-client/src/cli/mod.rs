@@ -306,8 +306,14 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             } else {
                 println!("{}", render_live_state_summary(&response));
             }
-            if check && response.sync_required {
-                return Err(anyhow::Error::new(LiveStateCheckExitCode(2)));
+            if check {
+                let due_within_secs = match &args.command {
+                    LiveStateSubcommand::Status(args) => args.due_within_secs,
+                    LiveStateSubcommand::Ingest(_) => 0,
+                };
+                if live_state_check_required(&response, due_within_secs) {
+                    return Err(anyhow::Error::new(LiveStateCheckExitCode(2)));
+                }
             }
         }
         Commands::Secrets(args) => {

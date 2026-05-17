@@ -339,6 +339,14 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
     })
 }
 
+pub(crate) fn live_state_check_required(report: &LiveAppStateReport, due_within_secs: i64) -> bool {
+    if report.sync_required {
+        return true;
+    }
+    let due_within_secs = due_within_secs.max(0);
+    report.next_refresh_at <= report.checked_at + Duration::seconds(due_within_secs)
+}
+
 fn write_live_app_state(output: &Path, store: &LiveAppStateStore) -> anyhow::Result<()> {
     let path = live_app_state_path(output);
     if let Some(parent) = path.parent() {
@@ -1113,6 +1121,59 @@ mod tests {
         assert!(summary.contains("requirement_fresh=1"));
         assert!(summary.contains("required:clawcontrol:calendar"));
         assert!(summary.contains("matched_scope=current"));
+    }
+
+    #[test]
+    fn live_state_check_can_warn_before_next_refresh() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let output = root.path().join(".memd");
+        let mut report = live_state_report(&output).expect("empty status");
+        for (module, scope, payload_json) in [
+            (
+                "visible_page",
+                "current",
+                r#"{"route":"/calendar","title":"Calendar","facts":[]}"#,
+            ),
+            ("calendar", "primary", r#"{"events":[]}"#),
+            ("reminders", "default", r#"{"reminders":[]}"#),
+            ("todos", "default", r#"{"todos":[]}"#),
+            (
+                "messages",
+                "approved",
+                r#"{"mode":"metadata-only","threads":[],"raw_media_stored":false}"#,
+            ),
+            (
+                "email",
+                "approved",
+                r#"{"mode":"approved-metadata","messages":[],"raw_body_stored":false}"#,
+            ),
+        ] {
+            let args = LiveStateIngestArgs {
+                output: output.clone(),
+                source: "clawcontrol".to_string(),
+                module: module.to_string(),
+                scope: scope.to_string(),
+                visibility: "private".to_string(),
+                privacy: "metadata".to_string(),
+                approved: false,
+                agentsecrets_approved: false,
+                freshness_secs: 60,
+                label: vec![module.to_string()],
+                summary: format!("{module} fixture fresh"),
+                payload_json: Some(payload_json.to_string()),
+                payload_file: None,
+                json: false,
+            };
+            report = ingest_live_state(&args).expect("ingest fixture");
+        }
+
+        assert_eq!(report.status, "fresh");
+        assert_eq!(report.requirement_missing, 0);
+        assert_eq!(report.requirement_stale, 0);
+        assert!(!report.sync_required);
+        assert!(report.next_refresh_at > report.checked_at);
+        assert!(!live_state_check_required(&report, 5));
+        assert!(live_state_check_required(&report, 120));
     }
 
     #[test]
