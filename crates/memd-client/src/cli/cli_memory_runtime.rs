@@ -597,11 +597,41 @@ mod tests {
 }"#,
         )
         .expect("write live-state fixture");
+        fs::write(
+            output.join("state").join("live-app-source-status.json"),
+            r#"{
+  "version": 1,
+  "updated_at": "2026-05-17T09:00:00Z",
+  "sources": [
+    {
+      "source_app": "clawcontrol",
+      "status": "auth_required",
+      "checked_at": "2026-05-17T09:00:00Z",
+      "api_base": "http://127.0.0.1:3010",
+      "api_bases": ["http://127.0.0.1:3010"],
+      "auth_configured": false,
+      "visible_page": "missing",
+      "produced": [],
+      "missing": ["messages", "email"],
+      "record_count": 0,
+      "endpoints": [],
+      "last_error": "provide API key"
+    }
+  ]
+}"#,
+        )
+        .expect("write live-state source status fixture");
 
         let section = render_live_app_state_prompt_section(&output, 6);
 
         assert!(section.contains("authority=memd-live-state"));
         assert!(section.contains("present-tense_only=true"));
+        assert!(section.contains("map_status=missing_requirements"));
+        assert!(section.contains("requirement_missing=5"));
+        assert!(section.contains("fresh_modules=calendar"));
+        assert!(section.contains("missing_modules=visible_page,reminders,todos,messages,email"));
+        assert!(section.contains("blocker=\"clawcontrol:status=auth_required"));
+        assert!(section.contains("access_route="));
         assert!(section.contains("freshness_rule=trust only fresh records"));
         assert!(section.contains("privacy_rule=messages/email require private metadata/redacted"));
         assert!(section.contains("AgentSecrets approval"));
@@ -1373,11 +1403,68 @@ fn render_prompt_context_packet(
 fn render_live_app_state_prompt_section(bundle_root: &Path, limit: usize) -> String {
     [
         "- authority=memd-live-state present-tense_only=true; use this map for current app/page/calendar/reminder/todo/message/email facts".to_string(),
+        render_live_app_state_prompt_status_line(bundle_root),
         "- freshness_rule=trust only fresh records; if a required surface is missing/stale, run listed sync_task or say the live fact is unknown".to_string(),
         "- privacy_rule=messages/email require private metadata/redacted approved scope; media refs require AgentSecrets approval; never ingest raw chat/mail bodies or raw media".to_string(),
         render_live_app_state_section(bundle_root, limit),
     ]
     .join("\n")
+}
+
+fn render_live_app_state_prompt_status_line(bundle_root: &Path) -> String {
+    let Ok(report) = live_state_report(bundle_root) else {
+        return "- map_status=unavailable; live app state map unreadable; present-tense personal facts unknown".to_string();
+    };
+    let fresh_modules = live_state_prompt_modules_by_status(&report, "fresh");
+    let stale_modules = live_state_prompt_modules_by_status(&report, "stale");
+    let missing_modules = live_state_prompt_modules_by_status(&report, "missing");
+    let blocker = live_state_blocker_detail_from_report(&report)
+        .map(|detail| compact_prompt_status_value(&detail, 420))
+        .unwrap_or_else(|| "none".to_string());
+    format!(
+        "- map_status={} requirement_fresh={} requirement_stale={} requirement_missing={} fresh_modules={} stale_modules={} missing_modules={} sync_required={} next_refresh_at={} blocker=\"{}\"",
+        report.status,
+        report.requirement_fresh,
+        report.requirement_stale,
+        report.requirement_missing,
+        live_state_prompt_module_list(&fresh_modules),
+        live_state_prompt_module_list(&stale_modules),
+        live_state_prompt_module_list(&missing_modules),
+        report.sync_required,
+        report.next_refresh_at.to_rfc3339(),
+        blocker.replace('"', "'")
+    )
+}
+
+fn live_state_prompt_modules_by_status(report: &LiveAppStateReport, status: &str) -> Vec<String> {
+    report
+        .requirements
+        .iter()
+        .filter(|requirement| requirement.status == status)
+        .map(|requirement| requirement.module.clone())
+        .collect()
+}
+
+fn live_state_prompt_module_list(modules: &[String]) -> String {
+    if modules.is_empty() {
+        "none".to_string()
+    } else {
+        modules.join(",")
+    }
+}
+
+fn compact_prompt_status_value(value: &str, max_chars: usize) -> String {
+    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() <= max_chars {
+        compact
+    } else {
+        let mut text = compact
+            .chars()
+            .take(max_chars.saturating_sub(3))
+            .collect::<String>();
+        text.push_str("...");
+        text
+    }
 }
 
 fn fallback_source_id_lines(bundle_root: &Path, limit: usize) -> Vec<String> {
@@ -1453,16 +1540,18 @@ fn render_token_budget_section(
             .to_string();
     }
     let tier = model_tier.trim().to_ascii_lowercase();
-    let mut lines = vec![
+    if tier == "tiny" || tier == "small" {
+        return [
+            "- for local/small models, prefer one-line facts and next action over history".to_string(),
+            "- use Source IDs as durable recall handles; do not reread unchanged raw sources unless exact quotes, current file contents, or changed source hashes are required".to_string(),
+        ]
+        .join("\n");
+    }
+    let mut lines = Vec::new();
+    lines.extend([
         "- use Source IDs as durable recall handles; do not reread unchanged raw sources just to recover known facts".to_string(),
         "- reread raw files only when exact quotes, current file contents, or changed source hashes are required".to_string(),
-    ];
-    if tier == "tiny" || tier == "small" {
-        lines.push(
-            "- for local/small models, prefer one-line facts and next action over history"
-                .to_string(),
-        );
-    }
+    ]);
     lines.join("\n")
 }
 
