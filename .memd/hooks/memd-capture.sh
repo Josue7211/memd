@@ -58,6 +58,3 @@ if [ -f "$bundle_root/mem.md" ]; then
   cat "$bundle_root/mem.md"
   exit 0
 fi
-if [ -f "$bundle_root/agents/CODEX_MEMORY.md" ]; then
-  cat "$bundle_root/agents/CODEX_MEMORY.md"
-fi

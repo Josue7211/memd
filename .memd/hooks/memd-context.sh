@@ -62,6 +62,3 @@ if [ -f "$bundle_root/wake.md" ]; then
   cat "$bundle_root/wake.md"
   exit 0
 fi
-if [ -f "$bundle_root/agents/CODEX_WAKEUP.md" ]; then
-  cat "$bundle_root/agents/CODEX_WAKEUP.md"
-fi
