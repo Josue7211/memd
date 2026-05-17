@@ -660,10 +660,23 @@ pub(crate) fn live_state_blocker_detail_from_report(report: &LiveAppStateReport)
         .iter()
         .filter(|source| source.status != "ok")
     {
-        let missing = if source.missing.is_empty() {
+        let unmet = report
+            .requirements
+            .iter()
+            .filter(|requirement| {
+                requirement.source_app == source.source_app && requirement.status != "fresh"
+            })
+            .map(|requirement| requirement.module.clone())
+            .collect::<Vec<_>>();
+        let missing_modules = if unmet.is_empty() {
+            &source.missing
+        } else {
+            &unmet
+        };
+        let missing = if missing_modules.is_empty() {
             "none".to_string()
         } else {
-            source.missing.join(",")
+            missing_modules.join(",")
         };
         let access_route = if source.source_app == "clawcontrol" && source.status == "auth_required"
         {
@@ -2078,7 +2091,7 @@ mod tests {
             "{detail}"
         );
         assert!(
-            detail.contains("missing=visible_page,calendar,todos,reminders,messages,email"),
+            detail.contains("missing=visible_page,calendar,reminders,todos,messages,email"),
             "{detail}"
         );
         assert!(
@@ -2087,5 +2100,69 @@ mod tests {
         );
         assert!(!detail.contains("CLAWCONTROL_API_KEY="), "{detail}");
         assert!(!detail.contains("MC_API_KEY="), "{detail}");
+    }
+
+    #[test]
+    fn live_state_blocker_detail_uses_unmet_requirements_after_partial_fallback() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let output = root.path().join(".memd");
+        let source_status_path = live_app_source_status_path(&output);
+        std::fs::create_dir_all(source_status_path.parent().expect("state dir"))
+            .expect("create state dir");
+        std::fs::write(
+            &source_status_path,
+            r#"{
+  "version": 1,
+  "updated_at": "2026-05-17T08:00:00Z",
+  "sources": [
+    {
+      "source_app": "clawcontrol",
+      "status": "auth_required",
+      "checked_at": "2026-05-17T08:00:00Z",
+      "api_base": "http://127.0.0.1:3010",
+      "api_bases": ["http://127.0.0.1:3010"],
+      "auth_configured": false,
+      "visible_page": "missing",
+      "produced": [],
+      "missing": ["visible_page", "calendar", "todos", "reminders", "messages", "email"],
+      "record_count": 0,
+      "endpoints": [],
+      "last_error": "provide CLAWCONTROL_API_KEY or MC_API_KEY"
+    }
+  ]
+}"#,
+        )
+        .expect("write source status");
+        let batch = LiveStateIngestBatchArgs {
+            output: output.clone(),
+            stdin: false,
+            input_json: Some(
+                r#"{
+  "records": [
+    {"sourceApp":"clawcontrol","module":"calendar","scope":"primary","visibility":"private","privacy":"metadata","approved":true,"summary":"calendar fallback fresh","payload":{"producer":"mac-bridge","events":[]}},
+    {"sourceApp":"clawcontrol","module":"reminders","scope":"default","visibility":"private","privacy":"metadata","approved":true,"summary":"reminders fallback fresh","payload":{"producer":"mac-bridge","reminders":[]}},
+    {"sourceApp":"clawcontrol","module":"todos","scope":"default","visibility":"private","privacy":"metadata","approved":true,"summary":"todos fallback fresh","payload":{"producer":"mac-bridge","todos":[]}}
+  ]
+}"#
+                .to_string(),
+            ),
+            input_file: None,
+            json: false,
+        };
+        let report = ingest_live_state_batch(&batch).expect("ingest fallback records");
+        let detail = live_state_blocker_detail_from_report(&report).expect("blocker detail");
+
+        assert!(
+            detail.contains("missing=visible_page,messages,email"),
+            "{detail}"
+        );
+        assert!(
+            !detail.contains("missing=visible_page,calendar"),
+            "{detail}"
+        );
+        assert!(
+            detail.contains(clawcontrol_api_key_access_route_command()),
+            "{detail}"
+        );
     }
 }
