@@ -682,10 +682,17 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
                         } else {
                             source.missing.join(",")
                         };
+                        let access_route = if source.source_app == "clawcontrol"
+                            && source.status == "auth_required"
+                        {
+                            " access_route=\"memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex\""
+                        } else {
+                            ""
+                        };
                         format!(
                             "live app state source {} is {} missing={}",
                             source.source_app, source.status, missing
-                        )
+                        ) + access_route
                     }));
                     blockers
                 })
@@ -1886,11 +1893,12 @@ fn build_access_report(output: &Path, resource: Option<&str>, agent: Option<&str
     let mut routes = Vec::new();
     let bw = detect_bitwarden();
     let agent_secrets = detect_agent_secrets();
+    let scope = resource.unwrap_or("user/project");
     routes.push(AccessRouteRecord {
         id: "bitwarden".to_string(),
         provider: "bitwarden".to_string(),
         status: bw.status.clone(),
-        scope: resource.unwrap_or("user/project").to_string(),
+        scope: scope.to_string(),
         secret_values_stored: false,
         guidance: if bw.status == "unlocked" {
             format!(
@@ -1909,7 +1917,7 @@ fn build_access_report(output: &Path, resource: Option<&str>, agent: Option<&str
         id: "agent-secrets".to_string(),
         provider: "agent-secrets".to_string(),
         status: agent_secrets.status.clone(),
-        scope: resource.unwrap_or("user/project").to_string(),
+        scope: scope.to_string(),
         secret_values_stored: false,
         guidance: if agent_secrets.installed {
             "Use agent-secrets as the external broker; memd syncs refs, scopes, provider status, and ask-user guidance only.".to_string()
@@ -1934,20 +1942,9 @@ fn build_access_report(output: &Path, resource: Option<&str>, agent: Option<&str
         source: "security CLI".to_string(),
     });
 
-    let refs_only = routes.iter().all(|route| !route.secret_values_stored);
-    let has_usable_or_guided_route = routes.iter().any(|route| {
-        matches!(
-            route.status.as_str(),
-            "unlocked" | "available" | "installed"
-        )
-    });
-    let status = if refs_only && has_usable_or_guided_route {
-        "working"
-    } else if refs_only && !routes.is_empty() {
-        "partial"
-    } else {
-        "broken"
-    };
+    routes.extend(process_env_access_routes(scope, agent));
+
+    let status = access_report_status(&routes);
     AccessReport {
         generated_at: Utc::now(),
         bundle_root: output.display().to_string(),
@@ -1981,8 +1978,86 @@ fn filter_access_report_by_provider(
         report.notes.push(format!(
             "provider `{provider}` has no configured route; ask user before inventing an access path"
         ));
+    } else {
+        report.status = access_report_status(&report.routes).to_string();
     }
     report
+}
+
+fn access_report_status(routes: &[AccessRouteRecord]) -> &'static str {
+    let refs_only = routes.iter().all(|route| !route.secret_values_stored);
+    let has_usable_or_guided_route = routes.iter().any(|route| {
+        matches!(
+            route.status.as_str(),
+            "unlocked" | "available" | "installed"
+        )
+    });
+    if refs_only && has_usable_or_guided_route {
+        "working"
+    } else if refs_only && !routes.is_empty() {
+        "partial"
+    } else {
+        "broken"
+    }
+}
+
+fn process_env_access_routes(scope: &str, agent: Option<&str>) -> Vec<AccessRouteRecord> {
+    let Some(route) = process_env_access_route_config(scope) else {
+        return Vec::new();
+    };
+    let present = route
+        .env_names
+        .iter()
+        .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()));
+    let env_list = route.env_names.join("/");
+    vec![AccessRouteRecord {
+        id: route.id.to_string(),
+        provider: "process-env".to_string(),
+        status: if present {
+            "available"
+        } else {
+            "needs_approval"
+        }
+        .to_string(),
+        scope: scope.to_string(),
+        secret_values_stored: false,
+        guidance: if present {
+            format!(
+                "Approved process-local route for {} is present via {env_list}; use only for this process and never store or print the resolved value.",
+                agent.unwrap_or("agent")
+            )
+        } else {
+            format!(
+                "Missing approved process-local route: ask user to provide {env_list} only to the process that needs it; memd must store route metadata only."
+            )
+        },
+        source: if present {
+            "process environment contains approved ref".to_string()
+        } else {
+            "process environment missing approved ref".to_string()
+        },
+    }]
+}
+
+struct ProcessEnvAccessRouteConfig {
+    id: &'static str,
+    env_names: &'static [&'static str],
+}
+
+fn process_env_access_route_config(scope: &str) -> Option<ProcessEnvAccessRouteConfig> {
+    match scope.trim().to_ascii_lowercase().as_str() {
+        "clawcontrol-api-key" | "clawcontrol-live-state-api-key" => {
+            Some(ProcessEnvAccessRouteConfig {
+                id: "process-env:clawcontrol-api-key",
+                env_names: &["CLAWCONTROL_API_KEY", "MC_API_KEY"],
+            })
+        }
+        "supermemory-api-key" => Some(ProcessEnvAccessRouteConfig {
+            id: "process-env:supermemory-api-key",
+            env_names: &["SUPERMEMORY_API_KEY"],
+        }),
+        _ => None,
+    }
 }
 
 fn build_secret_provider_report(output: &Path) -> SecretProviderReport {
@@ -3801,7 +3876,7 @@ mod tests {
   "sources": [
     {
       "source_app": "clawcontrol",
-      "status": "unavailable",
+      "status": "auth_required",
       "checked_at": "2026-05-17T06:00:00Z",
       "api_base": "http://127.0.0.1:3000",
       "api_bases": ["http://127.0.0.1:3010", "http://127.0.0.1:3000"],
@@ -3811,9 +3886,9 @@ mod tests {
       "missing": ["visible_page", "calendar", "todos", "reminders", "messages", "email"],
       "record_count": 0,
       "endpoints": [
-        {"module": "calendar", "path": "/api/calendar", "ok": false, "status": 0, "error": "unreachable"}
+        {"module": "calendar", "path": "/api/calendar", "ok": false, "status": 401, "error": "HTTP 401"}
       ],
-      "last_error": "missing live-state surfaces: visible_page, calendar, todos, reminders, messages, email"
+      "last_error": "missing live-state surfaces: visible_page, calendar, todos, reminders, messages, email; provide CLAWCONTROL_API_KEY or MC_API_KEY for X-API-Key auth"
     }
   ]
 }"#,
@@ -3874,8 +3949,11 @@ mod tests {
             live_state
                 .gaps
                 .iter()
-                .any(|gap| gap.contains("source clawcontrol is unavailable"))
+                .any(|gap| gap.contains("source clawcontrol is auth_required"))
         );
+        assert!(live_state.gaps.iter().any(|gap| {
+            gap.contains("access route --output .memd --purpose clawcontrol-api-key")
+        }));
 
         fs::remove_dir_all(output).expect("cleanup feature temp");
     }
@@ -3916,6 +3994,46 @@ mod tests {
         let summary = render_access_summary(&report);
         assert!(summary.contains("bitwarden:"));
         assert!(summary.contains("["));
+        assert!(summary.contains("bundle="));
+
+        fs::remove_dir_all(output).expect("cleanup access temp");
+    }
+
+    #[test]
+    fn access_route_surfaces_clawcontrol_process_env_without_secret_values() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-access-route-clawcontrol-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&output).expect("create access temp");
+        let args = AccessArgs {
+            command: AccessSubcommand::Route(AccessRouteArgs {
+                output: output.clone(),
+                resource: None,
+                purpose: Some("clawcontrol-api-key".to_string()),
+                provider: Some("process-env".to_string()),
+                agent: Some("codex".to_string()),
+                json: false,
+            }),
+        };
+
+        let report = run_access_command(&args).expect("access route report");
+        assert_eq!(report.routes.len(), 1);
+        assert!(matches!(report.status.as_str(), "working" | "partial"));
+        let route = &report.routes[0];
+        assert_eq!(route.id, "process-env:clawcontrol-api-key");
+        assert_eq!(route.provider, "process-env");
+        assert_eq!(route.scope, "clawcontrol-api-key");
+        assert!(matches!(
+            route.status.as_str(),
+            "available" | "needs_approval"
+        ));
+        assert!(!route.secret_values_stored);
+        assert!(route.guidance.contains("process-local route"));
+        assert!(route.guidance.contains("never store") || route.guidance.contains("metadata only"));
+
+        let summary = render_access_summary(&report);
+        assert!(summary.contains("process-env:"));
         assert!(summary.contains("bundle="));
 
         fs::remove_dir_all(output).expect("cleanup access temp");
