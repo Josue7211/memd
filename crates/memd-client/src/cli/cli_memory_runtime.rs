@@ -563,6 +563,58 @@ mod tests {
     }
 
     #[test]
+    fn live_state_prompt_section_preserves_freshness_and_privacy_rules() {
+        let project = std::env::temp_dir().join(format!(
+            "memd-live-state-prompt-rules-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = project.join(".memd");
+        fs::create_dir_all(output.join("state")).expect("create temp live-state dir");
+        fs::write(
+            output.join("state").join("live-app-state.json"),
+            r#"{
+  "version": 1,
+  "updated_at": "2026-05-17T09:00:00Z",
+  "records": [
+    {
+      "id": "clawcontrol:calendar:primary",
+      "source_app": "clawcontrol",
+      "module": "calendar",
+      "scope": "primary",
+      "visibility": "private",
+      "privacy": "metadata",
+      "approved": true,
+      "agentsecrets_approved": false,
+      "labels": ["live-app-state", "calendar", "metadata"],
+      "summary": "calendar fixture fresh",
+      "payload": {"events":[]},
+      "payload_hash": "abc",
+      "captured_at": "2026-05-17T09:00:00Z",
+      "updated_at": "2026-05-17T09:00:00Z",
+      "expires_at": "2999-01-01T00:00:00Z"
+    }
+  ]
+}"#,
+        )
+        .expect("write live-state fixture");
+
+        let section = render_live_app_state_prompt_section(&output, 6);
+
+        assert!(section.contains("authority=memd-live-state"));
+        assert!(section.contains("present-tense_only=true"));
+        assert!(section.contains("freshness_rule=trust only fresh records"));
+        assert!(section.contains("privacy_rule=messages/email require private metadata/redacted"));
+        assert!(section.contains("AgentSecrets approval"));
+        assert!(section.contains("never ingest raw chat/mail bodies or raw media"));
+        assert!(section.contains("clawcontrol:calendar"));
+        assert!(section.contains("privacy=metadata"));
+        assert!(section.contains("visibility=private"));
+        assert!(section.contains("sync_task:clawcontrol:messages"));
+
+        fs::remove_dir_all(project).expect("cleanup temp bundle");
+    }
+
+    #[test]
     fn context_auxiliary_timeout_tolerates_live_server_latency() {
         let old_timeout = std::env::var_os("MEMD_CONTEXT_AUX_TIMEOUT_SECS");
         unsafe {
@@ -1241,8 +1293,8 @@ fn render_prompt_context_packet(
     let knowledge_gaps = render_knowledge_gaps_section(context);
     let token_budget = render_token_budget_section(context, model_tier, has_source_ids);
     let live_state = compact_packet_section(
-        render_live_app_state_section(&bundle_root, 6),
-        9,
+        render_live_app_state_prompt_section(&bundle_root, 6),
+        12,
         budget.section_line_chars,
     );
     let capabilities = if options.include_capabilities {
@@ -1315,6 +1367,16 @@ fn render_prompt_context_packet(
         source_ids
     );
     clamp_packet_for_model_tier(packet, model_tier)
+}
+
+fn render_live_app_state_prompt_section(bundle_root: &Path, limit: usize) -> String {
+    [
+        "- authority=memd-live-state present-tense_only=true; use this map for current app/page/calendar/reminder/todo/message/email facts".to_string(),
+        "- freshness_rule=trust only fresh records; if a required surface is missing/stale, run listed sync_task or say the live fact is unknown".to_string(),
+        "- privacy_rule=messages/email require private metadata/redacted approved scope; media refs require AgentSecrets approval; never ingest raw chat/mail bodies or raw media".to_string(),
+        render_live_app_state_section(bundle_root, limit),
+    ]
+    .join("\n")
 }
 
 fn fallback_source_id_lines(bundle_root: &Path, limit: usize) -> Vec<String> {
