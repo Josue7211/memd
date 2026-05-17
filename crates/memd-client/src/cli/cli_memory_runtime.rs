@@ -1237,6 +1237,11 @@ fn render_prompt_context_packet(
     let task_state = render_task_state_section(context, model_tier);
     let knowledge_gaps = render_knowledge_gaps_section(context);
     let token_budget = render_token_budget_section(context, model_tier, has_source_ids);
+    let live_state = compact_packet_section(
+        render_live_app_state_section(&bundle_root, 6),
+        8,
+        budget.section_line_chars,
+    );
     let capabilities = if options.include_capabilities {
         compact_packet_section(
             options
@@ -1285,7 +1290,7 @@ fn render_prompt_context_packet(
     };
 
     let packet = format!(
-        "# memd context packet\n\n## System Guard\n- target_agent: `{}`\n- model_tier: `{}`\n- safety_mode: `{}`\n- voice_mode: `{}`\n- voice_contract: {}\n- {}\n\n## Task State\n{}\n\n## Knowledge Gaps\n{}\n\n## Token Budget\n{}\n\n## Pinned Corrections\n{}\n\n## Active Truth\n{}\n\n## Procedures\n{}\n\n## Active Capabilities\n{}\n\n## Access Routes\n{}\n\n## Hive Board\n{}\n\n## Evidence\n{}\n\n## Open Conflicts\n{}\n\n## Source IDs\n{}\n",
+        "# memd context packet\n\n## System Guard\n- target_agent: `{}`\n- model_tier: `{}`\n- safety_mode: `{}`\n- voice_mode: `{}`\n- voice_contract: {}\n- {}\n\n## Task State\n{}\n\n## Knowledge Gaps\n{}\n\n## Token Budget\n{}\n\n## Pinned Corrections\n{}\n\n## Active Truth\n{}\n\n## Live App State\n{}\n\n## Procedures\n{}\n\n## Active Capabilities\n{}\n\n## Access Routes\n{}\n\n## Hive Board\n{}\n\n## Evidence\n{}\n\n## Open Conflicts\n{}\n\n## Source IDs\n{}\n",
         agent,
         model_tier,
         if strict { "strict" } else { safety },
@@ -1297,6 +1302,7 @@ fn render_prompt_context_packet(
         token_budget,
         pinned.join("\n"),
         active.join("\n"),
+        live_state,
         procedures.join("\n"),
         capabilities,
         access,
@@ -1398,7 +1404,7 @@ fn render_knowledge_gaps_section(context: &memd_schema::CompactContextResponse) 
     if context.records.is_empty() {
         "- no durable memory retrieved for this request; ask a clarifying question before assuming unknown facts".to_string()
     } else {
-        "- if the task depends on a fact not listed in Active Truth, Pinned Corrections, Procedures, Capabilities, Access Routes, Hive Board, or Source IDs, ask or run durable lookup before acting".to_string()
+        "- if the task depends on a fact not listed in Active Truth, Live App State, Pinned Corrections, Procedures, Capabilities, Access Routes, Hive Board, or Source IDs, ask or run durable lookup before acting".to_string()
     }
 }
 

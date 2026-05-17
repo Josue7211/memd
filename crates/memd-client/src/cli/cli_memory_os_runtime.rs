@@ -537,6 +537,36 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
             .collect(),
         vec![],
     ));
+    let live_state = live_state_report(output).ok();
+    let live_state_path = live_app_state_path(output);
+    features.push(feature(
+        "live_app_state_authority",
+        if live_state.as_ref().is_some_and(|report| report.fresh > 0) {
+            "working"
+        } else {
+            "partial"
+        },
+        vec![
+            path_evidence("live_app_state_map", &live_state_path),
+            "memd live-state ingest stores present-tense app/module state in a freshness-bounded state map".to_string(),
+            "context packets include Live App State so chat and module-builder prompts can consume current app facts".to_string(),
+            "sensitive modules such as messages, texts, and email require private visibility and approved/redacted/metadata privacy labels".to_string(),
+            "message media attachments require AgentSecrets approval and raw media is rejected from the memd state map".to_string(),
+        ]
+        .into_iter()
+        .chain(live_state.iter().map(|report| {
+            format!(
+                "live_state_status={} total={} fresh={} stale={}",
+                report.status, report.total, report.fresh, report.stale
+            )
+        }))
+        .collect(),
+        if live_state.as_ref().is_some_and(|report| report.fresh > 0) {
+            vec![]
+        } else {
+            vec!["no fresh live app state records have been ingested".to_string()]
+        },
+    ));
     features.push(feature(
         "shared_context_mesh",
         "working",

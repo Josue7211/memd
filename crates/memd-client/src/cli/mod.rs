@@ -16,6 +16,9 @@ pub(crate) use cli_memory_runtime::*;
 mod cli_memory_os_runtime;
 pub(crate) use cli_memory_os_runtime::*;
 
+mod cli_live_state_runtime;
+pub(crate) use cli_live_state_runtime::*;
+
 mod cli_awareness_runtime;
 pub(crate) use cli_awareness_runtime::*;
 
@@ -289,6 +292,18 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                 print_json(&response)?;
             } else {
                 println!("{}", render_access_summary(&response));
+            }
+        }
+        Commands::LiveState(args) => {
+            let json = match &args.command {
+                LiveStateSubcommand::Ingest(args) => args.json,
+                LiveStateSubcommand::Status(args) => args.json,
+            };
+            let response = run_live_state_command(&args)?;
+            if json {
+                print_json(&response)?;
+            } else {
+                println!("{}", render_live_state_summary(&response));
             }
         }
         Commands::Secrets(args) => {

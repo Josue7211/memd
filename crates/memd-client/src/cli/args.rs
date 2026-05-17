@@ -26,6 +26,8 @@ pub(crate) enum Commands {
     Features(FeaturesArgs),
     Health(HealthArgs),
     Access(AccessArgs),
+    #[command(name = "live-state")]
+    LiveState(LiveStateArgs),
     Secrets(SecretsArgs),
     Tokens(TokensArgs),
     #[command(name = "dev-server")]
@@ -2965,6 +2967,75 @@ pub(crate) struct StateArgs {
 
     #[arg(long)]
     pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct LiveStateArgs {
+    #[command(subcommand)]
+    pub(crate) command: LiveStateSubcommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum LiveStateSubcommand {
+    Ingest(LiveStateIngestArgs),
+    Status(LiveStateStatusArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct LiveStateIngestArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) source: String,
+
+    #[arg(long)]
+    pub(crate) module: String,
+
+    #[arg(long, default_value = "default")]
+    pub(crate) scope: String,
+
+    #[arg(long, default_value = "private")]
+    pub(crate) visibility: String,
+
+    #[arg(long, default_value = "metadata")]
+    pub(crate) privacy: String,
+
+    #[arg(long)]
+    pub(crate) approved: bool,
+
+    #[arg(long = "agentsecrets-approved")]
+    pub(crate) agentsecrets_approved: bool,
+
+    #[arg(long, default_value_t = 86_400)]
+    pub(crate) freshness_secs: i64,
+
+    #[arg(long = "label")]
+    pub(crate) label: Vec<String>,
+
+    #[arg(long)]
+    pub(crate) summary: String,
+
+    #[arg(long)]
+    pub(crate) payload_json: Option<String>,
+
+    #[arg(long)]
+    pub(crate) payload_file: Option<PathBuf>,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct LiveStateStatusArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+
+    #[arg(long)]
+    pub(crate) summary: bool,
 }
 
 #[derive(Debug, Clone, Args)]
