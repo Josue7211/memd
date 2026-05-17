@@ -706,7 +706,8 @@ pub(crate) fn live_state_blocker_detail_from_report(report: &LiveAppStateReport)
         } else {
             String::new()
         };
-        let producer_route = if source.source_app == "clawcontrol" && source.status == "unavailable"
+        let producer_route = if source.source_app == "clawcontrol"
+            && matches!(source.status.as_str(), "auth_required" | "unavailable")
         {
             let api_bases = if source.api_bases.is_empty() {
                 source.api_base.as_deref().unwrap_or("unknown").to_string()
@@ -717,6 +718,10 @@ pub(crate) fn live_state_blocker_detail_from_report(report: &LiveAppStateReport)
                 " producer_route=\"scripts/live-state-sync-clawcontrol.sh\" api_bases={}",
                 api_bases
             )
+        } else if source.source_app == "clawcontrol"
+            && (source.status == "missing_approval" || source.status == "invalid_approval")
+        {
+            " producer_route=\"scripts/live-state-capture-approved-communications.mjs\"".to_string()
         } else {
             String::new()
         };
@@ -2214,6 +2219,10 @@ mod tests {
             detail.contains(clawcontrol_api_key_access_route_command()),
             "{detail}"
         );
+        assert!(
+            detail.contains(r#"producer_route="scripts/live-state-sync-clawcontrol.sh""#),
+            "{detail}"
+        );
         assert!(!detail.contains("CLAWCONTROL_API_KEY="), "{detail}");
         assert!(!detail.contains("MC_API_KEY="), "{detail}");
     }
@@ -2296,6 +2305,12 @@ mod tests {
         );
         assert!(
             detail.contains(approved_communications_access_route_command()),
+            "{detail}"
+        );
+        assert!(
+            detail.contains(
+                r#"producer_route="scripts/live-state-capture-approved-communications.mjs""#
+            ),
             "{detail}"
         );
         let summary = render_live_state_summary(&report);
