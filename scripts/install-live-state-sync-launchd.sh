@@ -31,6 +31,8 @@ Environment:
   INTERVAL_SECS=$INTERVAL_SECS
   TARGET=$TARGET
   LAUNCHD_PATH=${LAUNCHD_PATH:-/Volumes/T7/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}
+  CLAWCONTROL_API_BASES=${CLAWCONTROL_API_BASES:-http://127.0.0.1:3010,http://127.0.0.1:3000}
+  CLAWCONTROL_API_KEY or MC_API_KEY can provide the X-API-Key header when the local backend requires auth.
 
 The generated launchd job runs scripts/live-state-sync-clawcontrol.sh every
 INTERVAL_SECS seconds. The sync script only imports when memd live-state is

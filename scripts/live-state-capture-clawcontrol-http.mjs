@@ -4,7 +4,12 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const apiBase = (process.env.CLAWCONTROL_API_BASE || 'http://127.0.0.1:3000').replace(/\/+$/, '');
+const apiBases = (process.env.CLAWCONTROL_API_BASES || process.env.CLAWCONTROL_API_BASE || 'http://127.0.0.1:3010,http://127.0.0.1:3000')
+  .split(',')
+  .map((value) => value.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+const apiBase = apiBases[0] || 'http://127.0.0.1:3010';
+const apiKey = (process.env.CLAWCONTROL_API_KEY || process.env.MC_API_KEY || '').trim();
 const memdBin = process.env.MEMD_BIN || 'memd';
 const memdOutput = process.env.MEMD_OUTPUT || new URL('../.memd', import.meta.url).pathname;
 const sourceStatusOutput = process.env.SOURCE_STATUS_OUTPUT || '';
@@ -166,21 +171,31 @@ function recordFor({ module, scope, sensitive }, data, summary) {
 }
 
 async function fetchJson(path) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(`${apiBase}${path}`, { signal: controller.signal });
-    if (!response.ok) return { ok: false, status: response.status, error: `HTTP ${response.status}` };
-    return { ok: true, status: response.status, data: await response.json() };
-  } catch (error) {
-    return {
-      ok: false,
-      status: 0,
-      error: error && error.name === 'AbortError' ? 'timeout' : 'unreachable',
-    };
-  } finally {
-    clearTimeout(timer);
+  const attempts = [];
+  for (const base of apiBases) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const headers = apiKey ? { 'X-API-Key': apiKey } : undefined;
+      const response = await fetch(`${base}${path}`, { signal: controller.signal, headers });
+      if (response.ok) return { ok: true, apiBase: base, status: response.status, data: await response.json(), attempts };
+      attempts.push({ apiBase: base, status: response.status, error: `HTTP ${response.status}` });
+    } catch (error) {
+      attempts.push({
+        apiBase: base,
+        status: 0,
+        error: error && error.name === 'AbortError' ? 'timeout' : 'unreachable',
+      });
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  const preferred = attempts.find((attempt) => attempt.status > 0) || attempts[0] || {
+    apiBase,
+    status: 0,
+    error: 'unreachable',
+  };
+  return { ok: false, ...preferred, attempts };
 }
 
 function visiblePageRecord() {
@@ -217,6 +232,8 @@ if (visible) records.push(visible);
 const probe = {
   sourceApp: 'clawcontrol',
   apiBase,
+  apiBases,
+  authConfigured: Boolean(apiKey),
   checkedAt: new Date().toISOString(),
   timeoutMs,
   visiblePage: visible ? 'present' : 'missing',
@@ -228,6 +245,7 @@ for (const endpoint of endpoints) {
   probe.endpoints.push({
     module: endpoint.module,
     path: endpoint.path,
+    apiBase: result.apiBase,
     ok: result.ok,
     status: result.status,
     error: result.ok ? undefined : result.error,
@@ -241,15 +259,24 @@ function writeSourceStatus(produced, missing) {
   const stateDir = join(sourceStatusOutput, 'state');
   mkdirSync(stateDir, { recursive: true });
   const ok = missing.length === 0;
+  const authRequired = !ok && probe.endpoints.length > 0 && probe.endpoints.every((endpoint) => endpoint.status === 401);
+  const endpointErrors = probe.endpoints
+    .filter((endpoint) => !endpoint.ok)
+    .map((endpoint) => `${endpoint.module}:${endpoint.error || `HTTP ${endpoint.status}`}`)
+    .join(',');
   const status = {
     version: 1,
     updated_at: probe.checkedAt,
     sources: [
       {
         source_app: 'clawcontrol',
-        status: ok ? 'ok' : 'unavailable',
+        status: ok ? 'ok' : authRequired ? 'auth_required' : 'unavailable',
         checked_at: probe.checkedAt,
-        api_base: apiBase,
+        api_base: produced.length > 0
+          ? probe.endpoints.find((endpoint) => endpoint.ok)?.apiBase || apiBase
+          : probe.endpoints.find((endpoint) => endpoint.status > 0)?.apiBase || apiBase,
+        api_bases: apiBases,
+        auth_configured: Boolean(apiKey),
         visible_page: probe.visiblePage,
         produced,
         missing,
@@ -257,7 +284,7 @@ function writeSourceStatus(produced, missing) {
         endpoints: probe.endpoints,
         last_error: ok
           ? null
-          : `missing live-state surfaces: ${missing.join(', ')}`,
+          : `missing live-state surfaces: ${missing.join(', ')}${endpointErrors ? `; endpoint_errors=${endpointErrors}` : ''}${authRequired ? '; provide CLAWCONTROL_API_KEY or MC_API_KEY for X-API-Key auth' : ''}`,
       },
     ],
   };
@@ -289,7 +316,8 @@ if (probeOnly) {
 
 if (records.length === 0) {
   writeSourceStatus([], ['visible_page', ...endpoints.map((endpoint) => endpoint.module)]);
-  console.error(`live-state-capture-clawcontrol-http: no reachable live endpoints at ${apiBase}`);
+  const authHint = apiKey ? '' : '; set CLAWCONTROL_API_KEY or MC_API_KEY if the backend requires X-API-Key';
+  console.error(`live-state-capture-clawcontrol-http: no usable live endpoints at ${apiBases.join(', ')}${authHint}`);
   process.exit(2);
 }
 
