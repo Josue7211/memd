@@ -648,6 +648,10 @@ pub(crate) fn clawcontrol_api_key_access_route_command() -> &'static str {
     "memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex"
 }
 
+pub(crate) fn approved_communications_access_route_command() -> &'static str {
+    "memd access route --output .memd --purpose approved-communications-file --provider process-env --agent codex"
+}
+
 pub(crate) fn live_state_blocker_detail(output: &Path) -> Option<String> {
     live_state_report(output)
         .ok()
@@ -684,6 +688,13 @@ pub(crate) fn live_state_blocker_detail_from_report(report: &LiveAppStateReport)
             format!(
                 " access_route=\"{}\"",
                 clawcontrol_api_key_access_route_command()
+            )
+        } else if source.source_app == "clawcontrol"
+            && (source.status == "missing_approval" || source.status == "invalid_approval")
+        {
+            format!(
+                " access_route=\"{}\"",
+                approved_communications_access_route_command()
             )
         } else {
             String::new()
@@ -2173,6 +2184,20 @@ mod tests {
       "record_count": 0,
       "endpoints": [],
       "last_error": "provide CLAWCONTROL_API_KEY or MC_API_KEY"
+    },
+    {
+      "source_app": "clawcontrol",
+      "status": "missing_approval",
+      "checked_at": "2026-05-17T08:00:00Z",
+      "api_base": "approved-communications",
+      "api_bases": ["approved-communications"],
+      "auth_configured": false,
+      "visible_page": "not_applicable",
+      "produced": [],
+      "missing": ["messages", "email"],
+      "record_count": 0,
+      "endpoints": [],
+      "last_error": "no approved communications file configured"
     }
   ]
 }"#,
@@ -2207,6 +2232,10 @@ mod tests {
         );
         assert!(
             detail.contains(clawcontrol_api_key_access_route_command()),
+            "{detail}"
+        );
+        assert!(
+            detail.contains(approved_communications_access_route_command()),
             "{detail}"
         );
         let summary = render_live_state_summary(&report);

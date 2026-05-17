@@ -2096,6 +2096,16 @@ fn process_env_access_route_config(scope: &str) -> Option<ProcessEnvAccessRouteC
             id: "process-env:supermemory-api-key",
             env_names: &["SUPERMEMORY_API_KEY"],
         }),
+        "approved-communications-file"
+        | "approved-communications"
+        | "approved-messages-email-file" => Some(ProcessEnvAccessRouteConfig {
+            id: "process-env:approved-communications-file",
+            env_names: &[
+                "APPROVED_COMMUNICATIONS_FILE",
+                "APPROVED_MESSAGES_FILE",
+                "APPROVED_EMAIL_FILE",
+            ],
+        }),
         _ => None,
     }
 }
@@ -4082,6 +4092,43 @@ mod tests {
         assert!(!route.secret_values_stored);
         assert!(route.guidance.contains("process-local route"));
         assert!(route.guidance.contains("never store") || route.guidance.contains("metadata only"));
+
+        let summary = render_access_summary(&report);
+        assert!(summary.contains("process-env:"));
+        assert!(summary.contains("bundle="));
+
+        fs::remove_dir_all(output).expect("cleanup access temp");
+    }
+
+    #[test]
+    fn access_route_surfaces_approved_communications_files_without_values() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-access-route-approved-communications-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&output).expect("create access temp");
+        let args = AccessArgs {
+            command: AccessSubcommand::Route(AccessRouteArgs {
+                output: output.clone(),
+                resource: None,
+                purpose: Some("approved-communications-file".to_string()),
+                provider: Some("process-env".to_string()),
+                agent: Some("codex".to_string()),
+                json: false,
+            }),
+        };
+
+        let report = run_access_command(&args).expect("access route report");
+        assert_eq!(report.routes.len(), 1);
+        let route = &report.routes[0];
+        assert_eq!(route.id, "process-env:approved-communications-file");
+        assert_eq!(route.provider, "process-env");
+        assert_eq!(route.scope, "approved-communications-file");
+        assert!(!route.secret_values_stored);
+        assert!(route.guidance.contains("APPROVED_COMMUNICATIONS_FILE"));
+        assert!(route.guidance.contains("APPROVED_MESSAGES_FILE"));
+        assert!(route.guidance.contains("APPROVED_EMAIL_FILE"));
+        assert!(route.guidance.contains("metadata only"));
 
         let summary = render_access_summary(&report);
         assert!(summary.contains("process-env:"));
