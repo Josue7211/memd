@@ -706,9 +706,23 @@ pub(crate) fn live_state_blocker_detail_from_report(report: &LiveAppStateReport)
         } else {
             String::new()
         };
+        let producer_route = if source.source_app == "clawcontrol" && source.status == "unavailable"
+        {
+            let api_bases = if source.api_bases.is_empty() {
+                source.api_base.as_deref().unwrap_or("unknown").to_string()
+            } else {
+                source.api_bases.join(",")
+            };
+            format!(
+                " producer_route=\"scripts/live-state-sync-clawcontrol.sh\" api_bases={}",
+                api_bases
+            )
+        } else {
+            String::new()
+        };
         details.push(format!(
-            "{}:status={} missing={}{}",
-            source.source_app, source.status, missing, access_route
+            "{}:status={} missing={}{}{}",
+            source.source_app, source.status, missing, access_route, producer_route
         ));
     }
 
@@ -2135,6 +2149,20 @@ mod tests {
         assert!(section.contains("source_status:clawcontrol status=unavailable"));
         assert!(section.contains("freshness=stale"));
         assert!(section.contains("api_base=http://127.0.0.1:3000"));
+
+        let detail = live_state_blocker_detail_from_report(&report).expect("blocker detail");
+        assert!(
+            detail.contains("clawcontrol:status=unavailable"),
+            "{detail}"
+        );
+        assert!(
+            detail.contains(r#"producer_route="scripts/live-state-sync-clawcontrol.sh""#),
+            "{detail}"
+        );
+        assert!(
+            detail.contains("api_bases=http://127.0.0.1:3010,http://127.0.0.1:3000"),
+            "{detail}"
+        );
     }
 
     #[test]
