@@ -318,6 +318,7 @@ pub(crate) fn render_live_app_state_section(output: &Path, limit: usize) -> Stri
         compact_live_state_text(&refresh_reason, 180),
         LIVE_STATE_DEFAULT_REFRESH_SECS
     ));
+    lines.extend(render_live_state_sync_task_lines(&records, now));
     if let Ok(source_status_store) = read_live_app_source_status(output) {
         lines.extend(render_live_state_source_status_lines(
             &source_status_store.sources,
@@ -325,7 +326,6 @@ pub(crate) fn render_live_app_state_section(output: &Path, limit: usize) -> Stri
             &requirements,
         ));
     }
-    lines.extend(render_live_state_sync_task_lines(&records, now));
     lines.extend(render_live_state_requirement_lines(&records, now));
     lines.join("\n")
 }

@@ -610,6 +610,7 @@ mod tests {
         assert!(section.contains("privacy=metadata"));
         assert!(section.contains("visibility=private"));
         assert!(section.contains("sync_task:clawcontrol:messages"));
+        assert!(section.contains("sync_task:clawcontrol:email"));
 
         fs::remove_dir_all(project).expect("cleanup temp bundle");
     }
