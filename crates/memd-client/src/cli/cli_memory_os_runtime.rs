@@ -424,8 +424,8 @@ fn compact_access_guidance(guidance: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .replace(',', ";");
-    if compact.chars().count() > 96 {
-        let mut clipped = compact.chars().take(93).collect::<String>();
+    if compact.chars().count() > 220 {
+        let mut clipped = compact.chars().take(217).collect::<String>();
         clipped.push_str("...");
         clipped
     } else {
@@ -2158,12 +2158,14 @@ fn process_env_access_routes(scope: &str, agent: Option<&str>) -> Vec<AccessRout
         secret_values_stored: false,
         guidance: if present {
             format!(
-                "Approved process-local route for {} is present via {env_list}; use only for this process and never store or print the resolved value.",
-                agent.unwrap_or("agent")
+                "{} Approved process-local route for {} is present via {env_list}; use only for this process and never store or print the resolved value.",
+                route.guidance,
+                agent.unwrap_or("agent"),
             )
         } else {
             format!(
-                "Missing approved process-local route: ask user to provide {env_list} only to the process that needs it; memd must store route metadata only."
+                "{} Missing approved process-local route: ask user to provide {env_list} only to the process that needs it; memd must store route metadata only.",
+                route.guidance,
             )
         },
         source: if present {
@@ -2177,6 +2179,7 @@ fn process_env_access_routes(scope: &str, agent: Option<&str>) -> Vec<AccessRout
 struct ProcessEnvAccessRouteConfig {
     id: &'static str,
     env_names: &'static [&'static str],
+    guidance: &'static str,
 }
 
 #[derive(Debug, Clone)]
@@ -2248,11 +2251,13 @@ fn process_env_access_route_config(scope: &str) -> Option<ProcessEnvAccessRouteC
             Some(ProcessEnvAccessRouteConfig {
                 id: "process-env:clawcontrol-api-key",
                 env_names: &["CLAWCONTROL_API_KEY", "MC_API_KEY"],
+                guidance: "Use for ClawControl live-state HTTP capture only; never write the API key into memd state.",
             })
         }
         "supermemory-api-key" => Some(ProcessEnvAccessRouteConfig {
             id: "process-env:supermemory-api-key",
             env_names: &["SUPERMEMORY_API_KEY"],
+            guidance: "Use for Supermemory proof/replay only; do not store the key in memd artifacts.",
         }),
         "approved-communications-file"
         | "approved-communications"
@@ -2263,6 +2268,7 @@ fn process_env_access_route_config(scope: &str) -> Option<ProcessEnvAccessRouteC
                 "APPROVED_MESSAGES_FILE",
                 "APPROVED_EMAIL_FILE",
             ],
+            guidance: "File must be approved communications JSON: messages/email arrays with approved=true; redactedSnippet requires redacted=true or redactionApproved=true; attachment/media metadata requires agentsecretsApproved=true; raw chat/mail body text and raw media are rejected.",
         }),
         _ => None,
     }
@@ -4568,10 +4574,20 @@ mod tests {
         assert!(route.guidance.contains("APPROVED_COMMUNICATIONS_FILE"));
         assert!(route.guidance.contains("APPROVED_MESSAGES_FILE"));
         assert!(route.guidance.contains("APPROVED_EMAIL_FILE"));
+        assert!(route.guidance.contains("approved communications JSON"));
+        assert!(route.guidance.contains("approved=true"));
+        assert!(route.guidance.contains("redactedSnippet"));
+        assert!(route.guidance.contains("agentsecretsApproved=true"));
+        assert!(
+            route
+                .guidance
+                .contains("raw chat/mail body text and raw media are rejected")
+        );
         assert!(route.guidance.contains("metadata only"));
 
         let summary = render_access_summary(&report);
         assert!(summary.contains("process-env:"));
+        assert!(summary.contains("approved communications JSON"));
         assert!(summary.contains("bundle="));
 
         fs::remove_dir_all(output).expect("cleanup access temp");
