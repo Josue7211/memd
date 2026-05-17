@@ -30,6 +30,7 @@ Environment:
   LABEL=$LABEL
   INTERVAL_SECS=$INTERVAL_SECS
   TARGET=$TARGET
+  LAUNCHD_PATH=${LAUNCHD_PATH:-/Volumes/T7/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}
 
 The generated launchd job runs scripts/live-state-sync-clawcontrol.sh every
 INTERVAL_SECS seconds. The sync script only imports when memd live-state is
@@ -50,6 +51,13 @@ render_plist() {
   <array>
     <string>$script_path</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>${LAUNCHD_PATH:-/Volumes/T7/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}</string>
+    <key>CAPTURE_HTTP</key>
+    <string>1</string>
+  </dict>
   <key>StartInterval</key>
   <integer>$INTERVAL_SECS</integer>
   <key>RunAtLoad</key>
