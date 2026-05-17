@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::fmt;
+use std::io::Read;
 
 const LIVE_STATE_VERSION: u32 = 1;
 const LIVE_STATE_PRODUCER_CONTRACT_VERSION: u32 = 1;
@@ -164,6 +165,36 @@ pub(crate) struct LiveAppStateSyncTask {
     pub(crate) action: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct LiveStateIngestBatchBody {
+    #[serde(default)]
+    records: Vec<LiveStateIngestBatchRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct LiveStateIngestBatchRecord {
+    #[serde(default, alias = "sourceApp")]
+    source_app: Option<String>,
+    module: String,
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    visibility: Option<String>,
+    #[serde(default)]
+    privacy: Option<String>,
+    #[serde(default)]
+    approved: Option<bool>,
+    #[serde(default, alias = "agentsecretsApproved")]
+    agentsecrets_approved: Option<bool>,
+    #[serde(default, alias = "freshnessSecs")]
+    freshness_secs: Option<i64>,
+    #[serde(default)]
+    labels: Option<Vec<String>>,
+    summary: String,
+    #[serde(default)]
+    payload: Option<Value>,
+}
+
 pub(crate) fn live_app_state_path(output: &Path) -> PathBuf {
     output.join("state").join("live-app-state.json")
 }
@@ -228,6 +259,7 @@ pub(crate) fn render_live_app_state_section(output: &Path, limit: usize) -> Stri
 pub(crate) fn run_live_state_command(args: &LiveStateArgs) -> anyhow::Result<LiveAppStateReport> {
     match &args.command {
         LiveStateSubcommand::Ingest(ingest) => ingest_live_state(ingest),
+        LiveStateSubcommand::IngestBatch(batch) => ingest_live_state_batch(batch),
         LiveStateSubcommand::Status(status) => live_state_report(&status.output),
     }
 }
@@ -269,6 +301,110 @@ fn ingest_live_state(args: &LiveStateIngestArgs) -> anyhow::Result<LiveAppStateR
     store.updated_at = Some(now);
     store.records.retain(|existing| existing.id != record.id);
     store.records.push(record);
+    store
+        .records
+        .sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    write_live_app_state(&args.output, &store)?;
+    live_state_report(&args.output)
+}
+
+fn ingest_live_state_batch(args: &LiveStateIngestBatchArgs) -> anyhow::Result<LiveAppStateReport> {
+    let body = read_batch_body(args)?;
+    if body.records.is_empty() {
+        bail!("live-state batch has no records");
+    }
+
+    let now = Utc::now();
+    let mut store = read_live_app_state(&args.output)?;
+    store.version = LIVE_STATE_VERSION;
+    store.updated_at = Some(now);
+
+    for input in body.records {
+        let payload = input
+            .payload
+            .clone()
+            .unwrap_or_else(|| Value::Object(Default::default()));
+        let source = input
+            .source_app
+            .as_deref()
+            .unwrap_or("clawcontrol")
+            .trim()
+            .to_string();
+        let scope = input
+            .scope
+            .as_deref()
+            .unwrap_or("current")
+            .trim()
+            .to_string();
+        let visibility = input
+            .visibility
+            .as_deref()
+            .unwrap_or("private")
+            .trim()
+            .to_string();
+        let privacy = input
+            .privacy
+            .as_deref()
+            .unwrap_or("metadata")
+            .trim()
+            .to_string();
+        let labels = input
+            .labels
+            .unwrap_or_default()
+            .into_iter()
+            .map(|label| label.trim().to_string())
+            .filter(|label| !label.is_empty())
+            .collect::<Vec<_>>();
+        let freshness_secs = input
+            .freshness_secs
+            .unwrap_or(LIVE_STATE_DEFAULT_REFRESH_SECS)
+            .max(60);
+        let ingest = LiveStateIngestArgs {
+            output: args.output.clone(),
+            source,
+            module: input.module.trim().to_string(),
+            scope,
+            visibility,
+            privacy,
+            approved: input.approved.unwrap_or(false),
+            agentsecrets_approved: input.agentsecrets_approved.unwrap_or(false),
+            freshness_secs,
+            label: labels,
+            summary: input.summary.trim().to_string(),
+            payload_json: None,
+            payload_file: None,
+            json: args.json,
+        };
+        if ingest.summary.is_empty() {
+            bail!("live state summary is required");
+        }
+        validate_live_state_privacy(&ingest, &payload)?;
+
+        let payload_hash = hash_payload(&payload);
+        let module = normalize_key(&ingest.module);
+        let source_app = normalize_key(&ingest.source);
+        let scope = ingest.scope.trim().to_string();
+        let record = LiveAppStateRecord {
+            id: format!("{source_app}:{module}:{scope}"),
+            source_app,
+            module,
+            scope,
+            visibility: ingest.visibility.trim().to_ascii_lowercase(),
+            privacy: ingest.privacy.trim().to_ascii_lowercase(),
+            approved: ingest.approved,
+            agentsecrets_approved: ingest.agentsecrets_approved,
+            labels: ingest.label,
+            summary: ingest.summary,
+            payload,
+            payload_hash,
+            captured_at: now,
+            updated_at: now,
+            expires_at: now + Duration::seconds(freshness_secs),
+        };
+        store.records.retain(|existing| existing.id != record.id);
+        store.records.push(record);
+    }
+
     store
         .records
         .sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
@@ -367,6 +503,30 @@ fn read_payload(args: &LiveStateIngestArgs) -> anyhow::Result<Value> {
         return serde_json::from_str(&text).context("parse --payload-file JSON");
     }
     Ok(Value::Object(Default::default()))
+}
+
+fn read_batch_body(args: &LiveStateIngestBatchArgs) -> anyhow::Result<LiveStateIngestBatchBody> {
+    let sources = args.stdin as usize
+        + args.input_json.is_some() as usize
+        + args.input_file.is_some() as usize;
+    if sources != 1 {
+        bail!("provide exactly one of --stdin, --input-json, or --input-file");
+    }
+    let text = if args.stdin {
+        let mut text = String::new();
+        std::io::stdin()
+            .read_to_string(&mut text)
+            .context("read live-state batch from stdin")?;
+        text
+    } else if let Some(raw) = args.input_json.as_deref() {
+        raw.to_string()
+    } else if let Some(path) = args.input_file.as_deref() {
+        std::fs::read_to_string(path)
+            .with_context(|| format!("read --input-file {}", path.display()))?
+    } else {
+        unreachable!("exactly one batch input source checked above");
+    };
+    serde_json::from_str(&text).context("parse live-state batch JSON")
 }
 
 fn validate_live_state_privacy(args: &LiveStateIngestArgs, payload: &Value) -> anyhow::Result<()> {
@@ -1196,6 +1356,105 @@ mod tests {
         assert!(summary.contains("requirement_fresh=1"));
         assert!(summary.contains("required:clawcontrol:calendar"));
         assert!(summary.contains("matched_scope=current"));
+    }
+
+    #[test]
+    fn live_state_ingest_batch_accepts_clawcontrol_body_shape() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let output = root.path().join(".memd");
+        let batch = serde_json::json!({
+            "records": [
+                {
+                    "sourceApp": "clawcontrol",
+                    "module": "visible_page",
+                    "scope": "current",
+                    "visibility": "private",
+                    "privacy": "metadata",
+                    "freshnessSecs": 300,
+                    "labels": ["live-app-state", "visible_page"],
+                    "summary": "visible page: route=/calendar title=Calendar",
+                    "payload": {"route": "/calendar", "title": "Calendar", "facts": []}
+                },
+                {
+                    "sourceApp": "clawcontrol",
+                    "module": "calendar",
+                    "scope": "current",
+                    "visibility": "private",
+                    "privacy": "approved",
+                    "approved": true,
+                    "freshnessSecs": 300,
+                    "labels": ["live-app-state", "calendar"],
+                    "summary": "calendar: loaded; upcoming_events=1",
+                    "payload": {"events": [{"title": "Dentist"}]}
+                },
+                {
+                    "sourceApp": "clawcontrol",
+                    "module": "reminders",
+                    "scope": "current",
+                    "visibility": "private",
+                    "privacy": "approved",
+                    "approved": true,
+                    "freshnessSecs": 300,
+                    "labels": ["live-app-state", "reminders"],
+                    "summary": "reminders: loaded; open=0 total=0",
+                    "payload": {"reminders": []}
+                },
+                {
+                    "sourceApp": "clawcontrol",
+                    "module": "todos",
+                    "scope": "current",
+                    "visibility": "private",
+                    "privacy": "approved",
+                    "approved": true,
+                    "freshnessSecs": 300,
+                    "labels": ["live-app-state", "todos"],
+                    "summary": "todos: loaded; open=0 total=0",
+                    "payload": {"todos": []}
+                },
+                {
+                    "sourceApp": "clawcontrol",
+                    "module": "messages",
+                    "scope": "current",
+                    "visibility": "private",
+                    "privacy": "metadata",
+                    "agentsecretsApproved": false,
+                    "freshnessSecs": 300,
+                    "labels": ["live-app-state", "messages"],
+                    "summary": "messages: loaded; conversations=0",
+                    "payload": {"summary": "messages: loaded; conversations=0"}
+                },
+                {
+                    "sourceApp": "clawcontrol",
+                    "module": "email",
+                    "scope": "current",
+                    "visibility": "private",
+                    "privacy": "metadata",
+                    "agentsecretsApproved": false,
+                    "freshnessSecs": 300,
+                    "labels": ["live-app-state", "email"],
+                    "summary": "email: loaded; inbox_items=0",
+                    "payload": {"summary": "email: loaded; inbox_items=0"}
+                }
+            ]
+        });
+        let args = LiveStateIngestBatchArgs {
+            output,
+            stdin: false,
+            input_json: Some(batch.to_string()),
+            input_file: None,
+            json: false,
+        };
+
+        let report = ingest_live_state_batch(&args).expect("batch ingest");
+        assert_eq!(report.total, 6);
+        assert_eq!(report.status, "fresh");
+        assert_eq!(report.requirement_missing, 0);
+        assert_eq!(report.requirement_stale, 0);
+        assert!(!report.sync_required);
+        assert!(report.records.iter().any(|record| {
+            record.id == "clawcontrol:visible_page:current"
+                && record.summary.contains("route=/calendar")
+        }));
     }
 
     #[test]

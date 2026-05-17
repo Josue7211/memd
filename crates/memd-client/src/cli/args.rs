@@ -2978,6 +2978,7 @@ pub(crate) struct LiveStateArgs {
 #[derive(Debug, Clone, Subcommand)]
 pub(crate) enum LiveStateSubcommand {
     Ingest(LiveStateIngestArgs),
+    IngestBatch(LiveStateIngestBatchArgs),
     Status(LiveStateStatusArgs),
 }
 
@@ -3021,6 +3022,27 @@ pub(crate) struct LiveStateIngestArgs {
 
     #[arg(long)]
     pub(crate) payload_file: Option<PathBuf>,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct LiveStateIngestBatchArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    /// Read a ClawControl-style {"records":[...]} live-state batch from stdin.
+    #[arg(long)]
+    pub(crate) stdin: bool,
+
+    /// ClawControl-style {"records":[...]} live-state batch JSON.
+    #[arg(long)]
+    pub(crate) input_json: Option<String>,
+
+    /// File containing a ClawControl-style {"records":[...]} live-state batch.
+    #[arg(long)]
+    pub(crate) input_file: Option<PathBuf>,
 
     #[arg(long)]
     pub(crate) json: bool,

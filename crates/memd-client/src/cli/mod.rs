@@ -297,6 +297,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::LiveState(args) => {
             let json = match &args.command {
                 LiveStateSubcommand::Ingest(args) => args.json,
+                LiveStateSubcommand::IngestBatch(args) => args.json,
                 LiveStateSubcommand::Status(args) => args.json,
             };
             let tasks = matches!(&args.command, LiveStateSubcommand::Status(args) if args.tasks);
@@ -317,6 +318,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                 let due_within_secs = match &args.command {
                     LiveStateSubcommand::Status(args) => args.due_within_secs,
                     LiveStateSubcommand::Ingest(_) => 0,
+                    LiveStateSubcommand::IngestBatch(_) => 0,
                 };
                 if live_state_check_required(&response, due_within_secs) {
                     return Err(anyhow::Error::new(LiveStateCheckExitCode(2)));
