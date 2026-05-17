@@ -279,7 +279,7 @@ fn live_state_blocker_detail_summary(features: &[MemoryOsFeature]) -> String {
         .iter()
         .find(|feature| feature.id == "live_app_state_authority")
         .map(|feature| {
-            let corrected_details = feature
+            let mut details = feature
                 .gaps
                 .iter()
                 .filter(|gap| gap.contains("live app state blocker detail"))
@@ -290,24 +290,25 @@ fn live_state_blocker_detail_summary(features: &[MemoryOsFeature]) -> String {
                         .replace(',', ";")
                 })
                 .collect::<Vec<_>>();
-            if !corrected_details.is_empty() {
-                return corrected_details;
-            }
-            feature
-                .gaps
-                .iter()
-                .filter(|gap| {
-                    gap.contains("live app state source")
-                        || gap.contains("no fresh live app state records")
-                        || gap.contains("live app source status checks are stale")
-                })
-                .map(|gap| {
-                    gap.split_whitespace()
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                        .replace(',', ";")
-                })
-                .collect()
+            details.extend(
+                feature
+                    .gaps
+                    .iter()
+                    .filter(|gap| {
+                        gap.contains("live app state source")
+                            || gap.contains("no fresh live app state records")
+                            || gap.contains("live app source status checks are stale")
+                            || gap.contains("live app state auto-sync")
+                    })
+                    .map(|gap| {
+                        gap.split_whitespace()
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                            .replace(',', ";")
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            details
         })
         .unwrap_or_default();
     if details.is_empty() {
@@ -584,6 +585,7 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
     let live_state = live_state_report(output).ok();
     let live_state_path = live_app_state_path(output);
     let live_state_source_status_path = live_app_source_status_path(output);
+    let live_state_auto_sync = live_state_auto_sync_status(output);
     let live_state_ready = live_state.as_ref().is_some_and(|report| {
         report.fresh > 0 && report.requirement_missing == 0 && report.requirement_stale == 0
     });
@@ -603,6 +605,14 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
             "strict context packets make Live App State the only authority for present-tense app/page/calendar/reminder/todo/message/email facts and forbid inventing current personal data".to_string(),
             "sensitive modules such as messages, texts, and email require private visibility and approved/redacted/metadata privacy labels".to_string(),
             "message media attachments require AgentSecrets approval and raw media is rejected from the memd state map".to_string(),
+            format!(
+                "live_state_auto_sync status={} label={} path={} interval_secs={} install_command=\"{}\"",
+                live_state_auto_sync.status,
+                live_state_auto_sync.label,
+                live_state_auto_sync.path,
+                live_state_auto_sync.interval_secs,
+                live_state_auto_sync.install_command
+            ),
         ]
         .into_iter()
         .chain(live_state.iter().map(|report| {
@@ -706,6 +716,14 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
                         blockers.push(format!(
                             "{} live app source status checks are stale",
                             report.source_stale
+                        ));
+                    }
+                    if live_state_auto_sync.status != "installed"
+                        && live_state_auto_sync.status != "unsupported"
+                    {
+                        blockers.push(format!(
+                            "live app state auto-sync is {}; install with {}",
+                            live_state_auto_sync.status, live_state_auto_sync.install_command
                         ));
                     }
                     blockers.extend(
@@ -2084,6 +2102,69 @@ struct ProcessEnvAccessRouteConfig {
     env_names: &'static [&'static str],
 }
 
+#[derive(Debug, Clone)]
+struct LiveStateAutoSyncStatus {
+    status: &'static str,
+    label: &'static str,
+    path: String,
+    interval_secs: usize,
+    install_command: &'static str,
+}
+
+fn live_state_auto_sync_status(output: &Path) -> LiveStateAutoSyncStatus {
+    let project_root = output.parent().unwrap_or_else(|| Path::new("."));
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    live_state_auto_sync_status_for(
+        &home,
+        project_root,
+        std::env::consts::OS,
+        "com.memd.live-state-sync-clawcontrol",
+        300,
+    )
+}
+
+fn live_state_auto_sync_status_for(
+    home: &Path,
+    project_root: &Path,
+    os: &str,
+    label: &'static str,
+    interval_secs: usize,
+) -> LiveStateAutoSyncStatus {
+    let path = home
+        .join("Library")
+        .join("LaunchAgents")
+        .join(format!("{label}.plist"));
+    let install_command = "scripts/install-live-state-sync-launchd.sh --install";
+    if os != "macos" {
+        return LiveStateAutoSyncStatus {
+            status: "unsupported",
+            label,
+            path: path.display().to_string(),
+            interval_secs,
+            install_command,
+        };
+    }
+    let expected_script = project_root
+        .join("scripts")
+        .join("live-state-sync-clawcontrol.sh")
+        .display()
+        .to_string();
+    let status = match std::fs::read_to_string(&path) {
+        Ok(plist) if plist.contains(&expected_script) => "installed",
+        Ok(_) => "misconfigured",
+        Err(_) => "missing",
+    };
+    LiveStateAutoSyncStatus {
+        status,
+        label,
+        path: path.display().to_string(),
+        interval_secs,
+        install_command,
+    }
+}
+
 fn process_env_access_route_config(scope: &str) -> Option<ProcessEnvAccessRouteConfig> {
     match scope.trim().to_ascii_lowercase().as_str() {
         "clawcontrol-api-key" | "clawcontrol-live-state-api-key" => {
@@ -2871,6 +2952,7 @@ mod tests {
                     Vec::new(),
                     vec![
                         "live app state source clawcontrol is auth_required missing=visible_page,calendar".to_string(),
+                        "live app state auto-sync is missing; install with scripts/install-live-state-sync-launchd.sh --install".to_string(),
                         "live app state blocker detail: clawcontrol:status=auth_required missing=visible_page,calendar access_route=\"memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex\"".to_string(),
                     ],
                 )],
@@ -2949,6 +3031,7 @@ mod tests {
         ));
         assert!(summary.contains("live_state_blocker_detail="));
         assert!(summary.contains("clawcontrol:status=auth_required"));
+        assert!(summary.contains("live app state auto-sync is missing"));
         assert!(summary.contains("access route --output .memd --purpose clawcontrol-api-key"));
         assert!(summary.contains("token_source=server"));
         assert!(summary.contains("server_events=2"));
@@ -4002,6 +4085,12 @@ mod tests {
         );
         assert!(
             live_state
+                .evidence
+                .iter()
+                .any(|item| item.contains("live_state_auto_sync status="))
+        );
+        assert!(
+            live_state
                 .gaps
                 .iter()
                 .any(|gap| gap.contains("1 live app source status checks are stale"))
@@ -4017,6 +4106,72 @@ mod tests {
         }));
 
         fs::remove_dir_all(output).expect("cleanup feature temp");
+    }
+
+    #[test]
+    fn live_state_auto_sync_status_detects_launchd_plist_shape() {
+        let root = std::env::temp_dir().join(format!(
+            "memd-live-state-auto-sync-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let home = root.join("home");
+        let project = root.join("project");
+        let launch_agents = home.join("Library").join("LaunchAgents");
+        let plist = launch_agents.join("com.memd.live-state-sync-clawcontrol.plist");
+        let script = project
+            .join("scripts")
+            .join("live-state-sync-clawcontrol.sh");
+        fs::create_dir_all(script.parent().expect("script dir")).expect("create script dir");
+        fs::create_dir_all(&launch_agents).expect("create launch agents");
+
+        let missing = live_state_auto_sync_status_for(
+            &home,
+            &project,
+            "macos",
+            "com.memd.live-state-sync-missing",
+            300,
+        );
+        assert_eq!(missing.status, "missing");
+        assert_eq!(
+            missing.install_command,
+            "scripts/install-live-state-sync-launchd.sh --install"
+        );
+
+        fs::write(&plist, "<plist><string>/tmp/wrong.sh</string></plist>")
+            .expect("write wrong plist");
+        let misconfigured = live_state_auto_sync_status_for(
+            &home,
+            &project,
+            "macos",
+            "com.memd.live-state-sync-clawcontrol",
+            300,
+        );
+        assert_eq!(misconfigured.status, "misconfigured");
+
+        fs::write(
+            &plist,
+            format!("<plist><string>{}</string></plist>", script.display()),
+        )
+        .expect("write installed plist");
+        let installed = live_state_auto_sync_status_for(
+            &home,
+            &project,
+            "macos",
+            "com.memd.live-state-sync-clawcontrol",
+            300,
+        );
+        assert_eq!(installed.status, "installed");
+
+        let unsupported = live_state_auto_sync_status_for(
+            &home,
+            &project,
+            "linux",
+            "com.memd.live-state-sync-clawcontrol",
+            300,
+        );
+        assert_eq!(unsupported.status, "unsupported");
+
+        fs::remove_dir_all(root).expect("cleanup live state auto-sync temp");
     }
 
     #[test]
