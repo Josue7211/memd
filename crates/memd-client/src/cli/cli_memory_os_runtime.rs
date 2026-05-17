@@ -227,7 +227,7 @@ pub(crate) fn render_feature_summary(report: &MemoryOsFeatureReport) -> String {
 
 pub(crate) fn render_health_summary(report: &MemoryOsHealthReport) -> String {
     format!(
-        "health status={} features={} hygiene={} token_risk={} market_claim={} market_blockers={} market_blocker_detail={} live_state_blocker_detail={} access={} sync_pending={} sync_failed={} sync_kinds={} token_source={} measured_tokens_saved={} server_events={} estimated_tokens_saved={} bundle={}",
+        "health status={} features={} hygiene={} token_risk={} market_claim={} market_blockers={} market_blocker_detail={} server_authority_detail={} live_state_blocker_detail={} access={} sync_pending={} sync_failed={} sync_kinds={} token_source={} measured_tokens_saved={} server_events={} estimated_tokens_saved={} bundle={}",
         report.status,
         report.features.status,
         report.features.hygiene_status,
@@ -235,6 +235,7 @@ pub(crate) fn render_health_summary(report: &MemoryOsHealthReport) -> String {
         report.features.market_claim.status,
         report.features.market_claim.blockers.len(),
         market_blocker_detail_summary(&report.features.market_claim.blockers),
+        server_authority_detail_summary(&report.features.features),
         live_state_blocker_detail_summary(&report.features.features),
         report.access.status,
         report.sync_queue.store.pending + report.sync_queue.sync.pending,
@@ -267,6 +268,25 @@ fn market_blocker_detail_summary(blockers: &[String]) -> String {
                 })
         })
         .collect();
+    if details.is_empty() {
+        "none".to_string()
+    } else {
+        details.join(";")
+    }
+}
+
+fn server_authority_detail_summary(features: &[MemoryOsFeature]) -> String {
+    let details = features
+        .iter()
+        .find(|feature| feature.id == "server_authority")
+        .map(|feature| {
+            feature
+                .gaps
+                .iter()
+                .map(|gap| gap.split_whitespace().collect::<Vec<_>>().join(" "))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     if details.is_empty() {
         "none".to_string()
     } else {
@@ -2949,16 +2969,27 @@ mod tests {
                         "full external public proof not pass: status=blocked report=full.json missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL reason=full external public proof is intentionally opt-in".to_string(),
                     ],
                 },
-                features: vec![feature(
-                    "live_app_state_authority",
-                    "partial",
-                    Vec::new(),
-                    vec![
-                        "live app state source clawcontrol is auth_required missing=visible_page,calendar".to_string(),
-                        "live app state auto-sync is missing; install with scripts/install-live-state-sync-launchd.sh --install".to_string(),
-                        "live app state blocker detail: clawcontrol:status=auth_required missing=visible_page,calendar access_route=\"memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex\"".to_string(),
-                    ],
-                )],
+                features: vec![
+                    feature(
+                        "server_authority",
+                        "partial",
+                        Vec::new(),
+                        vec![
+                            "server git_commit=d819af89 does not match local HEAD f0e2a715; shared authority deploy is stale".to_string(),
+                            "server benchmark_gate=fail latency_p95_ms=2048; authority is not proven ready".to_string(),
+                        ],
+                    ),
+                    feature(
+                        "live_app_state_authority",
+                        "partial",
+                        Vec::new(),
+                        vec![
+                            "live app state source clawcontrol is auth_required missing=visible_page,calendar".to_string(),
+                            "live app state auto-sync is missing; install with scripts/install-live-state-sync-launchd.sh --install".to_string(),
+                            "live app state blocker detail: clawcontrol:status=auth_required missing=visible_page,calendar access_route=\"memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex\"".to_string(),
+                        ],
+                    ),
+                ],
             },
             access: AccessReport {
                 generated_at: now,
@@ -3032,6 +3063,9 @@ mod tests {
         assert!(summary.contains(
             "market_blocker_detail=supermemory:missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact;full_public:missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL"
         ));
+        assert!(summary.contains("server_authority_detail="));
+        assert!(summary.contains("server git_commit=d819af89 does not match local HEAD f0e2a715"));
+        assert!(summary.contains("server benchmark_gate=fail latency_p95_ms=2048"));
         assert!(summary.contains("live_state_blocker_detail="));
         assert!(summary.contains("clawcontrol:status=auth_required"));
         assert!(summary.contains("live app state auto-sync is missing"));
