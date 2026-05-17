@@ -2202,6 +2202,40 @@ mod handoff_quality_tests {
     }
 
     #[test]
+    fn continuity_status_records_raise_handoff_quality() {
+        let mut snapshot = ResumeSnapshot::empty();
+        for record in [
+            "id=handoff | kind=status | c=CURRENT NEXT ACTION after commit 98fb520: continue live-state authority work",
+            "id=proof | kind=status | c=proof_blockers=supermemory:missing_requirements=approved_supermemory_access_route_or_process_credential",
+            "id=live | kind=status | c=live_state_blockers=clawcontrol:status=auth_required missing=calendar",
+            "id=tree | kind=status | c=repo tree clean after hook commit",
+        ] {
+            snapshot
+                .working
+                .records
+                .push(memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: record.to_string(),
+                });
+        }
+        let preferences = vec![
+            "Decision: keep ClawControl access route explicit".to_string(),
+            "Fact: source probe refreshed auth_required state".to_string(),
+        ];
+        let signals = recoverable_signal_counts(&snapshot.context, &snapshot.working, &preferences);
+        let mut score = HandoffQualityScore::from_report(&report(0, 0, 2, 1100));
+
+        score.include_recoverable_signals(signals.facts, signals.decisions, signals.total);
+
+        assert!(signals.facts >= 3, "{signals:?}");
+        assert!(signals.decisions >= 2, "{signals:?}");
+        assert!(signals.total >= 6, "{signals:?}");
+        assert!(score.fact_coverage >= 0.99);
+        assert!(score.decision_coverage >= 0.99);
+        assert!(score.is_acceptable());
+    }
+
+    #[test]
     fn truncated_handoff_penalizes_trust_score() {
         // Utilization near 1.0 → trust proxy below 1.0.
         let score = HandoffQualityScore::from_report(&report(3, 2, 2, 4000));
@@ -2989,8 +3023,8 @@ fn recoverable_signal_counts(
         if normalized.is_empty() || !seen.insert(normalized) {
             continue;
         }
-        let is_fact = is_fact_record_text(record);
-        let is_decision = is_decision_record_text(record);
+        let is_fact = is_fact_record_text(record) || is_recoverable_status_fact(record);
+        let is_decision = is_decision_record_text(record) || is_recoverable_status_decision(record);
         let is_procedural = is_procedural_record_text(record);
         if is_fact {
             counts.facts += 1;
@@ -3035,6 +3069,35 @@ fn is_fact_record_text(record: &str) -> bool {
         || normalized.contains(" kind=fact ")
         || normalized.starts_with("fact:")
         || normalized.contains("fact: ")
+}
+
+fn is_status_record_text(record: &str) -> bool {
+    let normalized = record.to_ascii_lowercase();
+    normalized.contains("| kind=status |") || normalized.contains(" kind=status ")
+}
+
+fn is_recoverable_status_decision(record: &str) -> bool {
+    if !is_status_record_text(record) {
+        return false;
+    }
+    let normalized = record.to_ascii_lowercase();
+    normalized.contains("current next action")
+        || normalized.contains("next action")
+        || normalized.contains("next=")
+        || normalized.contains("fix partial handoff quality")
+}
+
+fn is_recoverable_status_fact(record: &str) -> bool {
+    if !is_status_record_text(record) {
+        return false;
+    }
+    let normalized = record.to_ascii_lowercase();
+    normalized.contains("proof_blockers=")
+        || normalized.contains("live_state_blockers=")
+        || normalized.contains("clawcontrol")
+        || normalized.contains("auth_required")
+        || normalized.contains("git_commit")
+        || normalized.contains("tree clean")
 }
 
 fn is_procedural_record_text(record: &str) -> bool {
