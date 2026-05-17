@@ -539,9 +539,12 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
     ));
     let live_state = live_state_report(output).ok();
     let live_state_path = live_app_state_path(output);
+    let live_state_ready = live_state.as_ref().is_some_and(|report| {
+        report.fresh > 0 && report.requirement_missing == 0 && report.requirement_stale == 0
+    });
     features.push(feature(
         "live_app_state_authority",
-        if live_state.as_ref().is_some_and(|report| report.fresh > 0) {
+        if live_state_ready {
             "working"
         } else {
             "partial"
@@ -556,15 +559,60 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
         .into_iter()
         .chain(live_state.iter().map(|report| {
             format!(
-                "live_state_status={} total={} fresh={} stale={}",
-                report.status, report.total, report.fresh, report.stale
+                "live_state_status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={}",
+                report.status,
+                report.total,
+                report.fresh,
+                report.stale,
+                report.requirement_fresh,
+                report.requirement_stale,
+                report.requirement_missing
             )
         }))
+        .chain(live_state.iter().flat_map(|report| {
+            report.requirements.iter().map(|requirement| {
+                let matched_scope = requirement
+                    .matched_scope
+                    .as_deref()
+                    .map(|scope| format!(" matched_scope={scope}"))
+                    .unwrap_or_default();
+                format!(
+                    "live_state_required={} canonical_scope={} accepted_scopes={} status={}{} privacy_route={}",
+                    requirement.module,
+                    requirement.canonical_scope,
+                    requirement.accepted_scopes.join(","),
+                    requirement.status,
+                    matched_scope,
+                    requirement.privacy_route
+                )
+            })
+        }))
         .collect(),
-        if live_state.as_ref().is_some_and(|report| report.fresh > 0) {
+        if live_state_ready {
             vec![]
         } else {
-            vec!["no fresh live app state records have been ingested".to_string()]
+            live_state
+                .as_ref()
+                .map(|report| {
+                    let mut blockers = Vec::new();
+                    if report.fresh == 0 {
+                        blockers.push("no fresh live app state records have been ingested".to_string());
+                    }
+                    blockers.extend(
+                        report
+                            .requirements
+                            .iter()
+                            .filter(|requirement| requirement.status != "fresh")
+                            .map(|requirement| {
+                                format!(
+                                    "live app state requirement {}:{} is {}",
+                                    requirement.source_app, requirement.module, requirement.status
+                                )
+                            }),
+                    );
+                    blockers
+                })
+                .unwrap_or_else(|| vec!["live app state status unavailable".to_string()])
         },
     ));
     features.push(feature(

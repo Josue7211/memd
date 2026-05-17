@@ -11,7 +11,8 @@ const LIVE_STATE_VERSION: u32 = 1;
 struct LiveAppStateRequirement {
     source_app: &'static str,
     module: &'static str,
-    scope: &'static str,
+    canonical_scope: &'static str,
+    accepted_scopes: &'static [&'static str],
     privacy_route: &'static str,
     action: &'static str,
 }
@@ -20,42 +21,48 @@ const LIVE_APP_STATE_REQUIREMENTS: &[LiveAppStateRequirement] = &[
     LiveAppStateRequirement {
         source_app: "clawcontrol",
         module: "visible_page",
-        scope: "current",
+        canonical_scope: "current",
+        accepted_scopes: &["current"],
         privacy_route: "private metadata",
         action: "capture visible app/page state before answering present-tense UI questions",
     },
     LiveAppStateRequirement {
         source_app: "clawcontrol",
         module: "calendar",
-        scope: "primary",
+        canonical_scope: "primary",
+        accepted_scopes: &["primary", "current"],
         privacy_route: "private approved or metadata",
         action: "ingest current/next calendar events before answering calendar questions",
     },
     LiveAppStateRequirement {
         source_app: "clawcontrol",
         module: "reminders",
-        scope: "default",
+        canonical_scope: "default",
+        accepted_scopes: &["default", "current"],
         privacy_route: "private approved or metadata",
         action: "ingest active reminders before answering reminder questions",
     },
     LiveAppStateRequirement {
         source_app: "clawcontrol",
         module: "todos",
-        scope: "default",
+        canonical_scope: "default",
+        accepted_scopes: &["default", "current"],
         privacy_route: "private approved or metadata",
         action: "ingest active todos before answering task questions",
     },
     LiveAppStateRequirement {
         source_app: "clawcontrol",
         module: "messages",
-        scope: "approved",
+        canonical_scope: "approved",
+        accepted_scopes: &["approved", "current"],
         privacy_route: "private metadata/redacted; no unrestricted chat access",
         action: "ingest only approved text-message metadata or redacted snippets",
     },
     LiveAppStateRequirement {
         source_app: "clawcontrol",
         module: "email",
-        scope: "approved",
+        canonical_scope: "approved",
+        accepted_scopes: &["approved", "current"],
         privacy_route: "private metadata/redacted; approved mail only",
         action: "ingest only approved email metadata or redacted snippets",
     },
@@ -97,7 +104,23 @@ pub(crate) struct LiveAppStateReport {
     pub(crate) total: usize,
     pub(crate) fresh: usize,
     pub(crate) stale: usize,
+    pub(crate) requirement_fresh: usize,
+    pub(crate) requirement_stale: usize,
+    pub(crate) requirement_missing: usize,
+    pub(crate) requirements: Vec<LiveAppStateRequirementStatus>,
     pub(crate) records: Vec<LiveAppStateRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct LiveAppStateRequirementStatus {
+    pub(crate) source_app: String,
+    pub(crate) module: String,
+    pub(crate) canonical_scope: String,
+    pub(crate) accepted_scopes: Vec<String>,
+    pub(crate) status: String,
+    pub(crate) matched_scope: Option<String>,
+    pub(crate) privacy_route: String,
+    pub(crate) action: String,
 }
 
 pub(crate) fn live_app_state_path(output: &Path) -> PathBuf {
@@ -212,8 +235,25 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
         .filter(|record| record.expires_at > now)
         .count();
     let stale = store.records.len().saturating_sub(fresh);
+    let requirements = live_state_requirement_statuses(&store.records, now);
+    let requirement_fresh = requirements
+        .iter()
+        .filter(|requirement| requirement.status == "fresh")
+        .count();
+    let requirement_stale = requirements
+        .iter()
+        .filter(|requirement| requirement.status == "stale")
+        .count();
+    let requirement_missing = requirements
+        .iter()
+        .filter(|requirement| requirement.status == "missing")
+        .count();
     Ok(LiveAppStateReport {
-        status: if store.records.is_empty() {
+        status: if requirement_missing > 0 {
+            "missing_requirements".to_string()
+        } else if requirement_stale > 0 {
+            "stale_requirements".to_string()
+        } else if store.records.is_empty() {
             "empty".to_string()
         } else if stale > 0 {
             "stale".to_string()
@@ -224,6 +264,10 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
         total: store.records.len(),
         fresh,
         stale,
+        requirement_fresh,
+        requirement_stale,
+        requirement_missing,
+        requirements,
         records: store.records,
     })
 }
@@ -485,36 +529,78 @@ fn render_live_state_requirement_lines(
     records: &[LiveAppStateRecord],
     now: chrono::DateTime<Utc>,
 ) -> Vec<String> {
+    live_state_requirement_statuses(records, now)
+        .into_iter()
+        .map(|requirement| {
+            let matched_scope = requirement
+                .matched_scope
+                .as_deref()
+                .map(|scope| format!(" matched_scope={scope}"))
+                .unwrap_or_default();
+            format!(
+                "- required:{}:{} scope={} accepted_scopes={} status={}{} privacy_route=\"{}\" action=\"{}\"",
+                requirement.source_app,
+                requirement.module,
+                requirement.canonical_scope,
+                requirement.accepted_scopes.join(","),
+                requirement.status,
+                matched_scope,
+                requirement.privacy_route,
+                requirement.action,
+            )
+        })
+        .collect()
+}
+
+fn live_state_requirement_statuses(
+    records: &[LiveAppStateRecord],
+    now: chrono::DateTime<Utc>,
+) -> Vec<LiveAppStateRequirementStatus> {
     LIVE_APP_STATE_REQUIREMENTS
         .iter()
         .map(|requirement| {
             let matching = records.iter().find(|record| {
                 record.source_app == requirement.source_app
                     && record.module == requirement.module
-                    && record.scope == requirement.scope
+                    && requirement
+                        .accepted_scopes
+                        .iter()
+                        .any(|scope| record.scope == *scope)
             });
             let status = match matching {
                 Some(record) if record.expires_at > now => "fresh",
                 Some(_) => "stale",
                 None => "missing",
             };
-            format!(
-                "- required:{}:{} scope={} status={} privacy_route=\"{}\" action=\"{}\"",
-                requirement.source_app,
-                requirement.module,
-                requirement.scope,
-                status,
-                requirement.privacy_route,
-                requirement.action
-            )
+            LiveAppStateRequirementStatus {
+                source_app: requirement.source_app.to_string(),
+                module: requirement.module.to_string(),
+                canonical_scope: requirement.canonical_scope.to_string(),
+                accepted_scopes: requirement
+                    .accepted_scopes
+                    .iter()
+                    .map(|scope| (*scope).to_string())
+                    .collect(),
+                status: status.to_string(),
+                matched_scope: matching.map(|record| record.scope.clone()),
+                privacy_route: requirement.privacy_route.to_string(),
+                action: requirement.action.to_string(),
+            }
         })
         .collect()
 }
 
 pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
     let mut lines = vec![format!(
-        "live_state status={} total={} fresh={} stale={} path={}",
-        report.status, report.total, report.fresh, report.stale, report.path
+        "live_state status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} path={}",
+        report.status,
+        report.total,
+        report.fresh,
+        report.stale,
+        report.requirement_fresh,
+        report.requirement_stale,
+        report.requirement_missing,
+        report.path
     )];
     lines.extend(report.records.iter().take(12).map(|record| {
         format!(
@@ -527,6 +613,23 @@ pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
             record.agentsecrets_approved,
             record.expires_at.to_rfc3339(),
             compact_live_state_text(&record.summary, 120)
+        )
+    }));
+    lines.extend(report.requirements.iter().map(|requirement| {
+        let matched_scope = requirement
+            .matched_scope
+            .as_deref()
+            .map(|scope| format!(" matched_scope={scope}"))
+            .unwrap_or_default();
+        format!(
+            "required:{}:{} scope={} accepted_scopes={} status={}{} privacy_route=\"{}\"",
+            requirement.source_app,
+            requirement.module,
+            requirement.canonical_scope,
+            requirement.accepted_scopes.join(","),
+            requirement.status,
+            matched_scope,
+            requirement.privacy_route
         )
     }));
     lines.join("\n")
@@ -687,6 +790,46 @@ mod tests {
     }
 
     #[test]
+    fn live_state_requirement_report_accepts_clawcontrol_current_scope() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let output = root.path().join(".memd");
+        let args = LiveStateIngestArgs {
+            output: output.clone(),
+            source: "clawcontrol".to_string(),
+            module: "calendar".to_string(),
+            scope: "current".to_string(),
+            visibility: "private".to_string(),
+            privacy: "approved".to_string(),
+            approved: true,
+            agentsecrets_approved: false,
+            freshness_secs: 300,
+            label: vec!["calendar".to_string()],
+            summary: "calendar: loaded; upcoming_events=1".to_string(),
+            payload_json: Some(r#"{"events":[{"title":"Dentist"}]}"#.to_string()),
+            payload_file: None,
+            json: false,
+        };
+        let report = ingest_live_state(&args).expect("ingest current-scope calendar");
+        let calendar_requirement = report
+            .requirements
+            .iter()
+            .find(|requirement| requirement.module == "calendar")
+            .expect("calendar requirement");
+        assert_eq!(calendar_requirement.status, "fresh");
+        assert_eq!(
+            calendar_requirement.matched_scope.as_deref(),
+            Some("current")
+        );
+        assert_eq!(calendar_requirement.canonical_scope, "primary");
+        assert_eq!(report.requirement_fresh, 1);
+
+        let summary = render_live_state_summary(&report);
+        assert!(summary.contains("requirement_fresh=1"));
+        assert!(summary.contains("required:clawcontrol:calendar"));
+        assert!(summary.contains("matched_scope=current"));
+    }
+
+    #[test]
     fn live_state_empty_map_renders_required_sync_surface() {
         let root = tempfile::tempdir().expect("tempdir");
         let output = root.path().join(".memd");
@@ -698,5 +841,13 @@ mod tests {
         assert!(section.contains("required:clawcontrol:messages"));
         assert!(section.contains("status=missing"));
         assert!(section.contains("private metadata/redacted; no unrestricted chat access"));
+
+        let report = live_state_report(&output).expect("status report");
+        assert_eq!(report.status, "missing_requirements");
+        assert_eq!(
+            report.requirement_missing,
+            LIVE_APP_STATE_REQUIREMENTS.len()
+        );
+        assert_eq!(report.requirement_fresh, 0);
     }
 }
