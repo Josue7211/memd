@@ -7,6 +7,60 @@ use sha2::{Digest, Sha256};
 
 const LIVE_STATE_VERSION: u32 = 1;
 
+#[derive(Debug, Clone, Copy)]
+struct LiveAppStateRequirement {
+    source_app: &'static str,
+    module: &'static str,
+    scope: &'static str,
+    privacy_route: &'static str,
+    action: &'static str,
+}
+
+const LIVE_APP_STATE_REQUIREMENTS: &[LiveAppStateRequirement] = &[
+    LiveAppStateRequirement {
+        source_app: "clawcontrol",
+        module: "visible_page",
+        scope: "current",
+        privacy_route: "private metadata",
+        action: "capture visible app/page state before answering present-tense UI questions",
+    },
+    LiveAppStateRequirement {
+        source_app: "clawcontrol",
+        module: "calendar",
+        scope: "primary",
+        privacy_route: "private approved or metadata",
+        action: "ingest current/next calendar events before answering calendar questions",
+    },
+    LiveAppStateRequirement {
+        source_app: "clawcontrol",
+        module: "reminders",
+        scope: "default",
+        privacy_route: "private approved or metadata",
+        action: "ingest active reminders before answering reminder questions",
+    },
+    LiveAppStateRequirement {
+        source_app: "clawcontrol",
+        module: "todos",
+        scope: "default",
+        privacy_route: "private approved or metadata",
+        action: "ingest active todos before answering task questions",
+    },
+    LiveAppStateRequirement {
+        source_app: "clawcontrol",
+        module: "messages",
+        scope: "approved",
+        privacy_route: "private metadata/redacted; no unrestricted chat access",
+        action: "ingest only approved text-message metadata or redacted snippets",
+    },
+    LiveAppStateRequirement {
+        source_app: "clawcontrol",
+        module: "email",
+        scope: "approved",
+        privacy_route: "private metadata/redacted; approved mail only",
+        action: "ingest only approved email metadata or redacted snippets",
+    },
+];
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct LiveAppStateStore {
     pub(crate) version: u32,
@@ -72,41 +126,29 @@ pub(crate) fn render_live_app_state_section(output: &Path, limit: usize) -> Stri
         return "- unavailable: live app state map unreadable".to_string();
     };
     let now = Utc::now();
-    let mut records = store
-        .records
-        .into_iter()
+    let mut records = store.records;
+    records.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    let fresh_records = records
+        .iter()
         .filter(|record| record.expires_at > now)
         .collect::<Vec<_>>();
-    records.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-    if records.is_empty() {
-        return "- none; producers should run `memd live-state ingest` with privacy labels"
-            .to_string();
+
+    let mut lines = Vec::new();
+    if fresh_records.is_empty() {
+        lines.push(
+            "- no fresh live app state; present-tense app facts are unknown until a producer ingests the state map".to_string(),
+        );
+    } else {
+        lines.extend(
+            fresh_records
+                .into_iter()
+                .take(limit)
+                .map(format_live_state_record),
+        );
     }
-    records
-        .into_iter()
-        .take(limit)
-        .map(|record| {
-            let labels = if record.labels.is_empty() {
-                "none".to_string()
-            } else {
-                record.labels.join(",")
-            };
-            format!(
-                "- {}:{} scope={} visibility={} privacy={} approved={} agentsecrets_approved={} fresh_until={} labels={} summary={}",
-                record.source_app,
-                record.module,
-                record.scope,
-                record.visibility,
-                record.privacy,
-                record.approved,
-                record.agentsecrets_approved,
-                record.expires_at.to_rfc3339(),
-                labels,
-                compact_live_state_text(&record.summary, 180)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+
+    lines.extend(render_live_state_requirement_lines(&records, now));
+    lines.join("\n")
 }
 
 pub(crate) fn run_live_state_command(args: &LiveStateArgs) -> anyhow::Result<LiveAppStateReport> {
@@ -225,11 +267,29 @@ fn validate_live_state_privacy(args: &LiveStateIngestArgs, payload: &Value) -> a
         module.as_str(),
         "messages" | "texts" | "text_messages" | "imessage" | "email" | "mail"
     );
+    let personal_state_module = matches!(
+        module.as_str(),
+        "calendar"
+            | "calendars"
+            | "email"
+            | "mail"
+            | "messages"
+            | "reminder"
+            | "reminders"
+            | "tasks"
+            | "text_messages"
+            | "texts"
+            | "todos"
+            | "imessage"
+    );
+    if personal_state_module && visibility != "private" {
+        bail!("personal live state must use --visibility private");
+    }
+    if personal_state_module && privacy == "public" {
+        bail!("personal live state must not use public privacy");
+    }
     if sensitive_module && !args.approved && !matches!(privacy.as_str(), "metadata" | "aggregate") {
         bail!("sensitive live state requires --approved unless privacy is metadata or aggregate");
-    }
-    if sensitive_module && visibility != "private" {
-        bail!("sensitive live state must use --visibility private");
     }
     let media_state = labels_contain_media(&args.label) || payload_contains_media_hint(payload);
     if sensitive_module && media_state {
@@ -400,6 +460,57 @@ fn compact_live_state_text(value: &str, max_chars: usize) -> String {
     }
 }
 
+fn format_live_state_record(record: &LiveAppStateRecord) -> String {
+    let labels = if record.labels.is_empty() {
+        "none".to_string()
+    } else {
+        record.labels.join(",")
+    };
+    format!(
+        "- {}:{} scope={} visibility={} privacy={} approved={} agentsecrets_approved={} fresh_until={} labels={} summary={}",
+        record.source_app,
+        record.module,
+        record.scope,
+        record.visibility,
+        record.privacy,
+        record.approved,
+        record.agentsecrets_approved,
+        record.expires_at.to_rfc3339(),
+        labels,
+        compact_live_state_text(&record.summary, 180)
+    )
+}
+
+fn render_live_state_requirement_lines(
+    records: &[LiveAppStateRecord],
+    now: chrono::DateTime<Utc>,
+) -> Vec<String> {
+    LIVE_APP_STATE_REQUIREMENTS
+        .iter()
+        .map(|requirement| {
+            let matching = records.iter().find(|record| {
+                record.source_app == requirement.source_app
+                    && record.module == requirement.module
+                    && record.scope == requirement.scope
+            });
+            let status = match matching {
+                Some(record) if record.expires_at > now => "fresh",
+                Some(_) => "stale",
+                None => "missing",
+            };
+            format!(
+                "- required:{}:{} scope={} status={} privacy_route=\"{}\" action=\"{}\"",
+                requirement.source_app,
+                requirement.module,
+                requirement.scope,
+                status,
+                requirement.privacy_route,
+                requirement.action
+            )
+        })
+        .collect()
+}
+
 pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
     let mut lines = vec![format!(
         "live_state status={} total={} fresh={} stale={} path={}",
@@ -470,6 +581,29 @@ mod tests {
         let report = ingest_live_state(&args).expect("metadata ingest");
         assert_eq!(report.total, 1);
         assert_eq!(report.records[0].privacy, "metadata");
+    }
+
+    #[test]
+    fn live_state_rejects_public_personal_calendar_state() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let args = LiveStateIngestArgs {
+            output: root.path().join(".memd"),
+            source: "clawcontrol".to_string(),
+            module: "calendar".to_string(),
+            scope: "primary".to_string(),
+            visibility: "public".to_string(),
+            privacy: "public".to_string(),
+            approved: true,
+            agentsecrets_approved: false,
+            freshness_secs: 300,
+            label: vec!["calendar".to_string()],
+            summary: "next event Dentist".to_string(),
+            payload_json: Some(r#"{"events":[{"title":"Dentist"}]}"#.to_string()),
+            payload_file: None,
+            json: false,
+        };
+        let err = ingest_live_state(&args).expect_err("must reject");
+        assert!(err.to_string().contains("must use --visibility private"));
     }
 
     #[test]
@@ -544,7 +678,25 @@ mod tests {
 
         let section = render_live_app_state_section(&output, 4);
         assert!(section.contains("clawcontrol:calendar"));
+        assert!(section.contains("required:clawcontrol:calendar"));
+        assert!(section.contains("status=fresh"));
+        assert!(section.contains("required:clawcontrol:messages"));
+        assert!(section.contains("no unrestricted chat access"));
         assert!(section.contains("privacy=approved"));
         assert!(section.contains("Dentist"));
+    }
+
+    #[test]
+    fn live_state_empty_map_renders_required_sync_surface() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let output = root.path().join(".memd");
+        let section = render_live_app_state_section(&output, 8);
+        assert!(section.contains("no fresh live app state"));
+        assert!(section.contains("required:clawcontrol:visible_page"));
+        assert!(section.contains("required:clawcontrol:calendar"));
+        assert!(section.contains("required:clawcontrol:reminders"));
+        assert!(section.contains("required:clawcontrol:messages"));
+        assert!(section.contains("status=missing"));
+        assert!(section.contains("private metadata/redacted; no unrestricted chat access"));
     }
 }
