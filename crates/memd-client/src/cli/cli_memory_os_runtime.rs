@@ -559,7 +559,7 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
         .into_iter()
         .chain(live_state.iter().map(|report| {
             format!(
-                "live_state_status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={}",
+                "live_state_status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={} sync_tasks={}",
                 report.status,
                 report.total,
                 report.fresh,
@@ -568,7 +568,8 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
                 report.requirement_stale,
                 report.requirement_missing,
                 report.sync_required,
-                report.sync_actions.len()
+                report.sync_actions.len(),
+                report.sync_tasks.len()
             )
         }))
         .chain(live_state.iter().flat_map(|report| {
@@ -576,6 +577,20 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
                 .sync_actions
                 .iter()
                 .map(|action| format!("live_state_sync_action={action}"))
+        }))
+        .chain(live_state.iter().flat_map(|report| {
+            report.sync_tasks.iter().map(|task| {
+                format!(
+                    "live_state_sync_task={}:{} scope={} status={} privacy={} visibility={} media_agentsecrets={}",
+                    task.source_app,
+                    task.module,
+                    task.required_scope,
+                    task.status,
+                    task.privacy,
+                    task.visibility,
+                    task.agentsecrets_required_for_media
+                )
+            })
         }))
         .chain(live_state.iter().flat_map(|report| {
             report.requirements.iter().map(|requirement| {

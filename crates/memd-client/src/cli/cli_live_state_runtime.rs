@@ -109,6 +109,7 @@ pub(crate) struct LiveAppStateReport {
     pub(crate) requirement_missing: usize,
     pub(crate) sync_required: bool,
     pub(crate) sync_actions: Vec<String>,
+    pub(crate) sync_tasks: Vec<LiveAppStateSyncTask>,
     pub(crate) requirements: Vec<LiveAppStateRequirementStatus>,
     pub(crate) records: Vec<LiveAppStateRecord>,
 }
@@ -122,6 +123,25 @@ pub(crate) struct LiveAppStateRequirementStatus {
     pub(crate) status: String,
     pub(crate) matched_scope: Option<String>,
     pub(crate) privacy_route: String,
+    pub(crate) action: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct LiveAppStateSyncTask {
+    pub(crate) source_app: String,
+    pub(crate) module: String,
+    pub(crate) required_scope: String,
+    pub(crate) accepted_scopes: Vec<String>,
+    pub(crate) status: String,
+    pub(crate) visibility: String,
+    pub(crate) privacy: String,
+    pub(crate) approved_required: bool,
+    pub(crate) agentsecrets_required_for_media: bool,
+    pub(crate) freshness_secs: i64,
+    pub(crate) labels: Vec<String>,
+    pub(crate) summary_hint: String,
+    pub(crate) payload_hint: String,
+    pub(crate) ingest_argv: Vec<String>,
     pub(crate) action: String,
 }
 
@@ -252,6 +272,7 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
         .count();
     let sync_required = requirement_missing > 0 || requirement_stale > 0;
     let sync_actions = live_state_sync_actions(&requirements);
+    let sync_tasks = live_state_sync_tasks(&requirements);
     Ok(LiveAppStateReport {
         status: if requirement_missing > 0 {
             "missing_requirements".to_string()
@@ -273,6 +294,7 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
         requirement_missing,
         sync_required,
         sync_actions,
+        sync_tasks,
         requirements,
         records: store.records,
     })
@@ -609,9 +631,122 @@ fn live_state_sync_actions(requirements: &[LiveAppStateRequirementStatus]) -> Ve
         .collect()
 }
 
+fn live_state_sync_tasks(
+    requirements: &[LiveAppStateRequirementStatus],
+) -> Vec<LiveAppStateSyncTask> {
+    requirements
+        .iter()
+        .filter(|requirement| requirement.status != "fresh")
+        .map(live_state_sync_task)
+        .collect()
+}
+
+fn live_state_sync_task(requirement: &LiveAppStateRequirementStatus) -> LiveAppStateSyncTask {
+    let privacy = default_sync_privacy(&requirement.module).to_string();
+    let visibility = "private".to_string();
+    let approved_required = false;
+    let agentsecrets_required_for_media = matches!(
+        requirement.module.as_str(),
+        "messages" | "email" | "text_messages" | "texts" | "imessage" | "mail"
+    );
+    let freshness_secs = 86_400;
+    let labels = default_sync_labels(&requirement.module);
+    let summary_hint = sync_summary_hint(&requirement.module).to_string();
+    let payload_hint = sync_payload_hint(&requirement.module).to_string();
+    let mut ingest_argv = vec![
+        "memd".to_string(),
+        "live-state".to_string(),
+        "ingest".to_string(),
+        "--source".to_string(),
+        requirement.source_app.clone(),
+        "--module".to_string(),
+        requirement.module.clone(),
+        "--scope".to_string(),
+        requirement.canonical_scope.clone(),
+        "--visibility".to_string(),
+        visibility.clone(),
+        "--privacy".to_string(),
+        privacy.clone(),
+        "--freshness-secs".to_string(),
+        freshness_secs.to_string(),
+        "--summary".to_string(),
+        summary_hint.clone(),
+        "--payload-json".to_string(),
+        payload_hint.clone(),
+    ];
+    for label in &labels {
+        ingest_argv.push("--label".to_string());
+        ingest_argv.push(label.clone());
+    }
+    LiveAppStateSyncTask {
+        source_app: requirement.source_app.clone(),
+        module: requirement.module.clone(),
+        required_scope: requirement.canonical_scope.clone(),
+        accepted_scopes: requirement.accepted_scopes.clone(),
+        status: requirement.status.clone(),
+        visibility,
+        privacy,
+        approved_required,
+        agentsecrets_required_for_media,
+        freshness_secs,
+        labels,
+        summary_hint,
+        payload_hint,
+        ingest_argv,
+        action: requirement.action.clone(),
+    }
+}
+
+fn default_sync_privacy(module: &str) -> &'static str {
+    match module {
+        "messages" | "email" => "metadata",
+        _ => "metadata",
+    }
+}
+
+fn default_sync_labels(module: &str) -> Vec<String> {
+    match module {
+        "messages" => vec!["messages".to_string(), "metadata".to_string()],
+        "email" => vec!["email".to_string(), "metadata".to_string()],
+        value => vec![value.to_string()],
+    }
+}
+
+fn sync_summary_hint(module: &str) -> &'static str {
+    match module {
+        "visible_page" => "visible page/module, route, selected item, and visible facts",
+        "calendar" => {
+            "current and next calendar events with times, calendars, and privacy-safe titles"
+        }
+        "reminders" => "active reminders with due dates, list names, and completion state",
+        "todos" => "active todos/tasks with priority, due dates, and completion state",
+        "messages" => {
+            "approved text-message metadata or redacted idea context; no unrestricted chat content"
+        }
+        "email" => "approved email metadata or redacted snippets; headers first, no mailbox dump",
+        _ => "current module state",
+    }
+}
+
+fn sync_payload_hint(module: &str) -> &'static str {
+    match module {
+        "visible_page" => {
+            r#"{"route":"/current","title":"visible title","facts":[],"selected_item":null}"#
+        }
+        "calendar" => r#"{"events":[],"range":"current-and-next"}"#,
+        "reminders" => r#"{"reminders":[]}"#,
+        "todos" => r#"{"todos":[]}"#,
+        "messages" => {
+            r#"{"mode":"metadata-only","threads":[],"idea_context":null,"raw_media_stored":false}"#
+        }
+        "email" => r#"{"mode":"approved-metadata","messages":[],"raw_body_stored":false}"#,
+        _ => "{}",
+    }
+}
+
 pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
     let mut lines = vec![format!(
-        "live_state status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={} path={}",
+        "live_state status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={} sync_tasks={} path={}",
         report.status,
         report.total,
         report.fresh,
@@ -621,6 +756,7 @@ pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
         report.requirement_missing,
         report.sync_required,
         report.sync_actions.len(),
+        report.sync_tasks.len(),
         report.path
     )];
     lines.extend(report.records.iter().take(12).map(|record| {
@@ -659,6 +795,18 @@ pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
             .iter()
             .map(|action| format!("sync_action:{action}")),
     );
+    lines.extend(report.sync_tasks.iter().map(|task| {
+        format!(
+            "sync_task:{}:{} scope={} status={} privacy={} visibility={} agentsecrets_required_for_media={}",
+            task.source_app,
+            task.module,
+            task.required_scope,
+            task.status,
+            task.privacy,
+            task.visibility,
+            task.agentsecrets_required_for_media
+        )
+    }));
     lines.join("\n")
 }
 
@@ -878,14 +1026,30 @@ mod tests {
         assert_eq!(report.requirement_fresh, 0);
         assert!(report.sync_required);
         assert_eq!(report.sync_actions.len(), LIVE_APP_STATE_REQUIREMENTS.len());
+        assert_eq!(report.sync_tasks.len(), LIVE_APP_STATE_REQUIREMENTS.len());
         assert!(
             report
                 .sync_actions
                 .iter()
                 .any(|action| action.contains("clawcontrol:visible_page status=missing"))
         );
+        let messages_task = report
+            .sync_tasks
+            .iter()
+            .find(|task| task.module == "messages")
+            .expect("messages sync task");
+        assert_eq!(messages_task.required_scope, "approved");
+        assert_eq!(messages_task.privacy, "metadata");
+        assert!(messages_task.agentsecrets_required_for_media);
+        assert!(
+            messages_task
+                .ingest_argv
+                .windows(2)
+                .any(|items| items == ["--privacy", "metadata"])
+        );
         let summary = render_live_state_summary(&report);
         assert!(summary.contains("sync_required=true"));
         assert!(summary.contains("sync_action:clawcontrol:calendar status=missing"));
+        assert!(summary.contains("sync_task:clawcontrol:messages"));
     }
 }
