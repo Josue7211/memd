@@ -42,17 +42,34 @@ ensure_path_line() {
   fi
 }
 
-mkdir -p "$BIN_DIR"
+memd_supports_current_cli() {
+  local candidate="$1"
+  [ -x "$candidate" ] || return 1
+  "$candidate" capabilities sync --help >/dev/null 2>&1
+}
 
-if command -v memd >/dev/null 2>&1; then
-  say "found existing memd at $(command -v memd)"
-elif [ -x "$MEMD_BIN" ]; then
-  say "found existing memd at $MEMD_BIN"
-else
+install_memd_from_source() {
   command -v cargo >/dev/null 2>&1 || fail "Rust cargo missing. Install Rust, then rerun this script."
   REPO_ROOT="$(detect_repo_root)" || fail "run from a memd checkout or set MEMD_REPO=/path/to/memd"
   say "building memd from $REPO_ROOT"
-  cargo install --path "$REPO_ROOT/crates/memd-client" --bin memd --root "$PREFIX" --locked
+  cargo install --path "$REPO_ROOT/crates/memd-client" --bin memd --root "$PREFIX" --locked --force
+}
+
+mkdir -p "$BIN_DIR"
+
+EXISTING_MEMD="$(command -v memd 2>/dev/null || true)"
+if [ -n "$EXISTING_MEMD" ] && memd_supports_current_cli "$EXISTING_MEMD"; then
+  say "found current memd at $EXISTING_MEMD"
+elif [ -n "$EXISTING_MEMD" ]; then
+  say "found stale memd at $EXISTING_MEMD; rebuilding"
+  install_memd_from_source
+elif memd_supports_current_cli "$MEMD_BIN"; then
+  say "found current memd at $MEMD_BIN"
+elif [ -x "$MEMD_BIN" ]; then
+  say "found stale memd at $MEMD_BIN; rebuilding"
+  install_memd_from_source
+else
+  install_memd_from_source
 fi
 
 case ":$PATH:" in
