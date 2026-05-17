@@ -630,8 +630,10 @@ mod tests {
         assert!(section.contains("requirement_missing=5"));
         assert!(section.contains("fresh_modules=calendar"));
         assert!(section.contains("missing_modules=visible_page,reminders,todos,messages,email"));
-        assert!(section.contains("blocker=\"clawcontrol:status=auth_required"));
+        assert!(section.contains("blockers=1"));
+        assert!(section.contains("- blocker:clawcontrol status=auth_required"));
         assert!(section.contains("access_route="));
+        assert!(section.contains("producer_route=\"scripts/live-state-sync-clawcontrol.sh\""));
         assert!(section.contains("freshness_rule=trust only fresh records"));
         assert!(section.contains("privacy_rule=messages/email require private metadata/redacted"));
         assert!(section.contains("AgentSecrets approval"));
@@ -1401,14 +1403,17 @@ fn render_prompt_context_packet(
 }
 
 fn render_live_app_state_prompt_section(bundle_root: &Path, limit: usize) -> String {
-    [
+    let mut lines = vec![
         "- authority=memd-live-state present-tense_only=true; use this map for current app/page/calendar/reminder/todo/message/email facts".to_string(),
         render_live_app_state_prompt_status_line(bundle_root),
+    ];
+    lines.extend(render_live_app_state_prompt_blocker_lines(bundle_root));
+    lines.extend([
         "- freshness_rule=trust only fresh records; if a required surface is missing/stale, run listed sync_task or say the live fact is unknown".to_string(),
         "- privacy_rule=messages/email require private metadata/redacted approved scope; media refs require AgentSecrets approval; never ingest raw chat/mail bodies or raw media".to_string(),
         render_live_app_state_section(bundle_root, limit),
-    ]
-    .join("\n")
+    ]);
+    lines.join("\n")
 }
 
 fn render_live_app_state_prompt_status_line(bundle_root: &Path) -> String {
@@ -1418,11 +1423,13 @@ fn render_live_app_state_prompt_status_line(bundle_root: &Path) -> String {
     let fresh_modules = live_state_prompt_modules_by_status(&report, "fresh");
     let stale_modules = live_state_prompt_modules_by_status(&report, "stale");
     let missing_modules = live_state_prompt_modules_by_status(&report, "missing");
-    let blocker = live_state_blocker_detail_from_report(&report)
-        .map(|detail| compact_prompt_status_value(&detail, 420))
-        .unwrap_or_else(|| "none".to_string());
+    let blocker_count = report
+        .source_statuses
+        .iter()
+        .filter(|source| source.status != "ok")
+        .count();
     format!(
-        "- map_status={} requirement_fresh={} requirement_stale={} requirement_missing={} fresh_modules={} stale_modules={} missing_modules={} sync_required={} next_refresh_at={} blocker=\"{}\"",
+        "- map_status={} requirement_fresh={} requirement_stale={} requirement_missing={} fresh_modules={} stale_modules={} missing_modules={} sync_required={} next_refresh_at={} blockers={}",
         report.status,
         report.requirement_fresh,
         report.requirement_stale,
@@ -1432,8 +1439,60 @@ fn render_live_app_state_prompt_status_line(bundle_root: &Path) -> String {
         live_state_prompt_module_list(&missing_modules),
         report.sync_required,
         report.next_refresh_at.to_rfc3339(),
-        blocker.replace('"', "'")
+        blocker_count
     )
+}
+
+fn render_live_app_state_prompt_blocker_lines(bundle_root: &Path) -> Vec<String> {
+    let Ok(report) = live_state_report(bundle_root) else {
+        return Vec::new();
+    };
+    report
+        .source_statuses
+        .iter()
+        .filter(|source| source.status != "ok")
+        .map(|source| {
+            let missing_modules = live_state_unmet_modules_for_source(&report, source);
+            let missing = live_state_prompt_module_list(&missing_modules);
+            let access_route = if source.source_app == "clawcontrol"
+                && source.status == "auth_required"
+            {
+                format!(" access_route=\"{}\"", clawcontrol_api_key_access_route_command())
+            } else if source.source_app == "clawcontrol"
+                && (source.status == "missing_approval" || source.status == "invalid_approval")
+            {
+                format!(
+                    " access_route=\"{}\"",
+                    approved_communications_access_route_command()
+                )
+            } else {
+                String::new()
+            };
+            let producer_route = if source.source_app == "clawcontrol"
+                && matches!(source.status.as_str(), "auth_required" | "unavailable")
+            {
+                let api_bases = if source.api_bases.is_empty() {
+                    source.api_base.as_deref().unwrap_or("unknown").to_string()
+                } else {
+                    source.api_bases.join(",")
+                };
+                format!(
+                    " producer_route=\"scripts/live-state-sync-clawcontrol.sh\" api_bases={api_bases}"
+                )
+            } else if source.source_app == "clawcontrol"
+                && (source.status == "missing_approval" || source.status == "invalid_approval")
+            {
+                " producer_route=\"scripts/live-state-capture-approved-communications.mjs\""
+                    .to_string()
+            } else {
+                String::new()
+            };
+            format!(
+                "- blocker:{} status={} missing={}{}{}",
+                source.source_app, source.status, missing, access_route, producer_route
+            )
+        })
+        .collect()
 }
 
 fn live_state_prompt_modules_by_status(report: &LiveAppStateReport, status: &str) -> Vec<String> {
@@ -1450,20 +1509,6 @@ fn live_state_prompt_module_list(modules: &[String]) -> String {
         "none".to_string()
     } else {
         modules.join(",")
-    }
-}
-
-fn compact_prompt_status_value(value: &str, max_chars: usize) -> String {
-    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
-    if compact.chars().count() <= max_chars {
-        compact
-    } else {
-        let mut text = compact
-            .chars()
-            .take(max_chars.saturating_sub(3))
-            .collect::<String>();
-        text.push_str("...");
-        text
     }
 }
 
