@@ -338,6 +338,30 @@ fn live_state_blocker_detail_summary(features: &[MemoryOsFeature]) -> String {
     }
 }
 
+fn live_state_modules_for_source_status(
+    requirements: &[LiveAppStateRequirementStatus],
+    source_app: &str,
+    status: &str,
+    matches_status: bool,
+) -> Vec<String> {
+    requirements
+        .iter()
+        .filter(|requirement| {
+            requirement.source_app == source_app
+                && ((requirement.status == status) == matches_status)
+        })
+        .map(|requirement| requirement.module.clone())
+        .collect()
+}
+
+fn live_state_render_module_list(modules: &[String]) -> String {
+    if modules.is_empty() {
+        "none".to_string()
+    } else {
+        modules.join(",")
+    }
+}
+
 fn blocker_detail_value(blocker: &str, key: &str) -> Option<String> {
     let marker = format!("{key}=");
     let (_, tail) = blocker.split_once(&marker)?;
@@ -664,8 +688,20 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
                 } else {
                     source.missing.join(",")
                 };
+                let state_map_fresh = live_state_modules_for_source_status(
+                    &report.requirements,
+                    &source.source_app,
+                    "fresh",
+                    true,
+                );
+                let state_map_unmet = live_state_modules_for_source_status(
+                    &report.requirements,
+                    &source.source_app,
+                    "fresh",
+                    false,
+                );
                 format!(
-                    "live_state_source_status={} status={} api_base={} api_bases={} auth_configured={} visible_page={} produced={} missing={} endpoints={} last_error={}",
+                    "live_state_source_status={} status={} api_base={} api_bases={} auth_configured={} visible_page={} produced={} missing={} state_map_fresh={} state_map_unmet={} endpoints={} last_error={}",
                     source.source_app,
                     source.status,
                     source.api_base.as_deref().unwrap_or("unknown"),
@@ -678,6 +714,8 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
                     source.visible_page.as_deref().unwrap_or("unknown"),
                     source.record_count,
                     missing,
+                    live_state_render_module_list(&state_map_fresh),
+                    live_state_render_module_list(&state_map_unmet),
                     source.endpoints.len(),
                     source.last_error.as_deref().unwrap_or("none")
                 )
@@ -4323,6 +4361,15 @@ mod tests {
         assert!(
             !gaps.contains("auth_required missing=visible_page,calendar"),
             "{gaps}"
+        );
+        let evidence = live_state.evidence.join(";");
+        assert!(
+            evidence.contains("state_map_fresh=visible_page,calendar,reminders,todos"),
+            "{evidence}"
+        );
+        assert!(
+            evidence.contains("state_map_unmet=messages,email"),
+            "{evidence}"
         );
         assert!(gaps.contains("clawcontrol:status=auth_required missing=messages,email"));
         assert!(gaps.contains("clawcontrol:status=missing_approval missing=messages,email"));
