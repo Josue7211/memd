@@ -46,6 +46,7 @@ memd_supports_current_cli() {
   local candidate="$1"
   [ -x "$candidate" ] || return 1
   "$candidate" capabilities sync --help >/dev/null 2>&1
+  "$candidate" live-state --help >/dev/null 2>&1
 }
 
 install_memd_from_source() {
@@ -84,14 +85,27 @@ case ":$PATH:" in
     ;;
 esac
 
-say "initializing bundle"
-memd setup --summary
+if [ -d ".memd" ]; then
+  say "bundle already initialized"
+else
+  say "initializing bundle"
+  memd setup --summary
+fi
 
-say "repairing/verifying setup"
-memd doctor --repair --summary
+if [ "${MEMD_INSTALL_REPAIR:-0}" = "1" ]; then
+  say "repairing/verifying setup"
+  memd doctor --repair --summary
+else
+  say "verifying setup"
+  memd doctor --summary
+fi
 
-say "registering this machine"
-memd device add --summary
+if [ -s ".memd/state/devices.json" ] || find "docs/verification/release-1-0-0/devices" -maxdepth 1 -type f -name '*device*.json' 2>/dev/null | grep -q .; then
+  say "device evidence already present"
+else
+  say "registering this machine"
+  memd device add --summary
+fi
 
 if [ "$(uname -s)" = "Darwin" ] && [ "${MEMD_INSTALL_MAC_BRIDGE:-1}" != "0" ]; then
   REPO_ROOT="$(detect_repo_root)" || fail "run from a memd checkout or set MEMD_REPO=/path/to/memd"
