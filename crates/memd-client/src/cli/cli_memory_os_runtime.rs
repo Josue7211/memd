@@ -294,6 +294,22 @@ fn server_authority_detail_summary(features: &[MemoryOsFeature]) -> String {
     }
 }
 
+pub(crate) fn server_authority_blocker_detail(output: &Path) -> Option<String> {
+    let probe = server_authority_feature_probe(output);
+    if probe.gaps.is_empty() {
+        None
+    } else {
+        Some(
+            probe
+                .gaps
+                .iter()
+                .map(|gap| gap.split_whitespace().collect::<Vec<_>>().join(" "))
+                .collect::<Vec<_>>()
+                .join(";"),
+        )
+    }
+}
+
 fn live_state_blocker_detail_summary(features: &[MemoryOsFeature]) -> String {
     let details: Vec<String> = features
         .iter()

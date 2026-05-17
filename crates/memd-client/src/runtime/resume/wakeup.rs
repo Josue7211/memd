@@ -183,10 +183,6 @@ fn recovery_next_action_preview(next_action: &str) -> String {
 }
 
 fn render_recovery_identity_line(output: &Path, snapshot: &ResumeSnapshot) -> String {
-    if snapshot.handoff_quality.is_none() {
-        return String::new();
-    }
-
     let continuity = snapshot.continuity_capsule();
     let active_voice = read_bundle_voice_mode(output).unwrap_or_else(default_voice_mode);
     let mut parts = vec![format!(
@@ -206,6 +202,12 @@ fn render_recovery_identity_line(output: &Path, snapshot: &ResumeSnapshot) -> St
     }
     if let Some(detail) = recovery_proof_blocker_detail(output) {
         parts.push(format!("proof_blockers={}", compact_inline(&detail, 260)));
+    }
+    if let Some(detail) = crate::cli::server_authority_blocker_detail(output) {
+        parts.push(format!(
+            "server_authority_blockers={}",
+            compact_inline(&detail, 260)
+        ));
     }
     if let Some(detail) = crate::cli::live_state_blocker_detail(output) {
         parts.push(format!(
@@ -358,14 +360,48 @@ fn enforce_wake_char_budget(prefix: &str, protocol: &str, max_chars: usize) -> S
 
     let prefix_budget = max_chars - required_chars;
     let mut trimmed_prefix = String::new();
-    for line in prefix.lines() {
-        let candidate = if trimmed_prefix.is_empty() {
-            format!("{line}\n")
-        } else {
-            format!("{trimmed_prefix}{line}\n")
-        };
-        if candidate.chars().count() > prefix_budget {
+    let prefix_lines = prefix.lines().collect::<Vec<_>>();
+    let is_critical = |line: &str| {
+        line.starts_with("# memd wake-up")
+            || line.starts_with("- memd /")
+            || line.starts_with("- recovery ")
+            || line.starts_with("## Durable Truth")
+            || line.starts_with("## Focus")
+            || line.starts_with("## Continuity")
+            || line.starts_with("- doing=")
+            || line.starts_with("- left_off=")
+            || line.starts_with("- changed=")
+            || line.starts_with("- next=")
+            || line.contains("more via `memd lookup`")
+    };
+    for line in prefix_lines
+        .iter()
+        .copied()
+        .filter(|line| is_critical(line))
+    {
+        let used = trimmed_prefix.chars().count();
+        if used >= prefix_budget {
             break;
+        }
+        let remaining = prefix_budget - used;
+        let line_with_newline = format!("{line}\n");
+        if line_with_newline.chars().count() <= remaining {
+            trimmed_prefix.push_str(&line_with_newline);
+        } else if remaining > 1 {
+            trimmed_prefix.push_str(&truncate_visible_chars(&line_with_newline, remaining));
+            if !trimmed_prefix.ends_with('\n') {
+                trimmed_prefix.push('\n');
+            }
+        }
+    }
+    for line in prefix_lines
+        .iter()
+        .copied()
+        .filter(|line| !is_critical(line))
+    {
+        let candidate = format!("{trimmed_prefix}{line}\n");
+        if candidate.chars().count() > prefix_budget {
+            continue;
         }
         trimmed_prefix = candidate;
     }
@@ -1479,6 +1515,14 @@ mod tests {
         let markdown = render_bundle_wakeup_markdown(&dir, &pressure_snapshot(), false);
 
         assert!(markdown.chars().count() <= 1200);
+        assert!(
+            markdown.contains("- recovery voice="),
+            "strict budget must preserve native recovery line: {markdown}"
+        );
+        assert!(
+            markdown.contains("next="),
+            "strict budget must preserve current next action: {markdown}"
+        );
         assert!(markdown.contains("## Voice"));
         assert!(!markdown.contains("## Protocol"));
         assert!(!markdown.contains("## Instructions"));

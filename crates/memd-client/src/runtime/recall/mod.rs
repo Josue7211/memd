@@ -169,6 +169,8 @@ fn wake_current_handoff_item(
         .filter(|value| !value.eq_ignore_ascii_case("none"))?;
     let blocker = wake_recovery_field(recovery_line, "blocker").unwrap_or("none");
     let proof_blockers = wake_recovery_field(recovery_line, "proof_blockers").unwrap_or("none");
+    let server_authority_blockers =
+        wake_recovery_field(recovery_line, "server_authority_blockers").unwrap_or("none");
     let live_state_blockers =
         wake_recovery_field(recovery_line, "live_state_blockers").unwrap_or("none");
     let id = next
@@ -176,7 +178,7 @@ fn wake_current_handoff_item(
         .and_then(|(candidate, _)| uuid::Uuid::parse_str(candidate.trim()).ok())
         .unwrap_or_else(uuid::Uuid::new_v4);
     let content = format!(
-        "Status: current handoff next action from wake.md. next={next} | blocker={blocker} | proof_blockers={proof_blockers} | live_state_blockers={live_state_blockers}"
+        "Status: current handoff next action from wake.md. next={next} | blocker={blocker} | proof_blockers={proof_blockers} | server_authority_blockers={server_authority_blockers} | live_state_blockers={live_state_blockers}"
     );
 
     Some(memd_schema::MemoryItem {
@@ -487,7 +489,7 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("create temp bundle");
         std::fs::write(
             dir.join("wake.md"),
-            "# wake\n\n- recovery voice=caveman-ultra | quality=ready:0.96 | dirty=0 | next=c79d1cb5-920f-4f76-8366-81c02daf4d09: Decision: current next action is live-state coverage | blocker=refresh recommended | proof_blockers=full_public:missing_explicit_env=RUN_LABEL | live_state_blockers=clawcontrol:status=auth_required missing=calendar access_route=\"memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex\"\n",
+            "# wake\n\n- recovery voice=caveman-ultra | quality=ready:0.96 | dirty=0 | next=c79d1cb5-920f-4f76-8366-81c02daf4d09: Decision: current next action is live-state coverage | blocker=refresh recommended | proof_blockers=full_public:missing_explicit_env=RUN_LABEL | server_authority_blockers=server git_commit=d819af89 does not match local HEAD 82d65556 | live_state_blockers=clawcontrol:status=auth_required missing=calendar access_route=\"memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex\"\n",
         )
         .expect("write wake");
 
@@ -524,6 +526,11 @@ mod tests {
             overlaid.items[0]
                 .content
                 .contains("proof_blockers=full_public")
+        );
+        assert!(
+            overlaid.items[0]
+                .content
+                .contains("server_authority_blockers=server git_commit=d819af89")
         );
         assert!(
             overlaid.items[0]

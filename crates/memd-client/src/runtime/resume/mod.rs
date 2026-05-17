@@ -1050,6 +1050,15 @@ fn refresh_resume_local_recovery_state(project_root: Option<&Path>, snapshot: &m
     if let Some(project_root) = project_root {
         snapshot.recent_repo_changes = collect_recent_repo_changes(project_root);
     }
+    if snapshot.handoff_quality.is_none()
+        && let Some(report) = snapshot.working.compaction_quality.as_ref()
+    {
+        let mut score = HandoffQualityScore::from_report(report);
+        let signals =
+            recoverable_signal_counts(&snapshot.context, &snapshot.working, &snapshot.preferences);
+        score.include_recoverable_signals(signals.facts, signals.decisions, signals.total);
+        snapshot.handoff_quality = Some(score);
+    }
 }
 
 fn refresh_handoff_local_recovery_state(target_bundle: &Path, handoff: &mut HandoffSnapshot) {
@@ -2311,6 +2320,29 @@ mod handoff_quality_tests {
         assert!(signals.decisions >= 2, "{signals:?}");
         assert!(signals.total >= 5, "{signals:?}");
         assert!(score.is_acceptable());
+    }
+
+    #[test]
+    fn cached_resume_refresh_restores_handoff_quality_from_working_report() {
+        let mut snapshot = ResumeSnapshot::empty();
+        snapshot.working.compaction_quality = Some(report(3, 2, 3, 900));
+        snapshot
+            .working
+            .records
+            .push(memd_schema::CompactMemoryRecord {
+            id: uuid::Uuid::new_v4(),
+            record:
+                "id=handoff | kind=status | c=CURRENT NEXT ACTION: continue live-state authority"
+                    .to_string(),
+        });
+        snapshot
+            .preferences
+            .push("Decision: keep approved communications privacy gates explicit".to_string());
+
+        refresh_resume_local_recovery_state(None, &mut snapshot);
+
+        let score = snapshot.handoff_quality.expect("handoff quality restored");
+        assert!(score.is_acceptable(), "score={score:?}");
     }
 
     #[test]
