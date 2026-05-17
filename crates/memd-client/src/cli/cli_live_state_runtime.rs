@@ -192,6 +192,7 @@ pub(crate) fn render_live_app_state_section(output: &Path, limit: usize) -> Stri
         );
     }
 
+    lines.extend(render_live_state_sync_task_lines(&records, now));
     lines.extend(render_live_state_requirement_lines(&records, now));
     lines.join("\n")
 }
@@ -578,6 +579,35 @@ fn render_live_state_requirement_lines(
             )
         })
         .collect()
+}
+
+fn render_live_state_sync_task_lines(
+    records: &[LiveAppStateRecord],
+    now: chrono::DateTime<Utc>,
+) -> Vec<String> {
+    let requirements = live_state_requirement_statuses(records, now);
+    let tasks = live_state_sync_tasks(&requirements);
+    if tasks.is_empty() {
+        return Vec::new();
+    }
+    let mut lines = vec![format!(
+        "- sync_required=true sync_tasks={} source=memd-live-state-status",
+        tasks.len()
+    )];
+    lines.extend(tasks.into_iter().map(|task| {
+        format!(
+            "- sync_task:{}:{} scope={} status={} privacy={} visibility={} media_agentsecrets={} action=\"{}\"",
+            task.source_app,
+            task.module,
+            task.required_scope,
+            task.status,
+            task.privacy,
+            task.visibility,
+            task.agentsecrets_required_for_media,
+            task.action
+        )
+    }));
+    lines
 }
 
 fn live_state_requirement_statuses(
@@ -1014,6 +1044,9 @@ mod tests {
         assert!(section.contains("required:clawcontrol:calendar"));
         assert!(section.contains("required:clawcontrol:reminders"));
         assert!(section.contains("required:clawcontrol:messages"));
+        assert!(section.contains("sync_required=true sync_tasks=6"));
+        assert!(section.contains("sync_task:clawcontrol:messages"));
+        assert!(section.contains("media_agentsecrets=true"));
         assert!(section.contains("status=missing"));
         assert!(section.contains("private metadata/redacted; no unrestricted chat access"));
 
