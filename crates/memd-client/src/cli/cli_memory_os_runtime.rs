@@ -563,7 +563,7 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
         .into_iter()
         .chain(live_state.iter().map(|report| {
             format!(
-                "live_state_status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={} sync_tasks={} source_unavailable={} source_statuses={} next_refresh_at={} refresh_reason={} contract={}",
+                "live_state_status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={} sync_tasks={} source_fresh={} source_stale={} source_unavailable={} source_statuses={} next_refresh_at={} refresh_reason={} contract={}",
                 report.status,
                 report.total,
                 report.fresh,
@@ -574,6 +574,8 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
                 report.sync_required,
                 report.sync_actions.len(),
                 report.sync_tasks.len(),
+                report.source_fresh,
+                report.source_stale,
                 report.source_unavailable,
                 report.source_statuses.len(),
                 report.next_refresh_at.to_rfc3339(),
@@ -648,6 +650,12 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
                     let mut blockers = Vec::new();
                     if report.fresh == 0 {
                         blockers.push("no fresh live app state records have been ingested".to_string());
+                    }
+                    if report.source_stale > 0 {
+                        blockers.push(format!(
+                            "{} live app source status checks are stale",
+                            report.source_stale
+                        ));
                     }
                     blockers.extend(
                         report
@@ -3827,7 +3835,19 @@ mod tests {
             live_state
                 .evidence
                 .iter()
+                .any(|item| item.contains("source_stale=1"))
+        );
+        assert!(
+            live_state
+                .evidence
+                .iter()
                 .any(|item| item.contains("live_state_source_status=clawcontrol"))
+        );
+        assert!(
+            live_state
+                .gaps
+                .iter()
+                .any(|gap| gap.contains("1 live app source status checks are stale"))
         );
         assert!(
             live_state

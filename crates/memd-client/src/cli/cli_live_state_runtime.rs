@@ -10,6 +10,7 @@ use std::io::Read;
 const LIVE_STATE_VERSION: u32 = 1;
 const LIVE_STATE_PRODUCER_CONTRACT_VERSION: u32 = 1;
 const LIVE_STATE_DEFAULT_REFRESH_SECS: i64 = 86_400;
+const LIVE_STATE_SOURCE_STATUS_FRESH_SECS: i64 = 900;
 
 #[derive(Debug)]
 pub(crate) struct LiveStateCheckExitCode(pub(crate) i32);
@@ -132,6 +133,8 @@ pub(crate) struct LiveAppStateReport {
     pub(crate) sync_actions: Vec<String>,
     pub(crate) sync_tasks: Vec<LiveAppStateSyncTask>,
     pub(crate) requirements: Vec<LiveAppStateRequirementStatus>,
+    pub(crate) source_fresh: usize,
+    pub(crate) source_stale: usize,
     pub(crate) source_unavailable: usize,
     pub(crate) source_statuses: Vec<LiveAppStateSourceStatus>,
     pub(crate) records: Vec<LiveAppStateRecord>,
@@ -312,6 +315,7 @@ pub(crate) fn render_live_app_state_section(output: &Path, limit: usize) -> Stri
     if let Ok(source_status_store) = read_live_app_source_status(output) {
         lines.extend(render_live_state_source_status_lines(
             &source_status_store.sources,
+            now,
         ));
     }
     lines.extend(render_live_state_sync_task_lines(&records, now));
@@ -577,6 +581,15 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
     let sync_required = requirement_missing > 0 || requirement_stale > 0;
     let sync_actions = live_state_sync_actions(&requirements);
     let sync_tasks = live_state_sync_tasks(&requirements);
+    let source_fresh = source_status_store
+        .sources
+        .iter()
+        .filter(|source| live_state_source_status_is_fresh(source, now))
+        .count();
+    let source_stale = source_status_store
+        .sources
+        .len()
+        .saturating_sub(source_fresh);
     let source_unavailable = source_status_store
         .sources
         .iter()
@@ -616,6 +629,8 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
         sync_actions,
         sync_tasks,
         requirements,
+        source_fresh,
+        source_stale,
         source_unavailable,
         source_statuses: source_status_store.sources,
         records: store.records,
@@ -934,7 +949,17 @@ fn render_live_state_requirement_lines(
         .collect()
 }
 
-fn render_live_state_source_status_lines(sources: &[LiveAppStateSourceStatus]) -> Vec<String> {
+fn live_state_source_status_is_fresh(
+    source: &LiveAppStateSourceStatus,
+    now: chrono::DateTime<Utc>,
+) -> bool {
+    source.checked_at + Duration::seconds(LIVE_STATE_SOURCE_STATUS_FRESH_SECS) > now
+}
+
+fn render_live_state_source_status_lines(
+    sources: &[LiveAppStateSourceStatus],
+    now: chrono::DateTime<Utc>,
+) -> Vec<String> {
     sources
         .iter()
         .map(|source| {
@@ -946,11 +971,16 @@ fn render_live_state_source_status_lines(sources: &[LiveAppStateSourceStatus]) -
                 source.missing.join(",")
             };
             let error = source.last_error.as_deref().unwrap_or("none");
+            let fresh_until =
+                source.checked_at + Duration::seconds(LIVE_STATE_SOURCE_STATUS_FRESH_SECS);
+            let freshness = if fresh_until > now { "fresh" } else { "stale" };
             format!(
-                "source_status:{} status={} checked_at={} api_base={} visible_page={} produced={} missing={} endpoints={} error=\"{}\"",
+                "source_status:{} status={} freshness={} checked_at={} fresh_until={} api_base={} visible_page={} produced={} missing={} endpoints={} error=\"{}\"",
                 source.source_app,
                 source.status,
+                freshness,
                 source.checked_at.to_rfc3339(),
+                fresh_until.to_rfc3339(),
                 shell_quote(api_base),
                 visible_page,
                 source.record_count,
@@ -1197,7 +1227,7 @@ fn sync_payload_hint(module: &str) -> &'static str {
 
 pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
     let mut lines = vec![format!(
-        "live_state status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={} sync_tasks={} source_unavailable={} next_refresh_at={} refresh_reason=\"{}\" contract={} path={} source_status_path={}",
+        "live_state status={} total={} fresh={} stale={} requirement_fresh={} requirement_stale={} requirement_missing={} sync_required={} sync_actions={} sync_tasks={} source_fresh={} source_stale={} source_unavailable={} next_refresh_at={} refresh_reason=\"{}\" contract={} path={} source_status_path={}",
         report.status,
         report.total,
         report.fresh,
@@ -1208,6 +1238,8 @@ pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
         report.sync_required,
         report.sync_actions.len(),
         report.sync_tasks.len(),
+        report.source_fresh,
+        report.source_stale,
         report.source_unavailable,
         report.next_refresh_at.to_rfc3339(),
         compact_live_state_text(&report.refresh_reason, 160),
@@ -1247,6 +1279,7 @@ pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
     }));
     lines.extend(render_live_state_source_status_lines(
         &report.source_statuses,
+        report.checked_at,
     ));
     lines.extend(
         report
@@ -1907,6 +1940,8 @@ mod tests {
 
         let report = live_state_report(&output).expect("status report");
         assert_eq!(report.source_unavailable, 1);
+        assert_eq!(report.source_fresh, 0);
+        assert_eq!(report.source_stale, 1);
         assert_eq!(
             report.source_status_path,
             source_status_path.display().to_string()
@@ -1916,11 +1951,14 @@ mod tests {
 
         let summary = render_live_state_summary(&report);
         assert!(summary.contains("source_unavailable=1"));
+        assert!(summary.contains("source_stale=1"));
         assert!(summary.contains("source_status:clawcontrol status=unavailable"));
+        assert!(summary.contains("freshness=stale"));
         assert!(summary.contains("missing=visible_page,calendar,todos,reminders,messages,email"));
 
         let section = render_live_app_state_section(&output, 8);
         assert!(section.contains("source_status:clawcontrol status=unavailable"));
+        assert!(section.contains("freshness=stale"));
         assert!(section.contains("api_base=http://127.0.0.1:3000"));
     }
 }
