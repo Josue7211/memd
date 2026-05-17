@@ -436,11 +436,8 @@ pub(crate) async fn read_bundle_resume(
         preferences.push(raw_next);
     }
     if let Some(score) = &mut handoff_quality {
-        score.include_decision_signals(count_recoverable_decision_records(
-            &context,
-            &working,
-            &preferences,
-        ));
+        let signals = recoverable_signal_counts(&context, &working, &preferences);
+        score.include_recoverable_signals(signals.facts, signals.decisions, signals.total);
     }
 
     let snapshot = ResumeSnapshot {
@@ -2013,12 +2010,24 @@ impl HandoffQualityScore {
         0.30 * fact_coverage + 0.30 * decision_coverage + 0.25 * working_depth + 0.15 * trust_score
     }
 
-    pub(crate) fn include_decision_signals(&mut self, decision_count: usize) {
-        let decision_coverage = (decision_count as f64 / Self::TARGET_DECISIONS).min(1.0);
-        if decision_coverage <= self.decision_coverage {
-            return;
+    pub(crate) fn include_recoverable_signals(
+        &mut self,
+        fact_count: usize,
+        decision_count: usize,
+        total_count: usize,
+    ) {
+        let fact_coverage = (fact_count as f64 / Self::TARGET_FACTS).min(1.0);
+        if fact_coverage > self.fact_coverage {
+            self.fact_coverage = fact_coverage;
         }
-        self.decision_coverage = decision_coverage;
+        let decision_coverage = (decision_count as f64 / Self::TARGET_DECISIONS).min(1.0);
+        if decision_coverage > self.decision_coverage {
+            self.decision_coverage = decision_coverage;
+        }
+        let working_depth = (total_count as f64 / Self::TARGET_WORKING_DEPTH).min(1.0);
+        if working_depth > self.working_depth {
+            self.working_depth = working_depth;
+        }
         let trust_score = Self::trust_score_for_budget_utilization(self.budget_utilization);
         self.composite = Self::composite_score(
             self.fact_coverage,
@@ -2026,6 +2035,10 @@ impl HandoffQualityScore {
             self.working_depth,
             trust_score,
         );
+    }
+
+    pub(crate) fn include_decision_signals(&mut self, decision_count: usize) {
+        self.include_recoverable_signals(0, decision_count, 0);
     }
 
     /// L2.9: true iff the handoff meets the shipping threshold.
@@ -2133,6 +2146,58 @@ mod handoff_quality_tests {
 
         assert_eq!(decision_count, 1);
         assert!(score.decision_coverage >= 0.49);
+        assert!(score.is_acceptable());
+    }
+
+    #[test]
+    fn recoverable_fact_and_decision_signals_raise_handoff_quality() {
+        let mut snapshot = ResumeSnapshot::empty();
+        snapshot
+            .working
+            .records
+            .push(memd_schema::CompactMemoryRecord {
+                id: uuid::Uuid::new_v4(),
+                record: "id=status-a | kind=status | c=Fact: memd tree clean".to_string(),
+            });
+        snapshot
+            .working
+            .records
+            .push(memd_schema::CompactMemoryRecord {
+                id: uuid::Uuid::new_v4(),
+                record: "id=status-b | kind=status | c=Decision: commit producer bridge"
+                    .to_string(),
+            });
+        snapshot
+            .working
+            .rehydration_queue
+            .push(memd_schema::MemoryRehydrationRecord {
+                id: None,
+                kind: "working_memory_record".to_string(),
+                label: "fact".to_string(),
+                summary: "Fact: installed memd supports live-state".to_string(),
+                reason: Some("evicted_by_status_cap".to_string()),
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                recorded_at: None,
+            });
+        let preferences = vec![
+            "Fact: proof blockers remain external".to_string(),
+            "Decision: memd live-state is the authority path".to_string(),
+            "Procedure: verify clean tree before completion".to_string(),
+        ];
+        let signals = recoverable_signal_counts(&snapshot.context, &snapshot.working, &preferences);
+        let mut score = HandoffQualityScore::from_report(&report(0, 0, 2, 1100));
+
+        score.include_recoverable_signals(signals.facts, signals.decisions, signals.total);
+
+        assert_eq!(signals.facts, 3);
+        assert_eq!(signals.decisions, 2);
+        assert_eq!(signals.total, 6);
+        assert!(score.fact_coverage >= 0.99);
+        assert!(score.decision_coverage >= 0.99);
+        assert!(score.working_depth >= 0.74);
         assert!(score.is_acceptable());
     }
 
@@ -2891,19 +2956,53 @@ fn count_recoverable_decision_records(
     working: &memd_schema::WorkingMemoryResponse,
     preferences: &[String],
 ) -> usize {
-    count_decision_record_texts(
-        preferences
-            .iter()
-            .map(|record| record.as_str())
-            .chain(context.records.iter().map(|record| record.record.as_str()))
-            .chain(working.records.iter().map(|record| record.record.as_str()))
-            .chain(
-                working
-                    .rehydration_queue
-                    .iter()
-                    .map(|record| record.summary.as_str()),
-            ),
-    )
+    recoverable_signal_counts(context, working, preferences).decisions
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct RecoverableSignalCounts {
+    facts: usize,
+    decisions: usize,
+    total: usize,
+}
+
+fn recoverable_signal_counts(
+    context: &memd_schema::CompactContextResponse,
+    working: &memd_schema::WorkingMemoryResponse,
+    preferences: &[String],
+) -> RecoverableSignalCounts {
+    let mut seen = std::collections::HashSet::new();
+    let mut counts = RecoverableSignalCounts::default();
+    for record in preferences
+        .iter()
+        .map(|record| record.as_str())
+        .chain(context.records.iter().map(|record| record.record.as_str()))
+        .chain(working.records.iter().map(|record| record.record.as_str()))
+        .chain(
+            working
+                .rehydration_queue
+                .iter()
+                .map(|record| record.summary.as_str()),
+        )
+    {
+        let normalized = normalize_resume_record(record);
+        if normalized.is_empty() || !seen.insert(normalized) {
+            continue;
+        }
+        let is_fact = is_fact_record_text(record);
+        let is_decision = is_decision_record_text(record);
+        let is_procedural = is_procedural_record_text(record);
+        if is_fact {
+            counts.facts += 1;
+        }
+        if is_decision {
+            counts.decisions += 1;
+        }
+        if is_fact || is_decision || is_procedural {
+            counts.total += 1;
+        }
+    }
+    counts
 }
 
 pub(crate) fn count_decision_records(records: &[String]) -> usize {
@@ -2928,6 +3027,22 @@ fn is_decision_record_text(record: &str) -> bool {
         || normalized.contains(" kind=decision ")
         || normalized.starts_with("decision:")
         || normalized.contains("decision: ")
+}
+
+fn is_fact_record_text(record: &str) -> bool {
+    let normalized = record.to_ascii_lowercase();
+    normalized.contains("| kind=fact |")
+        || normalized.contains(" kind=fact ")
+        || normalized.starts_with("fact:")
+        || normalized.contains("fact: ")
+}
+
+fn is_procedural_record_text(record: &str) -> bool {
+    let normalized = record.to_ascii_lowercase();
+    normalized.contains("| kind=procedural |")
+        || normalized.contains(" kind=procedural ")
+        || normalized.starts_with("procedure:")
+        || normalized.contains("procedure: ")
 }
 
 fn is_next_action_record(record: &str) -> bool {
