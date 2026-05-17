@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const root = new URL('..', import.meta.url).pathname.replace(/\/+$/, '');
 const memdBin = process.env.MEMD_BIN || 'memd';
 const memdOutput = process.env.MEMD_OUTPUT || join(root, '.memd');
+const sourceStatusOutput = process.env.SOURCE_STATUS_OUTPUT || memdOutput;
 const freshnessSecs = Math.max(60, Number(process.env.FRESHNESS_SECS || '3600'));
 const dryRun = process.env.DRY_RUN === '1' || process.env.DRY_RUN === 'true';
 const files = [
@@ -42,6 +43,73 @@ function number(value) {
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'));
+}
+
+function sourceStatusFile() {
+  return join(sourceStatusOutput, 'state', 'live-app-source-status.json');
+}
+
+function readSourceStatusStore() {
+  const path = sourceStatusFile();
+  if (!existsSync(path)) {
+    return { version: 1, updated_at: null, sources: [] };
+  }
+  try {
+    const store = JSON.parse(readFileSync(path, 'utf8'));
+    return {
+      version: Math.max(1, Number(store.version || 1)),
+      updated_at: store.updated_at || null,
+      sources: Array.isArray(store.sources)
+        ? store.sources.filter((source) => source && typeof source === 'object')
+        : [],
+    };
+  } catch {
+    return { version: 1, updated_at: null, sources: [] };
+  }
+}
+
+function writeSourceStatus({ status, produced = [], missing = [], lastError = null }) {
+  if (dryRun) return;
+  const now = new Date().toISOString();
+  const store = readSourceStatusStore();
+  const endpoints = ['messages', 'email'].map((module) => {
+    const ok = produced.includes(module);
+    return {
+      module,
+      path: `approved-communications:${module}`,
+      api_base: 'approved-communications',
+      ok,
+      status: ok ? 200 : 0,
+      error: ok ? undefined : lastError || 'approved communications metadata missing',
+    };
+  });
+  const source = {
+    source_app: 'clawcontrol',
+    status,
+    checked_at: now,
+    api_base: 'approved-communications',
+    api_bases: ['approved-communications'],
+    auth_configured: files.length > 0,
+    visible_page: 'not_applicable',
+    produced,
+    missing,
+    record_count: produced.length,
+    endpoints,
+    last_error: lastError,
+  };
+  store.version = 1;
+  store.updated_at = now;
+  store.sources = store.sources.filter(
+    (existing) =>
+      !(
+        existing.source_app === source.source_app &&
+        existing.api_base === source.api_base
+      ),
+  );
+  store.sources.push(source);
+  const path = sourceStatusFile();
+  mkdirSync(join(sourceStatusOutput, 'state'), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(store, null, 2)}\n`);
 }
 
 const forbiddenPayloadKeys = new Set([
@@ -263,6 +331,11 @@ function recordsFromDocument(document, preferredModule = '') {
 }
 
 if (files.length === 0) {
+  writeSourceStatus({
+    status: 'missing_approval',
+    missing: ['messages', 'email'],
+    lastError: 'no approved communications file configured',
+  });
   console.error('live-state-capture-approved-communications: no approved communications file configured');
   process.exit(2);
 }
@@ -271,11 +344,21 @@ let records = [];
 try {
   records = files.flatMap((file) => recordsFromDocument(readJson(file.path), file.module));
 } catch (error) {
+  writeSourceStatus({
+    status: 'invalid_approval',
+    missing: ['messages', 'email'],
+    lastError: compact(error.message, 240),
+  });
   console.error(`live-state-capture-approved-communications: ${compact(error.message, 240)}`);
   process.exit(1);
 }
 
 if (records.length === 0) {
+  writeSourceStatus({
+    status: 'missing_approval',
+    missing: ['messages', 'email'],
+    lastError: 'no approved messages/email metadata found',
+  });
   console.error('live-state-capture-approved-communications: no approved messages/email metadata found');
   process.exit(2);
 }
@@ -293,11 +376,27 @@ const result = spawnSync(
 );
 if (result.status !== 0) {
   const stderr = String(result.stderr || '').replace(/\s+/g, ' ').trim();
+  writeSourceStatus({
+    status: 'ingest_failed',
+    produced: records.map((item) => item.module),
+    missing: ['messages', 'email'].filter(
+      (module) => !records.some((item) => item.module === module),
+    ),
+    lastError: compact(stderr || 'ingest failed', 240),
+  });
   if (stderr) {
     console.error(`live-state-capture-approved-communications: ingest failed: ${compact(stderr, 240)}`);
   }
   process.exit(result.status ?? 1);
 }
+const produced = records.map((item) => item.module);
+const missing = ['messages', 'email'].filter((module) => !produced.includes(module));
+writeSourceStatus({
+  status: missing.length === 0 ? 'ok' : 'partial',
+  produced,
+  missing,
+  lastError: missing.length ? `approved communications missing: ${missing.join(',')}` : null,
+});
 console.error(
   `live-state-capture-approved-communications: captured records=${records.length} modules=${records
     .map((item) => item.module)
