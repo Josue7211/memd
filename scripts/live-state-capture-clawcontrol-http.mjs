@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
 const apiBase = (process.env.CLAWCONTROL_API_BASE || 'http://127.0.0.1:3000').replace(/\/+$/, '');
 const memdBin = process.env.MEMD_BIN || 'memd';
@@ -8,6 +9,7 @@ const memdOutput = process.env.MEMD_OUTPUT || new URL('../.memd', import.meta.ur
 const timeoutMs = Number(process.env.TIMEOUT_MS || '1500');
 const freshnessSecs = Math.max(60, Number(process.env.FRESHNESS_SECS || '86400'));
 const dryRun = process.env.DRY_RUN === '1' || process.env.DRY_RUN === 'true';
+const probeOnly = process.env.PROBE_ONLY === '1' || process.env.PROBE_ONLY === 'true';
 
 const endpoints = [
   { module: 'calendar', scope: 'primary', path: '/api/calendar' },
@@ -166,18 +168,23 @@ async function fetchJson(path) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${apiBase}${path}`, { signal: controller.signal });
-    if (!response.ok) return undefined;
-    return await response.json();
-  } catch {
-    return undefined;
+    if (!response.ok) return { ok: false, status: response.status, error: `HTTP ${response.status}` };
+    return { ok: true, status: response.status, data: await response.json() };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      error: error && error.name === 'AbortError' ? 'timeout' : 'unreachable',
+    };
   } finally {
     clearTimeout(timer);
   }
 }
 
 function visiblePageRecord() {
-  if (!process.env.VISIBLE_PAGE_JSON) return undefined;
-  const payload = JSON.parse(process.env.VISIBLE_PAGE_JSON);
+  const raw = process.env.VISIBLE_PAGE_JSON || readVisiblePageFile();
+  if (!raw) return undefined;
+  const payload = JSON.parse(raw);
   const summary =
     process.env.VISIBLE_PAGE_SUMMARY ||
     `visible page/module, route=${compactLine(payload.route || 'unknown', 80)} title=${compactLine(payload.title || 'unknown', 80)}`;
@@ -196,14 +203,52 @@ function visiblePageRecord() {
   };
 }
 
+function readVisiblePageFile() {
+  if (!process.env.VISIBLE_PAGE_FILE) return '';
+  return readFileSync(process.env.VISIBLE_PAGE_FILE, 'utf8');
+}
+
 const records = [];
 const visible = visiblePageRecord();
 if (visible) records.push(visible);
 
+const probe = {
+  apiBase,
+  timeoutMs,
+  visiblePage: visible ? 'present' : 'missing',
+  endpoints: [],
+};
+
 for (const endpoint of endpoints) {
-  const data = await fetchJson(endpoint.path);
-  if (data === undefined) continue;
-  records.push(recordFor(endpoint, data, summarize(endpoint.module, data)));
+  const result = await fetchJson(endpoint.path);
+  probe.endpoints.push({
+    module: endpoint.module,
+    path: endpoint.path,
+    ok: result.ok,
+    status: result.status,
+    error: result.ok ? undefined : result.error,
+  });
+  if (!result.ok) continue;
+  records.push(recordFor(endpoint, result.data, summarize(endpoint.module, result.data)));
+}
+
+if (probeOnly) {
+  const produced = records.map((record) => record.module);
+  const required = ['visible_page', ...endpoints.map((endpoint) => endpoint.module)];
+  const missing = required.filter((module) => !produced.includes(module));
+  console.log(
+    JSON.stringify(
+      {
+        ...probe,
+        produced,
+        missing,
+        recordCount: records.length,
+      },
+      null,
+      2,
+    ),
+  );
+  process.exit(missing.length === 0 ? 0 : 2);
 }
 
 if (records.length === 0) {

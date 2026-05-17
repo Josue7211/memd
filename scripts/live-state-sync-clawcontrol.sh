@@ -25,7 +25,15 @@ if [[ "$CAPTURE_HTTP" == "1" || "$CAPTURE_HTTP" == "true" ]]; then
     echo "live-state-sync-clawcontrol: capture script not executable: $CAPTURE_SCRIPT" >&2
     exit 127
   fi
+  set +e
   MEMD_BIN="$MEMD_BIN" MEMD_OUTPUT="$CLAWCONTROL_MEMD_OUTPUT" "$CAPTURE_SCRIPT"
+  capture_status=$?
+  set -e
+  if [[ "$capture_status" -eq 2 ]]; then
+    echo "live-state-sync-clawcontrol: capture unavailable; continuing with existing bundle records" >&2
+  elif [[ "$capture_status" -ne 0 ]]; then
+    exit "$capture_status"
+  fi
 fi
 
 args=(
