@@ -1139,13 +1139,14 @@ fn render_live_state_sync_task_lines(
     )];
     lines.extend(tasks.into_iter().map(|task| {
         format!(
-            "- sync_task:{}:{} scope={} status={} privacy={} visibility={} media_agentsecrets={} action=\"{}\"",
+            "- sync_task:{}:{} scope={} status={} privacy={} visibility={} approved_required={} media_agentsecrets={} action=\"{}\"",
             task.source_app,
             task.module,
             task.required_scope,
             task.status,
             task.privacy,
             task.visibility,
+            task.approved_required,
             task.agentsecrets_required_for_media,
             task.action
         )
@@ -1257,11 +1258,8 @@ fn live_state_sync_tasks(
 fn live_state_sync_task(requirement: &LiveAppStateRequirementStatus) -> LiveAppStateSyncTask {
     let privacy = default_sync_privacy(&requirement.module).to_string();
     let visibility = "private".to_string();
-    let approved_required = false;
-    let agentsecrets_required_for_media = matches!(
-        requirement.module.as_str(),
-        "messages" | "email" | "text_messages" | "texts" | "imessage" | "mail"
-    );
+    let approved_required = sensitive_communication_module(&requirement.module);
+    let agentsecrets_required_for_media = sensitive_communication_module(&requirement.module);
     let freshness_secs = LIVE_STATE_DEFAULT_REFRESH_SECS;
     let labels = default_sync_labels(&requirement.module);
     let summary_hint = sync_summary_hint(&requirement.module).to_string();
@@ -1287,6 +1285,9 @@ fn live_state_sync_task(requirement: &LiveAppStateRequirementStatus) -> LiveAppS
         "--payload-json".to_string(),
         payload_hint.clone(),
     ];
+    if approved_required {
+        ingest_argv.push("--approved".to_string());
+    }
     for label in &labels {
         ingest_argv.push("--label".to_string());
         ingest_argv.push(label.clone());
@@ -1308,6 +1309,13 @@ fn live_state_sync_task(requirement: &LiveAppStateRequirementStatus) -> LiveAppS
         ingest_argv,
         action: requirement.action.clone(),
     }
+}
+
+fn sensitive_communication_module(module: &str) -> bool {
+    matches!(
+        module,
+        "messages" | "email" | "text_messages" | "texts" | "imessage" | "mail"
+    )
 }
 
 fn default_sync_privacy(module: &str) -> &'static str {
@@ -1350,9 +1358,11 @@ fn sync_payload_hint(module: &str) -> &'static str {
         "reminders" => r#"{"reminders":[]}"#,
         "todos" => r#"{"todos":[]}"#,
         "messages" => {
-            r#"{"mode":"metadata-only","threads":[],"idea_context":null,"raw_media_stored":false}"#
+            r#"{"mode":"metadata-only","threads":[],"idea_context":null,"raw_media_stored":false,"approval_policy":"approved=true required; redactedSnippet requires redacted=true or redactionApproved=true; set agentsecretsApproved=true for attachment/media metadata; raw chat/media forbidden"}"#
         }
-        "email" => r#"{"mode":"approved-metadata","messages":[],"raw_body_stored":false}"#,
+        "email" => {
+            r#"{"mode":"approved-metadata","messages":[],"raw_body_stored":false,"approval_policy":"approved=true required; redactedSnippet requires redacted=true or redactionApproved=true; set agentsecretsApproved=true for attachment/media metadata; raw mail/media forbidden"}"#
+        }
         _ => "{}",
     }
 }
@@ -1422,13 +1432,14 @@ pub(crate) fn render_live_state_summary(report: &LiveAppStateReport) -> String {
     );
     lines.extend(report.sync_tasks.iter().map(|task| {
         format!(
-            "sync_task:{}:{} scope={} status={} privacy={} visibility={} agentsecrets_required_for_media={}",
+            "sync_task:{}:{} scope={} status={} privacy={} visibility={} approved_required={} agentsecrets_required_for_media={}",
             task.source_app,
             task.module,
             task.required_scope,
             task.status,
             task.privacy,
             task.visibility,
+            task.approved_required,
             task.agentsecrets_required_for_media
         )
     }));
@@ -1452,13 +1463,14 @@ pub(crate) fn render_live_state_task_lines(report: &LiveAppStateReport) -> Strin
     )];
     lines.extend(report.sync_tasks.iter().map(|task| {
         format!(
-            "task source={} module={} scope={} status={} privacy={} visibility={} freshness_secs={} media_agentsecrets={} labels={} action=\"{}\"",
+            "task source={} module={} scope={} status={} privacy={} visibility={} approved_required={} freshness_secs={} media_agentsecrets={} labels={} action=\"{}\"",
             task.source_app,
             task.module,
             task.required_scope,
             task.status,
             task.privacy,
             task.visibility,
+            task.approved_required,
             task.freshness_secs,
             task.agentsecrets_required_for_media,
             task.labels.join(","),
@@ -1968,6 +1980,8 @@ mod tests {
         assert!(section.contains("required:clawcontrol:messages"));
         assert!(section.contains("sync_required=true sync_tasks=6"));
         assert!(section.contains("sync_task:clawcontrol:messages"));
+        assert!(section.contains("sync_task:clawcontrol:messages scope=approved"));
+        assert!(section.contains("approved_required=true"));
         assert!(section.contains("media_agentsecrets=true"));
         assert!(section.contains("status=missing"));
         assert!(section.contains("private metadata/redacted; no unrestricted chat access"));
@@ -2003,7 +2017,14 @@ mod tests {
             .expect("messages sync task");
         assert_eq!(messages_task.required_scope, "approved");
         assert_eq!(messages_task.privacy, "metadata");
+        assert!(messages_task.approved_required);
         assert!(messages_task.agentsecrets_required_for_media);
+        assert!(
+            messages_task
+                .ingest_argv
+                .iter()
+                .any(|arg| arg == "--approved")
+        );
         assert!(
             messages_task
                 .ingest_argv
@@ -2021,6 +2042,7 @@ mod tests {
         assert!(tasks.contains("live_state_tasks sync_required=true count=6"));
         assert!(tasks.contains("task source=clawcontrol module=visible_page"));
         assert!(tasks.contains("task source=clawcontrol module=messages"));
+        assert!(tasks.contains("approved_required=true"));
         assert!(tasks.contains("media_agentsecrets=true"));
 
         let commands = render_live_state_command_lines(&report);
@@ -2028,6 +2050,7 @@ mod tests {
         assert!(commands.contains("memd live-state ingest"));
         assert!(commands.contains("--module messages"));
         assert!(commands.contains("--scope approved"));
+        assert!(commands.contains("--approved"));
         assert!(commands.contains("'approved text-message metadata"));
 
         let batch_template = render_live_state_batch_template(&report);
@@ -2035,7 +2058,9 @@ mod tests {
         assert!(batch_template.contains(r#""sourceApp": "clawcontrol""#));
         assert!(batch_template.contains(r#""module": "messages""#));
         assert!(batch_template.contains(r#""scope": "approved""#));
+        assert!(batch_template.contains(r#""approved": true"#));
         assert!(batch_template.contains(r#""agentsecretsApproved": false"#));
+        assert!(batch_template.contains("agentsecretsApproved=true"));
         assert!(batch_template.contains(r#""raw_media_stored": false"#));
     }
 
