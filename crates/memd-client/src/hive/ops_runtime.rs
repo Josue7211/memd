@@ -1061,7 +1061,6 @@ fn is_hive_refresh_diagnostic(diagnostic: &str) -> bool {
         || diagnostic.starts_with("host_process_scan_timeout")
         || diagnostic.starts_with("host_filesystem_blocked")
         || diagnostic.starts_with("host_io_guard_report status=blocked")
-        || diagnostic.starts_with("hive_goal_mismatch")
         || diagnostic.starts_with("codebase_")
         || diagnostic.starts_with("awareness_scan_skipped")
         || diagnostic.contains("project_hint=host-process-scan")
@@ -1514,7 +1513,6 @@ mod tests {
             "repo project_hint=host-process-scan pid=12 state=timeout command=ps",
             "volume:/Volumes/T7 project_hint=app-git pid=13 state=U command=/Volumes/T7/Xcodes/Xcode.app/Contents/Developer/usr/bin/git status",
             "volume:/Volumes/T7 project_hint=native-tooling pid=14 state=U command=clang -c native.o",
-            "hive_goal_mismatch group=project:memd goals=ship-continuity|ship-ui sessions=session-a,session-b action=align_hive_group_goal_before_handoff",
         ];
 
         for diagnostic in diagnostics {
@@ -1527,6 +1525,31 @@ mod tests {
                 "expected refresh diagnostic: {diagnostic}"
             );
         }
+    }
+
+    #[test]
+    fn hive_goal_mismatch_blocks_without_reread_action() {
+        let diagnostic = "hive_goal_mismatch group=project:memd goals=ship-continuity|ship-ui sessions=session-a,session-b action=align_hive_group_goal_before_handoff";
+        let mut board = HiveBoardResponse {
+            queen_session: None,
+            active_bees: Vec::new(),
+            blocked_bees: Vec::new(),
+            stale_bees: Vec::new(),
+            review_queue: Vec::new(),
+            overlap_risks: Vec::new(),
+            lane_faults: Vec::new(),
+            recommended_actions: Vec::new(),
+        };
+
+        attach_hive_collision_diagnostics(&mut board, &[diagnostic.to_string()]);
+
+        assert!(is_hive_blocking_diagnostic(diagnostic));
+        assert!(!is_hive_refresh_diagnostic(diagnostic));
+        assert_eq!(board.blocked_bees, vec![diagnostic.to_string()]);
+        assert_eq!(
+            board.recommended_actions,
+            vec![format!("stop_and_coordinate {diagnostic}")]
+        );
     }
 
     #[test]
