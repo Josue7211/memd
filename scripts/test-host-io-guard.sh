@@ -671,6 +671,35 @@ grep -q 'MEMD_SERVER_BENCHMARK_GATE=pass' <<<"$status_warmup_preflight_output"
 grep -q 'MEMD_SERVER_LATENCY_P95_MS=64.0' <<<"$status_warmup_preflight_output"
 grep -q 'MEMD_SERVER_STATUS_WARMUP=recovered' <<<"$status_warmup_preflight_output"
 
+stale_authority_wake="$warmup_fake_dir/stale-authority-wake.md"
+cat > "$stale_authority_wake" <<'EOF'
+# wake
+- recovery voice=caveman-ultra | quality=ready:0.99 | dirty=0 | next=test: continue continuity | server_authority_blockers=server benchmark_gate=fail latency_p95_ms=2048; authority is not proven ready
+EOF
+stale_authority_count="$warmup_fake_dir/continuity-curl-count"
+stale_authority_continuity_output="$(
+  MEMD_ALLOW_DIRTY_DEPLOY=1 \
+  MEMD_CONTINUITY_AUTO_HOST_GUARD=0 \
+  MEMD_CONTINUITY_CONFIG="$continuity_config" \
+  MEMD_CONTINUITY_WAKE="$stale_authority_wake" \
+  MEMD_ACTIVE_MEMD_BINARY="$continuity_fake_binary" \
+  MEMD_ACTIVE_MEMD_SOURCE_PATHS="$continuity_fake_source" \
+  MEMD_HOST_IO_REPORT="$fake_ps_dir/no-report" \
+  MEMD_HOST_IO_REPORT_TTL_SECS=1 \
+  MEMD_CODEBASE_LIVE_MAP_STATE="$preflight_live_map" \
+  MEMD_SERVER_STATUS_URL=http://example.invalid/api/status \
+  MEMD_SERVER_STATUS_WARMUP_ATTEMPTS=3 \
+  MEMD_SERVER_STATUS_WARMUP_INTERVAL=0 \
+  MEMD_TEST_CURL_COUNT="$stale_authority_count" \
+  MEMD_TEST_SERVER_COMMIT="$warmup_commit" \
+  PATH="$warmup_fake_dir:$PATH" \
+  "$ROOT/scripts/memd-continuity-status.sh" 2>&1
+)"
+grep -q 'MEMD_SERVER_STATUS=ready' <<<"$stale_authority_continuity_output"
+grep -q 'MEMD_SERVER_BENCHMARK_GATE=pass' <<<"$stale_authority_continuity_output"
+grep -q 'WAKE_RECOVERY_STALE_FIELDS=server_authority_blockers' <<<"$stale_authority_continuity_output"
+grep -q 'WAKE_RECOVERY_ACTION=prefer_current_continuity_status_and_refresh_handoff' <<<"$stale_authority_continuity_output"
+
 fake_guard="$(mktemp "${TMPDIR:-/tmp}/memd-host-io-fake-guard.XXXXXX")"
 report="$(mktemp "${TMPDIR:-/tmp}/memd-host-io-report.XXXXXX")"
 public_bench_report="$(mktemp "${TMPDIR:-/tmp}/memd-public-bench-host-io-report.XXXXXX")"

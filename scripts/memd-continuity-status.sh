@@ -246,6 +246,38 @@ printf '%s\n' "$preflight_output" | awk '
   /^MEMD_GIT_STATUS_BLOCKERS=/ { print }
 '
 
+if [[ -n "${wake_recovery:-}" ]]; then
+  wake_server_authority_blockers="$(
+    printf '%s\n' "$wake_recovery" | awk '
+      {
+        key = "server_authority_blockers="
+        start = index($0, key)
+        if (start == 0) exit
+        value = substr($0, start + length(key))
+        pipe = index(value, " | ")
+        if (pipe > 0) value = substr(value, 1, pipe - 1)
+        print value
+        exit
+      }
+    '
+  )"
+  wake_stale_fields=""
+  current_server_status="$(printf '%s\n' "$preflight_output" | awk -F= '$1 == "MEMD_SERVER_STATUS" { print $2; exit }')"
+  current_server_blockers="$(printf '%s\n' "$preflight_output" | awk -F= '$1 == "MEMD_SERVER_STATUS_BLOCKERS" { print $2; exit }')"
+  if [[ -n "$wake_server_authority_blockers" \
+    && "$wake_server_authority_blockers" != "none" \
+    && "$current_server_status" == "ready" \
+    && -z "$current_server_blockers" ]]; then
+    wake_stale_fields="server_authority_blockers"
+  fi
+  if [[ -n "$wake_stale_fields" ]]; then
+    printf 'WAKE_RECOVERY_STALE_FIELDS=%s\n' "$wake_stale_fields"
+    printf 'WAKE_RECOVERY_ACTION=prefer_current_continuity_status_and_refresh_handoff\n'
+  else
+    printf 'WAKE_RECOVERY_STALE_FIELDS=\n'
+  fi
+fi
+
 action="$(printf '%s\n' "$preflight_output" | awk -F= '$1 == "MEMD_CODEBASE_LIVE_MAP_ACTION" { print $2; exit }')"
 if [[ -f "$CONFIG_PATH" ]]; then
   config_hive_project_enabled_for_action="$(awk -F'[:,]' '/"hive_project_enabled"[[:space:]]*:/ { gsub(/[[:space:]]/, "", $2); print $2; exit }' "$CONFIG_PATH" 2>/dev/null || true)"
