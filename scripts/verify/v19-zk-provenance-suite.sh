@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/scripts/lib/memd-cargo-env.sh"
+memd_cargo_refuse_on_host_blockers
 RUN_DATE="${RUN_DATE:-$(date +%F)}"
 OUT_DIR="$ROOT/docs/verification/v19-proof-runs"
 ARTIFACT="$OUT_DIR/${RUN_DATE}-zk-provenance-suite.ndjson"

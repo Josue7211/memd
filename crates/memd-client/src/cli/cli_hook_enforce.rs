@@ -44,6 +44,15 @@ impl std::fmt::Display for HookEnforceExitCode {
 impl std::error::Error for HookEnforceExitCode {}
 
 pub(crate) fn run_hook_enforce(args: &HookEnforceArgs) -> Result<i32> {
+    if let Some(path) = args.path.as_ref() {
+        let _ = crate::awareness::record_codebase_live_map_event(
+            &args.output,
+            "hook-enforce",
+            std::slice::from_ref(path),
+        );
+        let _ = crate::awareness::refresh_codebase_live_map_for_bundle(&args.output);
+    }
+
     // Opt-out: MEMD_HOOK_ENFORCE=0 → run inner directly, no trace.
     let enforce_flag = std::env::var("MEMD_HOOK_ENFORCE").unwrap_or_else(|_| "0".to_string());
     if enforce_flag == "0" {

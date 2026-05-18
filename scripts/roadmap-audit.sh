@@ -4,6 +4,12 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOST_IO_GUARD="${HOST_IO_GUARD:-$SCRIPT_DIR/memd-host-io-guard.sh}"
+if [ "${HOST_IO_GUARD_ENABLED:-1}" != "0" ] && [ "${HOST_IO_GUARD_ENABLED:-1}" != "false" ]; then
+  "$HOST_IO_GUARD"
+fi
+
 REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 
 python3 - "$REPO_ROOT" <<'PY'

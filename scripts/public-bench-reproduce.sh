@@ -16,6 +16,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$REPO_ROOT/scripts/lib/memd-cargo-env.sh"
 OUTPUT="${OUTPUT:-${REPO_ROOT}/.memd/benchmarks/public/results}"
 REPORT="${REPORT:-${REPO_ROOT}/docs/verification/PUBLIC_BENCHMARKS.md}"
 TYPED_INGEST="episodic+semantic+canonical"
@@ -46,13 +47,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+memd_cargo_refuse_on_host_blockers
 mkdir -p "$OUTPUT"
 
 echo ">>> building memd-client (release)" >&2
-CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/tmp/memd-target}" \
-  cargo build --release --target-dir "${CARGO_TARGET_DIR:-/tmp/memd-target}" -p memd-client --bin memd
+cargo build --release --target-dir "$MEMD_CARGO_TARGET_DIR" -p memd-client --bin memd
 
-BIN="${CARGO_TARGET_DIR:-/tmp/memd-target}/release/memd"
+BIN="$MEMD_CARGO_TARGET_DIR/release/memd"
 if [[ ! -x "$BIN" ]]; then
   echo "memd binary not found at $BIN" >&2
   exit 3

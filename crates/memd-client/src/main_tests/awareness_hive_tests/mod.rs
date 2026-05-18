@@ -1546,6 +1546,7 @@ fn render_hive_handoff_summary_surfaces_packet_fields() {
         receipt_summary: "Handoff to Avicenna (session-avicenna) task=parser-refactor".to_string(),
         message_id: Some("msg-1".to_string()),
         recommended_follow: "memd hive follow --session session-avicenna --summary".to_string(),
+        next_agent_prompt: "You are taking over a memd hive handoff.\nBefore changing files or running shared dev/build commands, publish heartbeat and check hive board for collisions.\nBefore broad Git, Cargo, test, or repo-scan work, run scripts/memd-host-io-guard.sh; exit 75 means wait and report the blocker scope/project_hint.\nUse .memd/state/codebase-live-map.json and .memd/state/codebase-live-map-events.ndjson as the live diff surface; record hook/file paths before waiting for heartbeat.".to_string(),
     };
 
     let summary = render_hive_handoff_summary(&response);
@@ -1555,6 +1556,10 @@ fn render_hive_handoff_summary_surfaces_packet_fields() {
     assert!(summary.contains("scopes=task:parser-refactor,crates/memd-client/src/main.rs"));
     assert!(summary.contains("receipt_kind=queen_handoff"));
     assert!(summary.contains("follow=\"memd hive follow --session session-avicenna --summary\""));
+    assert!(summary.contains("next_agent_prompt:"));
+    assert!(summary.contains("check hive board for collisions"));
+    assert!(summary.contains("scripts/memd-host-io-guard.sh"));
+    assert!(summary.contains("codebase-live-map-events.ndjson"));
 }
 
 #[test]

@@ -11,12 +11,15 @@
 
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/scripts/lib/memd-cargo-env.sh"
+memd_cargo_refuse_on_host_blockers
 ITERATIONS="${1:-10}"
-TARGET_DIR="${CARGO_TARGET_DIR:-/tmp/memd-target}"
+TARGET_DIR="${CARGO_TARGET_DIR:-$MEMD_CARGO_TARGET_DIR}"
 TESTS="continuity_compaction_tests::a4_compaction_survival_5_files \
 continuity_compaction_tests::a4_compaction_breach_detection"
 
-cd "$(git rev-parse --show-toplevel)"
+cd "$ROOT"
 
 export CARGO_TARGET_DIR="$TARGET_DIR"
 

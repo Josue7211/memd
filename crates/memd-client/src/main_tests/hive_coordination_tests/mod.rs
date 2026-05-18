@@ -1428,6 +1428,19 @@ async fn hive_project_enable_and_disable_update_bundle_state() {
     fs::write(dir.join("env"), "").expect("write env");
     fs::write(dir.join("env.ps1"), "").expect("write env.ps1");
 
+    let status = run_hive_project_command(&HiveProjectArgs {
+        output: dir.clone(),
+        enable: false,
+        disable: false,
+        status: true,
+        summary: false,
+    })
+    .await
+    .expect("read hive project status");
+    assert_eq!(status.action, "status");
+    assert_eq!(status.live_session.as_deref(), Some("codex-a"));
+    assert!(status.heartbeat.is_none());
+
     let enabled = run_hive_project_command(&HiveProjectArgs {
         output: dir.clone(),
         enable: true,

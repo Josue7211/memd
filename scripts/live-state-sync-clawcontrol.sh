@@ -16,6 +16,17 @@ APPROVED_COMMUNICATIONS_FALLBACK="${APPROVED_COMMUNICATIONS_FALLBACK:-1}"
 APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT="${APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT:-$ROOT/scripts/live-state-capture-approved-communications.mjs}"
 CAPTURE_UNAVAILABLE=0
 FALLBACK_CAPTURED=0
+HOST_IO_GUARD="${HOST_IO_GUARD:-$ROOT/scripts/memd-host-io-guard.sh}"
+HOST_IO_GUARD_ENABLED="${HOST_IO_GUARD_ENABLED:-1}"
+
+if [[ "$HOST_IO_GUARD_ENABLED" == "1" || "$HOST_IO_GUARD_ENABLED" == "true" ]]; then
+  if [[ -x "$HOST_IO_GUARD" ]]; then
+    "$HOST_IO_GUARD"
+  else
+    echo "live-state-sync-clawcontrol: host I/O guard not executable: $HOST_IO_GUARD" >&2
+    exit 127
+  fi
+fi
 
 if ! command -v "$MEMD_BIN" >/dev/null 2>&1; then
   if [[ -x "$ROOT/target/debug/memd" ]]; then

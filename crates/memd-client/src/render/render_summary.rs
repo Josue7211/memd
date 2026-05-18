@@ -140,7 +140,7 @@ fn render_handoff_user_prompt(
     let live_state = live_state_blockers.unwrap_or("none recorded");
 
     format!(
-        "Pick up `{project}` / `{namespace}` from memd handoff. First inspect `git status --short --untracked-files=all`, `.memd/wake.md`, and `memd lookup --output .memd --query \"handoff continuity next action\"`. Continue: {next}. Current blocker: {blocker}. Proof blockers: {proof}. Live-state blockers: {live_state}. Visibility: {visibility}. Dirty count at handoff: {dirty_count}. Keep commits atomic and leave tree clean."
+        "Pick up `{project}` / `{namespace}` from memd handoff. First inspect `.memd/wake.md` and run `scripts/memd-continuity-status.sh`; follow `NEXT_CONTINUITY_ACTION` before broad Git/Cargo/tests or repo scans. If host I/O is clear, inspect `git status --short --untracked-files=all` and run `memd lookup --output .memd --query \"handoff continuity next action\"`. Continue: {next}. Current blocker: {blocker}. Proof blockers: {proof}. Live-state blockers: {live_state}. Visibility: {visibility}. Dirty count at handoff: {dirty_count}. Keep commits atomic and leave tree clean."
     )
 }
 
@@ -855,6 +855,8 @@ mod tests {
         assert!(prompt.contains("## User Prompt"));
         assert!(prompt.contains("give next agent:"));
         assert!(prompt.contains("Pick up `demo` / `main` from memd handoff"));
+        assert!(prompt.contains("scripts/memd-continuity-status.sh"));
+        assert!(prompt.contains("NEXT_CONTINUITY_ACTION"));
         assert!(prompt.contains("Keep commits atomic and leave tree clean"));
         assert!(prompt.contains("## C"));
         assert!(prompt.contains("- doing="));

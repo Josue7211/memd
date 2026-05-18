@@ -31,6 +31,7 @@ pub(crate) struct HiveHandoffResponse {
     pub(crate) receipt_summary: String,
     pub(crate) message_id: Option<String>,
     pub(crate) recommended_follow: String,
+    pub(crate) next_agent_prompt: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -517,6 +518,7 @@ pub(crate) async fn run_hive_handoff_command(
     .await?;
 
     Ok(HiveHandoffResponse {
+        next_agent_prompt: format_hive_handoff_next_agent_prompt(&packet),
         packet,
         receipt_kind: "queen_handoff".to_string(),
         receipt_summary,
@@ -843,6 +845,37 @@ pub(crate) async fn run_hive_board_command(
     base_url: &str,
 ) -> anyhow::Result<HiveBoardResponse> {
     let runtime = read_bundle_runtime_config(&args.output)?;
+    if runtime
+        .as_ref()
+        .and_then(|config| config.session.as_deref())
+        .is_some()
+    {
+        let _ = timeout_ok(refresh_bundle_heartbeat(&args.output, None, false)).await;
+    }
+    let awareness = read_project_awareness(&AwarenessArgs {
+        output: args.output.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })
+    .await
+    .ok();
+    let hive_diagnostics = awareness
+        .as_ref()
+        .map(|awareness| {
+            let visible_entries = filter_project_awareness_entries_for_hive_scope(
+                &project_awareness_visible_entries(awareness),
+                runtime.as_ref(),
+            );
+            let mut diagnostics = awareness_summary_diagnostics(&visible_entries);
+            for collision in &awareness.collisions {
+                if !diagnostics.contains(collision) {
+                    diagnostics.push(collision.clone());
+                }
+            }
+            diagnostics
+        })
+        .unwrap_or_default();
     let resolved_base_url = resolve_bundle_command_base_url(
         base_url,
         runtime
@@ -874,6 +907,7 @@ pub(crate) async fn run_hive_board_command(
                 .stale_bees
                 .retain(|session| !retired_sessions.iter().any(|retired| retired == session));
         }
+        attach_hive_collision_diagnostics(&mut board, &hive_diagnostics);
         return Ok(board);
     }
 
@@ -938,7 +972,7 @@ pub(crate) async fn run_hive_board_command(
         .map(|bee| bee.session.clone())
         .collect::<BTreeSet<_>>();
 
-    Ok(HiveBoardResponse {
+    let mut board = HiveBoardResponse {
         queen_session: roster
             .queen_session
             .clone()
@@ -974,7 +1008,64 @@ pub(crate) async fn run_hive_board_command(
             .iter()
             .map(|suggestion| format!("{} {}", suggestion.action, suggestion.reason))
             .collect(),
-    })
+    };
+    attach_hive_collision_diagnostics(&mut board, &hive_diagnostics);
+    Ok(board)
+}
+
+fn attach_hive_collision_diagnostics(board: &mut HiveBoardResponse, diagnostics: &[String]) {
+    for diagnostic in diagnostics {
+        let blocks_hive = is_hive_blocking_diagnostic(diagnostic);
+        if blocks_hive {
+            if !board.blocked_bees.contains(diagnostic) {
+                board.blocked_bees.push(diagnostic.clone());
+            }
+            let action = if is_hive_refresh_diagnostic(diagnostic) {
+                format!("refresh_live_map_and_reread {diagnostic}")
+            } else {
+                format!("stop_and_coordinate {diagnostic}")
+            };
+            if !board.recommended_actions.contains(&action) {
+                board.recommended_actions.push(action);
+            }
+        }
+        if (diagnostic.contains("overlap") || blocks_hive)
+            && !board.overlap_risks.contains(diagnostic)
+        {
+            board.overlap_risks.push(diagnostic.clone());
+        }
+    }
+}
+
+fn is_hive_blocking_diagnostic(diagnostic: &str) -> bool {
+    diagnostic.starts_with("unsafe_")
+        || diagnostic.starts_with("host_process_blocked")
+        || diagnostic.starts_with("host_process_scan_timeout")
+        || diagnostic.starts_with("host_filesystem_blocked")
+        || diagnostic.starts_with("host_io_guard_report status=blocked")
+        || diagnostic.starts_with("codebase_out_of_sync")
+        || diagnostic.starts_with("awareness_scan_skipped")
+        || diagnostic.contains("project_hint=host-process-scan")
+        || diagnostic.contains("project_hint=app-git")
+        || diagnostic.contains("project_hint=cargo-tooling")
+        || diagnostic.contains("project_hint=native-tooling")
+        || diagnostic.contains("project_hint=node-tooling")
+        || (diagnostic.starts_with("codebase_live_map")
+            && diagnostic.contains("reread_required=true"))
+}
+
+fn is_hive_refresh_diagnostic(diagnostic: &str) -> bool {
+    diagnostic.starts_with("host_process_blocked")
+        || diagnostic.starts_with("host_process_scan_timeout")
+        || diagnostic.starts_with("host_filesystem_blocked")
+        || diagnostic.starts_with("host_io_guard_report status=blocked")
+        || diagnostic.starts_with("codebase_")
+        || diagnostic.starts_with("awareness_scan_skipped")
+        || diagnostic.contains("project_hint=host-process-scan")
+        || diagnostic.contains("project_hint=app-git")
+        || diagnostic.contains("project_hint=cargo-tooling")
+        || diagnostic.contains("project_hint=native-tooling")
+        || diagnostic.contains("project_hint=node-tooling")
 }
 
 fn resolve_hive_follow_target<'a>(
@@ -1094,6 +1185,53 @@ fn format_hive_handoff_message(packet: &HiveHandoffPacket) -> String {
     if let Some(note) = packet.note.as_deref() {
         lines.push(format!("note={note}"));
     }
+    lines.push("next_agent_prompt:".to_string());
+    lines.push(format_hive_handoff_next_agent_prompt(packet));
+    lines.join("\n")
+}
+
+fn format_hive_handoff_next_agent_prompt(packet: &HiveHandoffPacket) -> String {
+    let mut lines = vec![
+        "You are taking over a memd hive handoff.".to_string(),
+        "Start by reading .memd/wake.md, then run memd hive --summary and memd hive follow --session <your-session> --summary before edits.".to_string(),
+        format!("Handoff from session: {}", packet.from_session),
+    ];
+    if let Some(worker) = packet.from_worker.as_deref() {
+        lines.push(format!("Handoff from worker: {worker}"));
+    }
+    lines.push(format!("Target session: {}", packet.to_session));
+    if let Some(worker) = packet.to_worker.as_deref() {
+        lines.push(format!("Target worker: {worker}"));
+    }
+    if let Some(task_id) = packet.task_id.as_deref() {
+        lines.push(format!("Task: {task_id}"));
+    }
+    if let Some(topic) = packet.topic_claim.as_deref() {
+        lines.push(format!("Topic: {topic}"));
+    }
+    if !packet.scope_claims.is_empty() {
+        lines.push(format!("Scopes: {}", packet.scope_claims.join(", ")));
+    }
+    if let Some(next) = packet.next_action.as_deref() {
+        lines.push(format!("Next action: {next}"));
+    }
+    if let Some(blocker) = packet.blocker.as_deref() {
+        lines.push(format!("Blocker: {blocker}"));
+    }
+    if let Some(note) = packet.note.as_deref() {
+        lines.push(format!("Note: {note}"));
+    }
+    lines.push("Before changing files or running shared dev/build commands, publish heartbeat and check hive board for collisions.".to_string());
+    lines.push("Before broad Git, Cargo, test, or repo-scan work, run scripts/memd-host-io-guard.sh; exit 75 means wait and report the blocker scope/project_hint.".to_string());
+    lines.push("Treat host_process_scan_timeout or project_hint=host-process-scan as blocked host awareness, not as safe-to-proceed.".to_string());
+    lines.push("Treat project_hint=app-git, cargo-tooling, native-tooling, or node-tooling as host/app-owned blocker classes; coordinate or wait instead of killing unrelated apps.".to_string());
+    lines.push("Treat project_hint=host-io-report state=cached as a read-only cached blocker governed by MEMD_HOST_IO_REPORT_TTL_SECS; do not refresh its timestamp without a fresh scan.".to_string());
+    lines.push("For a cheap continuity packet, run scripts/memd-continuity-status.sh; it reads wake, deploy preflight, live-map, and host guard without broad Git/Cargo.".to_string());
+    lines.push("For deploy checks, run scripts/deploy-memd-server-preflight.sh; on /Volumes it must report MEMD_GIT_DIRTY=unknown with MEMD_GIT_STATUS_BLOCKERS unless a fresh clear host report exists.".to_string());
+    lines.push("Use .memd/state/codebase-live-map.json and .memd/state/codebase-live-map-events.ndjson as the live diff surface; record hook/file paths before waiting for heartbeat.".to_string());
+    lines.push("If memd lookup stalls, bound it with MEMD_LOOKUP_REMOTE_TIMEOUT_MS; lookup should fall back to local wake/live-map/host-guard continuity instead of hanging.".to_string());
+    lines.push("When codebase-live-map.json says status=blocked or reread_required=true, treat that as current shared state and do not reread the whole repo until the host guard is clear.".to_string());
+    lines.push("Check MEMD_CODEBASE_LIVE_MAP_FRESH, MEMD_CODEBASE_LIVE_MAP_AGE_SECS, MEMD_CODEBASE_LIVE_MAP_TTL_SECS, and MEMD_CODEBASE_LIVE_MAP_ACTION from deploy preflight; follow ACTION before trusting or rereading codebase state.".to_string());
     lines.join("\n")
 }
 
@@ -1299,4 +1437,30 @@ fn derive_hive_relationship(
         ));
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hive_blocks_host_io_report_and_tooling_diagnostics() {
+        let diagnostics = [
+            "host_io_guard_report status=blocked age_secs=1 ttl_secs=120 state=.memd/state/host-io-guard.txt",
+            "repo project_hint=host-process-scan pid=12 state=timeout command=ps",
+            "volume:/Volumes/T7 project_hint=app-git pid=13 state=U command=/Volumes/T7/Xcodes/Xcode.app/Contents/Developer/usr/bin/git status",
+            "volume:/Volumes/T7 project_hint=native-tooling pid=14 state=U command=clang -c native.o",
+        ];
+
+        for diagnostic in diagnostics {
+            assert!(
+                is_hive_blocking_diagnostic(diagnostic),
+                "expected hive-blocking diagnostic: {diagnostic}"
+            );
+            assert!(
+                is_hive_refresh_diagnostic(diagnostic),
+                "expected refresh diagnostic: {diagnostic}"
+            );
+        }
+    }
 }

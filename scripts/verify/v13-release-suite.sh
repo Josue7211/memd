@@ -4,6 +4,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+source "$REPO_ROOT/scripts/lib/memd-cargo-env.sh"
+memd_cargo_refuse_on_host_blockers
 RUN_DATE="${RUN_DATE:-$(date +%F)}"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/docs/verification/release-0-1-0}"
 HARNESS="$OUT_DIR/${RUN_DATE}-g13-harness.ndjson"

@@ -11,24 +11,26 @@
 # hatch if the hot path ever regresses.
 #
 # Usage (from repo root):
-#   CARGO_TARGET_DIR=/tmp/memd-target cargo build --release -p memd-server
+#   scripts/memd-cargo-guard.sh -- build --release -p memd-server
 #   scripts/bench-server.sh                # binds 127.0.0.1:18787, uses .memd/bench.db
 #   MEMD_BIND_ADDR=127.0.0.1:19000 scripts/bench-server.sh
 #   MEMD_DB_PATH=/tmp/lme.db scripts/bench-server.sh
 #
 # Then in a separate shell:
-#   MEMD_BASE_URL=http://127.0.0.1:18787 /tmp/memd-target/release/memd \
+#   MEMD_BASE_URL=http://127.0.0.1:18787 "${MEMD_CARGO_TARGET_DIR:-${TMPDIR:-/tmp}/memd-cargo-target}/release/memd" \
 #     benchmark public longmemeval --retrieval-backend memd --limit 200 ...
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TARGET_DIR="${CARGO_TARGET_DIR:-/tmp/memd-target}"
+source "$REPO_ROOT/scripts/lib/memd-cargo-env.sh"
+memd_cargo_refuse_on_host_blockers
+TARGET_DIR="${MEMD_SERVER_TARGET_DIR:-$MEMD_CARGO_TARGET_DIR}"
 BIN="${MEMD_SERVER_BIN:-$TARGET_DIR/release/memd-server}"
 
 if [[ ! -x "$BIN" ]]; then
   echo "bench-server: missing $BIN" >&2
-  echo "  build with: CARGO_TARGET_DIR=$TARGET_DIR cargo build --release -p memd-server" >&2
+  echo "  build with: MEMD_CARGO_TARGET_DIR=$TARGET_DIR scripts/memd-cargo-guard.sh -- build --release -p memd-server" >&2
   exit 1
 fi
 

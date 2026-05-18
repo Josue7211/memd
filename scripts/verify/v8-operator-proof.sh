@@ -7,6 +7,10 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+HOST_IO_GUARD="${HOST_IO_GUARD:-$REPO_ROOT/scripts/memd-host-io-guard.sh}"
+if [[ "${HOST_IO_GUARD_ENABLED:-1}" == "1" || "${HOST_IO_GUARD_ENABLED:-1}" == "true" ]]; then
+  "$HOST_IO_GUARD"
+fi
 APP_DIR="$REPO_ROOT/apps"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/docs/verification/v8-runs/ui/operator}"
 RUN_DATE="${RUN_DATE:-$(date +%F)}"

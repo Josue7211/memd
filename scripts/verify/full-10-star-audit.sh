@@ -2,10 +2,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/scripts/lib/memd-cargo-env.sh"
+memd_cargo_refuse_on_host_blockers
 RUN_DATE="${RUN_DATE:-$(date +%F)}"
 OUT_DIR="${OUT_DIR:-$ROOT/docs/verification/full-10-star-audit}"
 LOG_DIR="$OUT_DIR/$RUN_DATE"
 JOBS="${CARGO_BUILD_JOBS:-1}"
+export CARGO_TERM_COLOR=never
+export CARGO_BUILD_JOBS="$JOBS"
 
 mkdir -p "$LOG_DIR"
 
@@ -22,8 +26,8 @@ run() {
 run apps-build bash -lc 'cd apps && npm run build'
 run dashboard-build bash -lc 'cd apps/dashboard && npm run build'
 run cargo-fmt cargo fmt --check
-run cargo-test env CARGO_TERM_COLOR=never cargo test --workspace --quiet
-run cargo-clippy env CARGO_BUILD_JOBS="$JOBS" CARGO_TERM_COLOR=never cargo clippy --workspace --all-targets -- -D warnings
+run cargo-test cargo test --workspace --quiet
+run cargo-clippy cargo clippy --workspace --all-targets -- -D warnings
 
 for suite in \
   scripts/verify/v8-operator-proof.sh \

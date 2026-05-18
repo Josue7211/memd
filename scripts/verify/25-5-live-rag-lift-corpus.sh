@@ -5,6 +5,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/scripts/lib/memd-cargo-env.sh"
 OUT_DIR="${OUT_DIR:-$ROOT/docs/verification/25-5-memory-os-runs}"
 RUN_DATE="${RUN_DATE:-$(date +%F)}"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/memd-live-rag-lift.XXXXXX")"

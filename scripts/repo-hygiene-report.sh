@@ -3,6 +3,11 @@ set -euo pipefail
 
 ROOT="${1:-.}"
 cd "$ROOT"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOST_IO_GUARD="${HOST_IO_GUARD:-$SCRIPT_DIR/memd-host-io-guard.sh}"
+if [ "${HOST_IO_GUARD_ENABLED:-1}" != "0" ] && [ "${HOST_IO_GUARD_ENABLED:-1}" != "false" ]; then
+  "$HOST_IO_GUARD"
+fi
 
 if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
   echo "not a git repo: $ROOT" >&2

@@ -496,6 +496,7 @@ pub(crate) fn render_hive_handoff_summary(response: &HiveHandoffResponse) -> Str
             response.recommended_follow,
         ),
         format!("receipt_summary=\"{}\"", response.receipt_summary),
+        format!("next_agent_prompt:\n{}", response.next_agent_prompt),
     ];
     lines.join("\n")
 }

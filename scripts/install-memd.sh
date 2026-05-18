@@ -14,6 +14,24 @@ fail() {
   exit 1
 }
 
+run_host_io_guard() {
+  local script_dir guard repo_root
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  guard="${HOST_IO_GUARD:-$script_dir/memd-host-io-guard.sh}"
+  if [ "${HOST_IO_GUARD_ENABLED:-1}" = "0" ] || [ "${HOST_IO_GUARD_ENABLED:-1}" = "false" ]; then
+    return 0
+  fi
+  if [ ! -x "$guard" ]; then
+    fail "host I/O guard not executable: $guard"
+  fi
+  repo_root="$(detect_repo_root 2>/dev/null || true)"
+  if [ -n "$repo_root" ]; then
+    MEMD_CARGO_REPO_ROOT="${MEMD_CARGO_REPO_ROOT:-$repo_root}" "$guard"
+  else
+    "$guard"
+  fi
+}
+
 detect_repo_root() {
   if [ -n "${MEMD_REPO:-}" ] && [ -d "$MEMD_REPO/crates/memd-client" ]; then
     printf '%s\n' "$MEMD_REPO"
@@ -71,10 +89,12 @@ memd_is_current_for_checkout() {
 install_memd_from_source() {
   command -v cargo >/dev/null 2>&1 || fail "Rust cargo missing. Install Rust, then rerun this script."
   REPO_ROOT="$(detect_repo_root)" || fail "run from a memd checkout or set MEMD_REPO=/path/to/memd"
+  source "$REPO_ROOT/scripts/lib/memd-cargo-env.sh"
   say "building memd from $REPO_ROOT"
   cargo install --path "$REPO_ROOT/crates/memd-client" --bin memd --root "$PREFIX" --locked --force
 }
 
+run_host_io_guard
 mkdir -p "$BIN_DIR"
 
 EXISTING_MEMD="$(command -v memd 2>/dev/null || true)"

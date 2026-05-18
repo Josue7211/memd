@@ -46,6 +46,21 @@ pub(crate) async fn run_hook_mode(
         }
         HookMode::Capture(args) => {
             let output = args.output.clone();
+            let mut event_paths = Vec::new();
+            if let Some(path) = args.source_path.as_ref() {
+                event_paths.push(path.clone());
+            }
+            if let Some(path) = args.input.as_ref() {
+                event_paths.push(path.display().to_string());
+            }
+            if !event_paths.is_empty() {
+                let _ = crate::awareness::record_codebase_live_map_event(
+                    &output,
+                    "hook-capture",
+                    &event_paths,
+                );
+            }
+            let _ = crate::awareness::refresh_codebase_live_map_for_bundle(&output);
             let content = if let Some(content) = &args.content {
                 content.clone()
             } else if let Some(path) = &args.input {
@@ -194,6 +209,7 @@ pub(crate) async fn run_hook_mode(
                 &args.tag,
                 &content,
             )?;
+            let _ = crate::awareness::refresh_codebase_live_map_for_bundle(&output);
             if args.summary {
                 let (supersede_query, supersede_tried, supersede_hits) =
                     summarize_hook_capture_supersede_diagnostics(&supersede_diagnostics);
@@ -244,9 +260,16 @@ pub(crate) async fn run_hook_mode(
             }
             let value: serde_json::Value = serde_json::from_str(payload_trim)
                 .context("parse file-interaction payload as JSON")?;
+            let paths = extract_hook_file_interaction_paths(&value);
             let now_ms = chrono::Utc::now().timestamp_millis();
             append_file_interaction(&value, args.session_id.as_deref(), &args.output, now_ms)
                 .context("append file-interaction ledger")?;
+            let _ = crate::awareness::record_codebase_live_map_event(
+                &args.output,
+                "file-interaction",
+                &paths,
+            );
+            let _ = crate::awareness::refresh_codebase_live_map_for_bundle(&args.output);
         }
         HookMode::SealLedger(args) => {
             match seal_session_ledger(&args.session_id, &args.output) {
@@ -392,6 +415,94 @@ pub(crate) async fn run_hook_mode(
     }
 
     Ok(())
+}
+
+fn extract_hook_file_interaction_paths(value: &serde_json::Value) -> Vec<String> {
+    let mut paths = Vec::new();
+    collect_hook_file_interaction_paths(value, &mut paths);
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+fn collect_hook_file_interaction_paths(value: &serde_json::Value, paths: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, child) in map {
+                let key = key.to_ascii_lowercase();
+                if matches!(
+                    key.as_str(),
+                    "path"
+                        | "paths"
+                        | "file"
+                        | "files"
+                        | "file_path"
+                        | "file_paths"
+                        | "filepath"
+                        | "filepaths"
+                        | "absolute_path"
+                        | "absolute_paths"
+                        | "relative_path"
+                        | "relative_paths"
+                ) && let Some(path) = child.as_str()
+                {
+                    paths.push(path.to_string());
+                }
+                if matches!(
+                    key.as_str(),
+                    "paths"
+                        | "files"
+                        | "file_paths"
+                        | "filepaths"
+                        | "absolute_paths"
+                        | "relative_paths"
+                ) && let Some(items) = child.as_array()
+                {
+                    paths.extend(items.iter().filter_map(|item| {
+                        item.as_str()
+                            .map(str::trim)
+                            .filter(|path| !path.is_empty())
+                            .map(str::to_string)
+                    }));
+                }
+                collect_hook_file_interaction_paths(child, paths);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items {
+                collect_hook_file_interaction_paths(child, paths);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod live_map_event_tests {
+    use super::*;
+
+    #[test]
+    fn extracts_plural_file_interaction_paths() {
+        let value = serde_json::json!({
+            "paths": ["src/lib.rs", "src/main.rs"],
+            "nested": {
+                "file_paths": ["crates/memd-client/src/awareness/mod.rs"],
+                "path": "AGENTS.md"
+            }
+        });
+
+        let paths = extract_hook_file_interaction_paths(&value);
+
+        assert_eq!(
+            paths,
+            vec![
+                "AGENTS.md",
+                "crates/memd-client/src/awareness/mod.rs",
+                "src/lib.rs",
+                "src/main.rs",
+            ]
+        );
+    }
 }
 
 pub(crate) fn run_hook_doctor(args: &HookDoctorArgs) -> anyhow::Result<()> {

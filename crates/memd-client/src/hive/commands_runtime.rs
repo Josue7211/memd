@@ -540,7 +540,7 @@ pub(crate) async fn run_hive_project_command(
 
     let runtime = read_bundle_runtime_config(&args.output)?
         .context("reload bundle runtime config after hive-project update")?;
-    let heartbeat = if runtime.session.is_some() {
+    let heartbeat = if action != "status" && runtime.session.is_some() {
         Some(serde_json::to_value(
             refresh_bundle_heartbeat(&args.output, None, false).await?,
         )?)

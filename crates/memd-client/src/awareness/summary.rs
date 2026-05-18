@@ -71,7 +71,12 @@ pub(crate) fn render_project_awareness_summary(response: &ProjectAwarenessRespon
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let rendered_diagnostics = awareness_summary_diagnostics(&visible_entries);
+    let mut rendered_diagnostics = awareness_summary_diagnostics(&visible_entries);
+    for collision in &response.collisions {
+        if !rendered_diagnostics.contains(collision) {
+            rendered_diagnostics.push(collision.clone());
+        }
+    }
     let mut lines = vec![format!(
         "awareness root={} bundles={} diagnostics={} hidden_remote_dead={} hidden_superseded_stale={}",
         response.root,

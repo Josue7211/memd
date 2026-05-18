@@ -870,6 +870,7 @@ pub(crate) async fn write_bundle_heartbeat(
     }
     let mut state = build_hive_heartbeat(output, snapshot)?;
     enrich_hive_heartbeat_with_runtime_intent(&mut state).await?;
+    let _ = crate::awareness::refresh_codebase_live_map_for_bundle(output);
     if probe_base_url && let Some(url) = state.base_url.as_deref() {
         state.base_url_healthy = Some(MemdClient::new(url)?.healthz().await.is_ok());
     }
@@ -908,6 +909,7 @@ pub(crate) async fn reconcile_bundle_heartbeat(
     }
     let mut state = build_hive_heartbeat(output, snapshot)?;
     enrich_hive_heartbeat_with_runtime_intent(&mut state).await?;
+    let _ = crate::awareness::refresh_codebase_live_map_for_bundle(output);
     if probe_base_url && let Some(url) = state.base_url.as_deref() {
         state.base_url_healthy = Some(MemdClient::new(url)?.healthz().await.is_ok());
     }
@@ -1791,9 +1793,10 @@ fn annotate_host_cli_auth_notes(record: &mut CapabilityRecord) {
     record
         .notes
         .push(format!("{HOST_CLI_AUTH_CHECK_PREFIX}{check}"));
-    record
-        .notes
-        .push(format!("{HOST_CLI_AUTH_PROOF_PREFIX}local-probe"));
+    record.notes.push(format!(
+        "{HOST_CLI_AUTH_PROOF_PREFIX}{}",
+        host_cli_auth_proof()
+    ));
     record
         .notes
         .push(format!("{HOST_CLI_AUTH_OUTPUT_STORED_PREFIX}false"));
@@ -2095,10 +2098,21 @@ fn host_cli_auth_status(name: &str) -> Option<String> {
     let Some(args) = host_cli_auth_probe_args(name) else {
         return Some("unknown".to_string());
     };
+    if !env_flag_enabled("MEMD_CAPABILITIES_AUTH_PROBE") {
+        return Some("unknown".to_string());
+    }
     match std::process::Command::new(name).args(args).output() {
         Ok(output) if output.status.success() => Some("authenticated".to_string()),
         Ok(_) => Some("unauthenticated".to_string()),
         Err(_) => Some("unknown".to_string()),
+    }
+}
+
+fn host_cli_auth_proof() -> &'static str {
+    if env_flag_enabled("MEMD_CAPABILITIES_AUTH_PROBE") {
+        "local-probe"
+    } else {
+        "probe-skipped"
     }
 }
 
@@ -2420,6 +2434,7 @@ mod capability_materialization_tests {
     fn host_cli_auth_probe_marks_authenticated_without_storing_output() {
         let _guard = lock_host_cli_install_env();
         let old_path = std::env::var_os("PATH");
+        let old_auth_probe = std::env::var_os("MEMD_CAPABILITIES_AUTH_PROBE");
         let root =
             std::env::temp_dir().join(format!("memd-host-cli-auth-probe-{}", uuid::Uuid::new_v4()));
         let bundle = root.join(".memd");
@@ -2437,6 +2452,7 @@ mod capability_materialization_tests {
         }
         unsafe {
             std::env::set_var("PATH", &bin);
+            std::env::set_var("MEMD_CAPABILITIES_AUTH_PROBE", "1");
         }
 
         let mut record = capability(
@@ -2499,6 +2515,10 @@ mod capability_materialization_tests {
                 Some(value) => std::env::set_var("PATH", value),
                 None => std::env::remove_var("PATH"),
             }
+            match old_auth_probe {
+                Some(value) => std::env::set_var("MEMD_CAPABILITIES_AUTH_PROBE", value),
+                None => std::env::remove_var("MEMD_CAPABILITIES_AUTH_PROBE"),
+            }
         }
         fs::remove_dir_all(root).ok();
     }
@@ -2507,6 +2527,7 @@ mod capability_materialization_tests {
     fn host_cli_auth_probe_marks_unauthenticated_as_gap() {
         let _guard = lock_host_cli_install_env();
         let old_path = std::env::var_os("PATH");
+        let old_auth_probe = std::env::var_os("MEMD_CAPABILITIES_AUTH_PROBE");
         let root = std::env::temp_dir().join(format!(
             "memd-host-cli-auth-probe-fail-{}",
             uuid::Uuid::new_v4()
@@ -2526,6 +2547,7 @@ mod capability_materialization_tests {
         }
         unsafe {
             std::env::set_var("PATH", &bin);
+            std::env::set_var("MEMD_CAPABILITIES_AUTH_PROBE", "1");
         }
 
         let mut record = capability(
@@ -2586,6 +2608,10 @@ mod capability_materialization_tests {
                 Some(value) => std::env::set_var("PATH", value),
                 None => std::env::remove_var("PATH"),
             }
+            match old_auth_probe {
+                Some(value) => std::env::set_var("MEMD_CAPABILITIES_AUTH_PROBE", value),
+                None => std::env::remove_var("MEMD_CAPABILITIES_AUTH_PROBE"),
+            }
         }
         fs::remove_dir_all(root).ok();
     }
@@ -2594,6 +2620,7 @@ mod capability_materialization_tests {
     fn host_cli_auth_notes_are_syncable_without_secret_output() {
         let _guard = lock_host_cli_install_env();
         let old_path = std::env::var_os("PATH");
+        let old_auth_probe = std::env::var_os("MEMD_CAPABILITIES_AUTH_PROBE");
         let root = std::env::temp_dir().join(format!(
             "memd-host-cli-auth-sync-note-{}",
             uuid::Uuid::new_v4()
@@ -2613,6 +2640,7 @@ mod capability_materialization_tests {
         }
         unsafe {
             std::env::set_var("PATH", &bin);
+            std::env::set_var("MEMD_CAPABILITIES_AUTH_PROBE", "1");
         }
 
         let mut record = capability(
@@ -2704,6 +2732,10 @@ mod capability_materialization_tests {
                 Some(value) => std::env::set_var("PATH", value),
                 None => std::env::remove_var("PATH"),
             }
+            match old_auth_probe {
+                Some(value) => std::env::set_var("MEMD_CAPABILITIES_AUTH_PROBE", value),
+                None => std::env::remove_var("MEMD_CAPABILITIES_AUTH_PROBE"),
+            }
         }
         fs::remove_dir_all(root).ok();
     }
@@ -2712,6 +2744,7 @@ mod capability_materialization_tests {
     fn capability_sync_persists_host_cli_auth_notes_to_registry() {
         let _guard = lock_host_cli_install_env();
         let old_path = std::env::var_os("PATH");
+        let old_auth_probe = std::env::var_os("MEMD_CAPABILITIES_AUTH_PROBE");
         let root = std::env::temp_dir().join(format!(
             "memd-host-cli-auth-sync-registry-{}",
             uuid::Uuid::new_v4()
@@ -2731,6 +2764,7 @@ mod capability_materialization_tests {
         }
         unsafe {
             std::env::set_var("PATH", &bin);
+            std::env::set_var("MEMD_CAPABILITIES_AUTH_PROBE", "1");
         }
 
         run_capabilities_command(&CapabilitiesArgs {
@@ -2790,6 +2824,10 @@ mod capability_materialization_tests {
             match old_path {
                 Some(value) => std::env::set_var("PATH", value),
                 None => std::env::remove_var("PATH"),
+            }
+            match old_auth_probe {
+                Some(value) => std::env::set_var("MEMD_CAPABILITIES_AUTH_PROBE", value),
+                None => std::env::remove_var("MEMD_CAPABILITIES_AUTH_PROBE"),
             }
         }
         fs::remove_dir_all(root).ok();

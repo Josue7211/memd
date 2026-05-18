@@ -5,6 +5,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/scripts/lib/memd-cargo-env.sh"
 OUT_DIR="${OUT_DIR:-$ROOT/docs/verification/25-5-memory-os-runs}"
 RUN_DATE="${RUN_DATE:-$(date +%F)}"
 NDJSON="$OUT_DIR/${RUN_DATE}-25-5-memory-os-suite.ndjson"
@@ -61,23 +62,23 @@ run_gate() {
 run_gate "recall" "server-search-fabric" \
   cargo test -p memd-server search_fabric -- --nocapture
 run_gate "recall" "server-no-rag-acceptance" \
-  env CARGO_INCREMENTAL=0 cargo test -p memd-server search_memory_no_rag_acceptance_trace_fuzzy_correction_visibility_firewall -- --nocapture
+  CARGO_INCREMENTAL=0 cargo test -p memd-server search_memory_no_rag_acceptance_trace_fuzzy_correction_visibility_firewall -- --nocapture
 run_gate "recall" "server-no-rag-public-corpus" \
-  env CARGO_INCREMENTAL=0 cargo test -p memd-server search_memory_no_rag_public_corpus_scores_traceable_recall -- --nocapture
+  CARGO_INCREMENTAL=0 cargo test -p memd-server search_memory_no_rag_public_corpus_scores_traceable_recall -- --nocapture
 run_gate "rag_booster" "server-with-rag-acceptance" \
-  env CARGO_INCREMENTAL=0 cargo test -p memd-server search_memory_with_rag_acceptance_boosts_semantic_recall_and_outage_falls_back -- --nocapture
+  CARGO_INCREMENTAL=0 cargo test -p memd-server search_memory_with_rag_acceptance_boosts_semantic_recall_and_outage_falls_back -- --nocapture
 run_gate "rag_booster" "server-with-rag-public-corpus" \
-  env CARGO_INCREMENTAL=0 cargo test -p memd-server search_memory_with_rag_public_corpus_scores_boost_acl_and_truth_guard -- --nocapture
+  CARGO_INCREMENTAL=0 cargo test -p memd-server search_memory_with_rag_public_corpus_scores_boost_acl_and_truth_guard -- --nocapture
 run_gate "continuity" "server-cross-harness-ollama" \
-  env CARGO_INCREMENTAL=0 cargo test -p memd-server cross_harness_claude_correction_reaches_codex_and_ollama_context -- --nocapture
+  CARGO_INCREMENTAL=0 cargo test -p memd-server cross_harness_claude_correction_reaches_codex_and_ollama_context -- --nocapture
 run_gate "continuity" "server-cross-harness-matrix" \
-  env CARGO_INCREMENTAL=0 cargo test -p memd-server cross_harness_matrix_shares_corrections_and_isolates_private_memory -- --nocapture
+  CARGO_INCREMENTAL=0 cargo test -p memd-server cross_harness_matrix_shares_corrections_and_isolates_private_memory -- --nocapture
 run_gate "continuity" "harness-process-replay" \
   scripts/verify/25-5-harness-process-replay.sh
 run_gate "offline_sync" "client-offline-store-queue" \
-  env CARGO_INCREMENTAL=0 cargo test -p memd-client --bin memd offline_store -- --nocapture
+  CARGO_INCREMENTAL=0 cargo test -p memd-client --bin memd offline_store -- --nocapture
 run_gate "safety" "ollama-prompt-firewall" \
-  env CARGO_INCREMENTAL=0 cargo test -p memd-client --bin memd prompt_context_packet -- --nocapture
+  CARGO_INCREMENTAL=0 cargo test -p memd-client --bin memd prompt_context_packet -- --nocapture
 run_gate "safety" "promptwall-firewall-corpus" \
   scripts/verify/25-5-promptwall-firewall-corpus.sh
 run_gate "rag_booster" "server-rag-bridge" \
@@ -87,7 +88,7 @@ run_gate "rag_booster" "live-server-sidecar-rag" \
 run_gate "model_selection" "core-embedding-registry" \
   cargo test -p memd-core embedding_registry -- --nocapture
 run_gate "model_selection" "client-embed-bench" \
-  env CARGO_INCREMENTAL=0 cargo test -p memd-client --bin memd embed_bench -- --nocapture
+  CARGO_INCREMENTAL=0 cargo test -p memd-client --bin memd embed_bench -- --nocapture
 run_gate "model_selection" "live-sidecar-embed-bench" \
   scripts/verify/25-5-live-sidecar-embed-bench.sh
 run_gate "model_selection" "live-sidecar-fastembed-bench" \

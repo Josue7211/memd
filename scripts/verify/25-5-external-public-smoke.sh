@@ -6,6 +6,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/scripts/lib/memd-cargo-env.sh"
 OUT_DIR="${OUT_DIR:-$ROOT/docs/verification/25-5-memory-os-runs}"
 DEFAULT_CACHE_ROOT="${MEMD_EXTERNAL_PUBLIC_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/memd/external-public-cache}"
 RUN_DATE="${RUN_DATE:-$(date +%F)}"

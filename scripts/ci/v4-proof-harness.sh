@@ -10,13 +10,15 @@
 #
 # Env:
 #   MEMD_G4_HARNESS_FAIL_FAST  default 1 — stop at first failed assertion.
-#   CARGO_TARGET_DIR           default /tmp/memd-target.
+#   MEMD_CARGO_TARGET_DIR      default ${TMPDIR:-/tmp}/memd-cargo-target.
 
 set -eo pipefail
 
-: "${CARGO_TARGET_DIR:=/tmp/memd-target}"
 : "${MEMD_G4_HARNESS_FAIL_FAST:=1}"
-export CARGO_TARGET_DIR MEMD_G4_HARNESS_FAIL_FAST
+export MEMD_G4_HARNESS_FAIL_FAST
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/scripts/lib/memd-cargo-env.sh"
+memd_cargo_refuse_on_host_blockers
 
 TMPDIR_V4=""
 cleanup() {
@@ -49,7 +51,7 @@ is_infra_flake() {
 run_once() {
   local stderr_log="$1"
   cargo test \
-    --target-dir "$CARGO_TARGET_DIR" \
+    --target-dir "$MEMD_CARGO_TARGET_DIR" \
     -p memd-client \
     v4_proof_harness \
     2>"$stderr_log"

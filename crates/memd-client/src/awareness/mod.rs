@@ -85,6 +85,12 @@ pub(crate) async fn read_project_awareness(
                 collisions.push(collision);
             }
         }
+        let visible_entries = entries.iter().collect::<Vec<_>>();
+        for collision in awareness_summary_diagnostics(&visible_entries) {
+            if !collisions.contains(&collision) {
+                collisions.push(collision);
+            }
+        }
 
         return Ok(ProjectAwarenessResponse {
             root: shared.root,
@@ -442,6 +448,9 @@ pub(crate) async fn read_project_awareness_shared(
         .map(|(url, count)| format!("base_url {} used by {} bundles", url, count))
         .collect::<Vec<_>>();
     collisions.extend(session_collision_warnings(&entries));
+    collisions.extend(branch_collision_warnings(&entries));
+    let visible_entries = entries.iter().collect::<Vec<_>>();
+    collisions.extend(work_overlap_warnings(&visible_entries));
     let root = if let Some(workspace) = runtime.and_then(|config| config.workspace.clone()) {
         format!("server:{base_url} workspace:{workspace}")
     } else {
@@ -526,7 +535,28 @@ pub(crate) fn session_collision_warnings(entries: &[ProjectAwarenessEntry]) -> V
 pub(crate) fn read_project_awareness_local(
     args: &AwarenessArgs,
 ) -> anyhow::Result<ProjectAwarenessResponse> {
-    let (current_bundle, _current_project, scan_root) = resolve_awareness_paths(args)?;
+    let (current_bundle, current_project, scan_root) = resolve_awareness_paths(args)?;
+    let codebase_live_map = update_codebase_live_map(&current_bundle, &current_project)
+        .unwrap_or_else(|err| CodebaseLiveMapUpdate {
+            status: "unknown".to_string(),
+            diagnostics: vec![format!(
+                "codebase_live_map_error {}",
+                compact_inline(&err.to_string(), 160)
+            )],
+        });
+    if codebase_live_map.status == "blocked" {
+        let mut collisions = codebase_live_map.diagnostics;
+        collisions.push(format!(
+            "awareness_scan_skipped status=blocked root={} action=use_cached_live_map_and_retry_after_host_recovery",
+            scan_root.display()
+        ));
+        return Ok(ProjectAwarenessResponse {
+            root: scan_root.display().to_string(),
+            current_bundle: current_bundle.display().to_string(),
+            collisions,
+            entries: Vec::new(),
+        });
+    }
     let current_runtime = read_bundle_runtime_config(&current_bundle)?;
 
     let mut entries = Vec::new();
@@ -728,6 +758,10 @@ pub(crate) fn read_project_awareness_local(
         .map(|(url, count)| format!("base_url {} used by {} bundles", url, count))
         .collect::<Vec<_>>();
     collisions.extend(session_collision_warnings(&entries));
+    collisions.extend(branch_collision_warnings(&entries));
+    let visible_entries = entries.iter().collect::<Vec<_>>();
+    collisions.extend(work_overlap_warnings(&visible_entries));
+    collisions.extend(codebase_live_map.diagnostics);
 
     Ok(ProjectAwarenessResponse {
         root: scan_root.display().to_string(),
@@ -735,6 +769,805 @@ pub(crate) fn read_project_awareness_local(
         collisions,
         entries,
     })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CodebaseLiveMapState {
+    repo_root: String,
+    fingerprint: String,
+    file_count: usize,
+    newest_mtime_unix: i64,
+    updated_at: DateTime<Utc>,
+    status: String,
+    needs_reread: bool,
+    autosync: String,
+    #[serde(default)]
+    blockers: Vec<String>,
+    #[serde(default)]
+    files: std::collections::BTreeMap<String, CodebaseLiveMapFile>,
+    #[serde(default)]
+    last_changes: CodebaseLiveMapDiff,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct CodebaseLiveMapFile {
+    len: u64,
+    mtime_unix: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct CodebaseLiveMapDiff {
+    added_count: usize,
+    modified_count: usize,
+    deleted_count: usize,
+    #[serde(default)]
+    baseline_available: bool,
+    #[serde(default)]
+    added: Vec<String>,
+    #[serde(default)]
+    modified: Vec<String>,
+    #[serde(default)]
+    deleted: Vec<String>,
+    truncated: bool,
+}
+
+#[derive(Debug, Clone)]
+struct CodebaseLiveMapUpdate {
+    status: String,
+    diagnostics: Vec<String>,
+}
+
+pub(crate) fn refresh_codebase_live_map_for_bundle(output: &Path) -> anyhow::Result<Vec<String>> {
+    let bundle_root = if output.is_absolute() {
+        output.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(output)
+    };
+    let bundle_root = fs::canonicalize(&bundle_root).unwrap_or(bundle_root);
+    let repo_root = bundle_root
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    update_codebase_live_map(&bundle_root, &repo_root).map(|update| update.diagnostics)
+}
+
+pub(crate) fn record_codebase_live_map_event(
+    output: &Path,
+    source: &str,
+    paths: &[String],
+) -> anyhow::Result<()> {
+    let paths = paths
+        .iter()
+        .map(|path| path.trim())
+        .filter(|path| !path.is_empty())
+        .take(64)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let bundle_root = if output.is_absolute() {
+        output.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(output)
+    };
+    let bundle_root = fs::canonicalize(&bundle_root).unwrap_or(bundle_root);
+    let state_dir = bundle_root.join("state");
+    fs::create_dir_all(&state_dir)
+        .with_context(|| format!("create live-map state dir {}", state_dir.display()))?;
+    let event_path = state_dir.join("codebase-live-map-events.ndjson");
+    let event = CodebaseLiveMapEvent {
+        ts: Utc::now(),
+        source: source.to_string(),
+        paths,
+    };
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&event_path)
+        .with_context(|| format!("open {}", event_path.display()))?;
+    use std::io::Write as _;
+    writeln!(file, "{}", serde_json::to_string(&event)?)
+        .with_context(|| format!("write {}", event_path.display()))?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CodebaseLiveMapEvent {
+    ts: DateTime<Utc>,
+    source: String,
+    paths: Vec<String>,
+}
+
+fn update_codebase_live_map(
+    bundle_root: &Path,
+    repo_root: &Path,
+) -> anyhow::Result<CodebaseLiveMapUpdate> {
+    let state_dir = bundle_root.join("state");
+    fs::create_dir_all(&state_dir)
+        .with_context(|| format!("create live-map state dir {}", state_dir.display()))?;
+    let state_path = state_dir.join("codebase-live-map.json");
+    let previous = fs::read_to_string(&state_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<CodebaseLiveMapState>(&raw).ok());
+    let recent_events = read_recent_codebase_live_map_events(bundle_root, 24);
+    let blockers = host_process_live_map_blockers(bundle_root, repo_root);
+    if !blockers.is_empty() {
+        let previous_status = previous
+            .as_ref()
+            .map(|state| state.status.as_str())
+            .unwrap_or("unknown");
+        let previous_file_count = previous.as_ref().map(|state| state.file_count).unwrap_or(0);
+        let previous_newest_mtime = previous
+            .as_ref()
+            .map(|state| state.newest_mtime_unix)
+            .unwrap_or(0);
+        let blocked_state = CodebaseLiveMapState {
+            repo_root: repo_root.display().to_string(),
+            fingerprint: previous
+                .as_ref()
+                .map(|state| state.fingerprint.clone())
+                .unwrap_or_else(|| "blocked-no-scan".to_string()),
+            file_count: previous_file_count,
+            newest_mtime_unix: previous_newest_mtime,
+            updated_at: Utc::now(),
+            status: "blocked".to_string(),
+            needs_reread: true,
+            autosync: "blocked_no_scan".to_string(),
+            blockers: blockers.clone(),
+            files: previous
+                .as_ref()
+                .map(|state| state.files.clone())
+                .unwrap_or_default(),
+            last_changes: previous
+                .as_ref()
+                .map(|state| state.last_changes.clone())
+                .unwrap_or_default(),
+        };
+        fs::write(&state_path, serde_json::to_vec_pretty(&blocked_state)?)
+            .with_context(|| format!("write {}", state_path.display()))?;
+        let mut diagnostics = vec![format!(
+            "codebase_live_map status=blocked autosync=blocked_no_scan reread_required=true previous_status={} files={} newest_mtime={} recent_events={} state={} action=wait_for_host_io_recovery",
+            previous_status,
+            previous_file_count,
+            previous_newest_mtime,
+            recent_events.len(),
+            state_path.display()
+        )];
+        diagnostics.extend(blockers);
+        if !recent_events.is_empty() {
+            diagnostics.push(format!(
+                "codebase_event_log events={} sample=\"{}\" action=merge_tool_events_into_live_map_after_host_recovery",
+                recent_events.len(),
+                compact_inline(&codebase_live_map_event_sample(&recent_events), 220)
+            ));
+        }
+        return Ok(CodebaseLiveMapUpdate {
+            status: "blocked".to_string(),
+            diagnostics,
+        });
+    }
+    if let Some(cached) = previous.as_ref() {
+        let ttl_secs = codebase_live_map_ttl_secs();
+        let age_secs = Utc::now()
+            .signed_duration_since(cached.updated_at)
+            .num_seconds()
+            .max(0);
+        if age_secs <= ttl_secs {
+            let mut diagnostics = vec![format!(
+                "codebase_live_map status={} autosync=cached_no_rescan reread_required={} age_secs={} ttl_secs={} files={} newest_mtime={} recent_events={} state={}",
+                cached.status,
+                cached.needs_reread,
+                age_secs,
+                ttl_secs,
+                cached.file_count,
+                cached.newest_mtime_unix,
+                recent_events.len(),
+                state_path.display()
+            )];
+            if !recent_events.is_empty() {
+                diagnostics.push(format!(
+                    "codebase_event_log events={} sample=\"{}\" action=merge_tool_events_into_cached_live_map",
+                    recent_events.len(),
+                    compact_inline(&codebase_live_map_event_sample(&recent_events), 220)
+                ));
+            }
+            return Ok(CodebaseLiveMapUpdate {
+                status: cached.status.clone(),
+                diagnostics,
+            });
+        }
+    }
+    let snapshot = scan_codebase_live_map(repo_root)?;
+    let previous_trusted = previous
+        .as_ref()
+        .filter(|state| codebase_live_map_has_trusted_baseline(state));
+    let diff = diff_codebase_live_map(previous_trusted, &snapshot.files);
+    let changed = previous_trusted.is_some_and(|state| state.fingerprint != snapshot.fingerprint);
+    let needs_reread = changed;
+    let status = if changed { "out_of_sync" } else { "fresh" };
+    let autosync = if needs_reread {
+        "updated_map_reread_required"
+    } else if previous_trusted.is_none() {
+        "initialized_map_no_reread"
+    } else {
+        "updated_map_no_reread"
+    };
+    let next_state = CodebaseLiveMapState {
+        repo_root: repo_root.display().to_string(),
+        fingerprint: snapshot.fingerprint.clone(),
+        file_count: snapshot.file_count,
+        newest_mtime_unix: snapshot.newest_mtime_unix,
+        updated_at: Utc::now(),
+        status: status.to_string(),
+        needs_reread,
+        autosync: autosync.to_string(),
+        blockers: blockers.clone(),
+        files: snapshot.files.clone(),
+        last_changes: diff.clone(),
+    };
+    fs::write(&state_path, serde_json::to_vec_pretty(&next_state)?)
+        .with_context(|| format!("write {}", state_path.display()))?;
+
+    let mut diagnostics = vec![format!(
+        "codebase_live_map status={} autosync={} reread_required={} files={} newest_mtime={} state={}",
+        status,
+        autosync,
+        needs_reread,
+        snapshot.file_count,
+        snapshot.newest_mtime_unix,
+        state_path.display()
+    )];
+    if changed {
+        diagnostics.push(format!(
+            "codebase_out_of_sync previous={} current={} action=reread_changed_files",
+            previous_trusted
+                .map(|state| state.fingerprint.as_str())
+                .unwrap_or("none"),
+            snapshot.fingerprint
+        ));
+        diagnostics.push(format!(
+            "codebase_diff added={} modified={} deleted={} sample=\"{}\" truncated={}",
+            diff.added_count,
+            diff.modified_count,
+            diff.deleted_count,
+            compact_inline(&codebase_diff_sample(&diff), 220),
+            diff.truncated
+        ));
+    }
+    for blocker in blockers {
+        diagnostics.push(blocker);
+    }
+    if !recent_events.is_empty() {
+        diagnostics.push(format!(
+            "codebase_event_log events={} sample=\"{}\" action=merge_tool_events_into_live_map",
+            recent_events.len(),
+            compact_inline(&codebase_live_map_event_sample(&recent_events), 220)
+        ));
+    }
+
+    Ok(CodebaseLiveMapUpdate {
+        status: status.to_string(),
+        diagnostics,
+    })
+}
+
+fn codebase_live_map_has_trusted_baseline(state: &CodebaseLiveMapState) -> bool {
+    !state.files.is_empty()
+        && !matches!(
+            state.fingerprint.as_str(),
+            "blocked-no-scan"
+                | "host-io-blocked-no-scan"
+                | "host-io-clear-no-scan"
+                | "missing-no-scan"
+        )
+}
+
+fn codebase_live_map_ttl_secs() -> i64 {
+    std::env::var("MEMD_CODEBASE_LIVE_MAP_TTL_SECS")
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value >= 0)
+        .unwrap_or(15)
+}
+
+fn read_recent_codebase_live_map_events(
+    bundle_root: &Path,
+    limit: usize,
+) -> Vec<CodebaseLiveMapEvent> {
+    let path = bundle_root
+        .join("state")
+        .join("codebase-live-map-events.ndjson");
+    let Ok(raw) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    raw.lines()
+        .rev()
+        .filter_map(|line| serde_json::from_str::<CodebaseLiveMapEvent>(line).ok())
+        .take(limit)
+        .collect::<Vec<_>>()
+}
+
+fn codebase_live_map_event_sample(events: &[CodebaseLiveMapEvent]) -> String {
+    events
+        .iter()
+        .take(6)
+        .map(|event| {
+            format!(
+                "{}:{}",
+                event.source,
+                event
+                    .paths
+                    .iter()
+                    .take(4)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+#[derive(Debug, Clone)]
+struct CodebaseLiveMapSnapshot {
+    fingerprint: String,
+    file_count: usize,
+    newest_mtime_unix: i64,
+    files: std::collections::BTreeMap<String, CodebaseLiveMapFile>,
+}
+
+fn scan_codebase_live_map(repo_root: &Path) -> anyhow::Result<CodebaseLiveMapSnapshot> {
+    let mut files = Vec::new();
+    collect_codebase_live_map_files(repo_root, repo_root, &mut files, 2048)?;
+    files.sort();
+
+    let mut hasher = Sha256::new();
+    let mut newest_mtime_unix = 0_i64;
+    let mut file_map = std::collections::BTreeMap::new();
+    for (relative, len, mtime) in &files {
+        hasher.update(relative.as_bytes());
+        hasher.update([0]);
+        hasher.update(len.to_le_bytes());
+        hasher.update(mtime.to_le_bytes());
+        newest_mtime_unix = newest_mtime_unix.max(*mtime);
+        file_map.insert(
+            relative.clone(),
+            CodebaseLiveMapFile {
+                len: *len,
+                mtime_unix: *mtime,
+            },
+        );
+    }
+    Ok(CodebaseLiveMapSnapshot {
+        fingerprint: format!("{:x}", hasher.finalize()),
+        file_count: files.len(),
+        newest_mtime_unix,
+        files: file_map,
+    })
+}
+
+fn diff_codebase_live_map(
+    previous: Option<&CodebaseLiveMapState>,
+    current: &std::collections::BTreeMap<String, CodebaseLiveMapFile>,
+) -> CodebaseLiveMapDiff {
+    let Some(previous) = previous else {
+        return CodebaseLiveMapDiff::default();
+    };
+
+    let mut diff = CodebaseLiveMapDiff {
+        baseline_available: true,
+        ..CodebaseLiveMapDiff::default()
+    };
+    for (path, current_file) in current {
+        match previous.files.get(path) {
+            None => {
+                diff.added_count += 1;
+                push_codebase_diff_sample(&mut diff.added, path, &mut diff.truncated);
+            }
+            Some(previous_file) if previous_file != current_file => {
+                diff.modified_count += 1;
+                push_codebase_diff_sample(&mut diff.modified, path, &mut diff.truncated);
+            }
+            Some(_) => {}
+        }
+    }
+    for path in previous.files.keys() {
+        if !current.contains_key(path) {
+            diff.deleted_count += 1;
+            push_codebase_diff_sample(&mut diff.deleted, path, &mut diff.truncated);
+        }
+    }
+    diff
+}
+
+fn push_codebase_diff_sample(paths: &mut Vec<String>, path: &str, truncated: &mut bool) {
+    const SAMPLE_LIMIT: usize = 12;
+    if paths.len() < SAMPLE_LIMIT {
+        paths.push(path.to_string());
+    } else {
+        *truncated = true;
+    }
+}
+
+fn codebase_diff_sample(diff: &CodebaseLiveMapDiff) -> String {
+    let mut parts = Vec::new();
+    if !diff.added.is_empty() {
+        parts.push(format!("added:[{}]", diff.added.join(",")));
+    }
+    if !diff.modified.is_empty() {
+        parts.push(format!("modified:[{}]", diff.modified.join(",")));
+    }
+    if !diff.deleted.is_empty() {
+        parts.push(format!("deleted:[{}]", diff.deleted.join(",")));
+    }
+    if parts.is_empty() {
+        "none".to_string()
+    } else {
+        parts.join(" ")
+    }
+}
+
+fn collect_codebase_live_map_files(
+    repo_root: &Path,
+    dir: &Path,
+    out: &mut Vec<(String, u64, i64)>,
+    limit: usize,
+) -> anyhow::Result<()> {
+    if out.len() >= limit {
+        return Ok(());
+    }
+    for entry in fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
+        if out.len() >= limit {
+            break;
+        }
+        let entry = entry?;
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if should_skip_live_map_path(repo_root, &path, &name) {
+            continue;
+        }
+        let metadata = match entry.metadata() {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
+        };
+        if metadata.is_dir() {
+            collect_codebase_live_map_files(repo_root, &path, out, limit)?;
+            continue;
+        }
+        if !metadata.is_file() {
+            continue;
+        }
+        let relative = path
+            .strip_prefix(repo_root)
+            .unwrap_or(&path)
+            .display()
+            .to_string();
+        let mtime = metadata
+            .modified()
+            .ok()
+            .map(DateTime::<Utc>::from)
+            .map(|value| value.timestamp())
+            .unwrap_or_default();
+        out.push((relative, metadata.len(), mtime));
+    }
+    Ok(())
+}
+
+fn should_skip_live_map_path(repo_root: &Path, path: &Path, name: &str) -> bool {
+    if matches!(
+        name,
+        ".git"
+            | "target"
+            | "node_modules"
+            | ".next"
+            | "dist"
+            | "build"
+            | ".DS_Store"
+            | "codebase-live-map.json"
+            | "codebase-live-map-events.ndjson"
+            | "host-io-guard.txt"
+    ) {
+        return true;
+    }
+    let Ok(relative) = path.strip_prefix(repo_root) else {
+        return false;
+    };
+    let mut components = relative
+        .components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(value) => value.to_str(),
+            _ => None,
+        });
+    matches!(
+        (components.next(), components.next()),
+        (Some(".memd"), Some("state" | "logs"))
+    )
+}
+
+fn host_process_live_map_blockers(bundle_root: &Path, repo_root: &Path) -> Vec<String> {
+    if let Some(diagnostics) = host_io_guard_report_blockers(bundle_root) {
+        return diagnostics;
+    }
+    if matches!(
+        std::env::var("MEMD_CODEBASE_LIVE_MAP_SKIP_HOST_PROCESS_SCAN")
+            .ok()
+            .as_deref(),
+        Some("1" | "true" | "yes")
+    ) {
+        return Vec::new();
+    }
+    let mut command = Command::new("ps");
+    command.args(["-axo", "pid,ppid,state,command"]);
+    let output = match command_output_with_timeout(command, host_process_scan_timeout()) {
+        Ok(Some(output)) => output,
+        Ok(None) => {
+            return vec![format!(
+                "host_process_scan_timeout timeout_ms={} action=use_durable_host_io_snapshot_or_retry_later",
+                host_process_scan_timeout().as_millis()
+            )];
+        }
+        Err(_) => return Vec::new(),
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    let process_lines = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let repo_root_text = repo_root.display().to_string();
+    let volume = volume_root_for_path(repo_root);
+    let mut diagnostics = process_lines
+        .iter()
+        .filter_map(|line| {
+            host_process_live_map_diagnostic(line, &repo_root_text, volume.as_deref())
+        })
+        .collect::<Vec<_>>();
+    diagnostics.extend(host_filesystem_live_map_diagnostics(
+        repo_root,
+        &process_lines,
+    ));
+    diagnostics
+}
+
+fn command_output_with_timeout(
+    mut command: Command,
+    timeout: std::time::Duration,
+) -> anyhow::Result<Option<std::process::Output>> {
+    command.stdout(std::process::Stdio::piped());
+    command.stderr(std::process::Stdio::piped());
+    let mut child = command.spawn()?;
+    let started = std::time::Instant::now();
+    loop {
+        if child.try_wait()?.is_some() {
+            return Ok(Some(child.wait_with_output()?));
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            return Ok(None);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+}
+
+fn host_process_scan_timeout() -> std::time::Duration {
+    let millis = std::env::var("MEMD_HOST_PROCESS_SCAN_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(1500);
+    std::time::Duration::from_millis(millis)
+}
+
+fn host_io_guard_report_blockers(bundle_root: &Path) -> Option<Vec<String>> {
+    let path = bundle_root.join("state").join("host-io-guard.txt");
+    let raw = fs::read_to_string(&path).ok()?;
+    let mut status = None;
+    let mut ts = None;
+    let mut blockers = Vec::new();
+    for line in raw.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if let Some(value) = line.strip_prefix("status=") {
+            status = Some(value.to_string());
+            continue;
+        }
+        if let Some(value) = line.strip_prefix("ts=") {
+            ts = Some(value.to_string());
+            continue;
+        }
+        if line.starts_with("repo=") || line.starts_with("pid=") {
+            continue;
+        }
+        if line.contains("project_hint=host-io-report") {
+            continue;
+        }
+        blockers.push(line.to_string());
+    }
+    let ts = ts?;
+    let parsed = DateTime::parse_from_rfc3339(&ts)
+        .ok()
+        .map(|value| value.with_timezone(&Utc))?;
+    let age_secs = Utc::now()
+        .signed_duration_since(parsed)
+        .num_seconds()
+        .max(0);
+    let ttl_secs = host_io_guard_report_ttl_secs();
+    if age_secs > ttl_secs {
+        return None;
+    }
+    if status.as_deref() == Some("clear") {
+        return Some(Vec::new());
+    }
+    if status.as_deref() != Some("blocked") || blockers.is_empty() {
+        return None;
+    }
+    let mut diagnostics = vec![format!(
+        "host_io_guard_report status=blocked age_secs={} ttl_secs={} state={} action=use_durable_host_io_snapshot",
+        age_secs,
+        ttl_secs,
+        path.display()
+    )];
+    diagnostics.extend(blockers);
+    Some(diagnostics)
+}
+
+fn host_io_guard_report_ttl_secs() -> i64 {
+    std::env::var("MEMD_HOST_IO_REPORT_TTL_SECS")
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value >= 0)
+        .unwrap_or(120)
+}
+
+fn host_process_live_map_diagnostic(
+    line: &str,
+    repo_root: &str,
+    volume: Option<&str>,
+) -> Option<String> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with("PID ") {
+        return None;
+    }
+    let parts = trimmed.split_whitespace().collect::<Vec<_>>();
+    if parts.len() < 4 {
+        return None;
+    }
+    let pid = parts[0];
+    let state = parts[2];
+    let command = parts[3..].join(" ");
+    let interesting = [
+        "git", "cargo", "rustc", "rustfmt", "clang", "clang++", "cc", "c++", "vitest", "tsc",
+    ]
+    .iter()
+    .any(|tool| host_process_command_mentions_tool(&command, tool));
+    if !interesting {
+        return None;
+    }
+    let stuck = state.contains('U');
+    let build = ["cargo", "rustc"]
+        .iter()
+        .any(|tool| host_process_command_mentions_tool(&command, tool));
+    if !stuck && !build {
+        return None;
+    }
+    let scope = host_process_scope(&command, repo_root, volume);
+    let kind = if stuck {
+        "host_process_blocked"
+    } else {
+        "host_build_active"
+    };
+    Some(format!(
+        "{} pid={} state={} scope={} project_hint={} command=\"{}\" action=warn_and_autosync_live_map",
+        kind,
+        pid,
+        state,
+        scope,
+        host_process_project_hint(&command).unwrap_or_else(|| "unknown".to_string()),
+        compact_inline(&command, 180)
+    ))
+}
+
+fn host_process_command_mentions_tool(command: &str, tool: &str) -> bool {
+    command == tool
+        || command.starts_with(&format!("{tool} "))
+        || command.contains(&format!(" {tool} "))
+        || command.ends_with(&format!("/{tool}"))
+        || command.contains(&format!("/{tool} "))
+}
+
+fn host_process_scope(command: &str, repo_root: &str, volume: Option<&str>) -> String {
+    if !repo_root.is_empty() && command.contains(repo_root) {
+        return "repo".to_string();
+    }
+    if let Some(volume) = volume
+        && command.contains(volume)
+    {
+        return format!("volume:{volume}");
+    }
+    "unknown".to_string()
+}
+
+fn host_process_project_hint(command: &str) -> Option<String> {
+    let marker = "/projects/";
+    if let Some((_, rest)) = command.split_once(marker) {
+        let name = rest
+            .split(['/', ' ', '"', '\''])
+            .next()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())?;
+        return Some(name.to_string());
+    }
+    if command.contains("/Xcode")
+        && command.contains(".app/")
+        && host_process_command_mentions_tool(command, "git")
+    {
+        return Some("app-git".to_string());
+    }
+    if ["cargo", "rustc", "rustfmt"]
+        .iter()
+        .any(|tool| host_process_command_mentions_tool(command, tool))
+    {
+        return Some("cargo-tooling".to_string());
+    }
+    if ["clang", "clang++", "cc", "c++"]
+        .iter()
+        .any(|tool| host_process_command_mentions_tool(command, tool))
+    {
+        return Some("native-tooling".to_string());
+    }
+    if ["vitest", "tsc"]
+        .iter()
+        .any(|tool| host_process_command_mentions_tool(command, tool))
+    {
+        return Some("node-tooling".to_string());
+    }
+    None
+}
+
+fn host_filesystem_live_map_diagnostics(repo_root: &Path, process_lines: &[String]) -> Vec<String> {
+    let volume = volume_root_for_path(repo_root);
+    let Some(volume) = volume else {
+        return Vec::new();
+    };
+    let blocked_on_volume = process_lines
+        .iter()
+        .filter(|line| {
+            line.split_whitespace()
+                .nth(2)
+                .is_some_and(|state| state.contains('U'))
+        })
+        .filter(|line| line.contains(&volume))
+        .count();
+    let uvfs_blocked = process_lines.iter().any(|line| {
+        line.contains("UVFSService")
+            && line
+                .split_whitespace()
+                .nth(2)
+                .is_some_and(|state| state.contains('U'))
+    });
+    let spotlight_blocked = process_lines.iter().any(|line| {
+        (line.contains("/mds") || line.contains("mds_stores"))
+            && line
+                .split_whitespace()
+                .nth(2)
+                .is_some_and(|state| state.contains('U'))
+    });
+    if blocked_on_volume == 0 && !uvfs_blocked && !spotlight_blocked {
+        return Vec::new();
+    }
+    vec![format!(
+        "host_filesystem_blocked volume={} blocked_processes={} uvfs_blocked={} spotlight_blocked={} action=pause_t7_git_cargo_and_recover_filesystem",
+        volume, blocked_on_volume, uvfs_blocked, spotlight_blocked
+    )]
+}
+
+fn volume_root_for_path(path: &Path) -> Option<String> {
+    path.display()
+        .to_string()
+        .strip_prefix("/Volumes/")
+        .and_then(|rest| rest.split('/').next())
+        .map(|name| format!("/Volumes/{name}"))
 }
 
 pub(crate) fn awareness_summary_diagnostics(entries: &[&ProjectAwarenessEntry]) -> Vec<String> {
@@ -877,4 +1710,323 @@ pub(crate) fn work_overlap_warnings(entries: &[&ProjectAwarenessEntry]) -> Vec<S
     }
 
     warnings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_process_diagnostic_marks_same_volume_project_blocker() {
+        let line = "67435 67400 U /Volumes/T7/Xcodes/Xcode.app/Contents/Developer/usr/bin/git -C /Volumes/T7/projects/clawcontrol status --short";
+        let diagnostic = host_process_live_map_diagnostic(
+            line,
+            "/Volumes/T7/projects/memd",
+            Some("/Volumes/T7"),
+        )
+        .expect("diagnostic");
+
+        assert!(diagnostic.contains("host_process_blocked"));
+        assert!(diagnostic.contains("scope=volume:/Volumes/T7"));
+        assert!(diagnostic.contains("project_hint=clawcontrol"));
+    }
+
+    #[test]
+    fn host_process_diagnostic_marks_same_repo_blocker() {
+        let line = "66964 800 U git -C /Volumes/T7/projects/memd status --short";
+        let diagnostic = host_process_live_map_diagnostic(
+            line,
+            "/Volumes/T7/projects/memd",
+            Some("/Volumes/T7"),
+        )
+        .expect("diagnostic");
+
+        assert!(diagnostic.contains("host_process_blocked"));
+        assert!(diagnostic.contains("scope=repo"));
+        assert!(diagnostic.contains("project_hint=memd"));
+    }
+
+    #[test]
+    fn host_process_diagnostic_marks_app_owned_git_blocker() {
+        let line = "84445 1 U /Volumes/T7/Xcodes/Xcode-26.4.1.app/Contents/Developer/usr/bin/git -c core.hooksPath=/dev/null -c core.fsmonitor=false status --porcelain=v1 -z";
+        let diagnostic = host_process_live_map_diagnostic(
+            line,
+            "/Volumes/T7/projects/memd",
+            Some("/Volumes/T7"),
+        )
+        .expect("diagnostic");
+
+        assert!(diagnostic.contains("host_process_blocked"));
+        assert!(diagnostic.contains("scope=volume:/Volumes/T7"));
+        assert!(diagnostic.contains("project_hint=app-git"));
+    }
+
+    #[test]
+    fn host_process_diagnostic_marks_stuck_formatter_blocker() {
+        let line = "75178 1 U /Volumes/T7/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustfmt /Volumes/T7/projects/clawcontrol/src-tauri/build.rs";
+        let diagnostic = host_process_live_map_diagnostic(
+            line,
+            "/Volumes/T7/projects/memd",
+            Some("/Volumes/T7"),
+        )
+        .expect("diagnostic");
+
+        assert!(diagnostic.contains("host_process_blocked"));
+        assert!(diagnostic.contains("scope=volume:/Volumes/T7"));
+        assert!(diagnostic.contains("project_hint=clawcontrol"));
+        assert!(diagnostic.contains("rustfmt"));
+    }
+
+    #[test]
+    fn host_process_diagnostic_marks_native_tooling_blocker() {
+        let line = "85222 1 U /Volumes/T7/Xcodes/Xcode-26.4.1.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -c build/native.o";
+        let diagnostic = host_process_live_map_diagnostic(
+            line,
+            "/Volumes/T7/projects/memd",
+            Some("/Volumes/T7"),
+        )
+        .expect("diagnostic");
+
+        assert!(diagnostic.contains("host_process_blocked"));
+        assert!(diagnostic.contains("scope=volume:/Volumes/T7"));
+        assert!(diagnostic.contains("project_hint=native-tooling"));
+    }
+
+    #[test]
+    fn host_io_guard_report_blockers_uses_fresh_blocked_snapshot() {
+        let root = unique_awareness_test_dir("fresh-host-io-report");
+        let state_dir = root.join("state");
+        fs::create_dir_all(&state_dir).expect("create state dir");
+        fs::write(
+            state_dir.join("host-io-guard.txt"),
+            format!(
+                "ts={}\nrepo=/Volumes/T7/projects/memd\npid=42\nstatus=blocked\nrepo project_hint=host-io-report pid=41 state=cached command=.memd/state/host-io-guard.txt age_s=1 ttl_s=120\nrepo project_hint=memd pid=12 state=U command=git -C /Volumes/T7/projects/memd status --short\n",
+                Utc::now().to_rfc3339()
+            ),
+        )
+        .expect("write report");
+
+        let diagnostics = host_io_guard_report_blockers(&root).expect("diagnostics");
+        assert!(diagnostics[0].contains("host_io_guard_report status=blocked"));
+        assert!(
+            diagnostics
+                .iter()
+                .any(|line| line.contains("repo project_hint=memd"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|line| !line.contains("project_hint=host-io-report"))
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn host_io_guard_report_blockers_ignores_stale_snapshot() {
+        let root = unique_awareness_test_dir("stale-host-io-report");
+        let state_dir = root.join("state");
+        fs::create_dir_all(&state_dir).expect("create state dir");
+        fs::write(
+            state_dir.join("host-io-guard.txt"),
+            format!(
+                "ts={}\nrepo=/Volumes/T7/projects/memd\npid=42\nstatus=blocked\nrepo project_hint=memd pid=12 state=U command=git -C /Volumes/T7/projects/memd status --short\n",
+                (Utc::now() - chrono::Duration::seconds(300)).to_rfc3339()
+            ),
+        )
+        .expect("write report");
+
+        assert!(host_io_guard_report_blockers(&root).is_none());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn command_output_with_timeout_stops_slow_process() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 1"]);
+
+        let output = command_output_with_timeout(command, std::time::Duration::from_millis(10))
+            .expect("timeout command");
+
+        assert!(output.is_none());
+    }
+
+    #[test]
+    fn command_output_with_timeout_returns_fast_output() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "printf ok"]);
+
+        let output = command_output_with_timeout(command, std::time::Duration::from_secs(1))
+            .expect("fast command")
+            .expect("output");
+
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "ok");
+    }
+
+    fn unique_awareness_test_dir(name: &str) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "memd-awareness-{name}-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        path
+    }
+
+    #[test]
+    fn live_map_skips_memd_transient_state_files() {
+        let repo = Path::new("/Volumes/T7/projects/memd");
+
+        assert!(should_skip_live_map_path(
+            repo,
+            Path::new("/Volumes/T7/projects/memd/.memd/state/host-io-guard.txt"),
+            "host-io-guard.txt",
+        ));
+        assert!(should_skip_live_map_path(
+            repo,
+            Path::new("/Volumes/T7/projects/memd/.memd/state/codebase-live-map-events.ndjson"),
+            "codebase-live-map-events.ndjson",
+        ));
+        assert!(should_skip_live_map_path(
+            repo,
+            Path::new("/Volumes/T7/projects/memd/.memd/logs/hook-trace.ndjson"),
+            "hook-trace.ndjson",
+        ));
+        assert!(!should_skip_live_map_path(
+            repo,
+            Path::new("/Volumes/T7/projects/memd/crates/memd-client/src/awareness/mod.rs"),
+            "mod.rs",
+        ));
+    }
+
+    #[test]
+    fn live_map_seed_scan_initializes_without_whole_repo_diff() {
+        let repo = unique_awareness_test_dir("seeded-live-map");
+        let bundle = repo.join(".memd");
+        let state_dir = bundle.join("state");
+        let src_dir = repo.join("src");
+        fs::create_dir_all(&state_dir).expect("create state dir");
+        fs::create_dir_all(&src_dir).expect("create src dir");
+        fs::write(src_dir.join("lib.rs"), "pub fn alive() -> bool { true }\n")
+            .expect("write source");
+
+        let seeded = CodebaseLiveMapState {
+            repo_root: repo.display().to_string(),
+            fingerprint: "host-io-clear-no-scan".to_string(),
+            file_count: 0,
+            newest_mtime_unix: 0,
+            updated_at: Utc::now() - chrono::Duration::seconds(300),
+            status: "out_of_sync".to_string(),
+            needs_reread: true,
+            autosync: "host_io_clear_rescan_required".to_string(),
+            blockers: Vec::new(),
+            files: std::collections::BTreeMap::new(),
+            last_changes: CodebaseLiveMapDiff::default(),
+        };
+        fs::write(
+            state_dir.join("codebase-live-map.json"),
+            serde_json::to_vec_pretty(&seeded).expect("serialize seeded map"),
+        )
+        .expect("write seeded map");
+        fs::write(
+            state_dir.join("host-io-guard.txt"),
+            format!(
+                "ts={}\nrepo={}\npid=42\nstatus=clear\n",
+                Utc::now().to_rfc3339(),
+                repo.display()
+            ),
+        )
+        .expect("write clear host report");
+
+        let update = update_codebase_live_map(&bundle, &repo).expect("update live map");
+
+        assert_eq!(update.status, "fresh");
+        let persisted = fs::read_to_string(state_dir.join("codebase-live-map.json"))
+            .expect("read persisted map");
+        let state: CodebaseLiveMapState =
+            serde_json::from_str(&persisted).expect("parse persisted map");
+        assert_eq!(state.status, "fresh");
+        assert!(!state.needs_reread);
+        assert_eq!(state.autosync, "initialized_map_no_reread");
+        assert!(state.files.contains_key("src/lib.rs"));
+        assert!(!state.last_changes.baseline_available);
+        assert_eq!(state.last_changes.added_count, 0);
+        assert_eq!(state.last_changes.modified_count, 0);
+        assert_eq!(state.last_changes.deleted_count, 0);
+
+        let _ = fs::remove_dir_all(repo);
+    }
+
+    #[test]
+    fn blocked_live_map_persists_state_without_rescan() {
+        let repo = unique_awareness_test_dir("blocked-live-map");
+        let bundle = repo.join(".memd");
+        let state_dir = bundle.join("state");
+        fs::create_dir_all(&state_dir).expect("create state dir");
+
+        let mut files = std::collections::BTreeMap::new();
+        files.insert(
+            "src/lib.rs".to_string(),
+            CodebaseLiveMapFile {
+                len: 12,
+                mtime_unix: 123,
+            },
+        );
+        let previous = CodebaseLiveMapState {
+            repo_root: repo.display().to_string(),
+            fingerprint: "previous-fingerprint".to_string(),
+            file_count: 1,
+            newest_mtime_unix: 123,
+            updated_at: Utc::now() - chrono::Duration::seconds(300),
+            status: "fresh".to_string(),
+            needs_reread: false,
+            autosync: "updated_map_no_reread".to_string(),
+            blockers: Vec::new(),
+            files,
+            last_changes: CodebaseLiveMapDiff::default(),
+        };
+        fs::write(
+            state_dir.join("codebase-live-map.json"),
+            serde_json::to_vec_pretty(&previous).expect("serialize previous"),
+        )
+        .expect("write previous map");
+        fs::write(
+            state_dir.join("host-io-guard.txt"),
+            format!(
+                "ts={}\nrepo={}\npid=42\nstatus=blocked\nvolume:/Volumes/T7 project_hint=app-git pid=99 state=U command=git status\n",
+                Utc::now().to_rfc3339(),
+                repo.display()
+            ),
+        )
+        .expect("write host report");
+
+        let update = update_codebase_live_map(&bundle, &repo).expect("update blocked map");
+
+        assert_eq!(update.status, "blocked");
+        assert!(
+            update
+                .diagnostics
+                .iter()
+                .any(|line| line.contains("host_io_guard_report status=blocked"))
+        );
+        let persisted = fs::read_to_string(state_dir.join("codebase-live-map.json"))
+            .expect("read persisted map");
+        let state: CodebaseLiveMapState =
+            serde_json::from_str(&persisted).expect("parse persisted map");
+        assert_eq!(state.status, "blocked");
+        assert!(state.needs_reread);
+        assert_eq!(state.autosync, "blocked_no_scan");
+        assert_eq!(state.fingerprint, "previous-fingerprint");
+        assert!(state.files.contains_key("src/lib.rs"));
+        assert!(
+            state
+                .blockers
+                .iter()
+                .any(|line| line.contains("project_hint=app-git"))
+        );
+
+        let _ = fs::remove_dir_all(repo);
+    }
 }

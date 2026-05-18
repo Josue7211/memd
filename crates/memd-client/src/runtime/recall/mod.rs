@@ -111,9 +111,39 @@ pub(crate) async fn run_lookup_arm_inner(
     let mut args = crate::cli::apply_lookup_bundle_defaults(args, runtime.as_ref());
     args.limit = Some(clamp_lookup_limit(args.limit));
     let req = build_lookup_request(&args, runtime.as_ref())?;
-    let mut response = lookup_with_fallbacks(client, &req, &args.query).await?;
+    let mut response = match tokio::time::timeout(
+        lookup_remote_timeout(),
+        lookup_with_fallbacks(client, &req, &args.query),
+    )
+    .await
+    {
+        Ok(Ok(response)) => response,
+        Ok(Err(err)) => {
+            let local = lookup_local_continuity_fallback(&args.output, &args.query, &req);
+            if local.items.is_empty() {
+                return Err(err);
+            }
+            local
+        }
+        Err(_) => lookup_local_continuity_fallback(&args.output, &args.query, &req),
+    };
     if response.items.is_empty() {
-        response = lookup_resume_snapshot_fallback(base_url, &args, &req).await?;
+        response = match tokio::time::timeout(
+            lookup_remote_timeout(),
+            lookup_resume_snapshot_fallback(base_url, &args, &req),
+        )
+        .await
+        {
+            Ok(Ok(response)) => response,
+            Ok(Err(err)) => {
+                let local = lookup_local_continuity_fallback(&args.output, &args.query, &req);
+                if local.items.is_empty() {
+                    return Err(err);
+                }
+                local
+            }
+            Err(_) => lookup_local_continuity_fallback(&args.output, &args.query, &req),
+        };
     }
     response = overlay_wake_current_handoff(&args.output, &args.query, &req, response);
     let escalation_hint =
@@ -126,6 +156,337 @@ pub(crate) async fn run_lookup_arm_inner(
         json: args.json,
         escalation_hint,
     })
+}
+
+fn lookup_remote_timeout() -> std::time::Duration {
+    let millis = std::env::var("MEMD_LOOKUP_REMOTE_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value >= 100)
+        .unwrap_or(5_000);
+    std::time::Duration::from_millis(millis)
+}
+
+fn lookup_live_map_ttl_secs() -> i64 {
+    std::env::var("MEMD_CODEBASE_LIVE_MAP_TTL_SECS")
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value >= 0)
+        .unwrap_or(15)
+}
+
+fn lookup_host_io_report_ttl_secs() -> i64 {
+    std::env::var("MEMD_HOST_IO_REPORT_TTL_SECS")
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value >= 0)
+        .unwrap_or(120)
+}
+
+fn lookup_timestamp_freshness(ts: Option<&str>, ttl_secs: i64) -> (String, i64, String) {
+    let Some(ts) = ts else {
+        return ("unknown".to_string(), ttl_secs, "unknown".to_string());
+    };
+    let Some(ts) = chrono::DateTime::parse_from_rfc3339(ts)
+        .ok()
+        .map(|value| value.with_timezone(&chrono::Utc))
+    else {
+        return ("unknown".to_string(), ttl_secs, "unknown".to_string());
+    };
+    let age_secs = chrono::Utc::now()
+        .signed_duration_since(ts)
+        .num_seconds()
+        .max(0);
+    let fresh = if age_secs <= ttl_secs {
+        "true"
+    } else {
+        "false"
+    };
+    (age_secs.to_string(), ttl_secs, fresh.to_string())
+}
+
+fn lookup_live_map_freshness(updated_at: Option<&str>) -> (String, i64, String) {
+    lookup_timestamp_freshness(updated_at, lookup_live_map_ttl_secs())
+}
+
+fn lookup_host_io_report_freshness(ts: Option<&str>) -> (String, i64, String) {
+    lookup_timestamp_freshness(ts, lookup_host_io_report_ttl_secs())
+}
+
+fn lookup_live_map_action(status: &str, needs_reread: bool, fresh: &str) -> &'static str {
+    if fresh == "false" {
+        "refresh_host_guard_before_trusting_live_map"
+    } else if status == "blocked" || needs_reread {
+        "wait_or_coordinate_before_broad_repo_work"
+    } else if status == "unknown" {
+        "missing_live_map_run_host_guard_or_awareness"
+    } else {
+        "live_map_current"
+    }
+}
+
+fn lookup_host_io_report_action(status: &str, fresh: &str) -> &'static str {
+    if fresh == "false" {
+        "refresh_host_guard_before_trusting_host_report"
+    } else if status == "blocked" {
+        "wait_or_coordinate_before_broad_repo_work"
+    } else if status == "clear" {
+        "refresh_codebase_live_map_before_broad_repo_work"
+    } else {
+        "refresh_host_guard_before_trusting_host_report"
+    }
+}
+
+fn host_io_report_timestamp(raw: &str) -> Option<&str> {
+    raw.lines().find_map(|line| line.strip_prefix("ts="))
+}
+
+fn host_io_report_status(raw: &str) -> &str {
+    raw.lines()
+        .find_map(|line| line.strip_prefix("status="))
+        .unwrap_or("unknown")
+}
+
+fn host_io_report_blocker_sample(raw: &str) -> String {
+    raw.lines()
+        .filter(|line| {
+            !line.starts_with("ts=")
+                && !line.starts_with("repo=")
+                && !line.starts_with("pid=")
+                && !line.starts_with("status=")
+                && !line.trim().is_empty()
+        })
+        .take(3)
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+fn lookup_local_continuity_fallback(
+    output: &Path,
+    query: &str,
+    req: &memd_schema::SearchMemoryRequest,
+) -> memd_schema::SearchMemoryResponse {
+    let mut items = Vec::new();
+    if let Some(item) = wake_current_handoff_item(output, req) {
+        items.push(item);
+    }
+    if lookup_query_requests_local_continuity(query) {
+        if let Some(item) = codebase_live_map_status_item(output, req) {
+            items.push(item);
+        } else if let Some(item) = host_io_guard_status_item(output, req) {
+            items.push(item);
+        }
+    }
+    items.truncate(req.limit.unwrap_or(LOOKUP_DEPTH_RECORD_CAP).max(1));
+    memd_schema::SearchMemoryResponse {
+        route: req
+            .route
+            .unwrap_or(memd_schema::RetrievalRoute::ProjectFirst),
+        intent: req.intent.unwrap_or(memd_schema::RetrievalIntent::General),
+        items,
+        trace: None,
+    }
+}
+
+fn lookup_query_requests_local_continuity(query: &str) -> bool {
+    let terms = crate::runtime::lookup_query_terms(query);
+    [
+        "blocker",
+        "blocked",
+        "codebase",
+        "collision",
+        "continuity",
+        "dirty",
+        "handoff",
+        "hive",
+        "host",
+        "live",
+        "map",
+        "reread",
+        "state",
+        "sync",
+    ]
+    .iter()
+    .any(|needle| terms.iter().any(|term| term == needle))
+        || query.to_ascii_lowercase().contains("t7")
+}
+
+fn codebase_live_map_status_item(
+    output: &Path,
+    req: &memd_schema::SearchMemoryRequest,
+) -> Option<memd_schema::MemoryItem> {
+    let path = output.join("state").join("codebase-live-map.json");
+    let raw = fs::read_to_string(&path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let status = value
+        .get("status")
+        .and_then(|value| value.as_str())
+        .unwrap_or("unknown");
+    let autosync = value
+        .get("autosync")
+        .and_then(|value| value.as_str())
+        .unwrap_or("unknown");
+    let needs_reread = value
+        .get("needs_reread")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true);
+    let file_count = value
+        .get("file_count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    let updated_at = value.get("updated_at").and_then(|value| value.as_str());
+    let (age_secs, ttl_secs, fresh) = lookup_live_map_freshness(updated_at);
+    let action = lookup_live_map_action(status, needs_reread, &fresh);
+    let blockers = value
+        .get("blockers")
+        .and_then(|value| value.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str())
+                .take(3)
+                .collect::<Vec<_>>()
+                .join(" | ")
+        })
+        .unwrap_or_default();
+    let changes = value
+        .get("last_changes")
+        .map(live_map_changes_summary)
+        .unwrap_or_else(|| "unknown".to_string());
+    let content = format!(
+        "Status: codebase live map. status={status} autosync={autosync} reread_required={needs_reread} fresh={fresh} age_secs={age_secs} ttl_secs={ttl_secs} action={action} files={file_count} changes={changes} blockers={}",
+        if blockers.is_empty() {
+            "none"
+        } else {
+            blockers.as_str()
+        }
+    );
+    Some(local_status_item(
+        req,
+        content,
+        "codebase-live-map.json",
+        path.display().to_string(),
+        vec![
+            "continuity".to_string(),
+            "codebase-live-map".to_string(),
+            "lookup-local-fallback".to_string(),
+        ],
+    ))
+}
+
+fn live_map_changes_summary(value: &serde_json::Value) -> String {
+    let added = value
+        .get("added_count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    let modified = value
+        .get("modified_count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    let deleted = value
+        .get("deleted_count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    let baseline = value
+        .get("baseline_available")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let sample = ["added", "modified", "deleted"]
+        .iter()
+        .filter_map(|key| {
+            let values = value.get(key)?.as_array()?;
+            if values.is_empty() {
+                return None;
+            }
+            let sample = values
+                .iter()
+                .filter_map(|value| value.as_str())
+                .take(3)
+                .collect::<Vec<_>>()
+                .join(",");
+            Some(format!("{key}:[{sample}]"))
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    if sample.is_empty() {
+        format!("added:{added} modified:{modified} deleted:{deleted} baseline:{baseline}")
+    } else {
+        format!(
+            "added:{added} modified:{modified} deleted:{deleted} baseline:{baseline} sample:{sample}"
+        )
+    }
+}
+
+fn host_io_guard_status_item(
+    output: &Path,
+    req: &memd_schema::SearchMemoryRequest,
+) -> Option<memd_schema::MemoryItem> {
+    let path = output.join("state").join("host-io-guard.txt");
+    let raw = fs::read_to_string(&path).ok()?;
+    let status = host_io_report_status(&raw);
+    let (age_secs, ttl_secs, fresh) =
+        lookup_host_io_report_freshness(host_io_report_timestamp(&raw));
+    let action = lookup_host_io_report_action(status, &fresh);
+    let blockers = host_io_report_blocker_sample(&raw);
+    let content = format!(
+        "Status: host I/O guard. status={status} fresh={fresh} age_secs={age_secs} ttl_secs={ttl_secs} action={action} blockers={}",
+        if blockers.is_empty() {
+            "none"
+        } else {
+            blockers.as_str()
+        }
+    );
+    Some(local_status_item(
+        req,
+        content,
+        "host-io-guard.txt",
+        path.display().to_string(),
+        vec![
+            "continuity".to_string(),
+            "host-io-guard".to_string(),
+            "lookup-local-fallback".to_string(),
+        ],
+    ))
+}
+
+fn local_status_item(
+    req: &memd_schema::SearchMemoryRequest,
+    content: String,
+    source_system: &str,
+    source_path: String,
+    tags: Vec<String>,
+) -> memd_schema::MemoryItem {
+    memd_schema::MemoryItem {
+        id: uuid::Uuid::new_v4(),
+        content,
+        redundancy_key: Some(format!("local:{source_system}:status")),
+        belief_branch: None,
+        preferred: true,
+        kind: memd_schema::MemoryKind::Status,
+        scope: memd_schema::MemoryScope::Project,
+        project: req.project.clone(),
+        namespace: req.namespace.clone(),
+        workspace: req.workspace.clone(),
+        visibility: req
+            .visibility
+            .unwrap_or(memd_schema::MemoryVisibility::Private),
+        source_agent: None,
+        source_system: Some(source_system.to_string()),
+        source_path: Some(source_path),
+        source_quality: Some(memd_schema::SourceQuality::Canonical),
+        confidence: 1.0,
+        ttl_seconds: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        last_verified_at: Some(chrono::Utc::now()),
+        supersedes: Vec::new(),
+        tags,
+        status: memd_schema::MemoryStatus::Active,
+        stage: memd_schema::MemoryStage::Canonical,
+        lane: Some("continuity".to_string()),
+        version: 1,
+        correction_meta: None,
+    }
 }
 
 fn overlay_wake_current_handoff(
@@ -546,6 +907,108 @@ mod tests {
             overlaid.items[0]
                 .tags
                 .contains(&"lookup-overlay".to_string())
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn local_continuity_fallback_returns_live_map_status() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-local-continuity-{}", uuid::Uuid::new_v4()));
+        let state_dir = dir.join("state");
+        std::fs::create_dir_all(&state_dir).expect("create state dir");
+        std::fs::write(
+            state_dir.join("codebase-live-map.json"),
+            r#"{
+  "status": "blocked",
+  "autosync": "blocked_no_scan",
+  "needs_reread": true,
+  "updated_at": "2000-01-01T00:00:00Z",
+  "file_count": 42,
+  "blockers": [
+    "host_io_guard_report status=blocked age_secs=1 ttl_secs=120 state=.memd/state/host-io-guard.txt",
+    "volume:/Volumes/T7 project_hint=app-git pid=99 state=U command=git status"
+  ]
+}"#,
+        )
+        .expect("write live map");
+        let req = memd_schema::SearchMemoryRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            visibility: Some(memd_schema::MemoryVisibility::Private),
+            limit: Some(3),
+            ..memd_schema::SearchMemoryRequest::default()
+        };
+
+        let response =
+            lookup_local_continuity_fallback(&dir, "what is T7 live map blocker state", &req);
+
+        assert_eq!(response.items.len(), 1);
+        assert_eq!(response.items[0].kind, memd_schema::MemoryKind::Status);
+        assert_eq!(
+            response.items[0].source_system.as_deref(),
+            Some("codebase-live-map.json")
+        );
+        assert!(response.items[0].content.contains("status=blocked"));
+        assert!(response.items[0].content.contains("fresh=false"));
+        assert!(
+            response.items[0]
+                .content
+                .contains("autosync=blocked_no_scan")
+        );
+        assert!(response.items[0].content.contains("reread_required=true"));
+        assert!(response.items[0].content.contains("fresh=false"));
+        assert!(response.items[0].content.contains("ttl_secs=15"));
+        assert!(
+            response.items[0]
+                .content
+                .contains("action=refresh_host_guard_before_trusting_live_map")
+        );
+        assert!(response.items[0].content.contains("project_hint=app-git"));
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn local_continuity_fallback_uses_host_report_without_live_map() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-local-host-report-{}", uuid::Uuid::new_v4()));
+        let state_dir = dir.join("state");
+        std::fs::create_dir_all(&state_dir).expect("create state dir");
+        std::fs::write(
+            state_dir.join("host-io-guard.txt"),
+            "ts=2026-05-18T04:47:09Z\nrepo=/Volumes/T7/projects/memd\npid=1\nstatus=blocked\nvolume:/Volumes/T7 project_hint=filesystem pid=358 state=Us command=mds\n",
+        )
+        .expect("write host report");
+        let req = memd_schema::SearchMemoryRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            visibility: Some(memd_schema::MemoryVisibility::Private),
+            limit: Some(3),
+            ..memd_schema::SearchMemoryRequest::default()
+        };
+
+        let response =
+            lookup_local_continuity_fallback(&dir, "continuity host blocker state", &req);
+
+        assert_eq!(response.items.len(), 1);
+        assert_eq!(
+            response.items[0].source_system.as_deref(),
+            Some("host-io-guard.txt")
+        );
+        assert!(response.items[0].content.contains("status=blocked"));
+        assert!(response.items[0].content.contains("fresh=false"));
+        assert!(response.items[0].content.contains("ttl_secs=120"));
+        assert!(
+            response.items[0]
+                .content
+                .contains("action=refresh_host_guard_before_trusting_host_report")
+        );
+        assert!(
+            response.items[0]
+                .content
+                .contains("project_hint=filesystem")
         );
 
         std::fs::remove_dir_all(dir).expect("cleanup temp bundle");

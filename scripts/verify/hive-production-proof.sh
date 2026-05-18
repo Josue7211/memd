@@ -46,7 +46,14 @@ need jq
 need python3
 need git
 
+MEMD_CARGO_TARGET_DIR="${MEMD_CARGO_TARGET_DIR:-${TMPDIR:-/tmp}/memd-cargo-target-hive-proof}"
+source "$ROOT/scripts/lib/memd-cargo-env.sh"
+memd_cargo_refuse_on_host_blockers
+
 (cd "$ROOT" && cargo build -p memd-client -p memd-server)
+
+MEMD="${MEMD_BIN:-$MEMD_CARGO_TARGET_DIR/debug/memd}"
+SERVER="${MEMD_SERVER_BIN:-$MEMD_CARGO_TARGET_DIR/debug/memd-server}"
 
 tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/memd-hive-proof.XXXXXX")"
 server_pid=""

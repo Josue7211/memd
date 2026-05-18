@@ -7,6 +7,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+source "$REPO_ROOT/scripts/lib/memd-cargo-env.sh"
+memd_cargo_refuse_on_host_blockers
 MODE="${MODE:-gate}"
 RUN_DATE="${RUN_DATE:-$(date +%F)}"
 
