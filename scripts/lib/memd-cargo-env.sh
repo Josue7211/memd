@@ -190,6 +190,7 @@ memd_cargo_host_blockers() {
         next
       }
       scope = "unknown"
+      project = "unknown"
       if (repo != "" && index(command, repo) > 0) {
         scope = "repo"
       } else if (volume != "" && index(command, volume) > 0) {
@@ -197,10 +198,12 @@ memd_cargo_host_blockers() {
       } else if (filesystem && volume != "") {
         scope = "volume:" volume
       }
-      if (scope == "unknown") {
+      if (scope == "unknown" && active_runtime) {
+        scope = "unknown"
+        project = "active-runtime"
+      } else if (scope == "unknown") {
         next
       }
-      project = "unknown"
       project_marker = "/projects/"
       project_start = index(command, project_marker)
       if (project_start > 0) {

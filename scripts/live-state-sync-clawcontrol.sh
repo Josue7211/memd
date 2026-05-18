@@ -12,6 +12,8 @@ CAPTURE_HTTP="${CAPTURE_HTTP:-1}"
 CAPTURE_SCRIPT="${CAPTURE_SCRIPT:-$ROOT/scripts/live-state-capture-clawcontrol-http.mjs}"
 MAC_BRIDGE_FALLBACK="${MAC_BRIDGE_FALLBACK:-1}"
 MAC_BRIDGE_CAPTURE_SCRIPT="${MAC_BRIDGE_CAPTURE_SCRIPT:-$ROOT/scripts/live-state-capture-mac-bridge.mjs}"
+MAC_BRIDGE_GUARD_SCRIPT="${MAC_BRIDGE_GUARD_SCRIPT:-$ROOT/scripts/memd-mac-bridge-guard.sh}"
+MAC_BRIDGE_GUARD_ENABLED="${MAC_BRIDGE_GUARD_ENABLED:-1}"
 APPROVED_COMMUNICATIONS_FALLBACK="${APPROVED_COMMUNICATIONS_FALLBACK:-1}"
 APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT="${APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT:-$ROOT/scripts/live-state-capture-approved-communications.mjs}"
 CAPTURE_UNAVAILABLE=0
@@ -52,6 +54,13 @@ if [[ "$CAPTURE_HTTP" == "1" || "$CAPTURE_HTTP" == "true" ]]; then
     echo "live-state-sync-clawcontrol: capture unavailable; continuing with existing bundle records" >&2
     if [[ "$MAC_BRIDGE_FALLBACK" == "1" || "$MAC_BRIDGE_FALLBACK" == "true" ]]; then
       if [[ -x "$MAC_BRIDGE_CAPTURE_SCRIPT" ]]; then
+        if [[ "$MAC_BRIDGE_GUARD_ENABLED" == "1" || "$MAC_BRIDGE_GUARD_ENABLED" == "true" ]]; then
+          if [[ -x "$MAC_BRIDGE_GUARD_SCRIPT" ]]; then
+            "$MAC_BRIDGE_GUARD_SCRIPT" || true
+          else
+            echo "live-state-sync-clawcontrol: mac-bridge guard not executable: $MAC_BRIDGE_GUARD_SCRIPT" >&2
+          fi
+        fi
         set +e
         MEMD_BIN="$MEMD_BIN" MEMD_OUTPUT="$MEMD_OUTPUT" "$MAC_BRIDGE_CAPTURE_SCRIPT"
         bridge_status=$?

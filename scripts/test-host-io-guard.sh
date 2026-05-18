@@ -111,8 +111,22 @@ active_runtime_output="$(
 )"
 grep -q 'project_hint=clawcontrol pid=31 state=S' <<<"$active_runtime_output"
 grep -q 'reason=active-runtime' <<<"$active_runtime_output"
+unknown_runtime_fixture="$(mktemp "${TMPDIR:-/tmp}/memd-host-io-unknown-runtime.XXXXXX")"
+trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture" "$unknown_runtime_fixture"; rm -rf "$fixture_report_repo"' EXIT
+printf '%s\n' \
+  'PID PPID STAT COMMAND' \
+  '32 1 R npm run dev' \
+  '33 32 R node ./node_modules/vite/bin/vite.js' \
+  > "$unknown_runtime_fixture"
+unknown_runtime_output="$(
+  MEMD_CARGO_REPO_ROOT=/Volumes/T7/projects/memd \
+  MEMD_HOST_IO_PS_FILE="$unknown_runtime_fixture" \
+  memd_cargo_host_blockers
+)"
+grep -q 'unknown project_hint=active-runtime pid=32 state=R' <<<"$unknown_runtime_output"
+grep -q 'unknown project_hint=active-runtime pid=33 state=R' <<<"$unknown_runtime_output"
 sibling_report_repo="$(mktemp -d "${TMPDIR:-/tmp}/memd-host-io-sibling-report.XXXXXX")"
-trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture"; rm -rf "$fixture_report_repo" "$sibling_report_repo"' EXIT
+trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture" "$unknown_runtime_fixture"; rm -rf "$fixture_report_repo" "$sibling_report_repo"' EXIT
 MEMD_CARGO_REPO_ROOT="$sibling_report_repo" \
 MEMD_CARGO_VOLUME_ROOT=/Volumes/T7 \
 MEMD_HOST_IO_PS_FILE="$sibling_fixture" \

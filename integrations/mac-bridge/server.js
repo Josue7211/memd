@@ -803,8 +803,17 @@ async function buildPhotoCache() {
   }
 }
 
-// Build in background on startup (can take 30-60s with many contacts)
-buildPhotoCache()
+// Contact photo export can wedge macOS automation and starve the bridge. Keep
+// the live-state path responsive by making this an explicit opt-in side task.
+if (process.env.MAC_BRIDGE_BUILD_PHOTO_CACHE === '1' || process.env.MAC_BRIDGE_BUILD_PHOTO_CACHE === 'true') {
+  setTimeout(() => {
+    buildPhotoCache().catch((err) => {
+      console.warn('Photo cache build failed:', safeError(err))
+    })
+  }, 250).unref()
+} else {
+  console.log('Photo cache disabled; set MAC_BRIDGE_BUILD_PHOTO_CACHE=1 to enable')
+}
 
 app.get('/contacts/photo', (req, res) => {
   const address = req.query.address

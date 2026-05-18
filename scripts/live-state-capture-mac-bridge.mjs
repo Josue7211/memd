@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import net from 'node:net';
 
 const root = new URL('..', import.meta.url).pathname.replace(/\/+$/, '');
 const envFile = process.env.MAC_BRIDGE_ENV || join(root, 'integrations', 'mac-bridge', '.env');
@@ -12,6 +13,7 @@ const apiKey = (process.env.MAC_BRIDGE_API_KEY || bridgeEnv.BRIDGE_API_KEY || ''
 const memdBin = process.env.MEMD_BIN || 'memd';
 const memdOutput = process.env.MEMD_OUTPUT || join(root, '.memd');
 const timeoutMs = Number(process.env.TIMEOUT_MS || '2500');
+const probeTimeoutMs = Number(process.env.MAC_BRIDGE_PROBE_TIMEOUT_MS || '600');
 const freshnessSecs = Math.max(60, Number(process.env.FRESHNESS_SECS || '3600'));
 const fixtureDir = process.env.MAC_BRIDGE_FIXTURE_DIR || '';
 const dryRun = process.env.DRY_RUN === '1' || process.env.DRY_RUN === 'true';
@@ -68,6 +70,7 @@ async function fetchBridge(path) {
   if (!apiKey) {
     throw new Error('MAC_BRIDGE_API_KEY/BRIDGE_API_KEY unavailable');
   }
+  await ensureBridgeReachable();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -82,6 +85,37 @@ async function fetchBridge(path) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+let bridgeReachablePromise;
+
+function ensureBridgeReachable() {
+  if (!bridgeReachablePromise) {
+    bridgeReachablePromise = probeBridge();
+  }
+  return bridgeReachablePromise;
+}
+
+function probeBridge() {
+  const url = new URL(bridgeBase);
+  const host = url.hostname || '127.0.0.1';
+  const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host, port });
+    const timer = setTimeout(() => {
+      socket.destroy();
+      reject(new Error(`mac-bridge unavailable at ${host}:${port}`));
+    }, probeTimeoutMs);
+    socket.once('connect', () => {
+      clearTimeout(timer);
+      socket.end();
+      resolve();
+    });
+    socket.once('error', (error) => {
+      clearTimeout(timer);
+      reject(new Error(`mac-bridge unavailable at ${host}:${port}: ${error.code || error.message}`));
+    });
+  });
 }
 
 function calendarEvents(data) {
