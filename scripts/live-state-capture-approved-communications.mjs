@@ -10,6 +10,9 @@ const memdOutput = process.env.MEMD_OUTPUT || join(root, '.memd');
 const sourceStatusOutput = process.env.SOURCE_STATUS_OUTPUT || memdOutput;
 const freshnessSecs = Math.max(60, Number(process.env.FRESHNESS_SECS || '3600'));
 const dryRun = process.env.DRY_RUN === '1' || process.env.DRY_RUN === 'true';
+const approvedEmpty =
+  process.env.APPROVED_COMMUNICATIONS_EMPTY_APPROVED === '1' ||
+  process.env.APPROVED_COMMUNICATIONS_EMPTY_APPROVED === 'true';
 const files = [
   { path: process.env.APPROVED_COMMUNICATIONS_FILE, module: '' },
   { path: process.env.APPROVED_MESSAGES_FILE, module: 'messages' },
@@ -93,7 +96,7 @@ function writeSourceStatus({ status, produced = [], missing = [], lastError = nu
     checked_at: now,
     api_base: 'approved-communications',
     api_bases: ['approved-communications'],
-    auth_configured: files.length > 0,
+    auth_configured: files.length > 0 || approvedEmpty,
     visible_page: 'not_applicable',
     produced,
     missing,
@@ -367,19 +370,22 @@ function recordsFromDocument(document, preferredModule = '') {
   return records;
 }
 
-if (files.length === 0) {
+if (files.length === 0 && !approvedEmpty) {
   writeSourceStatus({
     status: 'missing_approval',
     missing: ['messages', 'email'],
-    lastError: 'no approved communications file configured',
+    lastError: 'no approved communications file or empty approval configured',
   });
-  console.error('live-state-capture-approved-communications: no approved communications file configured');
+  console.error('live-state-capture-approved-communications: no approved communications file or empty approval configured');
   process.exit(2);
 }
 
 let records = [];
 try {
-  records = files.flatMap((file) => recordsFromDocument(readJson(file.path), file.module));
+  records = [
+    ...(approvedEmpty ? recordsFromDocument({ messages: [], email: [] }) : []),
+    ...files.flatMap((file) => recordsFromDocument(readJson(file.path), file.module)),
+  ];
 } catch (error) {
   writeSourceStatus({
     status: 'invalid_approval',

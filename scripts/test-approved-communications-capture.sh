@@ -24,6 +24,15 @@ jq -e '.records[] | select(.module == "messages" and .summary == "messages: appr
 jq -e '.records[] | select(.module == "email" and .summary == "email: approved metadata loaded; inbox_items=0")' "$dry_output" >/dev/null
 jq -e 'all(.records[]; .approved == true and .visibility == "private" and .privacy == "metadata")' "$dry_output" >/dev/null
 
+approved_empty_env="$tmp/approved-empty-env.json"
+DRY_RUN=1 \
+APPROVED_COMMUNICATIONS_EMPTY_APPROVED=1 \
+"$ROOT/scripts/live-state-capture-approved-communications.mjs" >"$approved_empty_env"
+
+jq -e '.records | length == 2' "$approved_empty_env" >/dev/null
+jq -e '.records[] | select(.module == "messages" and .summary == "messages: approved metadata loaded; conversations=0")' "$approved_empty_env" >/dev/null
+jq -e '.records[] | select(.module == "email" and .summary == "email: approved metadata loaded; inbox_items=0")' "$approved_empty_env" >/dev/null
+
 raw_body="$tmp/raw-body.json"
 cat >"$raw_body" <<'JSON'
 {
