@@ -313,3 +313,16 @@ if [[ -f "$host_report" ]]; then
     }
   ' "$host_report"
 fi
+
+host_awareness="${MEMD_HOST_IO_AWARENESS:-$ROOT/.memd/state/host-io-awareness.txt}"
+if [[ -f "$host_awareness" ]]; then
+  printf 'HOST_IO_AWARENESS=%s\n' "$host_awareness"
+  awk '
+    /^ts=/ || /^status=/ || /^observation_count=/ || /^hard_blocker_count=/ { print "HOST_IO_AWARENESS_" toupper($0); next }
+    /^repo=/ || /^pid=/ { next }
+    NF > 0 && seen < 5 {
+      printf "HOST_IO_OBSERVATION_%d=%s\n", seen + 1, $0
+      seen += 1
+    }
+  ' "$host_awareness"
+fi

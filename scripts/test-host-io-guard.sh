@@ -126,17 +126,26 @@ unknown_runtime_output="$(
 grep -q 'unknown project_hint=active-runtime pid=32 state=R' <<<"$unknown_runtime_output"
 grep -q 'unknown project_hint=active-runtime pid=33 state=R' <<<"$unknown_runtime_output"
 sibling_report_repo="$(mktemp -d "${TMPDIR:-/tmp}/memd-host-io-sibling-report.XXXXXX")"
-trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture" "$unknown_runtime_fixture"; rm -rf "$fixture_report_repo" "$sibling_report_repo"' EXIT
+awareness_report="$(mktemp "${TMPDIR:-/tmp}/memd-host-io-awareness.XXXXXX")"
+trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture" "$unknown_runtime_fixture" "$awareness_report"; rm -rf "$fixture_report_repo" "$sibling_report_repo"' EXIT
 MEMD_CARGO_REPO_ROOT="$sibling_report_repo" \
 MEMD_CARGO_VOLUME_ROOT=/Volumes/T7 \
 MEMD_HOST_IO_PS_FILE="$sibling_fixture" \
+MEMD_HOST_IO_AWARENESS="$awareness_report" \
 memd_cargo_refuse_on_host_blockers >/tmp/memd-host-io-sibling-test.out 2>&1
 grep -q 'sibling host I/O observed' /tmp/memd-host-io-sibling-test.out
+grep -q 'status=observed' "$awareness_report"
+grep -q 'observation_count=1' "$awareness_report"
+grep -q 'hard_blocker_count=0' "$awareness_report"
+grep -q 'project_hint=clawcontrol' "$awareness_report"
 MEMD_CARGO_REPO_ROOT="$sibling_report_repo" \
 MEMD_CARGO_VOLUME_ROOT=/Volumes/T7 \
 MEMD_HOST_IO_PS_FILE="$active_runtime_fixture" \
+MEMD_HOST_IO_AWARENESS="$awareness_report" \
 memd_cargo_refuse_on_host_blockers >/tmp/memd-host-active-runtime-test.out 2>&1
 grep -q 'sibling host activity observed' /tmp/memd-host-active-runtime-test.out
+grep -q 'status=observed' "$awareness_report"
+grep -q 'reason=active-runtime' "$awareness_report"
 
 set +e
 HOST_IO_GUARD_ENABLED=0 \
@@ -300,6 +309,7 @@ SH
 chmod +x "$fake_ps_dir/curl"
 continuity_config="$fake_ps_dir/config.json"
 continuity_wake="$fake_ps_dir/wake.md"
+continuity_awareness="$fake_ps_dir/host-io-awareness.txt"
 cat > "$continuity_config" <<'JSON'
 {
   "project": "memd",
@@ -328,6 +338,15 @@ JSON
 cat > "$continuity_wake" <<'EOF'
 # wake
 - recovery voice=caveman-ultra | quality=ready:0.99 | dirty=0 | next=test: continue continuity
+EOF
+cat > "$continuity_awareness" <<'EOF'
+ts=2026-05-18T05:08:10Z
+repo=/Volumes/T7/projects/memd
+pid=55
+status=observed
+observation_count=1
+hard_blocker_count=0
+volume:/Volumes/T7 project_hint=clawcontrol pid=31 state=S command=node /Volumes/T7/projects/clawcontrol/deploy/agentshell/agent-shell-adapter.js reason=active-runtime
 EOF
 preflight_live_map="$fake_ps_dir/preflight-codebase-live-map.json"
 continuity_fake_binary="$fake_ps_dir/memd-active"
@@ -385,6 +404,7 @@ continuity_status_output="$(
   MEMD_CONTINUITY_WAKE="$continuity_wake" \
   MEMD_ACTIVE_MEMD_BINARY="$continuity_fake_binary" \
   MEMD_ACTIVE_MEMD_SOURCE_PATHS="$continuity_fake_source" \
+  MEMD_HOST_IO_AWARENESS="$continuity_awareness" \
   MEMD_HOST_IO_REPORT="$fake_ps_dir/no-report" \
   MEMD_HOST_IO_REPORT_TTL_SECS=1 \
   MEMD_CODEBASE_LIVE_MAP_STATE="$preflight_live_map" \
@@ -412,6 +432,10 @@ grep -q 'PREFLIGHT_EXIT=0' <<<"$continuity_status_output"
 grep -q 'MEMD_CODEBASE_LIVE_MAP_ACTION=refresh_host_guard_before_trusting_live_map' <<<"$continuity_status_output"
 grep -q 'NEXT_CONTINUITY_ACTION=refresh_host_guard_before_trusting_live_map' <<<"$continuity_status_output"
 grep -q 'MEMD_SERVER_BENCHMARK_GATE=fail' <<<"$continuity_status_output"
+grep -q "HOST_IO_AWARENESS=$continuity_awareness" <<<"$continuity_status_output"
+grep -q 'HOST_IO_AWARENESS_STATUS=OBSERVED' <<<"$continuity_status_output"
+grep -q 'HOST_IO_AWARENESS_OBSERVATION_COUNT=1' <<<"$continuity_status_output"
+grep -q 'HOST_IO_OBSERVATION_1=.*project_hint=clawcontrol' <<<"$continuity_status_output"
 
 continuity_auto_report="$fake_ps_dir/continuity-auto-host-report.txt"
 continuity_auto_guard="$fake_ps_dir/continuity-auto-host-guard.sh"

@@ -43,6 +43,11 @@ memd_host_io_report_path() {
   printf '%s\n' "${MEMD_HOST_IO_REPORT:-$repo_root/.memd/state/host-io-guard.txt}"
 }
 
+memd_host_io_awareness_path() {
+  local repo_root="${1:-}"
+  printf '%s\n' "${MEMD_HOST_IO_AWARENESS:-$repo_root/.memd/state/host-io-awareness.txt}"
+}
+
 memd_host_io_report_epoch() {
   local ts="${1:-}"
   if [[ -z "$ts" ]]; then
@@ -260,6 +265,7 @@ memd_cargo_refuse_on_host_blockers() {
   local observations blockers
   observations="$(memd_cargo_host_blockers || true)"
   blockers="$(printf '%s\n' "$observations" | memd_host_io_hard_blockers)"
+  memd_host_io_write_awareness "$observations" "$blockers"
   if ! grep -q 'project_hint=host-io-report' <<<"$observations"; then
     memd_host_io_write_report "$blockers"
   fi
@@ -307,6 +313,41 @@ memd_host_io_write_live_map_event() {
   MEMD_EVENT_TS="$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
   MEMD_EVENT_SOURCE="host-io-guard:$status" \
   MEMD_EVENT_PATH="$report_path" \
+    awk '
+      function json_quote(value) {
+        gsub(/\\/, "\\\\", value)
+        gsub(/"/, "\\\"", value)
+        return "\"" value "\""
+      }
+      BEGIN {
+        printf "{\"ts\":%s,\"source\":%s,\"paths\":[%s]}\n",
+          json_quote(ENVIRON["MEMD_EVENT_TS"]),
+          json_quote(ENVIRON["MEMD_EVENT_SOURCE"]),
+          json_quote(ENVIRON["MEMD_EVENT_PATH"])
+      }
+    ' >> "$event_path" 2>/dev/null || true
+}
+
+memd_host_io_write_awareness_event() {
+  local repo_root="${1:-}"
+  local awareness_path="${2:-}"
+  local status="${3:-}"
+  local observations="${4:-}"
+  if [[ -n "${MEMD_HOST_IO_PS_FILE:-}" && -z "${MEMD_HOST_IO_LIVE_MAP_EVENTS:-}" ]]; then
+    return 0
+  fi
+  if [[ -z "$repo_root" || -z "$awareness_path" || -z "$observations" ]]; then
+    return 0
+  fi
+  local event_dir event_path
+  event_dir="${MEMD_HOST_IO_LIVE_MAP_EVENTS:-$repo_root/.memd/state/codebase-live-map-events.ndjson}"
+  event_path="$event_dir"
+  event_dir="$(dirname "$event_path")"
+  mkdir -p "$event_dir" 2>/dev/null || return 0
+
+  MEMD_EVENT_TS="$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+  MEMD_EVENT_SOURCE="host-io-awareness:$status" \
+  MEMD_EVENT_PATH="$awareness_path" \
     awk '
       function json_quote(value) {
         gsub(/\\/, "\\\\", value)
@@ -417,6 +458,42 @@ memd_host_io_write_report() {
       printf '%s\n' "$blockers"
     fi
   } > "$tmp" 2>/dev/null && mv "$tmp" "$output" 2>/dev/null && memd_host_io_write_live_map_event "$repo_root" "$output" "$blockers" && memd_host_io_seed_live_map_state "$repo_root" "$blockers" || rm -f "$tmp"
+}
+
+memd_host_io_write_awareness() {
+  local observations="${1:-}"
+  local blockers="${2:-}"
+  if [[ -n "${MEMD_HOST_IO_PS_FILE:-}" && -z "${MEMD_HOST_IO_AWARENESS:-}" ]]; then
+    return 0
+  fi
+  local repo_root="${MEMD_CARGO_REPO_ROOT:-}"
+  if [[ -z "$repo_root" ]]; then
+    repo_root="$(pwd -P 2>/dev/null || pwd)"
+  fi
+  local output
+  output="$(memd_host_io_awareness_path "$repo_root")"
+  local output_dir tmp status observation_count hard_blocker_count
+  output_dir="$(dirname "$output")"
+  mkdir -p "$output_dir" 2>/dev/null || return 0
+  tmp="$(mktemp "$output_dir/.host-io-awareness.XXXXXX" 2>/dev/null)" || return 0
+  if [[ -n "$blockers" ]]; then
+    status="blocked"
+  elif [[ -n "$observations" ]]; then
+    status="observed"
+  else
+    status="clear"
+  fi
+  observation_count="$(printf '%s\n' "$observations" | awk 'NF > 0 { count += 1 } END { print count + 0 }')"
+  hard_blocker_count="$(printf '%s\n' "$blockers" | awk 'NF > 0 { count += 1 } END { print count + 0 }')"
+  {
+    printf 'ts=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    printf 'repo=%s\n' "$repo_root"
+    printf 'pid=%s\n' "$$"
+    printf 'status=%s\n' "$status"
+    printf 'observation_count=%s\n' "$observation_count"
+    printf 'hard_blocker_count=%s\n' "$hard_blocker_count"
+    printf '%s\n' "$observations" | awk 'NF > 0 { print }'
+  } > "$tmp" 2>/dev/null && mv "$tmp" "$output" 2>/dev/null && memd_host_io_write_awareness_event "$repo_root" "$output" "$status" "$observations" || rm -f "$tmp"
 }
 
 cargo() {
