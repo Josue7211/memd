@@ -1412,10 +1412,10 @@ fn host_cli_auth_proof_is_syncable(record: &CapabilityRecord) -> bool {
             .notes
             .iter()
             .any(|note| note.starts_with("memd:host-auth-check:"))
-        && record
-            .notes
-            .iter()
-            .any(|note| note == "memd:host-auth-proof:local-probe")
+        && record.notes.iter().any(|note| {
+            note == "memd:host-auth-proof:local-probe"
+                || note == "memd:host-auth-proof:probe-skipped"
+        })
         && record
             .notes
             .iter()
@@ -3940,6 +3940,69 @@ mod tests {
                 .gaps
                 .iter()
                 .any(|gap| gap.contains("host CLI auth checks are unauthenticated"))
+        );
+
+        fs::remove_dir_all(output).expect("cleanup capability feature temp");
+    }
+
+    #[test]
+    fn capability_sync_counts_probe_skipped_host_cli_auth_notes_as_guidance() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-capability-host-cli-auth-skipped-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&output).expect("create capability feature temp");
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: None,
+            capabilities: vec![CapabilityRecord {
+                harness: "local".to_string(),
+                kind: "cli".to_string(),
+                name: "gh".to_string(),
+                status: "available-server".to_string(),
+                portability_class: "host-local".to_string(),
+                source_path: "/source/bin/gh".to_string(),
+                bridge_hint: Some("server inventory only".to_string()),
+                hash: None,
+                notes: vec![
+                    "PATH inventory; executable availability is host-local".to_string(),
+                    "memd:host-cli-install-plan:#!/bin/sh\necho install gh\n".to_string(),
+                    "memd:host-auth-status:unknown".to_string(),
+                    "memd:host-auth-check:gh auth status".to_string(),
+                    "memd:host-auth-proof:probe-skipped".to_string(),
+                    "memd:host-auth-output-stored:false".to_string(),
+                ],
+            }],
+        };
+
+        let feature = capability_sync_feature(&output, &registry, None);
+
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|item| item == "host_cli_auth_proofs=1")
+        );
+        assert!(
+            feature
+                .evidence
+                .iter()
+                .any(|item| item == "host_cli_auth_unknown=1")
+        );
+        assert!(
+            feature.evidence.iter().any(|item| {
+                item == "host_cli_auth_gaps_surface_as_prompt_guidance=unknown:1 unauthenticated:0"
+            }),
+            "{:?}",
+            feature.evidence
+        );
+        assert!(
+            !feature
+                .gaps
+                .iter()
+                .any(|gap| gap.contains("lack server-synced auth proof notes")),
+            "{:?}",
+            feature.gaps
         );
 
         fs::remove_dir_all(output).expect("cleanup capability feature temp");
