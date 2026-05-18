@@ -100,7 +100,7 @@ file_mtime_epoch() {
 }
 
 active_memd_binary="${MEMD_ACTIVE_MEMD_BINARY:-/Volumes/T7/node/bin/memd}"
-active_memd_sources="${MEMD_ACTIVE_MEMD_SOURCE_PATHS:-crates/memd-client/src/hive/commands_runtime.rs crates/memd-client/src/render/render_summary.rs crates/memd-client/src/awareness/mod.rs crates/memd-client/src/runtime/recall/mod.rs crates/memd-client/src/hive/ops_runtime.rs}"
+active_memd_sources="${MEMD_ACTIVE_MEMD_SOURCE_PATHS:-crates/memd-client/src/hive/commands_runtime.rs crates/memd-client/src/render/render_summary.rs crates/memd-client/src/awareness/mod.rs crates/memd-client/src/runtime/recall/mod.rs crates/memd-client/src/runtime/resume/wakeup.rs crates/memd-client/src/cli/cli_memory_os_runtime.rs crates/memd-client/src/hive/ops_runtime.rs}"
 active_memd_binary_epoch=""
 active_memd_source_epoch=0
 active_memd_source_path=""
