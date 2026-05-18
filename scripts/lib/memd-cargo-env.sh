@@ -312,6 +312,7 @@ memd_host_io_write_live_map_event() {
 
   MEMD_EVENT_TS="$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
   MEMD_EVENT_SOURCE="host-io-guard:$status" \
+  MEMD_EVENT_STATUS="$status" \
   MEMD_EVENT_PATH="$report_path" \
     awk '
       function json_quote(value) {
@@ -320,12 +321,28 @@ memd_host_io_write_live_map_event() {
         return "\"" value "\""
       }
       BEGIN {
-        printf "{\"ts\":%s,\"source\":%s,\"paths\":[%s]}\n",
+        count = 0
+      }
+      NF > 0 {
+        blockers[count] = $0
+        count += 1
+      }
+      END {
+        printf "{\"ts\":%s,\"source\":%s,\"status\":%s,\"paths\":[%s],\"blocker_count\":%d,\"blockers\":[",
           json_quote(ENVIRON["MEMD_EVENT_TS"]),
           json_quote(ENVIRON["MEMD_EVENT_SOURCE"]),
-          json_quote(ENVIRON["MEMD_EVENT_PATH"])
+          json_quote(ENVIRON["MEMD_EVENT_STATUS"]),
+          json_quote(ENVIRON["MEMD_EVENT_PATH"]),
+          count
+        for (i = 0; i < count && i < 5; i += 1) {
+          if (i > 0) {
+            printf ","
+          }
+          printf "%s", json_quote(blockers[i])
+        }
+        printf "]}\n"
       }
-    ' >> "$event_path" 2>/dev/null || true
+    ' >> "$event_path" 2>/dev/null <<< "$blockers" || true
 }
 
 memd_host_io_write_awareness_event() {
@@ -347,6 +364,7 @@ memd_host_io_write_awareness_event() {
 
   MEMD_EVENT_TS="$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
   MEMD_EVENT_SOURCE="host-io-awareness:$status" \
+  MEMD_EVENT_STATUS="$status" \
   MEMD_EVENT_PATH="$awareness_path" \
     awk '
       function json_quote(value) {
@@ -355,12 +373,28 @@ memd_host_io_write_awareness_event() {
         return "\"" value "\""
       }
       BEGIN {
-        printf "{\"ts\":%s,\"source\":%s,\"paths\":[%s]}\n",
+        count = 0
+      }
+      NF > 0 {
+        observations[count] = $0
+        count += 1
+      }
+      END {
+        printf "{\"ts\":%s,\"source\":%s,\"status\":%s,\"paths\":[%s],\"observation_count\":%d,\"observations\":[",
           json_quote(ENVIRON["MEMD_EVENT_TS"]),
           json_quote(ENVIRON["MEMD_EVENT_SOURCE"]),
-          json_quote(ENVIRON["MEMD_EVENT_PATH"])
+          json_quote(ENVIRON["MEMD_EVENT_STATUS"]),
+          json_quote(ENVIRON["MEMD_EVENT_PATH"]),
+          count
+        for (i = 0; i < count && i < 5; i += 1) {
+          if (i > 0) {
+            printf ","
+          }
+          printf "%s", json_quote(observations[i])
+        }
+        printf "]}\n"
       }
-    ' >> "$event_path" 2>/dev/null || true
+    ' >> "$event_path" 2>/dev/null <<< "$observations" || true
 }
 
 memd_host_io_seed_live_map_state() {

@@ -304,6 +304,20 @@ if [[ -n "$live_map_path" && -f "$live_map_path" ]]; then
   printf '\n'
 fi
 
+live_map_events="${MEMD_CODEBASE_LIVE_MAP_EVENTS:-$ROOT/.memd/state/codebase-live-map-events.ndjson}"
+if [[ -f "$live_map_events" && -s "$live_map_events" ]]; then
+  tail -3 "$live_map_events" 2>/dev/null | awk '
+    NF > 0 {
+      line = $0
+      gsub(/[[:space:]]+/, " ", line)
+      if (length(line) > 500) {
+        line = substr(line, 1, 500) "..."
+      }
+      printf "LIVE_MAP_EVENT_%d=%s\n", NR, line
+    }
+  ' || true
+fi
+
 host_report="${MEMD_HOST_IO_REPORT:-$ROOT/.memd/state/host-io-guard.txt}"
 if [[ -f "$host_report" ]]; then
   printf 'HOST_IO_REPORT=%s\n' "$host_report"

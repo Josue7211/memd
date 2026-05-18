@@ -391,6 +391,7 @@ hard_blocker_count=0
 volume:/Volumes/T7 project_hint=clawcontrol pid=31 state=S command=node /Volumes/T7/projects/clawcontrol/deploy/agentshell/agent-shell-adapter.js reason=separate-existing-runtime
 EOF
 preflight_live_map="$fake_ps_dir/preflight-codebase-live-map.json"
+continuity_live_map_events="$fake_ps_dir/codebase-live-map-events.ndjson"
 continuity_fake_binary="$fake_ps_dir/memd-active"
 continuity_fake_source="$fake_ps_dir/memd-active-source.rs"
 touch -t 202605180101 "$continuity_fake_binary"
@@ -405,11 +406,16 @@ cat > "$preflight_live_map" <<'JSON'
   "autosync": "blocked_no_scan"
 }
 JSON
+cat > "$continuity_live_map_events" <<'JSON'
+{"ts":"2026-05-18T05:08:11Z","source":"host-io-guard:blocked","status":"blocked","paths":["/Volumes/T7/projects/memd/.memd/state/host-io-guard.txt"],"blocker_count":1,"blockers":["repo project_hint=memd pid=12 state=U command=git status --short"]}
+{"ts":"2026-05-18T05:08:12Z","source":"host-io-awareness:observed","status":"observed","paths":["/Volumes/T7/projects/memd/.memd/state/host-io-awareness.txt"],"observation_count":1,"observations":["volume:/Volumes/T7 project_hint=clawcontrol pid=31 state=S command=agent-shell-adapter.js reason=separate-existing-runtime"]}
+JSON
 deploy_preflight_output="$(
   MEMD_ALLOW_DIRTY_DEPLOY=1 \
   MEMD_HOST_IO_REPORT="$fake_ps_dir/no-report" \
   MEMD_HOST_IO_REPORT_TTL_SECS=1 \
   MEMD_CODEBASE_LIVE_MAP_STATE="$preflight_live_map" \
+  MEMD_CODEBASE_LIVE_MAP_EVENTS="$continuity_live_map_events" \
   MEMD_SERVER_STATUS_URL=http://example.invalid/api/status \
   PATH="$fake_ps_dir:$PATH" \
   "$ROOT/scripts/deploy-memd-server-preflight.sh" 2>&1
@@ -455,6 +461,7 @@ continuity_status_output="$(
   MEMD_HOST_IO_REPORT="$fake_ps_dir/no-report" \
   MEMD_HOST_IO_REPORT_TTL_SECS=1 \
   MEMD_CODEBASE_LIVE_MAP_STATE="$preflight_live_map" \
+  MEMD_CODEBASE_LIVE_MAP_EVENTS="$continuity_live_map_events" \
   MEMD_SERVER_STATUS_URL=http://example.invalid/api/status \
   PATH="$fake_ps_dir:$PATH" \
   "$ROOT/scripts/memd-continuity-status.sh" 2>&1
@@ -486,6 +493,8 @@ grep -q "HOST_IO_AWARENESS=$continuity_awareness" <<<"$continuity_status_output"
 grep -q 'HOST_IO_AWARENESS_STATUS=OBSERVED' <<<"$continuity_status_output"
 grep -q 'HOST_IO_AWARENESS_OBSERVATION_COUNT=1' <<<"$continuity_status_output"
 grep -q 'HOST_IO_OBSERVATION_1=.*project_hint=clawcontrol' <<<"$continuity_status_output"
+grep -q 'LIVE_MAP_EVENT_1=.*"source":"host-io-guard:blocked".*"blocker_count":1.*project_hint=memd' <<<"$continuity_status_output"
+grep -q 'LIVE_MAP_EVENT_2=.*"source":"host-io-awareness:observed".*"observation_count":1.*project_hint=clawcontrol' <<<"$continuity_status_output"
 
 continuity_auto_report="$fake_ps_dir/continuity-auto-host-report.txt"
 continuity_auto_guard="$fake_ps_dir/continuity-auto-host-guard.sh"
@@ -646,8 +655,9 @@ fake_guard="$(mktemp "${TMPDIR:-/tmp}/memd-host-io-fake-guard.XXXXXX")"
 report="$(mktemp "${TMPDIR:-/tmp}/memd-host-io-report.XXXXXX")"
 public_bench_report="$(mktemp "${TMPDIR:-/tmp}/memd-public-bench-host-io-report.XXXXXX")"
 live_map_events="$(mktemp "${TMPDIR:-/tmp}/memd-codebase-live-map-events.XXXXXX")"
+live_map_awareness="$(mktemp "${TMPDIR:-/tmp}/memd-codebase-live-map-awareness.XXXXXX")"
 live_map_state="$fake_ps_dir/codebase-live-map.json"
-trap 'rm -f "$fixture" "$clear_fixture" "$fresh_report" "$stale_report" "$fake_guard" "$report" "$public_bench_report" "$live_map_events"; rm -rf "$fake_ps_dir" "$no_clawcontrol_dir" "$warmup_fake_dir"' EXIT
+trap 'rm -f "$fixture" "$clear_fixture" "$fresh_report" "$stale_report" "$fake_guard" "$report" "$public_bench_report" "$live_map_events" "$live_map_awareness"; rm -rf "$fake_ps_dir" "$no_clawcontrol_dir" "$warmup_fake_dir"' EXIT
 cat > "$fake_guard" <<'SH'
 #!/usr/bin/env bash
 echo "fake guard blocked host work" >&2
@@ -739,6 +749,7 @@ set +e
 MEMD_CARGO_REPO_ROOT=/Volumes/T7/projects/memd \
 MEMD_HOST_IO_PS_FILE="$fixture" \
 MEMD_HOST_IO_REPORT="$report" \
+MEMD_HOST_IO_AWARENESS="$live_map_awareness" \
 MEMD_HOST_IO_LIVE_MAP_EVENTS="$live_map_events" \
 MEMD_CODEBASE_LIVE_MAP_STATE="$live_map_state" \
 memd_cargo_refuse_on_host_blockers >/tmp/memd-host-io-report-test.out 2>&1
@@ -756,7 +767,13 @@ if grep -q 'project_hint=clawcontrol' "$report"; then
   exit 1
 fi
 grep -q '"source":"host-io-guard:blocked"' "$live_map_events"
+grep -q '"status":"blocked"' "$live_map_events"
+grep -q '"blocker_count":4' "$live_map_events"
+grep -q '"blockers":\[.*project_hint=memd' "$live_map_events"
 grep -q "$report" "$live_map_events"
+grep -q '"source":"host-io-awareness:blocked"' "$live_map_events"
+grep -q '"observation_count":5' "$live_map_events"
+grep -q '"observations":\[.*project_hint=clawcontrol' "$live_map_events"
 grep -q '"status": "blocked"' "$live_map_state"
 grep -q '"needs_reread": true' "$live_map_state"
 grep -q '"autosync": "blocked_no_scan"' "$live_map_state"
@@ -769,12 +786,15 @@ fi
 MEMD_CARGO_REPO_ROOT=/Volumes/T7/projects/memd \
 MEMD_HOST_IO_PS_FILE="$clear_fixture" \
 MEMD_HOST_IO_REPORT="$report" \
+MEMD_HOST_IO_AWARENESS="$live_map_awareness" \
 MEMD_HOST_IO_LIVE_MAP_EVENTS="$live_map_events" \
 MEMD_CODEBASE_LIVE_MAP_STATE="$live_map_state" \
 memd_cargo_refuse_on_host_blockers
 grep -q 'status=clear' "$report"
 grep -q '^pid=' "$report"
 grep -q '"source":"host-io-guard:clear"' "$live_map_events"
+grep -q '"status":"clear"' "$live_map_events"
+grep -q '"blocker_count":0' "$live_map_events"
 grep -q '"fingerprint": "host-io-clear-no-scan"' "$live_map_state"
 grep -q '"status": "out_of_sync"' "$live_map_state"
 grep -q '"autosync": "host_io_clear_rescan_required"' "$live_map_state"
@@ -787,6 +807,7 @@ fi
 MEMD_CARGO_REPO_ROOT=/Volumes/T7/projects/memd \
 MEMD_HOST_IO_PS_FILE="$fixture" \
 MEMD_HOST_IO_REPORT="$report" \
+MEMD_HOST_IO_AWARENESS="$live_map_awareness" \
 MEMD_HOST_IO_LIVE_MAP_EVENTS="$live_map_events" \
 MEMD_CODEBASE_LIVE_MAP_STATE="$live_map_state" \
 memd_cargo_refuse_on_host_blockers >/tmp/memd-host-io-report-test.out 2>&1 || true
@@ -802,6 +823,7 @@ printf '{\n  "fingerprint": "real-rust-map",\n  "status": "fresh"\n}\n' > "$live
 MEMD_CARGO_REPO_ROOT=/Volumes/T7/projects/memd \
 MEMD_HOST_IO_PS_FILE="$fixture" \
 MEMD_HOST_IO_REPORT="$report" \
+MEMD_HOST_IO_AWARENESS="$live_map_awareness" \
 MEMD_HOST_IO_LIVE_MAP_EVENTS="$live_map_events" \
 MEMD_CODEBASE_LIVE_MAP_STATE="$live_map_state" \
 memd_cargo_refuse_on_host_blockers >/tmp/memd-host-io-report-test.out 2>&1 || true
