@@ -127,6 +127,55 @@ fn handoff_json_string_array(value: &serde_json::Value, key: &str) -> Option<Vec
     )
 }
 
+pub(crate) fn render_handoff_next_agent_prompt(snapshot: &crate::HandoffSnapshot) -> String {
+    let proof_blockers = handoff_proof_blocker_detail(snapshot);
+    let live_state_blockers = snapshot
+        .target_bundle
+        .as_deref()
+        .and_then(|bundle| crate::cli::live_state_blocker_detail(Path::new(bundle)));
+    render_handoff_user_prompt(
+        snapshot,
+        proof_blockers.as_deref(),
+        live_state_blockers.as_deref(),
+    )
+}
+
+pub(crate) fn render_handoff_summary(snapshot: &crate::HandoffSnapshot) -> String {
+    let dirty =
+        crate::workflow::repo_dirty_count_from_changes(&snapshot.resume.recent_repo_changes);
+    let quality = snapshot
+        .resume
+        .handoff_quality
+        .as_ref()
+        .map(|score| {
+            if score.is_acceptable() {
+                "ready"
+            } else {
+                "partial"
+            }
+        })
+        .unwrap_or("unknown");
+    format!(
+        "handoff project={} namespace={} agent={} voice={} quality={} dirty={} workspace={} visibility={} working={} inbox={} workspaces={} sources={} rehydration={} target_session={} target_bundle={}\nnext_agent_prompt:\n{}",
+        snapshot.resume.project.as_deref().unwrap_or("none"),
+        snapshot.resume.namespace.as_deref().unwrap_or("none"),
+        snapshot.resume.agent.as_deref().unwrap_or("none"),
+        snapshot.voice_mode,
+        quality,
+        dirty,
+        snapshot.resume.workspace.as_deref().unwrap_or("none"),
+        snapshot.resume.visibility.as_deref().unwrap_or("all"),
+        snapshot.resume.working.records.len(),
+        snapshot.resume.inbox.items.len(),
+        snapshot.resume.workspaces.workspaces.len(),
+        snapshot.sources.sources.len(),
+        snapshot.resume.working.rehydration_queue.len(),
+        snapshot.target_session.as_deref().unwrap_or("none"),
+        snapshot.target_bundle.as_deref().unwrap_or("none"),
+        render_handoff_next_agent_prompt(snapshot)
+    )
+}
+
 fn render_handoff_user_prompt(
     snapshot: &crate::HandoffSnapshot,
     proof_blockers: Option<&str>,
@@ -514,11 +563,7 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
     output.push_str("\n## User Prompt\n\n");
     output.push_str("- give next agent:\n");
     output.push_str("```text\n");
-    output.push_str(&render_handoff_user_prompt(
-        snapshot,
-        proof_blockers.as_deref(),
-        live_state_blockers.as_deref(),
-    ));
+    output.push_str(&render_handoff_next_agent_prompt(snapshot));
     output.push_str("\n```\n");
 
     output.push_str("\n## W\n\n");
@@ -880,6 +925,28 @@ mod tests {
             "{prompt}"
         );
         assert!(prompt.contains("- blocker=One review item is still open"));
+    }
+
+    #[test]
+    fn render_handoff_summary_includes_user_copy_prompt() {
+        let handoff = crate::HandoffSnapshot {
+            generated_at: chrono::Utc::now(),
+            resume: sample_resume_snapshot(),
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            voice_mode: "caveman-ultra".to_string(),
+            target_session: Some("session-noether".to_string()),
+            target_bundle: Some(".memd".to_string()),
+        };
+
+        let summary = render_handoff_summary(&handoff);
+
+        assert!(summary.starts_with("handoff project=demo namespace=main"));
+        assert!(summary.contains("target_session=session-noether"));
+        assert!(summary.contains("next_agent_prompt:\nPick up `demo` / `main`"));
+        assert!(summary.contains("scripts/memd-continuity-status.sh"));
+        assert!(summary.contains("Keep commits atomic and leave tree clean"));
     }
 
     #[test]

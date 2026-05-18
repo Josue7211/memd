@@ -935,39 +935,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             if args.prompt {
                 println!("{}", render_handoff_prompt(&snapshot));
             } else if args.summary {
-                let dirty = crate::workflow::repo_dirty_count_from_changes(
-                    &snapshot.resume.recent_repo_changes,
-                );
-                let quality = snapshot
-                    .resume
-                    .handoff_quality
-                    .as_ref()
-                    .map(|score| {
-                        if score.is_acceptable() {
-                            "ready"
-                        } else {
-                            "partial"
-                        }
-                    })
-                    .unwrap_or("unknown");
-                println!(
-                    "handoff project={} namespace={} agent={} voice={} quality={} dirty={} workspace={} visibility={} working={} inbox={} workspaces={} sources={} rehydration={} target_session={} target_bundle={}",
-                    snapshot.resume.project.as_deref().unwrap_or("none"),
-                    snapshot.resume.namespace.as_deref().unwrap_or("none"),
-                    snapshot.resume.agent.as_deref().unwrap_or("none"),
-                    snapshot.voice_mode,
-                    quality,
-                    dirty,
-                    snapshot.resume.workspace.as_deref().unwrap_or("none"),
-                    snapshot.resume.visibility.as_deref().unwrap_or("all"),
-                    snapshot.resume.working.records.len(),
-                    snapshot.resume.inbox.items.len(),
-                    snapshot.resume.workspaces.workspaces.len(),
-                    snapshot.sources.sources.len(),
-                    snapshot.resume.working.rehydration_queue.len(),
-                    snapshot.target_session.as_deref().unwrap_or("none"),
-                    snapshot.target_bundle.as_deref().unwrap_or("none"),
-                );
+                println!("{}", render_handoff_summary(&snapshot));
             } else {
                 print_json(&snapshot)?;
             }
