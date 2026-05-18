@@ -44,9 +44,10 @@ use std::collections::{HashSet, VecDeque};
 use anyhow::Context;
 use axum::{
     Json, Router,
-    extract::{Query, State},
+    extract::{Query, Request, State},
     http::StatusCode,
-    response::Html,
+    middleware::Next,
+    response::{Html, Response},
     routing::{get, post},
 };
 use chrono::Utc;
@@ -1046,6 +1047,10 @@ async fn main() {
             "/api/diagnostics/token-efficiency",
             post(token_efficiency_diagnostics),
         )
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            latency_recording_middleware,
+        ))
         .layer(axum::middleware::from_fn(
             token_headers::token_headers_middleware,
         ))
@@ -1117,4 +1122,16 @@ async fn main() {
         error!(error = %format_args!("{e:#}"), "server exited unexpectedly");
         std::process::exit(1);
     }
+}
+
+async fn latency_recording_middleware(
+    State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let started = std::time::Instant::now();
+    let response = next.run(req).await;
+    let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    state.latency.record_ms(elapsed_ms);
+    response
 }
