@@ -793,6 +793,8 @@ struct CodebaseLiveMapState {
 struct CodebaseLiveMapFile {
     len: u64,
     mtime_unix: i64,
+    #[serde(default)]
+    content_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1125,17 +1127,18 @@ fn scan_codebase_live_map(repo_root: &Path) -> anyhow::Result<CodebaseLiveMapSna
     let mut hasher = Sha256::new();
     let mut newest_mtime_unix = 0_i64;
     let mut file_map = std::collections::BTreeMap::new();
-    for (relative, len, mtime) in &files {
+    for (relative, len, mtime, content_hash) in &files {
         hasher.update(relative.as_bytes());
         hasher.update([0]);
         hasher.update(len.to_le_bytes());
-        hasher.update(mtime.to_le_bytes());
+        hasher.update(content_hash.as_bytes());
         newest_mtime_unix = newest_mtime_unix.max(*mtime);
         file_map.insert(
             relative.clone(),
             CodebaseLiveMapFile {
                 len: *len,
                 mtime_unix: *mtime,
+                content_hash: content_hash.clone(),
             },
         );
     }
@@ -1165,7 +1168,7 @@ fn diff_codebase_live_map(
                 diff.added_count += 1;
                 push_codebase_diff_sample(&mut diff.added, path, &mut diff.truncated);
             }
-            Some(previous_file) if previous_file != current_file => {
+            Some(previous_file) if codebase_live_map_file_changed(previous_file, current_file) => {
                 diff.modified_count += 1;
                 push_codebase_diff_sample(&mut diff.modified, path, &mut diff.truncated);
             }
@@ -1179,6 +1182,17 @@ fn diff_codebase_live_map(
         }
     }
     diff
+}
+
+fn codebase_live_map_file_changed(
+    previous: &CodebaseLiveMapFile,
+    current: &CodebaseLiveMapFile,
+) -> bool {
+    if !previous.content_hash.is_empty() && !current.content_hash.is_empty() {
+        previous.len != current.len || previous.content_hash != current.content_hash
+    } else {
+        previous != current
+    }
 }
 
 fn push_codebase_diff_sample(paths: &mut Vec<String>, path: &str, truncated: &mut bool) {
@@ -1211,7 +1225,7 @@ fn codebase_diff_sample(diff: &CodebaseLiveMapDiff) -> String {
 fn collect_codebase_live_map_files(
     repo_root: &Path,
     dir: &Path,
-    out: &mut Vec<(String, u64, i64)>,
+    out: &mut Vec<(String, u64, i64, String)>,
     limit: usize,
 ) -> anyhow::Result<()> {
     if out.len() >= limit {
@@ -1250,7 +1264,11 @@ fn collect_codebase_live_map_files(
             .map(DateTime::<Utc>::from)
             .map(|value| value.timestamp())
             .unwrap_or_default();
-        out.push((relative, metadata.len(), mtime));
+        let content_hash = fs::read(&path)
+            .ok()
+            .map(|bytes| format!("{:x}", Sha256::digest(bytes)))
+            .unwrap_or_default();
+        out.push((relative, metadata.len(), mtime, content_hash));
     }
     Ok(())
 }
@@ -1280,13 +1298,10 @@ fn should_skip_live_map_path(repo_root: &Path, path: &Path, name: &str) -> bool 
             std::path::Component::Normal(value) => value.to_str(),
             _ => None,
         });
-    matches!(
-        (components.next(), components.next()),
-        (
-            Some(".memd"),
-            Some("agents" | "compiled" | "logs" | "state")
-        ) | (Some(".memd"), Some("events.md" | "mem.md" | "wake.md"))
-    )
+    if components.next() == Some(".memd") {
+        return !matches!(components.next(), Some("config.json" | "env" | "env.ps1"));
+    }
+    false
 }
 
 fn host_process_live_map_blockers(bundle_root: &Path, repo_root: &Path) -> Vec<String> {
@@ -1912,10 +1927,20 @@ mod tests {
             Path::new("/Volumes/T7/projects/memd/.memd/wake.md"),
             "wake.md",
         ));
+        assert!(should_skip_live_map_path(
+            repo,
+            Path::new("/Volumes/T7/projects/memd/.memd/models/fastembed/model.onnx"),
+            "model.onnx",
+        ));
         assert!(!should_skip_live_map_path(
             repo,
             Path::new("/Volumes/T7/projects/memd/.memd/config.json"),
             "config.json",
+        ));
+        assert!(!should_skip_live_map_path(
+            repo,
+            Path::new("/Volumes/T7/projects/memd/.memd/env"),
+            "env",
         ));
         assert!(!should_skip_live_map_path(
             repo,
@@ -1995,6 +2020,7 @@ mod tests {
             CodebaseLiveMapFile {
                 len: 12,
                 mtime_unix: 123,
+                content_hash: "same-content".to_string(),
             },
         );
         let previous = CodebaseLiveMapState {
@@ -2051,5 +2077,27 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(repo);
+    }
+
+    #[test]
+    fn live_map_diff_ignores_mtime_only_churn_when_hash_matches() {
+        let previous = CodebaseLiveMapFile {
+            len: 12,
+            mtime_unix: 100,
+            content_hash: "abc".to_string(),
+        };
+        let current = CodebaseLiveMapFile {
+            len: 12,
+            mtime_unix: 200,
+            content_hash: "abc".to_string(),
+        };
+        let changed = CodebaseLiveMapFile {
+            len: 12,
+            mtime_unix: 200,
+            content_hash: "def".to_string(),
+        };
+
+        assert!(!codebase_live_map_file_changed(&previous, &current));
+        assert!(codebase_live_map_file_changed(&previous, &changed));
     }
 }
