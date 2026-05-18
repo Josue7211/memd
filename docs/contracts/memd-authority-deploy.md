@@ -20,7 +20,7 @@ memd update look like a ClawControl launch and hides the true owner from agents.
 Use:
 
 ```bash
-scripts/deploy-memd-authority-openclaw.sh build-only
+scripts/deploy-memd-authority.sh build-only
 ```
 
 This builds the remote image and mutates no running service.
@@ -28,7 +28,7 @@ This builds the remote image and mutates no running service.
 Use activation only when the port is already owned by the memd authority:
 
 ```bash
-scripts/deploy-memd-authority-openclaw.sh activate
+scripts/deploy-memd-authority.sh activate
 ```
 
 Activation defaults to port `8788`, creating a side-by-side memd-owned authority

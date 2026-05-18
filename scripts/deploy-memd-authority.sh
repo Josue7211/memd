@@ -85,6 +85,18 @@ fi
 
 image_tag="$IMAGE_REPO:$commit"
 
+cat <<MSG
+memd authority deploy target:
+  remote_host=$REMOTE
+  container=$CONTAINER
+  image=$image_tag
+  port=$PORT
+  owner=memd
+  touches_clawcontrol=false
+  starts_clawcontrol=false
+  stops_clawcontrol=false
+MSG
+
 echo "building memd authority image on $REMOTE: $image_tag"
 git archive --format=tar HEAD | ssh "$REMOTE" \
   "docker build -f deploy/docker/Dockerfile.memd-server \
