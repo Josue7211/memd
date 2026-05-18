@@ -35,18 +35,30 @@ fi
 
 if [[ -z "$MEMD_REPORT" ]]; then
   MEMD_REPORT="$(python3 - "$OUT_DIR" <<'PY'
+import json
 import pathlib
 import re
 import sys
 
 out_dir = pathlib.Path(sys.argv[1])
 candidates = []
+
+def report_status(path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8")).get("status")
+    except Exception:
+        return None
+
+for path in out_dir.glob("*external-public-full.json"):
+    if report_status(path) == "pass":
+        candidates.append((2, 0, path.stat().st_mtime, path))
+
 for path in out_dir.glob("*external-public-scale-*.json"):
     match = re.search(r"external-public-scale-(\d+)\.json$", path.name)
     if match:
-        candidates.append((int(match.group(1)), path.stat().st_mtime, path))
+        candidates.append((1, int(match.group(1)), path.stat().st_mtime, path))
 if candidates:
-    print(max(candidates)[2])
+    print(max(candidates)[3])
 PY
 )"
 fi

@@ -28,7 +28,7 @@
     ],
     "status": "working"
   },
-  "memd_report": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-13-external-public-scale-50.json",
+  "memd_report": "/Volumes/T7/projects/memd/docs/verification/25-5-memory-os-runs/2026-05-18-external-public-full.json",
   "missing_requirements": [
     "supermemory_same_fixture_replay_artifact"
   ],
