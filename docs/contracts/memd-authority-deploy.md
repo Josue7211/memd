@@ -9,7 +9,8 @@ lifecycle.
 - Runtime container: `memd-authority`
 - Image repo: `memd-authority`
 - Data volume: `memd_authority_data`
-- Public authority port: `8787`
+- Migration public authority port: `8788`
+- Final public authority port after explicit cutover: `8787`
 
 Do not deploy memd into a `clawcontrol-*` container or image name. That makes a
 memd update look like a ClawControl launch and hides the true owner from agents.
@@ -30,12 +31,21 @@ Use activation only when the port is already owned by the memd authority:
 scripts/deploy-memd-authority-openclaw.sh activate
 ```
 
-Activation refuses to remove or replace `clawcontrol-*` containers. Migrating
-from a legacy `clawcontrol-memd` container is an explicit infra step: create the
-memd-owned authority service, then point ClawControl at it as a consumer.
+Activation defaults to port `8788`, creating a side-by-side memd-owned authority
+without stopping the legacy `clawcontrol-memd` service on `8787`.
+
+Port `8787` cutover is a separate explicit infra migration. Do not bind `8787`
+for memd authority while a `clawcontrol-*` container owns it.
 
 ## Agent Rule
 
 Agents may build memd authority images. Agents must not kill, start, or replace
 ClawControl-prefixed services while updating memd unless the user explicitly
 asks for that specific infra migration.
+
+To migrate agents before final cutover, set their shared base URL to the
+side-by-side authority after `/healthz` and `/api/status` pass:
+
+```text
+http://100.104.154.24:8788
+```

@@ -146,6 +146,9 @@ fi
 status_url="${MEMD_SERVER_STATUS_URL:-}"
 authority_container="${MEMD_AUTHORITY_CONTAINER:-memd-authority}"
 authority_image_repo="${MEMD_AUTHORITY_IMAGE_REPO:-memd-authority}"
+authority_port="${MEMD_AUTHORITY_PORT:-${MEMD_AUTHORITY_MIGRATION_PORT:-8788}}"
+authority_public_host="${MEMD_AUTHORITY_PUBLIC_HOST:-100.104.154.24}"
+authority_url="http://$authority_public_host:$authority_port"
 authority_deploy_contract="$ROOT/docs/contracts/memd-authority-deploy.md"
 authority_identity_status="ready"
 authority_identity_blockers=""
@@ -308,6 +311,8 @@ MEMD_GIT_COMMIT=$commit
 MEMD_GIT_DIRTY=$dirty
 MEMD_AUTHORITY_CONTAINER=$authority_container
 MEMD_AUTHORITY_IMAGE_REPO=$authority_image_repo
+MEMD_AUTHORITY_PORT=$authority_port
+MEMD_AUTHORITY_URL=$authority_url
 MEMD_AUTHORITY_DEPLOY_CONTRACT=$authority_deploy_contract
 MEMD_AUTHORITY_IDENTITY_STATUS=$authority_identity_status
 MEMD_AUTHORITY_IDENTITY_BLOCKERS=$authority_identity_blockers
@@ -339,6 +344,8 @@ memd-server deploy env:
   MEMD_GIT_DIRTY=$dirty
   MEMD_AUTHORITY_CONTAINER=$authority_container
   MEMD_AUTHORITY_IMAGE_REPO=$authority_image_repo
+  MEMD_AUTHORITY_PORT=$authority_port
+  MEMD_AUTHORITY_URL=$authority_url
   MEMD_AUTHORITY_DEPLOY_CONTRACT=$authority_deploy_contract
   MEMD_AUTHORITY_IDENTITY_STATUS=$authority_identity_status
   MEMD_AUTHORITY_IDENTITY_BLOCKERS=$authority_identity_blockers

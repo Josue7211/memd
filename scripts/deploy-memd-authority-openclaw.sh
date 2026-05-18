@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build/deploy the shared memd authority without touching ClawControl-owned
-# containers. Activation is intentionally conservative: if port 8787 is owned
-# by a legacy clawcontrol-* container, this script stops before mutation.
+# containers. The migration default uses a side-by-side memd-owned host port so
+# updating memd never requires stopping or replacing legacy ClawControl runtime.
 
 set -euo pipefail
 
@@ -11,7 +11,9 @@ cd "$ROOT"
 REMOTE="${MEMD_AUTHORITY_REMOTE:-openclaw-vm}"
 CONTAINER="${MEMD_AUTHORITY_CONTAINER:-memd-authority}"
 IMAGE_REPO="${MEMD_AUTHORITY_IMAGE_REPO:-memd-authority}"
-PORT="${MEMD_AUTHORITY_PORT:-8787}"
+MIGRATION_PORT="${MEMD_AUTHORITY_MIGRATION_PORT:-8788}"
+PORT="${MEMD_AUTHORITY_PORT:-$MIGRATION_PORT}"
+PUBLIC_HOST="${MEMD_AUTHORITY_PUBLIC_HOST:-100.104.154.24}"
 NETWORK="${MEMD_AUTHORITY_NETWORK:-portainer_default}"
 DATA_VOLUME="${MEMD_AUTHORITY_DATA_VOLUME:-memd_authority_data}"
 MODE="${1:-build-only}"
@@ -23,7 +25,7 @@ case "$MODE" in
 usage: $0 [build-only|activate]
 
 build-only  build the remote memd authority image, no container mutation
-activate    start/replace only the $CONTAINER container
+activate    start/replace only the memd-owned $CONTAINER container on port $PORT
 MSG
     exit 64
     ;;
@@ -50,6 +52,32 @@ branch="$(printf '%s\n' "$preflight_output" | awk -F= '$1 == "MEMD_GIT_BRANCH" {
 commit="$(printf '%s\n' "$preflight_output" | awk -F= '$1 == "MEMD_GIT_COMMIT" { print $2; exit }')"
 dirty="$(printf '%s\n' "$preflight_output" | awk -F= '$1 == "MEMD_GIT_DIRTY" { print $2; exit }')"
 
+existing=""
+if [[ "$MODE" == "activate" ]]; then
+  existing="$(
+    ssh "$REMOTE" "docker ps -a --format '{{.Names}} {{.Ports}}' | awk -v port=':$PORT->' '\$0 ~ port { print } \$1 == \"$CONTAINER\" { print }'" || true
+  )"
+
+  if printf '%s\n' "$existing" | awk '{ print $1 }' | grep -q '^clawcontrol-'; then
+    cat >&2 <<MSG
+refusing memd authority activation before build: selected port/container is still owned by a ClawControl-named service.
+$existing
+
+Use the side-by-side migration port instead:
+  MEMD_AUTHORITY_PORT=$MIGRATION_PORT $0 activate
+MSG
+    exit 67
+  fi
+
+  if printf '%s\n' "$existing" | awk '{ print $1 }' | grep -v -x "$CONTAINER" | grep -q .; then
+    cat >&2 <<MSG
+refusing memd authority activation before build: port $PORT is owned by a non-memd container.
+$existing
+MSG
+    exit 68
+  fi
+fi
+
 if [[ -z "$commit" || "$commit" == "unknown" ]]; then
   echo "refusing memd authority deploy: unknown git commit" >&2
   exit 66
@@ -70,32 +98,11 @@ if [[ "$MODE" == "build-only" ]]; then
 MEMD_AUTHORITY_REMOTE=$REMOTE
 MEMD_AUTHORITY_CONTAINER=$CONTAINER
 MEMD_AUTHORITY_IMAGE=$image_tag
+MEMD_AUTHORITY_PORT=$PORT
+MEMD_AUTHORITY_URL=http://$PUBLIC_HOST:$PORT
 MEMD_AUTHORITY_ACTION=build_complete_no_runtime_change
 MSG
   exit 0
-fi
-
-existing="$(
-  ssh "$REMOTE" "docker ps -a --format '{{.Names}} {{.Ports}}' | awk -v port=':$PORT->' '\$0 ~ port { print } \$1 == \"$CONTAINER\" { print }'" || true
-)"
-
-if printf '%s\n' "$existing" | awk '{ print $1 }' | grep -q '^clawcontrol-'; then
-  cat >&2 <<MSG
-refusing memd authority activation: port/container is still owned by a ClawControl-named service.
-$existing
-
-Do the migration as an explicit infra step: create a memd-owned authority service
-($CONTAINER), then point ClawControl at it as a consumer.
-MSG
-  exit 67
-fi
-
-if printf '%s\n' "$existing" | awk '{ print $1 }' | grep -v -x "$CONTAINER" | grep -q .; then
-  cat >&2 <<MSG
-refusing memd authority activation: port $PORT is owned by a non-memd container.
-$existing
-MSG
-  exit 68
 fi
 
 echo "activating memd authority container on $REMOTE: $CONTAINER"
@@ -123,5 +130,7 @@ cat <<MSG
 MEMD_AUTHORITY_REMOTE=$REMOTE
 MEMD_AUTHORITY_CONTAINER=$CONTAINER
 MEMD_AUTHORITY_IMAGE=$image_tag
+MEMD_AUTHORITY_PORT=$PORT
+MEMD_AUTHORITY_URL=http://$PUBLIC_HOST:$PORT
 MEMD_AUTHORITY_ACTION=activated
 MSG

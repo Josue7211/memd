@@ -42,8 +42,9 @@ For direct SSH deploy work, prefer the guarded memd-owned path:
 - `scripts/deploy-memd-authority-openclaw.sh build-only`
 - `scripts/deploy-memd-authority-openclaw.sh activate`
 
-The guarded script refuses ClawControl-prefixed container/image names and refuses
-activation when port `8787` is still owned by a `clawcontrol-*` service.
+The guarded script refuses ClawControl-prefixed container/image names. It
+activates on side-by-side port `8788` by default so memd updates do not require
+stopping or replacing a legacy ClawControl-owned service on `8787`.
 
 `GET /api/status` must show the deployed commit, `git_dirty=clean`, and an
 acceptable `benchmark_gate` before `server_authority` can be considered ready.
@@ -52,7 +53,8 @@ acceptable `benchmark_gate` before `server_authority` can be considered ready.
 
 - container name: `memd-authority` for direct guarded deploys,
   `memd-server` for this Portainer stack
-- exposed port: `8787`
+- exposed port: `8788` for direct guarded deploys,
+  `8787` for this Portainer stack
 - database volume: `memd_authority_data` for direct guarded deploys,
   `memd_server_data` for this Portainer stack
 - bind address inside container: `0.0.0.0:8787`

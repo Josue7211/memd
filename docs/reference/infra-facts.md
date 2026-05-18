@@ -13,8 +13,10 @@ unverified until they are checked again.
 - Cloudflare tunnel runs via `systemd`
 - Cloudflare tunnel lives on the `plex` VM
 - domain: `aparcedo.org`
-- shared `memd-server` lives on `openclaw-vm` behind Portainer
-- `memd-server` is reachable over Tailscale at `http://100.104.154.24:8787`
+- legacy shared `memd-server` currently lives on `openclaw-vm` behind Portainer
+  at `http://100.104.154.24:8787`
+- memd-owned authority migration target is `memd-authority` on side-by-side
+  Tailscale port `8788`; verify before claiming it is live
 - OpenClaw VM Tailscale DNS name is `openclaw.tail8fd5f4.ts.net`
 - Portainer on `openclaw-vm` is reachable at `https://100.104.154.24:9443`
 - shared `memd-server` is intended to be accessed over Tailscale or an

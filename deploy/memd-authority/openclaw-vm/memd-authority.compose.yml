@@ -1,0 +1,26 @@
+services:
+  memd-authority:
+    image: ${MEMD_AUTHORITY_IMAGE:-memd-authority:${MEMD_GIT_COMMIT:-latest}}
+    container_name: memd-authority
+    restart: unless-stopped
+    environment:
+      MEMD_DB_PATH: /data/memd.db
+      MEMD_BIND_ADDR: 0.0.0.0:8787
+      MEMD_AUTHORITY_SEARCH: ${MEMD_AUTHORITY_SEARCH:-1}
+      MEMD_AUTHORITY_TOKEN: ${MEMD_AUTHORITY_TOKEN:-}
+      MEMD_GIT_BRANCH: ${MEMD_GIT_BRANCH:-unknown}
+      MEMD_GIT_COMMIT: ${MEMD_GIT_COMMIT:-unknown}
+      MEMD_GIT_DIRTY: ${MEMD_GIT_DIRTY:-unknown}
+    ports:
+      - "${MEMD_AUTHORITY_PORT:-8788}:8787"
+    volumes:
+      - memd_authority_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  memd_authority_data:
