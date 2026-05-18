@@ -1701,9 +1701,9 @@ fn fetch_server_status_json_with_warmup(base_url: &str) -> anyhow::Result<serde_
         return Ok(value);
     }
 
-    for _ in 0..3 {
+    for _ in 0..24 {
         let _ = fetch_server_path(base_url, "/healthz");
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(250));
         value = fetch_server_status_json(base_url)?;
         if !server_status_json_should_warm(&value) {
             break;
