@@ -955,7 +955,8 @@ fn update_codebase_live_map(
             .signed_duration_since(cached.updated_at)
             .num_seconds()
             .max(0);
-        if age_secs <= ttl_secs {
+        let newer_events = codebase_live_map_events_after(&recent_events, cached.updated_at);
+        if age_secs <= ttl_secs && newer_events == 0 {
             let mut diagnostics = vec![format!(
                 "codebase_live_map status={} autosync=cached_no_rescan reread_required={} age_secs={} ttl_secs={} files={} newest_mtime={} recent_events={} state={}",
                 cached.status,
@@ -1109,6 +1110,13 @@ fn codebase_live_map_event_sample(events: &[CodebaseLiveMapEvent]) -> String {
         })
         .collect::<Vec<_>>()
         .join(" | ")
+}
+
+fn codebase_live_map_events_after(
+    events: &[CodebaseLiveMapEvent],
+    timestamp: DateTime<Utc>,
+) -> usize {
+    events.iter().filter(|event| event.ts > timestamp).count()
 }
 
 #[derive(Debug, Clone)]
@@ -2074,6 +2082,58 @@ mod tests {
                 .blockers
                 .iter()
                 .any(|line| line.contains("project_hint=app-git"))
+        );
+
+        let _ = fs::remove_dir_all(repo);
+    }
+
+    #[test]
+    fn live_map_newer_event_bypasses_fresh_cache() {
+        let repo = unique_awareness_test_dir("event-bypasses-cache");
+        let bundle = repo.join(".memd");
+        let state_dir = bundle.join("state");
+        let src_dir = repo.join("src");
+        fs::create_dir_all(&state_dir).expect("create state dir");
+        fs::create_dir_all(&src_dir).expect("create src dir");
+        let source_path = src_dir.join("lib.rs");
+        fs::write(&source_path, "pub fn value() -> u8 { 1 }\n").expect("write initial source");
+        fs::write(
+            state_dir.join("host-io-guard.txt"),
+            format!(
+                "ts={}\nrepo={}\npid=42\nstatus=clear\n",
+                Utc::now().to_rfc3339(),
+                repo.display()
+            ),
+        )
+        .expect("write clear host report");
+
+        let initial = update_codebase_live_map(&bundle, &repo).expect("initial map");
+        assert_eq!(initial.status, "fresh");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(&source_path, "pub fn value() -> u8 { 2 }\n").expect("modify source");
+        record_codebase_live_map_event(
+            &bundle,
+            "test:file-write",
+            &[source_path.display().to_string()],
+        )
+        .expect("record live-map event");
+
+        let update = update_codebase_live_map(&bundle, &repo).expect("refresh map");
+
+        assert_eq!(update.status, "out_of_sync");
+        let persisted = fs::read_to_string(state_dir.join("codebase-live-map.json"))
+            .expect("read persisted map");
+        let state: CodebaseLiveMapState =
+            serde_json::from_str(&persisted).expect("parse persisted map");
+        assert!(state.needs_reread);
+        assert_eq!(state.autosync, "updated_map_reread_required");
+        assert_eq!(state.last_changes.modified_count, 1);
+        assert!(
+            update
+                .diagnostics
+                .iter()
+                .any(|line| line.contains("codebase_event_log")),
+            "{update:?}"
         );
 
         let _ = fs::remove_dir_all(repo);
