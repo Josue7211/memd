@@ -1180,6 +1180,91 @@ fn project_awareness_summary_surfaces_possible_work_overlap_diagnostics() {
 }
 
 #[test]
+fn project_awareness_summary_surfaces_hive_goal_mismatch() {
+    let now = Utc::now();
+    let response = ProjectAwarenessResponse {
+        root: "server:http://127.0.0.1:8787".to_string(),
+        current_bundle: "/tmp/projects/current/.memd".to_string(),
+        collisions: Vec::new(),
+        entries: vec![
+            ProjectAwarenessEntry {
+                project_dir: "/tmp/projects/current".to_string(),
+                bundle_root: "/tmp/projects/current/.memd".to_string(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/projects/current".to_string()),
+                branch: Some("main".to_string()),
+                base_branch: None,
+                agent: Some("codex".to_string()),
+                session: Some("session-current".to_string()),
+                tab_id: None,
+                effective_agent: Some("codex@session-current".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                hive_group_goal: Some("finish continuity".to_string()),
+                authority: Some("participant".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                presence: "active".to_string(),
+                host: None,
+                pid: None,
+                active_claims: 0,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: Some("Finish continuity".to_string()),
+                pressure: None,
+                next_recovery: None,
+                last_updated: Some(now),
+            },
+            ProjectAwarenessEntry {
+                project_dir: "/tmp/projects/peer".to_string(),
+                bundle_root: "/tmp/projects/peer/.memd".to_string(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/projects/peer".to_string()),
+                branch: Some("main".to_string()),
+                base_branch: None,
+                agent: Some("codex".to_string()),
+                session: Some("session-peer".to_string()),
+                tab_id: None,
+                effective_agent: Some("codex@session-peer".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                hive_group_goal: Some("ship dashboard".to_string()),
+                authority: Some("participant".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                presence: "active".to_string(),
+                host: None,
+                pid: None,
+                active_claims: 0,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: Some("Ship dashboard".to_string()),
+                pressure: None,
+                next_recovery: None,
+                last_updated: Some(now),
+            },
+        ],
+    };
+
+    let summary = render_project_awareness_summary(&response);
+    assert!(summary.contains("hive_goal_mismatch group=project:memd"));
+    assert!(summary.contains("finish continuity|ship dashboard"));
+    assert!(summary.contains("align_hive_group_goal_before_handoff"));
+}
+
+#[test]
 fn project_awareness_summary_ignores_generic_project_overlap_noise() {
     let now = Utc::now();
     let response = ProjectAwarenessResponse {

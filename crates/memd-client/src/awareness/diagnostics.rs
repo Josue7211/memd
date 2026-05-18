@@ -8,6 +8,7 @@ pub(crate) fn awareness_summary_diagnostics(entries: &[&ProjectAwarenessEntry]) 
     let mut diagnostics = shared_endpoint_diagnostics(entries);
     diagnostics.extend(session_collision_warnings(&owned));
     diagnostics.extend(branch_collision_warnings(&owned));
+    diagnostics.extend(hive_goal_mismatch_warnings(entries));
     diagnostics.extend(work_overlap_warnings(entries));
     diagnostics
 }
@@ -102,6 +103,65 @@ pub(crate) fn branch_collision_warnings(entries: &[ProjectAwarenessEntry]) -> Ve
             }),
     );
     warnings
+}
+
+pub(crate) fn hive_goal_mismatch_warnings(entries: &[&ProjectAwarenessEntry]) -> Vec<String> {
+    let mut by_group =
+        std::collections::BTreeMap::<String, std::collections::BTreeMap<String, Vec<String>>>::new(
+        );
+
+    for entry in entries {
+        let Some(goal) = entry
+            .hive_group_goal
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let session = entry
+            .session
+            .as_deref()
+            .or(entry.effective_agent.as_deref())
+            .or(entry.agent.as_deref())
+            .unwrap_or("unknown")
+            .to_string();
+        for group in entry
+            .hive_groups
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+        {
+            by_group
+                .entry(group.to_string())
+                .or_default()
+                .entry(goal.to_string())
+                .or_default()
+                .push(session.clone());
+        }
+    }
+
+    by_group
+        .into_iter()
+        .filter(|(_, goals)| goals.len() > 1)
+        .map(|(group, goals)| {
+            let goal_labels = goals
+                .keys()
+                .map(|goal| compact_inline(goal, 48))
+                .collect::<Vec<_>>()
+                .join("|");
+            let sessions = goals
+                .values()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(",");
+            format!(
+                "hive_goal_mismatch group={} goals={} sessions={} action=align_hive_group_goal_before_handoff",
+                group, goal_labels, sessions
+            )
+        })
+        .collect()
 }
 
 pub(crate) fn work_overlap_warnings(entries: &[&ProjectAwarenessEntry]) -> Vec<String> {
