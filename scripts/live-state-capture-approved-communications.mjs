@@ -29,6 +29,10 @@ function asArray(value) {
   return Array.isArray(value) ? value.filter((item) => item && typeof item === 'object') : [];
 }
 
+function hasOwn(value, key) {
+  return Object.prototype.hasOwnProperty.call(asRecord(value), key);
+}
+
 function text(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -297,8 +301,9 @@ function recordsFromDocument(document, preferredModule = '') {
     : asRecord(document);
   const records = [];
 
+  const hasMessages = Array.isArray(data.messages);
   const messages = asArray(data.messages);
-  if (messages.length) {
+  if (hasMessages) {
     const sanitized = messages.map(sanitizeMessage).slice(0, 12);
     const hasAttachments = sanitized.some((item) => item.hasAttachments);
     const hasRedactedSnippet = sanitized.some((item) => item.redactedSnippet);
@@ -327,8 +332,10 @@ function recordsFromDocument(document, preferredModule = '') {
     );
   }
 
-  const emails = asArray(data.email || data.emails);
-  if (emails.length) {
+  const emailInput = hasOwn(data, 'email') ? data.email : data.emails;
+  const hasEmail = Array.isArray(emailInput);
+  const emails = asArray(emailInput);
+  if (hasEmail) {
     const sanitized = emails.map(sanitizeEmail).slice(0, 12);
     const hasAttachments = sanitized.some((item) => item.hasAttachments);
     const hasRedactedSnippet = sanitized.some((item) => item.redactedSnippet);

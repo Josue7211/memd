@@ -2301,7 +2301,7 @@ fn process_env_access_route_config(scope: &str) -> Option<ProcessEnvAccessRouteC
                 "APPROVED_MESSAGES_FILE",
                 "APPROVED_EMAIL_FILE",
             ],
-            guidance: "File must be approved communications JSON: messages/email arrays with approved=true; redactedSnippet requires redacted=true or redactionApproved=true; attachment/media metadata requires agentsecretsApproved=true; raw chat/mail body text and raw media are rejected.",
+            guidance: "File must be approved communications JSON: messages/email arrays with approved=true on each item; explicit empty arrays are valid approved-zero metadata; redactedSnippet requires redacted=true or redactionApproved=true; attachment/media metadata requires agentsecretsApproved=true; raw chat/mail body text and raw media are rejected.",
         }),
         _ => None,
     }
@@ -4678,6 +4678,7 @@ mod tests {
         assert!(route.guidance.contains("APPROVED_MESSAGES_FILE"));
         assert!(route.guidance.contains("APPROVED_EMAIL_FILE"));
         assert!(route.guidance.contains("approved communications JSON"));
+        assert!(route.guidance.contains("explicit empty arrays"));
         assert!(route.guidance.contains("approved=true"));
         assert!(route.guidance.contains("redactedSnippet"));
         assert!(route.guidance.contains("agentsecretsApproved=true"));
