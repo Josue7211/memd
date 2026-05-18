@@ -31,13 +31,11 @@ Environment:
   INTERVAL_SECS=$INTERVAL_SECS
   TARGET=$TARGET
   LAUNCHD_PATH=${LAUNCHD_PATH:-/Volumes/T7/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}
-  CAPTURE_HTTP=${CAPTURE_HTTP:-0}
-  IMPORT_CLAWCONTROL_BUNDLE=${IMPORT_CLAWCONTROL_BUNDLE:-0}
 
 The generated launchd job runs scripts/live-state-sync-memd.sh every
 INTERVAL_SECS seconds. By default it uses memd-owned producers only and does
-not probe, launch, or import from ClawControl. Set CAPTURE_HTTP=1 and
-IMPORT_CLAWCONTROL_BUNDLE=1 only for an intentional ClawControl HTTP sync.
+not probe, launch, or import from ClawControl. Intentional ClawControl HTTP
+sync is a separate manual route through scripts/live-state-sync-clawcontrol.sh.
 USAGE
 }
 
@@ -58,10 +56,6 @@ render_plist() {
   <dict>
     <key>PATH</key>
     <string>${LAUNCHD_PATH:-/Volumes/T7/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}</string>
-    <key>CAPTURE_HTTP</key>
-    <string>${CAPTURE_HTTP:-0}</string>
-    <key>IMPORT_CLAWCONTROL_BUNDLE</key>
-    <string>${IMPORT_CLAWCONTROL_BUNDLE:-0}</string>
   </dict>
   <key>StartInterval</key>
   <integer>$INTERVAL_SECS</integer>

@@ -156,8 +156,11 @@ no_clawcontrol_dir="$(mktemp -d "${TMPDIR:-/tmp}/memd-no-clawcontrol-sync.XXXXXX
 cat > "$no_clawcontrol_dir/memd" <<'SH'
 #!/usr/bin/env bash
 if [[ "$1" == "live-state" && "$2" == "status" ]]; then
-  echo "task source=clawcontrol module=messages scope=approved status=missing"
-  exit 0
+  if [[ "$*" == *"--check"* ]]; then
+    exit 2
+  fi
+  echo "task source=memd module=messages scope=approved status=missing"
+  exit 2
 fi
 echo "unexpected memd invocation: $*" >&2
 exit 64
@@ -174,18 +177,25 @@ MEMD_BIN="$no_clawcontrol_dir/memd" \
 CAPTURE_SCRIPT="$no_clawcontrol_dir/clawcontrol-http" \
 MAC_BRIDGE_FALLBACK=0 \
 APPROVED_COMMUNICATIONS_FALLBACK=0 \
-"$ROOT/scripts/live-state-sync-clawcontrol.sh" >/tmp/memd-live-state-no-clawcontrol-default.out 2>&1
+"$ROOT/scripts/live-state-sync-memd.sh" >/tmp/memd-live-state-no-clawcontrol-default.out 2>&1
 no_clawcontrol_status=$?
 set -e
 if [[ "$no_clawcontrol_status" -ne 2 ]]; then
-  echo "memd host I/O guard test: live-state sync default should stop at memd-owned producers" >&2
+  echo "memd host I/O guard test: memd live-state sync should stop at memd-owned producers" >&2
   sed -n '1,40p' /tmp/memd-live-state-no-clawcontrol-default.out >&2
   exit 1
 fi
-grep -q 'ClawControl HTTP capture disabled' /tmp/memd-live-state-no-clawcontrol-default.out
-grep -q 'ClawControl bundle import disabled' /tmp/memd-live-state-no-clawcontrol-default.out
+grep -q 'memd-owned producers unavailable' /tmp/memd-live-state-no-clawcontrol-default.out
 if grep -q 'clawcontrol http capture should not run' /tmp/memd-live-state-no-clawcontrol-default.out; then
-  echo "memd host I/O guard test: live-state sync ran ClawControl HTTP capture by default" >&2
+  echo "memd host I/O guard test: memd live-state sync ran ClawControl HTTP capture" >&2
+  exit 1
+fi
+if grep -q 'live-state-sync-clawcontrol' "$ROOT/scripts/live-state-sync-memd.sh"; then
+  echo "memd host I/O guard test: memd sync delegates to ClawControl sync" >&2
+  exit 1
+fi
+if grep -q 'IMPORT_CLAWCONTROL_BUNDLE' "$ROOT/scripts/live-state-sync-memd.sh"; then
+  echo "memd host I/O guard test: memd sync exposes ClawControl bundle import" >&2
   exit 1
 fi
 
@@ -507,7 +517,7 @@ SH
 chmod +x "$fake_guard"
 
 set +e
-HOST_IO_GUARD="$fake_guard" "$ROOT/scripts/live-state-sync-clawcontrol.sh" >/tmp/memd-live-state-guard-test.out 2>&1
+HOST_IO_GUARD="$fake_guard" "$ROOT/scripts/live-state-sync-memd.sh" >/tmp/memd-live-state-guard-test.out 2>&1
 live_state_status=$?
 set -e
 if [[ "$live_state_status" -ne 75 ]]; then
