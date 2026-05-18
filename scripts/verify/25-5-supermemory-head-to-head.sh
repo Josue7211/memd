@@ -123,6 +123,21 @@ def memd_access_route_guidance():
     return None
 
 
+def has_approved_supermemory_route():
+    route = memd_access_route()
+    if route.get("status") not in {"working", "partial"}:
+        return False
+    for item in route.get("routes", []):
+        if item.get("scope") != "supermemory-api-key":
+            continue
+        if item.get("secret_values_stored"):
+            continue
+        if item.get("provider") in {"bitwarden", "agent-secrets", "macos-keychain", "process-env"}:
+            if item.get("status") not in {"unavailable", "missing", "error"}:
+                return True
+    return False
+
+
 def access_route_hint():
     bw = bitwarden_status()
     memd_guidance = memd_access_route_guidance()
@@ -180,9 +195,11 @@ if not replays_path.exists():
     reason = "missing Supermemory live replay artifacts"
     required = "use the approved Supermemory access route with TRY_REPLAY=1 or provide SUPERMEMORY_REPLAYS"
     missing_requirements = ["supermemory_same_fixture_replay_artifact"]
-    if not os.environ.get("SUPERMEMORY_API_KEY"):
+    if not os.environ.get("SUPERMEMORY_API_KEY") and not has_approved_supermemory_route():
         reason = "missing approved Supermemory credential and replay artifacts"
         missing_requirements.insert(0, "approved_supermemory_access_route_or_process_credential")
+    elif not os.environ.get("SUPERMEMORY_API_KEY"):
+        reason = "missing Supermemory replay artifacts; approved route exists but no process credential was resolved"
     write_and_exit(
         "blocked",
         2,
