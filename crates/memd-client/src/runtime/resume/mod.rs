@@ -2813,7 +2813,7 @@ impl ResumeSnapshot {
         let raw_next_action = self.continuity_next();
         let next_action = raw_next_action
             .as_deref()
-            .map(|value| compact_inline(value.trim(), 512));
+            .map(|value| compact_inline(value.trim(), 1600));
         let blocker = self
             .compact_inbox_items()
             .first()
@@ -2822,7 +2822,7 @@ impl ResumeSnapshot {
                 raw_next_action
                     .as_deref()
                     .and_then(blocker_from_next_action)
-                    .map(|value| compact_inline(value.trim(), 180))
+                    .map(|value| compact_inline(value.trim(), 512))
             })
             .or_else(|| {
                 (self.refresh_recommended && self.refresh_pressure_is_blocking())

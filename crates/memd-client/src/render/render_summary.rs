@@ -11,14 +11,26 @@ mod render_memory_summary;
 pub(crate) use render_memory_summary::*;
 
 fn compact_next_action(next_action: &str) -> String {
+    render_next_action_with_limit(next_action, 160, 180)
+}
+
+fn handoff_next_action(next_action: &str) -> String {
+    render_next_action_with_limit(next_action, 1600, 1600)
+}
+
+fn render_next_action_with_limit(
+    next_action: &str,
+    body_limit_with_id: usize,
+    body_limit_without_id: usize,
+) -> String {
     let body = next_action
         .split_once(" | c=")
         .map(|(_, content)| content.trim())
         .unwrap_or_else(|| next_action.trim());
     if let Some(id) = extract_compact_record_id(next_action) {
-        format!("{id}: {}", compact_inline(body, 160))
+        format!("{id}: {}", compact_inline(body, body_limit_with_id))
     } else {
-        compact_inline(body, 180)
+        compact_inline(body, body_limit_without_id)
     }
 }
 
@@ -127,12 +139,12 @@ fn render_handoff_user_prompt(
     let next = continuity
         .next_action
         .as_deref()
-        .map(compact_next_action)
+        .map(handoff_next_action)
         .unwrap_or_else(|| "inspect wake, dirty tree, and durable handoff continuity".to_string());
     let blocker = continuity
         .blocker
         .as_deref()
-        .map(|value| compact_inline(value, 180))
+        .map(|value| compact_inline(value, 900))
         .unwrap_or_else(|| "none recorded".to_string());
     let dirty_count =
         crate::workflow::repo_dirty_count_from_changes(&snapshot.resume.recent_repo_changes);
@@ -868,6 +880,43 @@ mod tests {
             "{prompt}"
         );
         assert!(prompt.contains("- blocker=One review item is still open"));
+    }
+
+    #[test]
+    fn render_handoff_user_prompt_preserves_long_next_action() {
+        let mut resume = sample_resume_snapshot();
+        resume.inbox.items.clear();
+        resume.preferences = vec![format!(
+            "id=raw-long | stage=canonical | kind=decision | status=active | tags=checkpoint,current-task,continuity,live-state,handoff | upd=1779100752 | c={}",
+            "CURRENT NEXT ACTION after commit 3dd7ad82: continue remaining blockers only. Done this slice: memd live-state sync is separated from ClawControl by default. Removed stale com.memd.live-state-sync-clawcontrol launchd job that forced CAPTURE_HTTP=1; installed com.memd.live-state-sync pointing at scripts/live-state-sync-memd.sh with CAPTURE_HTTP=0 and IMPORT_CLAWCONTROL_BUNDLE=0. scripts/live-state-sync-clawcontrol.sh now uses memd-owned mac-bridge and approved-communications fallbacks by default and only probes/imports ClawControl when CAPTURE_HTTP=1 IMPORT_CLAWCONTROL_BUNDLE=1 is explicit. Active /Volumes/T7/node/bin/memd rebuilt. Authority memd-authority deployed current at 3dd7ad82. Remaining blockers: approved communications file for messages/email; supermemory same-fixture replay artifact; full_public explicit env ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL."
+        )];
+        let handoff = crate::HandoffSnapshot {
+            generated_at: chrono::Utc::now(),
+            resume,
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            voice_mode: "caveman-ultra".to_string(),
+            target_session: Some("session-noether".to_string()),
+            target_bundle: Some(".memd".to_string()),
+        };
+
+        let prompt = render_handoff_prompt(&handoff);
+
+        assert!(
+            prompt.contains("Removed stale com.memd.live-state-sync-clawcontrol launchd job"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("IMPORT_CLAWCONTROL_BUNDLE=1 is explicit"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("full_public explicit env ALLOW_FULL_PUBLIC_PROOF=1"),
+            "{prompt}"
+        );
+        assert!(!prompt.contains("default. ...."), "{prompt}");
+        assert!(!prompt.contains("PUBLIC_BENCH_TIM...."), "{prompt}");
     }
 
     #[test]

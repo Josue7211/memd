@@ -33,7 +33,7 @@ pub(crate) fn derive_raw_spine_record(
     tags: &[&str],
     content: &str,
 ) -> RawSpineRecord {
-    let preview = compact_inline(content.trim(), 180);
+    let preview = compact_inline(content.trim(), raw_spine_preview_limit(tags, content));
     let signature = format!(
         "{}|{}|{}|{}|{}|{}|{}|{}",
         event_type,
@@ -59,6 +59,24 @@ pub(crate) fn derive_raw_spine_record(
         tags: tags.iter().map(|value| value.to_string()).collect(),
         content_preview: preview,
         recorded_at: Utc::now(),
+    }
+}
+
+fn raw_spine_preview_limit(tags: &[&str], content: &str) -> usize {
+    let normalized = content.to_ascii_lowercase();
+    let continuity_tag = tags.iter().any(|tag| {
+        matches!(
+            *tag,
+            "current-task" | "continuity" | "handoff" | "next-agent"
+        )
+    });
+    if continuity_tag
+        || normalized.contains("current next action")
+        || normalized.contains("next action")
+    {
+        1600
+    } else {
+        180
     }
 }
 
@@ -182,5 +200,38 @@ mod tests {
         assert_eq!(record.source_system.as_deref(), Some("hook-capture"));
         assert_eq!(record.source_path.as_deref(), Some(".memd/wake.md"));
         assert!(record.tags.iter().any(|tag| tag == "raw-spine"));
+    }
+
+    #[test]
+    fn derive_raw_spine_record_preserves_next_action_preview() {
+        let content = "CURRENT NEXT ACTION after commit 3dd7ad82: continue remaining blockers only. Done this slice: memd live-state sync is separated from ClawControl by default. Removed stale com.memd.live-state-sync-clawcontrol launchd job that forced CAPTURE_HTTP=1; installed com.memd.live-state-sync pointing at scripts/live-state-sync-memd.sh with CAPTURE_HTTP=0 and IMPORT_CLAWCONTROL_BUNDLE=0. scripts/live-state-sync-clawcontrol.sh now uses memd-owned mac-bridge and approved-communications fallbacks by default and only probes/imports ClawControl when CAPTURE_HTTP=1 IMPORT_CLAWCONTROL_BUNDLE=1 is explicit.";
+        let record = derive_raw_spine_record(
+            "checkpoint",
+            "canonical",
+            Some("checkpoint"),
+            None,
+            Some("memd"),
+            Some("main"),
+            None,
+            Some(0.8),
+            &["checkpoint", "current-task", "continuity", "handoff"],
+            content,
+        );
+
+        assert!(
+            record
+                .content_preview
+                .contains("Removed stale com.memd.live-state-sync-clawcontrol launchd job"),
+            "{}",
+            record.content_preview
+        );
+        assert!(
+            record
+                .content_preview
+                .contains("IMPORT_CLAWCONTROL_BUNDLE=1 is explicit"),
+            "{}",
+            record.content_preview
+        );
+        assert!(!record.content_preview.ends_with("..."));
     }
 }
