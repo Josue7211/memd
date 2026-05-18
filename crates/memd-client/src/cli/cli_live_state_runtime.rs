@@ -67,7 +67,7 @@ const LIVE_APP_STATE_REQUIREMENTS: &[LiveAppStateRequirement] = &[
         action: "ingest active todos before answering task questions",
     },
     LiveAppStateRequirement {
-        source_app: "clawcontrol",
+        source_app: "approved_communications",
         module: "messages",
         canonical_scope: "approved",
         accepted_scopes: &["approved", "current"],
@@ -75,7 +75,7 @@ const LIVE_APP_STATE_REQUIREMENTS: &[LiveAppStateRequirement] = &[
         action: "ingest only approved text-message metadata or redacted snippets",
     },
     LiveAppStateRequirement {
-        source_app: "clawcontrol",
+        source_app: "approved_communications",
         module: "email",
         canonical_scope: "approved",
         accepted_scopes: &["approved", "current"],
@@ -550,10 +550,11 @@ fn sync_live_state(args: &LiveStateSyncArgs) -> anyhow::Result<LiveAppStateRepor
     if !live_state_check_required(&report, args.due_within_secs) {
         return Ok(report);
     }
+    let source = normalize_key(&args.source);
     let import = LiveStateImportArgs {
         output: args.output.clone(),
         from_output: args.from_output.clone(),
-        source: Some(args.source.clone()),
+        source: (!matches!(source.as_str(), "all" | "*")).then_some(source),
         fresh_only: !args.allow_stale,
         json: args.json,
     };
@@ -680,60 +681,60 @@ pub(crate) fn live_state_unmet_modules_for_source(
 
 fn live_state_unmet_modules_for_source_from(
     requirements: &[LiveAppStateRequirementStatus],
-    sources: &[LiveAppStateSourceStatus],
+    _sources: &[LiveAppStateSourceStatus],
     source: &LiveAppStateSourceStatus,
 ) -> Vec<String> {
-    if live_state_source_is_approved_communications(source) {
-        return source.missing.clone();
-    }
-
-    let approved_communications_blocker = sources.iter().any(|candidate| {
-        candidate.status != "ok" && live_state_source_is_approved_communications(candidate)
-    });
-    let filter_communications_from_generic_source = approved_communications_blocker
-        && matches!(source.status.as_str(), "auth_required" | "unavailable");
+    let source_name = live_state_source_name(source);
+    let filter_communications_from_generic_source =
+        !live_state_source_is_approved_communications(source);
     let filter_module = |module: &String| {
         !(filter_communications_from_generic_source && sensitive_communication_module(module))
     };
     let source_claims_module_missing =
         |module: &String| source.missing.iter().any(|missing| missing == module);
 
-    let unmet_before_route_filter = requirements
+    let unmet_for_source = requirements
         .iter()
         .filter(|requirement| {
-            requirement.source_app == source.source_app && requirement.status != "fresh"
+            requirement.source_app == source_name && requirement.status != "fresh"
         })
         .map(|requirement| requirement.module.clone())
-        .filter(|module| source_claims_module_missing(module))
-        .collect::<Vec<_>>();
-    let unmet = unmet_before_route_filter
-        .iter()
         .filter(|module| filter_module(module))
-        .cloned()
         .collect::<Vec<_>>();
-    if !unmet_before_route_filter.is_empty() {
-        return unmet;
+
+    if source.missing.is_empty() {
+        return unmet_for_source;
     }
-    if unmet.is_empty() {
-        source
-            .missing
-            .iter()
-            .filter(|module| filter_module(module))
-            .cloned()
-            .collect()
-    } else {
-        unmet
-    }
+
+    unmet_for_source
+        .into_iter()
+        .filter(|module| source_claims_module_missing(module))
+        .collect()
 }
 
 pub(crate) fn live_state_source_is_approved_communications(
     source: &LiveAppStateSourceStatus,
 ) -> bool {
-    source.api_base.as_deref() == Some("approved-communications")
+    source.source_app == "approved_communications"
+        || source.source_app == "approved-communications"
+        || source.api_base.as_deref() == Some("approved-communications")
+        || source.api_base.as_deref() == Some("approved_communications")
         || source
             .api_bases
             .iter()
-            .any(|base| base == "approved-communications")
+            .any(|base| base == "approved-communications" || base == "approved_communications")
+}
+
+pub(crate) fn live_state_source_name<'a>(source: &'a LiveAppStateSourceStatus) -> &'a str {
+    if live_state_source_is_approved_communications(source) {
+        "approved_communications"
+    } else {
+        source.source_app.as_str()
+    }
+}
+
+pub(crate) fn live_state_source_is_clawcontrol_app(source: &LiveAppStateSourceStatus) -> bool {
+    source.source_app == "clawcontrol" && !live_state_source_is_approved_communications(source)
 }
 
 pub(crate) fn live_state_blocker_detail(output: &Path) -> Option<String> {
@@ -771,25 +772,26 @@ fn live_state_blocker_detail_from_report_with_options(
         } else {
             missing_modules.join(",")
         };
-        let access_route = if source.source_app == "clawcontrol" && source.status == "auth_required"
-        {
-            format!(
-                " access_route=\"{}\"",
-                clawcontrol_api_key_access_route_command()
-            )
-        } else if source.source_app == "clawcontrol"
-            && (source.status == "missing_approval" || source.status == "invalid_approval")
-        {
-            format!(
-                " access_route=\"{}\"",
-                approved_communications_access_route_command()
-            )
-        } else {
-            String::new()
-        };
+        let source_name = live_state_source_name(source);
+        let access_route =
+            if live_state_source_is_clawcontrol_app(source) && source.status == "auth_required" {
+                format!(
+                    " access_route=\"{}\"",
+                    clawcontrol_api_key_access_route_command()
+                )
+            } else if live_state_source_is_approved_communications(source)
+                && (source.status == "missing_approval" || source.status == "invalid_approval")
+            {
+                format!(
+                    " access_route=\"{}\"",
+                    approved_communications_access_route_command()
+                )
+            } else {
+                String::new()
+            };
         let producer_route = if !include_producer_route {
             String::new()
-        } else if source.source_app == "clawcontrol"
+        } else if live_state_source_is_clawcontrol_app(source)
             && matches!(source.status.as_str(), "auth_required" | "unavailable")
         {
             let api_bases = if source.api_bases.is_empty() {
@@ -801,7 +803,7 @@ fn live_state_blocker_detail_from_report_with_options(
                 " producer_route=\"scripts/live-state-sync-memd.sh\" external_source_route=\"MEMD_ALLOW_CLAWCONTROL_SYNC=1 CAPTURE_HTTP=1 IMPORT_CLAWCONTROL_BUNDLE=1 scripts/live-state-sync-clawcontrol.sh\" external_source_note=\"reads already-running ClawControl only; does not launch it\" api_bases={}",
                 api_bases
             )
-        } else if source.source_app == "clawcontrol"
+        } else if live_state_source_is_approved_communications(source)
             && (source.status == "missing_approval" || source.status == "invalid_approval")
         {
             format!(
@@ -813,7 +815,7 @@ fn live_state_blocker_detail_from_report_with_options(
         };
         details.push(format!(
             "{}:status={} missing={}{}{}",
-            source.source_app, source.status, missing, access_route, producer_route
+            source_name, source.status, missing, access_route, producer_route
         ));
     }
 
@@ -1156,6 +1158,7 @@ fn render_live_state_source_status_lines(
     sources
         .iter()
         .map(|source| {
+            let source_name = live_state_source_name(source);
             let api_base = source.api_base.as_deref().unwrap_or("unknown");
             let api_bases = if source.api_bases.is_empty() {
                 api_base.to_string()
@@ -1172,12 +1175,12 @@ fn render_live_state_source_status_lines(
             let fresh_until =
                 source.checked_at + Duration::seconds(LIVE_STATE_SOURCE_STATUS_FRESH_SECS);
             let freshness = if fresh_until > now { "fresh" } else { "stale" };
-            let state_map_fresh = source_requirement_modules(requirements, &source.source_app, "fresh");
+            let state_map_fresh = source_requirement_modules(requirements, source_name, "fresh");
             let state_map_unmet =
-                source_requirement_modules_not_status(requirements, &source.source_app, "fresh");
+                source_requirement_modules_not_status(requirements, source_name, "fresh");
             format!(
                 "source_status:{} status={} freshness={} checked_at={} fresh_until={} api_base={} api_bases={} auth_configured={} visible_page={} produced={} missing={} state_map_fresh={} state_map_unmet={} endpoints={} error=\"{}\"",
-                source.source_app,
+                source_name,
                 source.status,
                 freshness,
                 source.checked_at.to_rfc3339(),
@@ -1783,7 +1786,7 @@ mod tests {
             report
                 .sync_actions
                 .iter()
-                .any(|action| action.contains("clawcontrol:messages status=missing"))
+                .any(|action| action.contains("approved_communications:messages status=missing"))
         );
     }
 
@@ -1884,7 +1887,7 @@ mod tests {
         assert!(section.contains("clawcontrol:calendar"));
         assert!(section.contains("required:clawcontrol:calendar"));
         assert!(section.contains("status=fresh"));
-        assert!(section.contains("required:clawcontrol:messages"));
+        assert!(section.contains("required:approved_communications:messages"));
         assert!(section.contains("no unrestricted chat access"));
         assert!(section.contains("privacy=approved"));
         assert!(section.contains("Dentist"));
@@ -1984,7 +1987,7 @@ mod tests {
                     "payload": {"todos": []}
                 },
                 {
-                    "sourceApp": "clawcontrol",
+                    "sourceApp": "approved_communications",
                     "module": "messages",
                     "scope": "current",
                     "visibility": "private",
@@ -1997,7 +2000,7 @@ mod tests {
                     "payload": {"summary": "messages: loaded; conversations=0"}
                 },
                 {
-                    "sourceApp": "clawcontrol",
+                    "sourceApp": "approved_communications",
                     "module": "email",
                     "scope": "current",
                     "visibility": "private",
@@ -2032,7 +2035,7 @@ mod tests {
     }
 
     #[test]
-    fn live_state_import_copies_clawcontrol_bundle_records() {
+    fn live_state_import_copies_composite_bundle_records() {
         let root = tempfile::tempdir().expect("tempdir");
         let source_output = root.path().join("clawcontrol/.memd");
         let dest_output = root.path().join("memd/.memd");
@@ -2049,7 +2052,7 @@ mod tests {
         let import_args = LiveStateImportArgs {
             output: dest_output,
             from_output: source_output,
-            source: Some("clawcontrol".to_string()),
+            source: None,
             fresh_only: true,
             json: false,
         };
@@ -2063,7 +2066,13 @@ mod tests {
             report
                 .records
                 .iter()
-                .all(|record| record.source_app == "clawcontrol")
+                .any(|record| record.source_app == "clawcontrol")
+        );
+        assert!(
+            report
+                .records
+                .iter()
+                .any(|record| record.source_app == "approved_communications")
         );
     }
 
@@ -2085,7 +2094,7 @@ mod tests {
         let sync_args = LiveStateSyncArgs {
             output: dest_output.clone(),
             from_output: source_output.clone(),
-            source: "clawcontrol".to_string(),
+            source: "all".to_string(),
             due_within_secs: 0,
             allow_stale: false,
             json: false,
@@ -2132,7 +2141,11 @@ mod tests {
         ] {
             let args = LiveStateIngestArgs {
                 output: output.clone(),
-                source: "clawcontrol".to_string(),
+                source: if sensitive_communication_module(module) {
+                    "approved_communications".to_string()
+                } else {
+                    "clawcontrol".to_string()
+                },
                 module: module.to_string(),
                 scope: scope.to_string(),
                 visibility: "private".to_string(),
@@ -2170,10 +2183,10 @@ mod tests {
         assert!(section.contains("required:clawcontrol:visible_page"));
         assert!(section.contains("required:clawcontrol:calendar"));
         assert!(section.contains("required:clawcontrol:reminders"));
-        assert!(section.contains("required:clawcontrol:messages"));
+        assert!(section.contains("required:approved_communications:messages"));
         assert!(section.contains("sync_required=true sync_tasks=6"));
-        assert!(section.contains("sync_task:clawcontrol:messages"));
-        assert!(section.contains("sync_task:clawcontrol:messages scope=approved"));
+        assert!(section.contains("sync_task:approved_communications:messages"));
+        assert!(section.contains("sync_task:approved_communications:messages scope=approved"));
         assert!(section.contains("approved_required=true"));
         assert!(section.contains("media_agentsecrets=true"));
         assert!(section.contains("status=missing"));
@@ -2229,12 +2242,12 @@ mod tests {
         assert!(summary.contains("next_refresh_at="));
         assert!(summary.contains("contract=1"));
         assert!(summary.contains("sync_action:clawcontrol:calendar status=missing"));
-        assert!(summary.contains("sync_task:clawcontrol:messages"));
+        assert!(summary.contains("sync_task:approved_communications:messages"));
 
         let tasks = render_live_state_task_lines(&report);
         assert!(tasks.contains("live_state_tasks sync_required=true count=6"));
         assert!(tasks.contains("task source=clawcontrol module=visible_page"));
-        assert!(tasks.contains("task source=clawcontrol module=messages"));
+        assert!(tasks.contains("task source=approved_communications module=messages"));
         assert!(tasks.contains("approved_required=true"));
         assert!(tasks.contains("media_agentsecrets=true"));
 
@@ -2248,7 +2261,7 @@ mod tests {
 
         let batch_template = render_live_state_batch_template(&report);
         assert!(batch_template.contains(r#""records""#));
-        assert!(batch_template.contains(r#""sourceApp": "clawcontrol""#));
+        assert!(batch_template.contains(r#""sourceApp": "approved_communications""#));
         assert!(batch_template.contains(r#""module": "messages""#));
         assert!(batch_template.contains(r#""scope": "approved""#));
         assert!(batch_template.contains(r#""approved": true"#));
@@ -2319,10 +2332,7 @@ mod tests {
         assert!(summary.contains("freshness=stale"));
         assert!(summary.contains("missing=visible_page,calendar,todos,reminders,messages,email"));
         assert!(summary.contains("state_map_fresh=none"));
-        assert!(
-            summary
-                .contains("state_map_unmet=visible_page,calendar,reminders,todos,messages,email")
-        );
+        assert!(summary.contains("state_map_unmet=visible_page,calendar,reminders,todos"));
 
         let section = render_live_app_state_section(&output, 8);
         assert!(section.contains("source_status:clawcontrol status=unavailable"));
@@ -2393,7 +2403,7 @@ mod tests {
             "{detail}"
         );
         assert!(
-            detail.contains("missing=visible_page,calendar,reminders,todos,messages,email"),
+            detail.contains("missing=visible_page,calendar,reminders,todos"),
             "{detail}"
         );
         assert!(
@@ -2442,7 +2452,7 @@ mod tests {
       "last_error": "provide approved communications file for messages/email"
     },
     {
-      "source_app": "clawcontrol",
+      "source_app": "approved_communications",
       "status": "missing_approval",
       "checked_at": "2026-05-17T08:00:00Z",
       "api_base": "approved-communications",

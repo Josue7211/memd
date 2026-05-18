@@ -91,7 +91,7 @@ function writeSourceStatus({ status, produced = [], missing = [], lastError = nu
     };
   });
   const source = {
-    source_app: 'clawcontrol',
+    source_app: 'approved_communications',
     status,
     checked_at: now,
     api_base: 'approved-communications',
@@ -109,8 +109,12 @@ function writeSourceStatus({ status, produced = [], missing = [], lastError = nu
   store.sources = store.sources.filter(
     (existing) =>
       !(
-        existing.source_app === source.source_app &&
-        existing.api_base === source.api_base
+        (existing.source_app === source.source_app ||
+          existing.source_app === 'clawcontrol' ||
+          existing.source_app === 'approved-communications') &&
+        (existing.api_base === source.api_base ||
+          (Array.isArray(existing.api_bases) &&
+            existing.api_bases.includes(source.api_base)))
       ),
   );
   store.sources.push(source);
@@ -280,7 +284,7 @@ function sanitizeEmail(item) {
 
 function record({ module, summary, payload, labels, agentsecretsApproved }) {
   return {
-    sourceApp: 'clawcontrol',
+    sourceApp: 'approved_communications',
     module,
     scope: 'approved',
     visibility: 'private',
@@ -292,7 +296,7 @@ function record({ module, summary, payload, labels, agentsecretsApproved }) {
     summary,
     payload: {
       producer: 'approved-communications',
-      sourceAppAlias: 'clawcontrol',
+      sourceAppAlias: 'approved_communications',
       ...payload,
     },
   };

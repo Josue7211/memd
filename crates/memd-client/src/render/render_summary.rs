@@ -983,7 +983,7 @@ mod tests {
             "{prompt}"
         );
         assert!(
-            prompt.contains("sync_task:clawcontrol:messages"),
+            prompt.contains("sync_task:approved_communications:messages"),
             "{prompt}"
         );
         assert!(prompt.contains("media_agentsecrets=true"), "{prompt}");

@@ -4443,13 +4443,13 @@ mod tests {
                         "auth_configured": false,
                         "visible_page": "missing",
                         "produced": [],
-                        "missing": ["visible_page", "calendar", "todos", "reminders", "messages", "email"],
+                        "missing": ["messages", "email"],
                         "record_count": 0,
                         "endpoints": [],
                         "last_error": "missing live-state surfaces"
                     },
                     {
-                        "source_app": "clawcontrol",
+                        "source_app": "approved_communications",
                         "status": "missing_approval",
                         "checked_at": now,
                         "api_base": "approved-communications",
@@ -4484,7 +4484,11 @@ mod tests {
             !gaps.contains("live app source status checks are stale"),
             "{gaps}"
         );
-        assert!(gaps.contains("source clawcontrol is missing_approval missing=messages,email"));
+        assert!(
+            gaps.contains(
+                "source approved_communications is missing_approval missing=messages,email"
+            )
+        );
         assert!(
             !gaps.contains("auth_required missing=visible_page,calendar"),
             "{gaps}"
@@ -4500,7 +4504,9 @@ mod tests {
         );
         assert!(evidence.contains("source_stale=0"), "{evidence}");
         assert!(!gaps.contains("clawcontrol:status=auth_required"), "{gaps}");
-        assert!(gaps.contains("clawcontrol:status=missing_approval missing=messages,email"));
+        assert!(
+            gaps.contains("approved_communications:status=missing_approval missing=messages,email")
+        );
 
         fs::remove_dir_all(output).expect("cleanup feature temp");
     }
