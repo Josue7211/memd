@@ -2196,6 +2196,11 @@ async fn run_hive_handoff_command_emits_message_and_receipt_for_target_worker() 
     assert_eq!(messages[0].workspace.as_deref(), Some("shared"));
     assert!(messages[0].content.contains("handoff_packet"));
     assert!(messages[0].content.contains("task=parser-refactor"));
+    assert!(
+        messages[0]
+            .content
+            .contains("do not launch ClawControl, Tauri, Vite, or app dev servers")
+    );
 
     let receipts = state.receipts.lock().expect("lock runtime receipts");
     assert_eq!(receipts.len(), 1);

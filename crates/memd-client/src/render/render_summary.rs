@@ -214,7 +214,7 @@ fn render_handoff_user_prompt(
     let live_state = live_state_blockers.unwrap_or("none recorded");
 
     format!(
-        "Pick up `{project}` / `{namespace}` from memd handoff. First inspect `.memd/wake.md` and run `scripts/memd-continuity-status.sh`; follow `NEXT_CONTINUITY_ACTION` before broad Git/Cargo/tests or repo scans. If host I/O is clear, inspect `git status --short --untracked-files=all` and run `memd lookup --output .memd --query \"handoff continuity next action\"`. Continue: {next}. Current blocker: {blocker}. Proof blockers: {proof}. Live-state blockers: {live_state}. Visibility: {visibility}. Dirty count at handoff: {dirty_count}. Keep commits atomic and leave tree clean."
+        "Pick up `{project}` / `{namespace}` from memd handoff. First inspect `.memd/wake.md` and run `scripts/memd-continuity-status.sh`; follow `NEXT_CONTINUITY_ACTION` before broad Git/Cargo/tests or repo scans. If host I/O is clear, inspect `git status --short --untracked-files=all` and run `memd lookup --output .memd --query \"handoff continuity next action\"`. Continue: {next}. Current blocker: {blocker}. Proof blockers: {proof}. Live-state blockers: {live_state}. Visibility: {visibility}. Dirty count at handoff: {dirty_count}. Keep memd and ClawControl separate: do not launch ClawControl, Tauri, Vite, or app dev servers for memd work; sibling ClawControl processes are awareness only unless the user explicitly asks otherwise. Keep commits atomic and leave tree clean."
     )
 }
 
@@ -959,6 +959,7 @@ mod tests {
         assert!(summary.contains("target_session=session-noether"));
         assert!(summary.contains("next_agent_prompt:\nPick up `demo` / `main`"));
         assert!(summary.contains("scripts/memd-continuity-status.sh"));
+        assert!(summary.contains("do not launch ClawControl, Tauri, Vite, or app dev servers"));
         assert!(summary.contains("Keep commits atomic and leave tree clean"));
     }
 

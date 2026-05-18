@@ -1245,6 +1245,7 @@ fn format_hive_handoff_next_agent_prompt(packet: &HiveHandoffPacket) -> String {
         lines.push(format!("Note: {note}"));
     }
     lines.push("Before changing files or running shared dev/build commands, publish heartbeat and check hive board for collisions.".to_string());
+    lines.push("Keep memd and ClawControl separate: do not launch ClawControl, Tauri, Vite, or app dev servers for memd work; sibling ClawControl processes are awareness only unless the user explicitly asks otherwise.".to_string());
     lines.push("Before broad Git, Cargo, test, or repo-scan work, run scripts/memd-host-io-guard.sh; exit 75 means wait and report the blocker scope/project_hint.".to_string());
     lines.push("Treat host_process_scan_timeout or project_hint=host-process-scan as blocked host awareness, not as safe-to-proceed.".to_string());
     lines.push("Treat project_hint=app-git, cargo-tooling, native-tooling, or node-tooling as host/app-owned blocker classes; coordinate or wait instead of killing unrelated apps.".to_string());
