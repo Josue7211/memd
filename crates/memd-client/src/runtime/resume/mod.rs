@@ -1980,7 +1980,7 @@ mod tests {
                 .is_some_and(|next| next.contains("capability materializer"))
         );
 
-        let mut partial = snapshot.clone();
+        let mut partial = preference_next.clone();
         partial.handoff_quality = Some(HandoffQualityScore {
             fill_rate: 0.5,
             budget_utilization: 0.9,
@@ -1993,6 +1993,15 @@ mod tests {
         });
         assert_eq!(
             partial.continuity_next().as_deref(),
+            Some(
+                "id=new | kind=decision | tags=next-agent,capability-sync | upd=2 | c=implement capability materializer"
+            )
+        );
+
+        let mut partial_without_next = ResumeSnapshot::empty();
+        partial_without_next.handoff_quality = partial.handoff_quality;
+        assert_eq!(
+            partial_without_next.continuity_next().as_deref(),
             Some("fix partial handoff quality before claiming native recovery ready")
         );
     }
@@ -2602,6 +2611,15 @@ impl ResumeSnapshot {
     }
 
     pub(crate) fn continuity_next(&self) -> Option<String> {
+        let rehydration = self.compact_rehydration_summaries();
+        let mut next_candidates = Vec::new();
+        next_candidates.extend(self.preferences.iter().cloned());
+        next_candidates.extend(rehydration.iter().cloned());
+        next_candidates.extend(self.compact_context_records());
+        next_candidates.extend(self.compact_working_records());
+        if let Some(next) = best_next_action_record(next_candidates) {
+            return Some(next);
+        }
         if self
             .handoff_quality
             .as_ref()
@@ -2611,14 +2629,9 @@ impl ResumeSnapshot {
                 "fix partial handoff quality before claiming native recovery ready".to_string(),
             );
         }
-        let rehydration = self.compact_rehydration_summaries();
-        let mut next_candidates = Vec::new();
-        next_candidates.extend(self.preferences.iter().cloned());
-        next_candidates.extend(rehydration.iter().cloned());
-        next_candidates.extend(self.compact_context_records());
-        next_candidates.extend(self.compact_working_records());
-        best_next_action_record(next_candidates)
-            .or_else(|| rehydration.first().cloned())
+        rehydration
+            .first()
+            .cloned()
             .or_else(|| self.compact_inbox_items().first().cloned())
             .or_else(|| self.compact_working_records().first().cloned())
     }
