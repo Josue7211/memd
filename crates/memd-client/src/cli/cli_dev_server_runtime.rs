@@ -53,6 +53,7 @@ async fn run_dev_server_guard(
     if args.command.is_empty() {
         anyhow::bail!("dev-server guard requires a command when the port is free");
     }
+    refuse_cross_project_clawcontrol_dev_server(&context.repo_root, &args.command)?;
 
     let client = MemdClient::new(&context.base_url)?;
     let acquire =
@@ -372,4 +373,59 @@ fn exit_status_error(status: ExitStatus, command: &[String]) -> anyhow::Error {
         status,
         command.join(" ")
     )
+}
+
+fn refuse_cross_project_clawcontrol_dev_server(
+    repo_root: &str,
+    command: &[String],
+) -> anyhow::Result<()> {
+    if std::env::var("MEMD_ALLOW_CLAWCONTROL_DEV_SERVER").is_ok_and(|value| {
+        let value = value.trim();
+        value == "1" || value.eq_ignore_ascii_case("true")
+    }) {
+        return Ok(());
+    }
+    let repo_name = Path::new(repo_root)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if repo_name == "clawcontrol" {
+        return Ok(());
+    }
+    let command_text = command.join(" ").to_ascii_lowercase();
+    if command_text.contains("clawcontrol") {
+        anyhow::bail!(
+            "refusing to launch ClawControl from {repo_root}; memd and ClawControl are separate. Run ClawControl from its own repo/session, or set MEMD_ALLOW_CLAWCONTROL_DEV_SERVER=1 for an intentional override."
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dev_server_guard_refuses_cross_project_clawcontrol_launch() {
+        let err = refuse_cross_project_clawcontrol_dev_server(
+            "/Volumes/T7/projects/memd",
+            &[
+                "bash".to_string(),
+                "-lc".to_string(),
+                "cd /Volumes/T7/projects/clawcontrol && cargo tauri dev".to_string(),
+            ],
+        )
+        .expect_err("refuse cross-project launch");
+
+        assert!(err.to_string().contains("refusing to launch ClawControl"));
+    }
+
+    #[test]
+    fn dev_server_guard_allows_clawcontrol_repo_to_launch_itself() {
+        refuse_cross_project_clawcontrol_dev_server(
+            "/Volumes/T7/projects/clawcontrol",
+            &["cargo".to_string(), "tauri".to_string(), "dev".to_string()],
+        )
+        .expect("same repo may launch itself");
+    }
 }

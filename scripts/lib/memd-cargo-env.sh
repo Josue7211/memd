@@ -177,11 +177,15 @@ memd_cargo_host_blockers() {
       $1 = $2 = $3 = ""
       sub(/^[[:space:]]+/, "", $0)
       command = $0
-      if (state !~ /U/) {
-        next
-      }
+      active_runtime = command ~ /(cargo[[:space:]]+tauri[[:space:]]+dev|tauri[[:space:]]+dev|npm[[:space:]]+run[[:space:]]+dev|node .*vite|\/vite(\.js)?([[:space:]]|$)|agent-shell-adapter\.js|clawctrl([[:space:]]|$))/
       filesystem = command ~ /(UVFSService|mds_stores|\/mds)/
       interesting = filesystem || command ~ /(^|[[:space:]\/])(git|cargo|rustc|rustfmt|clang|clang\+\+|cc|c\+\+)([[:space:]]|$)/ || command ~ /(vitest|tsc)/
+      if (state !~ /U/ && !active_runtime) {
+        next
+      }
+      if (active_runtime) {
+        interesting = 1
+      }
       if (!interesting) {
         next
       }
@@ -219,7 +223,8 @@ memd_cargo_host_blockers() {
       if (length(command) > 240) {
         command = substr(command, 1, 240) "..."
       }
-      printf "%s project_hint=%s pid=%s state=%s command=%s\n", scope, project, pid, state, command
+      reason = active_runtime && state !~ /U/ ? " reason=active-runtime" : ""
+      printf "%s project_hint=%s pid=%s state=%s command=%s%s\n", scope, project, pid, state, command, reason
     }
   '
 }
@@ -260,6 +265,7 @@ memd_cargo_refuse_on_host_blockers() {
       local label="${MEMD_HOST_IO_GUARD_LABEL:-memd cargo guard}"
       {
         echo "$label: sibling host I/O observed; continuing because hard blocker scope is repo."
+        echo "$label: sibling host activity observed; hive agents should coordinate before overlapping app/build work."
         printf '%s\n' "$observations"
       } >&2
     fi

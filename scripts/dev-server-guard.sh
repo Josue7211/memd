@@ -24,4 +24,19 @@ if ! command -v "$MEMD_BIN" >/dev/null 2>&1; then
   fi
 fi
 
+if [[ "${MEMD_ALLOW_CLAWCONTROL_DEV_SERVER:-0}" != "1" \
+  && "${MEMD_ALLOW_CLAWCONTROL_DEV_SERVER:-false}" != "true" ]]; then
+  repo_root="$ROOT"
+  repo_name="$(basename "$repo_root")"
+  command_text="$*"
+  if [[ "$repo_name" != "clawcontrol" && "$command_text" == *"clawcontrol"* ]]; then
+    {
+      echo "dev-server-guard: refusing to launch ClawControl from memd."
+      echo "dev-server-guard: memd and ClawControl are separate; use ClawControl's own repo/session to start it."
+      echo "dev-server-guard: set MEMD_ALLOW_CLAWCONTROL_DEV_SERVER=1 only for an intentional override."
+    } >&2
+    exit 66
+  fi
+fi
+
 exec "$MEMD_BIN" dev-server guard "$@"

@@ -98,16 +98,48 @@ sibling_output="$(
   memd_cargo_host_blockers
 )"
 grep -q 'project_hint=clawcontrol' <<<"$sibling_output"
+active_runtime_fixture="$(mktemp "${TMPDIR:-/tmp}/memd-host-io-active-runtime.XXXXXX")"
+trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture"; rm -rf "$fixture_report_repo"' EXIT
+printf '%s\n' \
+  'PID PPID STAT COMMAND' \
+  '31 1 S /Volumes/T7/node-v24.14.0-darwin-arm64/bin/node /Volumes/T7/projects/clawcontrol/deploy/agentshell/agent-shell-adapter.js' \
+  > "$active_runtime_fixture"
+active_runtime_output="$(
+  MEMD_CARGO_REPO_ROOT=/Volumes/T7/projects/memd \
+  MEMD_HOST_IO_PS_FILE="$active_runtime_fixture" \
+  memd_cargo_host_blockers
+)"
+grep -q 'project_hint=clawcontrol pid=31 state=S' <<<"$active_runtime_output"
+grep -q 'reason=active-runtime' <<<"$active_runtime_output"
 sibling_report_repo="$(mktemp -d "${TMPDIR:-/tmp}/memd-host-io-sibling-report.XXXXXX")"
-trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture"; rm -rf "$fixture_report_repo" "$sibling_report_repo"' EXIT
+trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture"; rm -rf "$fixture_report_repo" "$sibling_report_repo"' EXIT
 MEMD_CARGO_REPO_ROOT="$sibling_report_repo" \
 MEMD_CARGO_VOLUME_ROOT=/Volumes/T7 \
 MEMD_HOST_IO_PS_FILE="$sibling_fixture" \
 memd_cargo_refuse_on_host_blockers >/tmp/memd-host-io-sibling-test.out 2>&1
 grep -q 'sibling host I/O observed' /tmp/memd-host-io-sibling-test.out
+MEMD_CARGO_REPO_ROOT="$sibling_report_repo" \
+MEMD_CARGO_VOLUME_ROOT=/Volumes/T7 \
+MEMD_HOST_IO_PS_FILE="$active_runtime_fixture" \
+memd_cargo_refuse_on_host_blockers >/tmp/memd-host-active-runtime-test.out 2>&1
+grep -q 'sibling host activity observed' /tmp/memd-host-active-runtime-test.out
+
+set +e
+HOST_IO_GUARD_ENABLED=0 \
+MEMD_BIN=true \
+"$ROOT/scripts/dev-server-guard.sh" --port 59999 -- bash -lc 'cd /Volumes/T7/projects/clawcontrol && cargo tauri dev' \
+  >/tmp/memd-dev-server-clawcontrol-refusal-test.out 2>&1
+clawcontrol_refusal_status=$?
+set -e
+if [[ "$clawcontrol_refusal_status" -ne 66 ]]; then
+  echo "memd host I/O guard test: dev-server guard did not refuse cross-project ClawControl launch" >&2
+  cat /tmp/memd-dev-server-clawcontrol-refusal-test.out >&2
+  exit 1
+fi
+grep -q 'refusing to launch ClawControl from memd' /tmp/memd-dev-server-clawcontrol-refusal-test.out
 
 fake_ps_dir="$(mktemp -d "${TMPDIR:-/tmp}/memd-host-io-fake-ps.XXXXXX")"
-trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture"; rm -rf "$fixture_report_repo" "$sibling_report_repo" "$fake_ps_dir"' EXIT
+trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture"; rm -rf "$fixture_report_repo" "$sibling_report_repo" "$fake_ps_dir"' EXIT
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'sleep 5' \
