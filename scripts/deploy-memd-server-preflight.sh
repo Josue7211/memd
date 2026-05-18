@@ -180,61 +180,59 @@ server_git_commit=""
 server_git_dirty=""
 server_benchmark_gate=""
 server_latency_p95_ms=""
+server_status_warmup="not_needed"
 server_blockers=""
 
-if [[ "${MEMD_SKIP_SERVER_STATUS:-0}" == "1" || "${MEMD_SKIP_SERVER_STATUS:-0}" == "true" ]]; then
-  server_status="skipped"
-  server_blockers="server status probe skipped by MEMD_SKIP_SERVER_STATUS"
-elif [[ -n "$status_url" ]]; then
-  status_timeout="${MEMD_SERVER_STATUS_TIMEOUT:-3}"
-  status_payload="$(curl -fsS --max-time "$status_timeout" "$status_url" 2>/tmp/memd-server-status-probe.err || true)"
-  if [[ -z "$status_payload" ]]; then
-    status_error="$(cat /tmp/memd-server-status-probe.err 2>/dev/null || true)"
-    probe_output="$(
-      printf 'status=unavailable\n'
-      printf 'blockers=status probe failed or timed out after %ss%s\n' "$status_timeout" "${status_error:+: $status_error}"
-    )"
-  else
-    server_commit="$(printf '%s' "$status_payload" | tr -d '\n' | sed -n 's/.*"git_commit"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
-    server_dirty="$(printf '%s' "$status_payload" | tr -d '\n' | sed -n 's/.*"git_dirty"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
-    gate="$(printf '%s' "$status_payload" | tr -d '\n' | sed -n 's/.*"benchmark_gate"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
-    latency_text="$(printf '%s' "$status_payload" | tr -d '\n' | sed -n 's/.*"latency_p95_ms"[[:space:]]*:[[:space:]]*\([^,}]*\).*/\1/p')"
-    blockers=()
-    if [[ -n "$server_commit" && "$server_commit" != "$commit" ]]; then
-      blockers+=("server git_commit=$server_commit does not match local HEAD $commit")
-    fi
-    if [[ -n "$server_dirty" && "$server_dirty" != "clean" ]]; then
-      blockers+=("server_git_dirty=$server_dirty")
-    fi
-    if [[ "$gate" != "pass" && "$gate" != "acceptable" ]]; then
-      suffix=""
-      if [[ -n "$latency_text" ]]; then
-        suffix=" latency_p95_ms=$latency_text"
-      fi
-      blockers+=("server benchmark_gate=${gate:-unknown}$suffix")
-    fi
-    blocker_text=""
-    if ((${#blockers[@]} > 0)); then
-      for blocker in "${blockers[@]}"; do
-        if [[ -n "$blocker_text" ]]; then
-          blocker_text+=" | "
-        fi
-        blocker_text+="$blocker"
-      done
-    fi
-    status="ready"
-    if [[ -n "$blocker_text" ]]; then
-      status="blocked"
-    fi
-    probe_output="$(
-      printf 'status=%s\n' "$status"
-      printf 'git_commit=%s\n' "$server_commit"
-      printf 'git_dirty=%s\n' "$server_dirty"
-      printf 'benchmark_gate=%s\n' "$gate"
-      printf 'latency_p95_ms=%s\n' "$latency_text"
-      printf 'blockers=%s\n' "$blocker_text"
-    )"
+memd_server_status_probe_output() {
+  local payload="$1"
+  local server_commit server_dirty gate latency_text blocker blocker_text status
+  local blockers=()
+  server_commit="$(printf '%s' "$payload" | tr -d '\n' | sed -n 's/.*"git_commit"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  server_dirty="$(printf '%s' "$payload" | tr -d '\n' | sed -n 's/.*"git_dirty"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  gate="$(printf '%s' "$payload" | tr -d '\n' | sed -n 's/.*"benchmark_gate"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  latency_text="$(printf '%s' "$payload" | tr -d '\n' | sed -n 's/.*"latency_p95_ms"[[:space:]]*:[[:space:]]*\([^,}]*\).*/\1/p')"
+  if [[ -n "$server_commit" && "$server_commit" != "$commit" ]]; then
+    blockers+=("server git_commit=$server_commit does not match local HEAD $commit")
   fi
+  if [[ -n "$server_dirty" && "$server_dirty" != "clean" ]]; then
+    blockers+=("server_git_dirty=$server_dirty")
+  fi
+  if [[ "$gate" != "pass" && "$gate" != "acceptable" ]]; then
+    local suffix=""
+    if [[ -n "$latency_text" ]]; then
+      suffix=" latency_p95_ms=$latency_text"
+    fi
+    blockers+=("server benchmark_gate=${gate:-unknown}$suffix")
+  fi
+  blocker_text=""
+  if ((${#blockers[@]} > 0)); then
+    for blocker in "${blockers[@]}"; do
+      if [[ -n "$blocker_text" ]]; then
+        blocker_text+=" | "
+      fi
+      blocker_text+="$blocker"
+    done
+  fi
+  status="ready"
+  if [[ -n "$blocker_text" ]]; then
+    status="blocked"
+  fi
+  printf 'status=%s\n' "$status"
+  printf 'git_commit=%s\n' "$server_commit"
+  printf 'git_dirty=%s\n' "$server_dirty"
+  printf 'benchmark_gate=%s\n' "$gate"
+  printf 'latency_p95_ms=%s\n' "$latency_text"
+  printf 'blockers=%s\n' "$blocker_text"
+}
+
+memd_server_status_assign_probe() {
+  local probe_output="$1"
+  server_status=""
+  server_git_commit=""
+  server_git_dirty=""
+  server_benchmark_gate=""
+  server_latency_p95_ms=""
+  server_blockers=""
   while IFS='=' read -r key value; do
     case "$key" in
       status) server_status="$value" ;;
@@ -245,6 +243,64 @@ elif [[ -n "$status_url" ]]; then
       blockers) server_blockers="$value" ;;
     esac
   done <<<"$probe_output"
+}
+
+memd_server_status_should_warm() {
+  [[ "$server_status" == "blocked" ]] || return 1
+  [[ "$server_git_commit" == "$commit" ]] || return 1
+  [[ -z "$server_git_dirty" || "$server_git_dirty" == "clean" ]] || return 1
+  [[ "$server_benchmark_gate" != "pass" && "$server_benchmark_gate" != "acceptable" ]] || return 1
+  [[ "$server_blockers" == "server benchmark_gate="* ]] || return 1
+}
+
+if [[ "${MEMD_SKIP_SERVER_STATUS:-0}" == "1" || "${MEMD_SKIP_SERVER_STATUS:-0}" == "true" ]]; then
+  server_status="skipped"
+  server_blockers="server status probe skipped by MEMD_SKIP_SERVER_STATUS"
+elif [[ -n "$status_url" ]]; then
+  status_timeout="${MEMD_SERVER_STATUS_TIMEOUT:-3}"
+  warmup_attempts="${MEMD_SERVER_STATUS_WARMUP_ATTEMPTS:-24}"
+  warmup_interval="${MEMD_SERVER_STATUS_WARMUP_INTERVAL:-0.25}"
+  case "$warmup_attempts" in
+    ''|*[!0-9]*) warmup_attempts=0 ;;
+  esac
+  status_payload="$(curl -fsS --max-time "$status_timeout" "$status_url" 2>/tmp/memd-server-status-probe.err || true)"
+  if [[ -z "$status_payload" ]]; then
+    status_error="$(cat /tmp/memd-server-status-probe.err 2>/dev/null || true)"
+    probe_output="$(
+      printf 'status=unavailable\n'
+      printf 'blockers=status probe failed or timed out after %ss%s\n' "$status_timeout" "${status_error:+: $status_error}"
+    )"
+    memd_server_status_assign_probe "$probe_output"
+  else
+    probe_output="$(memd_server_status_probe_output "$status_payload")"
+    memd_server_status_assign_probe "$probe_output"
+    if ((warmup_attempts > 0)) && memd_server_status_should_warm; then
+      health_url=""
+      if [[ "$status_url" == */api/status ]]; then
+        health_url="${status_url%/api/status}/healthz"
+      fi
+      if [[ -n "$health_url" ]]; then
+        server_status_warmup="attempted"
+        for ((attempt = 1; attempt <= warmup_attempts; attempt++)); do
+          curl -fsS --max-time "$status_timeout" "$health_url" >/dev/null 2>&1 || true
+          warmed_payload="$(curl -fsS --max-time "$status_timeout" "$status_url" 2>/tmp/memd-server-status-probe.err || true)"
+          if [[ -n "$warmed_payload" ]]; then
+            probe_output="$(memd_server_status_probe_output "$warmed_payload")"
+            memd_server_status_assign_probe "$probe_output"
+            if [[ "$server_status" == "ready" ]] || ! memd_server_status_should_warm; then
+              break
+            fi
+          fi
+          sleep "$warmup_interval"
+        done
+        if [[ "$server_status" == "ready" ]]; then
+          server_status_warmup="recovered"
+        elif [[ "$server_status_warmup" == "attempted" ]]; then
+          server_status_warmup="exhausted"
+        fi
+      fi
+    fi
+  fi
 fi
 
 codebase_live_map_path="${MEMD_CODEBASE_LIVE_MAP_STATE:-$ROOT/.memd/state/codebase-live-map.json}"
@@ -324,6 +380,7 @@ MEMD_SERVER_GIT_COMMIT=$server_git_commit
 MEMD_SERVER_GIT_DIRTY=$server_git_dirty
 MEMD_SERVER_BENCHMARK_GATE=$server_benchmark_gate
 MEMD_SERVER_LATENCY_P95_MS=$server_latency_p95_ms
+MEMD_SERVER_STATUS_WARMUP=$server_status_warmup
 MEMD_CODEBASE_LIVE_MAP_STATE=$codebase_live_map_path
 MEMD_CODEBASE_LIVE_MAP_STATUS=$codebase_live_map_status
 MEMD_CODEBASE_LIVE_MAP_REREAD_REQUIRED=$codebase_live_map_reread_required
@@ -357,6 +414,7 @@ memd-server deploy env:
   MEMD_SERVER_GIT_DIRTY=$server_git_dirty
   MEMD_SERVER_BENCHMARK_GATE=$server_benchmark_gate
   MEMD_SERVER_LATENCY_P95_MS=$server_latency_p95_ms
+  MEMD_SERVER_STATUS_WARMUP=$server_status_warmup
   MEMD_CODEBASE_LIVE_MAP_STATE=$codebase_live_map_path
   MEMD_CODEBASE_LIVE_MAP_STATUS=$codebase_live_map_status
   MEMD_CODEBASE_LIVE_MAP_REREAD_REQUIRED=$codebase_live_map_reread_required

@@ -540,12 +540,77 @@ if [[ -e "$fake_git_marker" ]]; then
   exit 1
 fi
 
+warmup_fake_dir="$(mktemp -d "${TMPDIR:-/tmp}/memd-status-warmup.XXXXXX")"
+trap 'rm -f "$fixture" "$clear_fixture" "$fresh_report" "$stale_report"; rm -rf "$fake_ps_dir" "$no_clawcontrol_dir" "$warmup_fake_dir"' EXIT
+warmup_count="$warmup_fake_dir/curl-count"
+warmup_ref="$(sed -n 's#^ref: refs/heads/##p' "$ROOT/.git/HEAD" 2>/dev/null || true)"
+warmup_commit="unknown"
+if [[ -n "$warmup_ref" && -f "$ROOT/.git/refs/heads/$warmup_ref" ]]; then
+  warmup_commit="$(cut -c1-8 "$ROOT/.git/refs/heads/$warmup_ref")"
+elif [[ -s "$ROOT/.git/HEAD" ]]; then
+  warmup_commit="$(cut -c1-8 "$ROOT/.git/HEAD")"
+fi
+cat > "$warmup_fake_dir/curl" <<'SH'
+#!/usr/bin/env bash
+if [[ "$*" == *"/healthz"* ]]; then
+  printf 'ok\n'
+  exit 0
+fi
+count_file="${MEMD_TEST_CURL_COUNT:?}"
+count=0
+if [[ -f "$count_file" ]]; then
+  count="$(cat "$count_file")"
+fi
+count=$((count + 1))
+printf '%s\n' "$count" > "$count_file"
+if [[ "$count" -eq 1 ]]; then
+  cat <<JSON
+{
+  "git_branch": "main",
+  "git_commit": "${MEMD_TEST_SERVER_COMMIT:?}",
+  "git_dirty": "clean",
+  "benchmark_gate": "fail",
+  "latency_p95_ms": 2048.0
+}
+JSON
+else
+  cat <<JSON
+{
+  "git_branch": "main",
+  "git_commit": "${MEMD_TEST_SERVER_COMMIT:?}",
+  "git_dirty": "clean",
+  "benchmark_gate": "pass",
+  "latency_p95_ms": 64.0
+}
+JSON
+fi
+SH
+chmod +x "$warmup_fake_dir/curl"
+status_warmup_preflight_output="$(
+  MEMD_ALLOW_DIRTY_DEPLOY=1 \
+  MEMD_HOST_IO_REPORT="$fake_ps_dir/no-report" \
+  MEMD_HOST_IO_REPORT_TTL_SECS=1 \
+  MEMD_CODEBASE_LIVE_MAP_STATE="$preflight_live_map" \
+  MEMD_SERVER_STATUS_URL=http://example.invalid/api/status \
+  MEMD_SERVER_STATUS_WARMUP_ATTEMPTS=3 \
+  MEMD_SERVER_STATUS_WARMUP_INTERVAL=0 \
+  MEMD_TEST_CURL_COUNT="$warmup_count" \
+  MEMD_TEST_SERVER_COMMIT="$warmup_commit" \
+  PATH="$warmup_fake_dir:$PATH" \
+  "$ROOT/scripts/deploy-memd-server-preflight.sh" 2>&1
+)"
+grep -q 'MEMD_SERVER_STATUS=ready' <<<"$status_warmup_preflight_output"
+grep -q "MEMD_SERVER_GIT_COMMIT=$warmup_commit" <<<"$status_warmup_preflight_output"
+grep -q 'MEMD_SERVER_BENCHMARK_GATE=pass' <<<"$status_warmup_preflight_output"
+grep -q 'MEMD_SERVER_LATENCY_P95_MS=64.0' <<<"$status_warmup_preflight_output"
+grep -q 'MEMD_SERVER_STATUS_WARMUP=recovered' <<<"$status_warmup_preflight_output"
+
 fake_guard="$(mktemp "${TMPDIR:-/tmp}/memd-host-io-fake-guard.XXXXXX")"
 report="$(mktemp "${TMPDIR:-/tmp}/memd-host-io-report.XXXXXX")"
 public_bench_report="$(mktemp "${TMPDIR:-/tmp}/memd-public-bench-host-io-report.XXXXXX")"
 live_map_events="$(mktemp "${TMPDIR:-/tmp}/memd-codebase-live-map-events.XXXXXX")"
 live_map_state="$fake_ps_dir/codebase-live-map.json"
-trap 'rm -f "$fixture" "$clear_fixture" "$fresh_report" "$stale_report" "$fake_guard" "$report" "$public_bench_report" "$live_map_events"; rm -rf "$fake_ps_dir" "$no_clawcontrol_dir"' EXIT
+trap 'rm -f "$fixture" "$clear_fixture" "$fresh_report" "$stale_report" "$fake_guard" "$report" "$public_bench_report" "$live_map_events"; rm -rf "$fake_ps_dir" "$no_clawcontrol_dir" "$warmup_fake_dir"' EXIT
 cat > "$fake_guard" <<'SH'
 #!/usr/bin/env bash
 echo "fake guard blocked host work" >&2
