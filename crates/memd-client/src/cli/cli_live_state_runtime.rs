@@ -1625,8 +1625,9 @@ pub(crate) fn render_live_state_task_lines(report: &LiveAppStateReport) -> Strin
         compact_live_state_text(&report.refresh_reason, 160)
     )];
     lines.extend(report.sync_tasks.iter().map(|task| {
+        let approved_route = approved_communications_task_route_detail(report, task);
         format!(
-            "task source={} module={} scope={} status={} privacy={} visibility={} approved_required={} freshness_secs={} media_agentsecrets={} labels={} action=\"{}\"",
+            "task source={} module={} scope={} status={} privacy={} visibility={} approved_required={} freshness_secs={} media_agentsecrets={} labels={}{} action=\"{}\"",
             task.source_app,
             task.module,
             task.required_scope,
@@ -1637,10 +1638,52 @@ pub(crate) fn render_live_state_task_lines(report: &LiveAppStateReport) -> Strin
             task.freshness_secs,
             task.agentsecrets_required_for_media,
             task.labels.join(","),
+            approved_route,
             compact_live_state_text(&task.action, 220)
         )
     }));
     lines.join("\n")
+}
+
+fn approved_communications_task_route_detail(
+    report: &LiveAppStateReport,
+    task: &LiveAppStateSyncTask,
+) -> String {
+    if task.source_app != "approved_communications" {
+        return String::new();
+    }
+    let request = report
+        .source_statuses
+        .iter()
+        .find(|source| {
+            live_state_source_is_approved_communications(source)
+                && matches!(
+                    source.status.as_str(),
+                    "missing_approval" | "invalid_approval"
+                )
+        })
+        .and_then(|source| source.approval_request_path.as_deref());
+    let request = request.unwrap_or(".memd/state/approved-communications-request.json");
+    let template = approved_communications_template_path_from_request(request)
+        .unwrap_or_else(|| ".memd/state/approved-communications-template.json".to_string());
+    format!(
+        " access_route=\"{}\" producer_route=\"scripts/live-state-capture-approved-communications.mjs\" approved_zero_route=\"{}\" approval_request={} approved_template={}",
+        approved_communications_access_route_command(),
+        approved_communications_empty_approval_command(),
+        shell_quote(request),
+        shell_quote(&template)
+    )
+}
+
+fn approved_communications_template_path_from_request(request: &str) -> Option<String> {
+    let value = std::fs::read_to_string(request)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())?;
+    value
+        .get("approval")
+        .and_then(|approval| approval.get("approvedFileTemplate"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
 }
 
 pub(crate) fn render_live_state_command_lines(report: &LiveAppStateReport) -> String {
@@ -2264,6 +2307,19 @@ mod tests {
         assert!(tasks.contains("task source=approved_communications module=messages"));
         assert!(tasks.contains("approved_required=true"));
         assert!(tasks.contains("media_agentsecrets=true"));
+        assert!(tasks.contains(approved_communications_access_route_command()));
+        assert!(
+            tasks.contains(
+                "producer_route=\"scripts/live-state-capture-approved-communications.mjs\""
+            )
+        );
+        assert!(tasks.contains(r#"approved_zero_route="APPROVED_COMMUNICATIONS_EMPTY_APPROVED=1 scripts/live-state-capture-approved-communications.mjs""#));
+        assert!(
+            tasks.contains("approval_request=.memd/state/approved-communications-request.json")
+        );
+        assert!(
+            tasks.contains("approved_template=.memd/state/approved-communications-template.json")
+        );
 
         let commands = render_live_state_command_lines(&report);
         assert!(commands.contains("# live_state_commands sync_required=true count=6"));
