@@ -35,5 +35,6 @@
   "reason": "missing Supermemory replay artifacts; approved route exists but no process credential was resolved",
   "required": "use the approved Supermemory access route with TRY_REPLAY=1 or provide SUPERMEMORY_REPLAYS",
   "status": "blocked",
-  "suite": "25_5_supermemory_head_to_head"
+  "suite": "25_5_supermemory_head_to_head",
+  "supermemory_request_path": "/Volumes/T7/projects/memd/.memd/state/supermemory-replay-request.json"
 }

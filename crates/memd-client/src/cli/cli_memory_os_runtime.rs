@@ -1978,6 +1978,15 @@ fn report_blocker_detail(path: &Path) -> Option<String> {
             }
         }
     }
+    for key in ["supermemory_request_path", "approval_request"] {
+        if let Some(path) = value
+            .get(key)
+            .and_then(|path| path.as_str())
+            .filter(|path| !path.trim().is_empty())
+        {
+            parts.push(format!("{key}={}", path.trim()));
+        }
+    }
     if let Some(reason) = value
         .get("reason")
         .and_then(|reason| reason.as_str())
@@ -4107,6 +4116,7 @@ mod tests {
                 ],
                 "missing_explicit_env": ["ALLOW_FULL_PUBLIC_PROOF=1"],
                 "reason": "blocked proof gate",
+                "supermemory_request_path": ".memd/state/supermemory-replay-request.json",
                 "credential_env_present": false
             })
             .to_string(),
@@ -4118,6 +4128,9 @@ mod tests {
             "missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact"
         ));
         assert!(detail.contains("missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1"));
+        assert!(
+            detail.contains("supermemory_request_path=.memd/state/supermemory-replay-request.json")
+        );
         assert!(detail.contains("reason=blocked proof gate"));
         assert!(!detail.contains("SUPERMEMORY_API_KEY"));
 

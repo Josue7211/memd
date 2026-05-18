@@ -56,6 +56,7 @@ OUT_DIR="$out_dir" \
 RUN_DATE=2099-01-02 \
 MEMD_REPORT="$memd_report" \
 SUPERMEMORY_REPLAYS="$tmp/missing-replays" \
+SUPERMEMORY_REQUEST="$tmp/supermemory-request.json" \
 MEMD_ACCESS_ROUTE_JSON="$access_route_json" \
 "$ROOT/scripts/verify/25-5-supermemory-head-to-head.sh" >/tmp/memd-supermemory-missing.out
 blocked_status=$?
@@ -66,5 +67,12 @@ if [[ "$blocked_status" -ne 2 ]]; then
 fi
 jq -e '.status == "blocked"' "$out_dir/2099-01-02-supermemory-head-to-head.json" >/dev/null
 jq -e '.missing_requirements == ["supermemory_same_fixture_replay_artifact"]' "$out_dir/2099-01-02-supermemory-head-to-head.json" >/dev/null
+request_path="$(cd "$(dirname "$tmp/supermemory-request.json")" && pwd)/supermemory-request.json"
+jq -e '.supermemory_request_path == "'"$request_path"'"' "$out_dir/2099-01-02-supermemory-head-to-head.json" >/dev/null
+jq -e '.schema == "memd.supermemory-replay-request.v1"' "$tmp/supermemory-request.json" >/dev/null
+jq -e '.status == "needs_replay_artifact_or_process_credential"' "$tmp/supermemory-request.json" >/dev/null
+jq -e '.approved_routes.process_env == "SUPERMEMORY_API_KEY"' "$tmp/supermemory-request.json" >/dev/null
+jq -e '.same_fixture_contract.required_limit == 50' "$tmp/supermemory-request.json" >/dev/null
+jq -e '.privacy_contract[] | select(. == "Do not store SUPERMEMORY_API_KEY in memd artifacts.")' "$tmp/supermemory-request.json" >/dev/null
 
 echo "supermemory head-to-head test: ok"

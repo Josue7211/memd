@@ -12,6 +12,7 @@ RUN_DATE="${RUN_DATE:-$(date +%F)}"
 REPORT="${REPORT:-$OUT_DIR/${RUN_DATE}-supermemory-head-to-head.json}"
 MEMD_REPORT="${MEMD_REPORT:-}"
 SUPERMEMORY_REPLAYS="${SUPERMEMORY_REPLAYS:-$ROOT/.memd/benchmarks/baselines/supermemory_replays.json}"
+SUPERMEMORY_REQUEST="${SUPERMEMORY_REQUEST:-$ROOT/.memd/state/supermemory-replay-request.json}"
 TRY_REPLAY="${TRY_REPLAY:-0}"
 LIMIT="${LIMIT:-50}"
 EPSILON="${EPSILON:-0.000001}"
@@ -72,7 +73,7 @@ if [[ "$TRY_REPLAY" == "1" && ! -e "$SUPERMEMORY_REPLAYS" && -n "${SUPERMEMORY_A
     --limit "$LIMIT"
 fi
 
-python3 - "$REPORT" "$MEMD_REPORT" "$SUPERMEMORY_REPLAYS" "$EPSILON" "$BW_STATUS_JSON" "$MEMD_ACCESS_ROUTE_JSON" <<'PY'
+python3 - "$REPORT" "$MEMD_REPORT" "$SUPERMEMORY_REPLAYS" "$SUPERMEMORY_REQUEST" "$EPSILON" "$BW_STATUS_JSON" "$MEMD_ACCESS_ROUTE_JSON" <<'PY'
 import json
 import os
 import pathlib
@@ -81,9 +82,10 @@ import sys
 report_path = pathlib.Path(sys.argv[1])
 memd_report_path = pathlib.Path(sys.argv[2]) if sys.argv[2] else None
 replays_path = pathlib.Path(sys.argv[3])
-epsilon = float(sys.argv[4])
-bw_status_raw = sys.argv[5] if len(sys.argv) > 5 else ""
-memd_access_route_raw = sys.argv[6] if len(sys.argv) > 6 else ""
+request_path = pathlib.Path(sys.argv[4])
+epsilon = float(sys.argv[5])
+bw_status_raw = sys.argv[6] if len(sys.argv) > 6 else ""
+memd_access_route_raw = sys.argv[7] if len(sys.argv) > 7 else ""
 datasets = ["longmemeval", "locomo", "membench", "convomem"]
 
 
@@ -178,7 +180,50 @@ def access_route_hint():
     )
 
 
+def write_request(**extra):
+    request_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": "memd.supermemory-replay-request.v1",
+        "status": "needs_replay_artifact_or_process_credential",
+        "competitor": "supermemory",
+        "datasets": datasets,
+        "same_fixture_contract": {
+            "memd_report": str(memd_report_path) if memd_report_path else None,
+            "required_limit_scope": "items",
+            "required_limit": None,
+            "replay_path": str(replays_path),
+        },
+        "approved_routes": {
+            "process_env": "SUPERMEMORY_API_KEY",
+            "bitwarden": "memd access route --output .memd --provider bitwarden --purpose supermemory-api-key --agent codex",
+            "run_replay": "TRY_REPLAY=1 scripts/verify/25-5-supermemory-head-to-head.sh",
+            "provide_artifact": "SUPERMEMORY_REPLAYS=/path/to/supermemory-replays scripts/verify/25-5-supermemory-head-to-head.sh",
+        },
+        "privacy_contract": [
+            "Do not store SUPERMEMORY_API_KEY in memd artifacts.",
+            "Use credentials only as process-local environment for replay.",
+            "Replay artifacts must cover longmemeval, locomo, membench, and convomem with matching item limit.",
+            "Artifacts may be aggregate JSON or <dir>/<dataset>/latest/summary.json directories.",
+        ],
+        "access_route_hint": access_route_hint(),
+        "bitwarden": bitwarden_status(),
+        "memd_access_route": memd_access_route(),
+        **extra,
+    }
+    if memd_report_path and memd_report_path.exists():
+        try:
+            report = json.loads(memd_report_path.read_text(encoding="utf-8"))
+            payload["same_fixture_contract"]["required_limit"] = report.get("limit")
+        except Exception:
+            pass
+    request_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return str(request_path)
+
+
 def write_and_exit(status, exit_code, **extra):
+    request = None
+    if status == "blocked":
+        request = write_request(**extra)
     payload = {
         "suite": "25_5_supermemory_head_to_head",
         "status": status,
@@ -188,6 +233,7 @@ def write_and_exit(status, exit_code, **extra):
         "credential_env_present": bool(os.environ.get("SUPERMEMORY_API_KEY")),
         "bitwarden": bitwarden_status(),
         "memd_access_route": memd_access_route(),
+        "supermemory_request_path": request,
         "access_route_hint": access_route_hint(),
         **extra,
     }
