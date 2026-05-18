@@ -2,6 +2,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const root = new URL('..', import.meta.url).pathname.replace(/\/+$/, '');
 const envFile = process.env.MAC_BRIDGE_ENV || join(root, 'integrations', 'mac-bridge', '.env');
