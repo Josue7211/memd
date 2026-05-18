@@ -59,10 +59,14 @@ fn handoff_proof_blocker_detail(snapshot: &crate::HandoffSnapshot) -> Option<Str
             if handoff_report_status_is_blocked(&value) {
                 if let Some(items) = handoff_json_string_array(&value, "missing_requirements") {
                     if !items.is_empty() {
-                        details.push(format!(
-                            "supermemory:missing_requirements={}",
-                            items.join(",")
-                        ));
+                        let mut part =
+                            format!("supermemory:missing_requirements={}", items.join(","));
+                        if let Some(path) =
+                            handoff_json_string_field(&value, "supermemory_request_path")
+                        {
+                            part.push_str(&format!(" request={path}"));
+                        }
+                        details.push(part);
                     }
                 }
             }
@@ -125,6 +129,15 @@ fn handoff_json_string_array(value: &serde_json::Value, key: &str) -> Option<Vec
             .filter_map(|item| item.as_str().map(str::to_string))
             .collect(),
     )
+}
+
+fn handoff_json_string_field(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)?
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 pub(crate) fn render_handoff_next_agent_prompt(snapshot: &crate::HandoffSnapshot) -> String {
@@ -1081,7 +1094,8 @@ mod tests {
                 "missing_requirements": [
                     "approved_supermemory_access_route_or_process_credential",
                     "supermemory_same_fixture_replay_artifact"
-                ]
+                ],
+                "supermemory_request_path": ".memd/state/supermemory-replay-request.json"
             })
             .to_string(),
         )
@@ -1138,7 +1152,18 @@ mod tests {
 
         let prompt = render_handoff_prompt(&handoff);
 
-        assert!(prompt.contains("proof_blockers=supermemory:missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact;full_public:missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL"), "{prompt}");
+        assert!(
+            prompt.contains(
+                "proof_blockers=supermemory:missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact request=.memd/state/supermemory-replay-request.json"
+            ),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains(
+                "full_public:missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH"
+            ),
+            "{prompt}"
+        );
         assert!(
             prompt.contains("Live-state blockers: clawcontrol:status=auth_required"),
             "{prompt}"

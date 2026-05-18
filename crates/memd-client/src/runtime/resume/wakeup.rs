@@ -230,10 +230,12 @@ fn recovery_proof_blocker_detail(output: &Path) -> Option<String> {
             if report_status_is_blocked(&value) {
                 if let Some(items) = json_string_array(&value, "missing_requirements") {
                     if !items.is_empty() {
-                        details.push(format!(
-                            "supermemory:missing_requirements={}",
-                            items.join(",")
-                        ));
+                        let mut part =
+                            format!("supermemory:missing_requirements={}", items.join(","));
+                        if let Some(path) = json_string_field(&value, "supermemory_request_path") {
+                            part.push_str(&format!(" request={path}"));
+                        }
+                        details.push(part);
                     }
                 }
             }
@@ -294,6 +296,15 @@ fn json_string_array(value: &serde_json::Value, key: &str) -> Option<Vec<String>
             .filter_map(|item| item.as_str().map(str::to_string))
             .collect(),
     )
+}
+
+fn json_string_field(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)?
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn render_continuity_block(snapshot: &ResumeSnapshot, claude_strict: bool) -> String {
@@ -1294,7 +1305,8 @@ mod tests {
                 "missing_requirements": [
                     "approved_supermemory_access_route_or_process_credential",
                     "supermemory_same_fixture_replay_artifact"
-                ]
+                ],
+                "supermemory_request_path": ".memd/state/supermemory-replay-request.json"
             })
             .to_string(),
         )
@@ -1366,7 +1378,18 @@ mod tests {
 
         let markdown = render_bundle_wakeup_markdown(&output, &snapshot, false);
 
-        assert!(markdown.contains("proof_blockers=supermemory:missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact;full_public:missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL"), "{markdown}");
+        assert!(
+            markdown.contains(
+                "proof_blockers=supermemory:missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact request=.memd/state/supermemory-replay-request.json"
+            ),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains(
+                "full_public:missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH"
+            ),
+            "{markdown}"
+        );
         assert!(
             markdown.contains("live_state_blockers=clawcontrol:status=auth_required"),
             "{markdown}"

@@ -261,7 +261,13 @@ fn market_blocker_detail_summary(blockers: &[String]) -> String {
                 "other"
             };
             blocker_detail_value(blocker, "missing_requirements")
-                .map(|value| format!("{label}:missing_requirements={value}"))
+                .map(|value| {
+                    let mut detail = format!("{label}:missing_requirements={value}");
+                    if let Some(path) = blocker_detail_value(blocker, "supermemory_request_path") {
+                        detail.push_str(&format!(" request={path}"));
+                    }
+                    detail
+                })
                 .or_else(|| {
                     blocker_detail_value(blocker, "missing_explicit_env")
                         .map(|value| format!("{label}:missing_explicit_env={value}"))
@@ -3170,7 +3176,7 @@ mod tests {
                     status: "blocked".to_string(),
                     evidence: Vec::new(),
                     blockers: vec![
-                        "Supermemory same-fixture replay not pass: status=blocked report=supermemory.json missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact reason=missing approved Supermemory credential and replay artifacts".to_string(),
+                        "Supermemory same-fixture replay not pass: status=blocked report=supermemory.json missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact supermemory_request_path=.memd/state/supermemory-replay-request.json reason=missing approved Supermemory credential and replay artifacts".to_string(),
                         "full external public proof not pass: status=blocked report=full.json missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL reason=full external public proof is intentionally opt-in".to_string(),
                     ],
                 },
@@ -3266,7 +3272,7 @@ mod tests {
         assert!(summary.contains("market_claim=blocked"));
         assert!(summary.contains("market_blockers=2"));
         assert!(summary.contains(
-            "market_blocker_detail=supermemory:missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact;full_public:missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL"
+            "market_blocker_detail=supermemory:missing_requirements=approved_supermemory_access_route_or_process_credential,supermemory_same_fixture_replay_artifact request=.memd/state/supermemory-replay-request.json;full_public:missing_explicit_env=ALLOW_FULL_PUBLIC_PROOF=1,PUBLIC_BENCH_LIMIT,PUBLIC_BENCH_TIMEOUT,RUN_LABEL"
         ));
         assert!(summary.contains("server_authority_detail="));
         assert!(summary.contains("server git_commit=d819af89 does not match local HEAD f0e2a715"));
