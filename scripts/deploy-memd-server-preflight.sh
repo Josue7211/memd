@@ -146,6 +146,9 @@ fi
 status_url="${MEMD_SERVER_STATUS_URL:-}"
 authority_container="${MEMD_AUTHORITY_CONTAINER:-memd-authority}"
 authority_image_repo="${MEMD_AUTHORITY_IMAGE_REPO:-memd-authority}"
+authority_stack="${MEMD_AUTHORITY_STACK:-memd-authority-stack}"
+authority_network="${MEMD_AUTHORITY_NETWORK:-memd-authority-network}"
+authority_data_volume="${MEMD_AUTHORITY_DATA_VOLUME:-memd_authority_data}"
 authority_port="${MEMD_AUTHORITY_PORT:-${MEMD_AUTHORITY_MIGRATION_PORT:-8788}}"
 authority_public_host="${MEMD_AUTHORITY_PUBLIC_HOST:-100.104.154.24}"
 authority_url="http://$authority_public_host:$authority_port"
@@ -162,6 +165,27 @@ if [[ "$authority_image_repo" == clawcontrol-* || "$authority_image_repo" == por
   fi
   authority_identity_status="blocked"
   authority_identity_blockers+="MEMD_AUTHORITY_IMAGE_REPO=$authority_image_repo is ClawControl-owned; use memd-authority"
+fi
+if [[ "$authority_stack" == clawcontrol-* || "$authority_stack" == portainer-clawcontrol-* ]]; then
+  if [[ -n "$authority_identity_blockers" ]]; then
+    authority_identity_blockers+=" | "
+  fi
+  authority_identity_status="blocked"
+  authority_identity_blockers+="MEMD_AUTHORITY_STACK=$authority_stack is ClawControl-owned; use memd-authority-stack"
+fi
+if [[ "$authority_network" == "portainer_default" || "$authority_network" == clawcontrol-* || "$authority_network" == portainer-clawcontrol-* ]]; then
+  if [[ -n "$authority_identity_blockers" ]]; then
+    authority_identity_blockers+=" | "
+  fi
+  authority_identity_status="blocked"
+  authority_identity_blockers+="MEMD_AUTHORITY_NETWORK=$authority_network is not memd-owned; use memd-authority-network"
+fi
+if [[ "$authority_data_volume" == clawcontrol-* || "$authority_data_volume" == portainer-clawcontrol-* ]]; then
+  if [[ -n "$authority_identity_blockers" ]]; then
+    authority_identity_blockers+=" | "
+  fi
+  authority_identity_status="blocked"
+  authority_identity_blockers+="MEMD_AUTHORITY_DATA_VOLUME=$authority_data_volume is ClawControl-owned; use memd_authority_data"
 fi
 if [[ "${MEMD_SKIP_SERVER_STATUS:-0}" == "1" || "${MEMD_SKIP_SERVER_STATUS:-0}" == "true" ]]; then
   status_url=""
@@ -367,8 +391,11 @@ cat <<ENV
 MEMD_GIT_BRANCH=$branch
 MEMD_GIT_COMMIT=$commit
 MEMD_GIT_DIRTY=$dirty
+MEMD_AUTHORITY_STACK=$authority_stack
 MEMD_AUTHORITY_CONTAINER=$authority_container
 MEMD_AUTHORITY_IMAGE_REPO=$authority_image_repo
+MEMD_AUTHORITY_NETWORK=$authority_network
+MEMD_AUTHORITY_DATA_VOLUME=$authority_data_volume
 MEMD_AUTHORITY_PORT=$authority_port
 MEMD_AUTHORITY_URL=$authority_url
 MEMD_AUTHORITY_DEPLOY_CONTRACT=$authority_deploy_contract
@@ -401,8 +428,11 @@ memd-server deploy env:
   MEMD_GIT_BRANCH=$branch
   MEMD_GIT_COMMIT=$commit
   MEMD_GIT_DIRTY=$dirty
+  MEMD_AUTHORITY_STACK=$authority_stack
   MEMD_AUTHORITY_CONTAINER=$authority_container
   MEMD_AUTHORITY_IMAGE_REPO=$authority_image_repo
+  MEMD_AUTHORITY_NETWORK=$authority_network
+  MEMD_AUTHORITY_DATA_VOLUME=$authority_data_volume
   MEMD_AUTHORITY_PORT=$authority_port
   MEMD_AUTHORITY_URL=$authority_url
   MEMD_AUTHORITY_DEPLOY_CONTRACT=$authority_deploy_contract

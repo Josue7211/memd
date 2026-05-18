@@ -8,12 +8,17 @@ lifecycle.
 
 - Runtime container: `memd-authority`
 - Image repo: `memd-authority`
+- Stack name: `memd-authority-stack`
+- Docker network: `memd-authority-network`
 - Data volume: `memd_authority_data`
 - Migration public authority port: `8788`
 - Final public authority port after explicit cutover: `8787`
 
-Do not deploy memd into a `clawcontrol-*` container or image name. That makes a
-memd update look like a ClawControl launch and hides the true owner from agents.
+Do not deploy memd into a `clawcontrol-*` container, image, stack, network, or
+volume name. Do not attach memd authority to `portainer_default`. That makes a
+memd update look like an app launch and hides the true owner from agents.
+
+Bundled consumption is allowed. Shared lifecycle is not. memd is its own stack.
 
 ## Guarded Flow
 
@@ -32,7 +37,7 @@ scripts/deploy-memd-authority.sh activate
 ```
 
 Activation defaults to port `8788`, creating a side-by-side memd-owned authority
-without stopping the legacy `clawcontrol-memd` service on `8787`.
+on `memd-authority-network` without stopping any app-owned service on `8787`.
 
 Port `8787` cutover is a separate explicit infra migration. Do not bind `8787`
 for memd authority while a `clawcontrol-*` container owns it.

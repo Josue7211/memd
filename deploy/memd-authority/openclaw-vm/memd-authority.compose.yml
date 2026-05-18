@@ -2,6 +2,10 @@ services:
   memd-authority:
     image: ${MEMD_AUTHORITY_IMAGE:-memd-authority:${MEMD_GIT_COMMIT:-latest}}
     container_name: memd-authority
+    labels:
+      memd.stack: memd-authority-stack
+      memd.owner: memd
+      memd.separate_from: clawcontrol
     restart: unless-stopped
     environment:
       MEMD_DB_PATH: /data/memd.db
@@ -15,6 +19,8 @@ services:
       - "${MEMD_AUTHORITY_PORT:-8788}:8787"
     volumes:
       - memd_authority_data:/data
+    networks:
+      - memd-authority-network
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]
       interval: 30s
@@ -24,3 +30,7 @@ services:
 
 volumes:
   memd_authority_data:
+
+networks:
+  memd-authority-network:
+    name: memd-authority-network

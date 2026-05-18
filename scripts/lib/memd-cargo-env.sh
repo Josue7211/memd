@@ -231,7 +231,7 @@ memd_cargo_host_blockers() {
       if (length(command) > 240) {
         command = substr(command, 1, 240) "..."
       }
-      reason = active_runtime && state !~ /U/ ? " reason=active-runtime" : ""
+      reason = active_runtime && state !~ /U/ ? " reason=separate-existing-runtime" : ""
       printf "%s project_hint=%s pid=%s state=%s command=%s%s\n", scope, project, pid, state, command, reason
     }
   '
@@ -270,11 +270,11 @@ memd_cargo_refuse_on_host_blockers() {
     memd_host_io_write_report "$blockers"
   fi
   if [[ -z "$blockers" ]]; then
-    if [[ -n "$observations" ]]; then
+    if [[ -n "$observations" && "${MEMD_HOST_IO_SHOW_SIBLING_AWARENESS:-0}" == "1" ]]; then
       local label="${MEMD_HOST_IO_GUARD_LABEL:-memd cargo guard}"
       {
-        echo "$label: sibling host I/O observed; continuing because hard blocker scope is repo."
-        echo "$label: sibling host activity observed; hive agents should coordinate before overlapping app/build work."
+        echo "$label: separate existing app activity observed; continuing because it is not memd work."
+        echo "$label: sibling activity is awareness only, not a memd test/build dependency."
         printf '%s\n' "$observations"
       } >&2
     fi

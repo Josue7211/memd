@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Build/deploy the shared memd authority without touching ClawControl-owned
-# containers. The migration default uses a side-by-side memd-owned host port so
-# updating memd never requires stopping or replacing legacy ClawControl runtime.
+# Build/deploy the memd authority as its own Docker stack. memd has a separate
+# image, container, network, volume, and lifecycle from any app that consumes it.
 
 set -euo pipefail
 
@@ -14,7 +13,8 @@ IMAGE_REPO="${MEMD_AUTHORITY_IMAGE_REPO:-memd-authority}"
 MIGRATION_PORT="${MEMD_AUTHORITY_MIGRATION_PORT:-8788}"
 PORT="${MEMD_AUTHORITY_PORT:-$MIGRATION_PORT}"
 PUBLIC_HOST="${MEMD_AUTHORITY_PUBLIC_HOST:-100.104.154.24}"
-NETWORK="${MEMD_AUTHORITY_NETWORK:-portainer_default}"
+STACK="${MEMD_AUTHORITY_STACK:-memd-authority-stack}"
+NETWORK="${MEMD_AUTHORITY_NETWORK:-memd-authority-network}"
 DATA_VOLUME="${MEMD_AUTHORITY_DATA_VOLUME:-memd_authority_data}"
 MODE="${1:-build-only}"
 
@@ -43,6 +43,22 @@ if [[ "$IMAGE_REPO" == clawcontrol-* || "$IMAGE_REPO" == portainer-clawcontrol-*
   cat >&2 <<MSG
 refusing memd authority deploy: MEMD_AUTHORITY_IMAGE_REPO=$IMAGE_REPO is ClawControl-owned.
 Use a memd-owned image repo such as memd-authority.
+MSG
+  exit 65
+fi
+
+if [[ "$NETWORK" == "portainer_default" || "$NETWORK" == clawcontrol-* || "$NETWORK" == portainer-clawcontrol-* ]]; then
+  cat >&2 <<MSG
+refusing memd authority deploy: MEMD_AUTHORITY_NETWORK=$NETWORK is not memd-owned.
+Use a memd-owned network such as memd-authority-network.
+MSG
+  exit 65
+fi
+
+if [[ "$STACK" == clawcontrol-* || "$STACK" == portainer-clawcontrol-* ]]; then
+  cat >&2 <<MSG
+refusing memd authority deploy: MEMD_AUTHORITY_STACK=$STACK is ClawControl-owned.
+Use a memd-owned stack name such as memd-authority-stack.
 MSG
   exit 65
 fi
@@ -88,8 +104,11 @@ image_tag="$IMAGE_REPO:$commit"
 cat <<MSG
 memd authority deploy target:
   remote_host=$REMOTE
+  stack=$STACK
   container=$CONTAINER
   image=$image_tag
+  network=$NETWORK
+  data_volume=$DATA_VOLUME
   port=$PORT
   owner=memd
   touches_clawcontrol=false
@@ -108,8 +127,11 @@ git archive --format=tar HEAD | ssh "$REMOTE" \
 if [[ "$MODE" == "build-only" ]]; then
   cat <<MSG
 MEMD_AUTHORITY_REMOTE=$REMOTE
+MEMD_AUTHORITY_STACK=$STACK
 MEMD_AUTHORITY_CONTAINER=$CONTAINER
 MEMD_AUTHORITY_IMAGE=$image_tag
+MEMD_AUTHORITY_NETWORK=$NETWORK
+MEMD_AUTHORITY_DATA_VOLUME=$DATA_VOLUME
 MEMD_AUTHORITY_PORT=$PORT
 MEMD_AUTHORITY_URL=http://$PUBLIC_HOST:$PORT
 MEMD_AUTHORITY_ACTION=build_complete_no_runtime_change
@@ -121,9 +143,13 @@ echo "activating memd authority container on $REMOTE: $CONTAINER"
 ssh "$REMOTE" "
   set -euo pipefail
   docker volume create '$DATA_VOLUME' >/dev/null
+  docker network create '$NETWORK' >/dev/null 2>&1 || true
   docker rm -f '$CONTAINER' >/dev/null 2>&1 || true
   docker run -d \
     --name '$CONTAINER' \
+    --label memd.stack='$STACK' \
+    --label memd.owner='memd' \
+    --label memd.separate_from='clawcontrol' \
     --restart unless-stopped \
     --network '$NETWORK' \
     -p '$PORT:8787' \
@@ -140,8 +166,11 @@ ssh "$REMOTE" "
 
 cat <<MSG
 MEMD_AUTHORITY_REMOTE=$REMOTE
+MEMD_AUTHORITY_STACK=$STACK
 MEMD_AUTHORITY_CONTAINER=$CONTAINER
 MEMD_AUTHORITY_IMAGE=$image_tag
+MEMD_AUTHORITY_NETWORK=$NETWORK
+MEMD_AUTHORITY_DATA_VOLUME=$DATA_VOLUME
 MEMD_AUTHORITY_PORT=$PORT
 MEMD_AUTHORITY_URL=http://$PUBLIC_HOST:$PORT
 MEMD_AUTHORITY_ACTION=activated

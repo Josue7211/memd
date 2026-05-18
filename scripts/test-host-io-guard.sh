@@ -110,7 +110,7 @@ active_runtime_output="$(
   memd_cargo_host_blockers
 )"
 grep -q 'project_hint=clawcontrol pid=31 state=S' <<<"$active_runtime_output"
-grep -q 'reason=active-runtime' <<<"$active_runtime_output"
+grep -q 'reason=separate-existing-runtime' <<<"$active_runtime_output"
 unknown_runtime_fixture="$(mktemp "${TMPDIR:-/tmp}/memd-host-io-unknown-runtime.XXXXXX")"
 trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture" "$unknown_runtime_fixture"; rm -rf "$fixture_report_repo"' EXIT
 printf '%s\n' \
@@ -133,7 +133,11 @@ MEMD_CARGO_VOLUME_ROOT=/Volumes/T7 \
 MEMD_HOST_IO_PS_FILE="$sibling_fixture" \
 MEMD_HOST_IO_AWARENESS="$awareness_report" \
 memd_cargo_refuse_on_host_blockers >/tmp/memd-host-io-sibling-test.out 2>&1
-grep -q 'sibling host I/O observed' /tmp/memd-host-io-sibling-test.out
+if [[ -s /tmp/memd-host-io-sibling-test.out ]]; then
+  echo "memd host I/O guard test: sibling separate app leaked into default stderr" >&2
+  cat /tmp/memd-host-io-sibling-test.out >&2
+  exit 1
+fi
 grep -q 'status=observed' "$awareness_report"
 grep -q 'observation_count=1' "$awareness_report"
 grep -q 'hard_blocker_count=0' "$awareness_report"
@@ -143,9 +147,21 @@ MEMD_CARGO_VOLUME_ROOT=/Volumes/T7 \
 MEMD_HOST_IO_PS_FILE="$active_runtime_fixture" \
 MEMD_HOST_IO_AWARENESS="$awareness_report" \
 memd_cargo_refuse_on_host_blockers >/tmp/memd-host-active-runtime-test.out 2>&1
-grep -q 'sibling host activity observed' /tmp/memd-host-active-runtime-test.out
+if [[ -s /tmp/memd-host-active-runtime-test.out ]]; then
+  echo "memd host I/O guard test: separate active runtime leaked into default stderr" >&2
+  cat /tmp/memd-host-active-runtime-test.out >&2
+  exit 1
+fi
 grep -q 'status=observed' "$awareness_report"
-grep -q 'reason=active-runtime' "$awareness_report"
+grep -q 'reason=separate-existing-runtime' "$awareness_report"
+MEMD_CARGO_REPO_ROOT="$sibling_report_repo" \
+MEMD_CARGO_VOLUME_ROOT=/Volumes/T7 \
+MEMD_HOST_IO_PS_FILE="$active_runtime_fixture" \
+MEMD_HOST_IO_AWARENESS="$awareness_report" \
+MEMD_HOST_IO_SHOW_SIBLING_AWARENESS=1 \
+memd_cargo_refuse_on_host_blockers >/tmp/memd-host-active-runtime-explicit-test.out 2>&1
+grep -q 'separate existing app activity observed' /tmp/memd-host-active-runtime-explicit-test.out
+grep -q 'awareness only, not a memd test/build dependency' /tmp/memd-host-active-runtime-explicit-test.out
 
 set +e
 HOST_IO_GUARD_ENABLED=0 \
@@ -220,6 +236,19 @@ if [[ "$clawcontrol_sync_refusal_status" -ne 66 ]]; then
 fi
 grep -q 'refusing by default' /tmp/memd-live-state-clawcontrol-refusal.out
 grep -q 'must not launch ClawControl' /tmp/memd-live-state-clawcontrol-refusal.out
+
+set +e
+MEMD_AUTHORITY_NETWORK=portainer_default \
+"$ROOT/scripts/deploy-memd-authority.sh" build-only >/tmp/memd-authority-network-refusal.out 2>&1
+authority_network_refusal_status=$?
+set -e
+if [[ "$authority_network_refusal_status" -ne 65 ]]; then
+  echo "memd host I/O guard test: memd authority deploy accepted shared Portainer network" >&2
+  sed -n '1,40p' /tmp/memd-authority-network-refusal.out >&2
+  exit 1
+fi
+grep -q 'MEMD_AUTHORITY_NETWORK=portainer_default is not memd-owned' /tmp/memd-authority-network-refusal.out
+grep -q 'memd-authority-network' /tmp/memd-authority-network-refusal.out
 
 fake_ps_dir="$(mktemp -d "${TMPDIR:-/tmp}/memd-host-io-fake-ps.XXXXXX")"
 trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture"; rm -rf "$fixture_report_repo" "$sibling_report_repo" "$fake_ps_dir" "$no_clawcontrol_dir"' EXIT
@@ -359,7 +388,7 @@ pid=55
 status=observed
 observation_count=1
 hard_blocker_count=0
-volume:/Volumes/T7 project_hint=clawcontrol pid=31 state=S command=node /Volumes/T7/projects/clawcontrol/deploy/agentshell/agent-shell-adapter.js reason=active-runtime
+volume:/Volumes/T7 project_hint=clawcontrol pid=31 state=S command=node /Volumes/T7/projects/clawcontrol/deploy/agentshell/agent-shell-adapter.js reason=separate-existing-runtime
 EOF
 preflight_live_map="$fake_ps_dir/preflight-codebase-live-map.json"
 continuity_fake_binary="$fake_ps_dir/memd-active"
@@ -386,6 +415,11 @@ deploy_preflight_output="$(
   "$ROOT/scripts/deploy-memd-server-preflight.sh" 2>&1
 )"
 grep -q 'MEMD_GIT_DIRTY=unknown' <<<"$deploy_preflight_output"
+grep -q 'MEMD_AUTHORITY_STACK=memd-authority-stack' <<<"$deploy_preflight_output"
+grep -q 'MEMD_AUTHORITY_CONTAINER=memd-authority' <<<"$deploy_preflight_output"
+grep -q 'MEMD_AUTHORITY_IMAGE_REPO=memd-authority' <<<"$deploy_preflight_output"
+grep -q 'MEMD_AUTHORITY_NETWORK=memd-authority-network' <<<"$deploy_preflight_output"
+grep -q 'MEMD_AUTHORITY_DATA_VOLUME=memd_authority_data' <<<"$deploy_preflight_output"
 grep -q 'project_hint=host-io-report' <<<"$deploy_preflight_output"
 grep -q 'state=missing' <<<"$deploy_preflight_output"
 grep -q 'MEMD_SERVER_STATUS=blocked' <<<"$deploy_preflight_output"
@@ -442,6 +476,9 @@ grep -q 'ACTIVE_MEMD_BINARY_STATE=stale' <<<"$continuity_status_output"
 grep -q 'ACTIVE_MEMD_BINARY_ACTION=rebuild_active_memd_after_host_guard_clear' <<<"$continuity_status_output"
 grep -q "ACTIVE_MEMD_SOURCE_NEWEST=$continuity_fake_source" <<<"$continuity_status_output"
 grep -q 'PREFLIGHT_EXIT=0' <<<"$continuity_status_output"
+grep -q 'MEMD_AUTHORITY_STACK=memd-authority-stack' <<<"$continuity_status_output"
+grep -q 'MEMD_AUTHORITY_NETWORK=memd-authority-network' <<<"$continuity_status_output"
+grep -q 'MEMD_AUTHORITY_DATA_VOLUME=memd_authority_data' <<<"$continuity_status_output"
 grep -q 'MEMD_CODEBASE_LIVE_MAP_ACTION=refresh_host_guard_before_trusting_live_map' <<<"$continuity_status_output"
 grep -q 'NEXT_CONTINUITY_ACTION=refresh_host_guard_before_trusting_live_map' <<<"$continuity_status_output"
 grep -q 'MEMD_SERVER_BENCHMARK_GATE=fail' <<<"$continuity_status_output"
