@@ -633,8 +633,9 @@ mod tests {
         assert!(section.contains("blockers=1"));
         assert!(section.contains("- blocker:clawcontrol status=auth_required"));
         assert!(section.contains("access_route="));
+        assert!(section.contains("producer_route=\"scripts/live-state-sync-memd.sh\""));
         assert!(section.contains(
-            "producer_route=\"CAPTURE_HTTP=1 IMPORT_CLAWCONTROL_BUNDLE=1 scripts/live-state-sync-clawcontrol.sh\""
+            "external_source_route=\"MEMD_ALLOW_CLAWCONTROL_SYNC=1 CAPTURE_HTTP=1 IMPORT_CLAWCONTROL_BUNDLE=1 scripts/live-state-sync-clawcontrol.sh\""
         ));
         assert!(section.contains("freshness_rule=trust only fresh records"));
         assert!(section.contains("privacy_rule=messages/email require private metadata/redacted"));
@@ -1482,7 +1483,7 @@ fn render_live_app_state_prompt_blocker_lines(bundle_root: &Path) -> Vec<String>
                     source.api_bases.join(",")
                 };
                 format!(
-                    " producer_route=\"CAPTURE_HTTP=1 IMPORT_CLAWCONTROL_BUNDLE=1 scripts/live-state-sync-clawcontrol.sh\" api_bases={api_bases}"
+                    " producer_route=\"scripts/live-state-sync-memd.sh\" external_source_route=\"MEMD_ALLOW_CLAWCONTROL_SYNC=1 CAPTURE_HTTP=1 IMPORT_CLAWCONTROL_BUNDLE=1 scripts/live-state-sync-clawcontrol.sh\" external_source_note=\"reads already-running ClawControl only; does not launch it\" api_bases={api_bases}"
                 )
             } else if source.source_app == "clawcontrol"
                 && (source.status == "missing_approval" || source.status == "invalid_approval")

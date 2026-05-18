@@ -21,6 +21,16 @@ CAPTURE_UNAVAILABLE=0
 FALLBACK_CAPTURED=0
 HOST_IO_GUARD="${HOST_IO_GUARD:-$ROOT/scripts/memd-host-io-guard.sh}"
 HOST_IO_GUARD_ENABLED="${HOST_IO_GUARD_ENABLED:-1}"
+ALLOW_CLAWCONTROL_SYNC="${MEMD_ALLOW_CLAWCONTROL_SYNC:-${ALLOW_CLAWCONTROL_SYNC:-0}}"
+
+if [[ "$ALLOW_CLAWCONTROL_SYNC" != "1" && "$ALLOW_CLAWCONTROL_SYNC" != "true" ]]; then
+  cat >&2 <<MSG
+live-state-sync-clawcontrol: refusing by default.
+live-state-sync-clawcontrol: memd and ClawControl are separate; use scripts/live-state-sync-memd.sh for memd-owned live-state sync.
+live-state-sync-clawcontrol: set MEMD_ALLOW_CLAWCONTROL_SYNC=1 only to read an already-running ClawControl. This script must not launch ClawControl.
+MSG
+  exit 66
+fi
 
 if [[ "$HOST_IO_GUARD_ENABLED" == "1" || "$HOST_IO_GUARD_ENABLED" == "true" ]]; then
   if [[ -x "$HOST_IO_GUARD" ]]; then

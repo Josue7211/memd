@@ -35,7 +35,8 @@ Environment:
 The generated launchd job runs scripts/live-state-sync-memd.sh every
 INTERVAL_SECS seconds. By default it uses memd-owned producers only and does
 not probe, launch, or import from ClawControl. Intentional ClawControl HTTP
-sync is a separate manual route through scripts/live-state-sync-clawcontrol.sh.
+sync is a separate manual route through scripts/live-state-sync-clawcontrol.sh
+and requires MEMD_ALLOW_CLAWCONTROL_SYNC=1.
 USAGE
 }
 

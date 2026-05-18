@@ -207,6 +207,19 @@ if grep -q 'IMPORT_CLAWCONTROL_BUNDLE' "$ROOT/scripts/live-state-sync-memd.sh"; 
   echo "memd host I/O guard test: memd sync exposes ClawControl bundle import" >&2
   exit 1
 fi
+set +e
+HOST_IO_GUARD_ENABLED=0 \
+MEMD_BIN=true \
+"$ROOT/scripts/live-state-sync-clawcontrol.sh" >/tmp/memd-live-state-clawcontrol-refusal.out 2>&1
+clawcontrol_sync_refusal_status=$?
+set -e
+if [[ "$clawcontrol_sync_refusal_status" -ne 66 ]]; then
+  echo "memd host I/O guard test: ClawControl sync did not require explicit opt-in" >&2
+  sed -n '1,40p' /tmp/memd-live-state-clawcontrol-refusal.out >&2
+  exit 1
+fi
+grep -q 'refusing by default' /tmp/memd-live-state-clawcontrol-refusal.out
+grep -q 'must not launch ClawControl' /tmp/memd-live-state-clawcontrol-refusal.out
 
 fake_ps_dir="$(mktemp -d "${TMPDIR:-/tmp}/memd-host-io-fake-ps.XXXXXX")"
 trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture"; rm -rf "$fixture_report_repo" "$sibling_report_repo" "$fake_ps_dir" "$no_clawcontrol_dir"' EXIT

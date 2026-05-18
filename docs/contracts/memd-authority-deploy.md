@@ -43,6 +43,11 @@ Agents may build memd authority images. Agents must not kill, start, or replace
 ClawControl-prefixed services while updating memd unless the user explicitly
 asks for that specific infra migration.
 
+Live-state sync follows the same boundary. The memd-owned path is
+`scripts/live-state-sync-memd.sh`. The ClawControl source importer refuses by
+default and requires `MEMD_ALLOW_CLAWCONTROL_SYNC=1`; it may only read an
+already-running ClawControl source and must never launch it.
+
 To migrate agents before final cutover, set their shared base URL to the
 side-by-side authority after `/healthz` and `/api/status` pass:
 
