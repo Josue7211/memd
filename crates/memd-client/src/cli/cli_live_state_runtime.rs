@@ -772,7 +772,7 @@ fn live_state_blocker_detail_from_report_with_options(
                 source.api_bases.join(",")
             };
             format!(
-                " producer_route=\"scripts/live-state-sync-clawcontrol.sh\" api_bases={}",
+                " producer_route=\"CAPTURE_HTTP=1 IMPORT_CLAWCONTROL_BUNDLE=1 scripts/live-state-sync-clawcontrol.sh\" api_bases={}",
                 api_bases
             )
         } else if source.source_app == "clawcontrol"
@@ -2306,7 +2306,9 @@ mod tests {
             "{detail}"
         );
         assert!(
-            detail.contains(r#"producer_route="scripts/live-state-sync-clawcontrol.sh""#),
+            detail.contains(
+                r#"producer_route="CAPTURE_HTTP=1 IMPORT_CLAWCONTROL_BUNDLE=1 scripts/live-state-sync-clawcontrol.sh""#
+            ),
             "{detail}"
         );
         assert!(
@@ -2365,7 +2367,9 @@ mod tests {
             "{detail}"
         );
         assert!(
-            detail.contains(r#"producer_route="scripts/live-state-sync-clawcontrol.sh""#),
+            detail.contains(
+                r#"producer_route="CAPTURE_HTTP=1 IMPORT_CLAWCONTROL_BUNDLE=1 scripts/live-state-sync-clawcontrol.sh""#
+            ),
             "{detail}"
         );
         assert!(!detail.contains("CLAWCONTROL_API_KEY="), "{detail}");

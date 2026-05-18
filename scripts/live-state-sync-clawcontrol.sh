@@ -8,7 +8,8 @@ CLAWCONTROL_MEMD_OUTPUT="${CLAWCONTROL_MEMD_OUTPUT:-$ROOT/../clawcontrol/.memd}"
 SOURCE_APP="${SOURCE_APP:-clawcontrol}"
 DUE_WITHIN_SECS="${DUE_WITHIN_SECS:-300}"
 ALLOW_STALE="${ALLOW_STALE:-0}"
-CAPTURE_HTTP="${CAPTURE_HTTP:-1}"
+CAPTURE_HTTP="${CAPTURE_HTTP:-0}"
+IMPORT_CLAWCONTROL_BUNDLE="${IMPORT_CLAWCONTROL_BUNDLE:-$CAPTURE_HTTP}"
 CAPTURE_SCRIPT="${CAPTURE_SCRIPT:-$ROOT/scripts/live-state-capture-clawcontrol-http.mjs}"
 MAC_BRIDGE_FALLBACK="${MAC_BRIDGE_FALLBACK:-1}"
 MAC_BRIDGE_CAPTURE_SCRIPT="${MAC_BRIDGE_CAPTURE_SCRIPT:-$ROOT/scripts/live-state-capture-mac-bridge.mjs}"
@@ -39,6 +40,52 @@ if ! command -v "$MEMD_BIN" >/dev/null 2>&1; then
   fi
 fi
 
+run_fallback_captures() {
+  if [[ "$MAC_BRIDGE_FALLBACK" == "1" || "$MAC_BRIDGE_FALLBACK" == "true" ]]; then
+    if [[ -x "$MAC_BRIDGE_CAPTURE_SCRIPT" ]]; then
+      if [[ "$MAC_BRIDGE_GUARD_ENABLED" == "1" || "$MAC_BRIDGE_GUARD_ENABLED" == "true" ]]; then
+        if [[ -x "$MAC_BRIDGE_GUARD_SCRIPT" ]]; then
+          "$MAC_BRIDGE_GUARD_SCRIPT" || true
+        else
+          echo "live-state-sync-clawcontrol: mac-bridge guard not executable: $MAC_BRIDGE_GUARD_SCRIPT" >&2
+        fi
+      fi
+      set +e
+      MEMD_BIN="$MEMD_BIN" MEMD_OUTPUT="$MEMD_OUTPUT" "$MAC_BRIDGE_CAPTURE_SCRIPT"
+      bridge_status=$?
+      set -e
+      if [[ "$bridge_status" -eq 0 ]]; then
+        FALLBACK_CAPTURED=1
+        echo "live-state-sync-clawcontrol: mac-bridge fallback ran; inspect live-state tasks for remaining gaps" >&2
+      elif [[ "$bridge_status" -eq 2 ]]; then
+        echo "live-state-sync-clawcontrol: mac-bridge fallback unavailable" >&2
+      else
+        exit "$bridge_status"
+      fi
+    else
+      echo "live-state-sync-clawcontrol: mac-bridge fallback script not executable: $MAC_BRIDGE_CAPTURE_SCRIPT" >&2
+    fi
+  fi
+  if [[ "$APPROVED_COMMUNICATIONS_FALLBACK" == "1" || "$APPROVED_COMMUNICATIONS_FALLBACK" == "true" ]]; then
+    if [[ -x "$APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT" ]]; then
+      set +e
+      MEMD_BIN="$MEMD_BIN" MEMD_OUTPUT="$MEMD_OUTPUT" "$APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT"
+      communications_status=$?
+      set -e
+      if [[ "$communications_status" -eq 0 ]]; then
+        FALLBACK_CAPTURED=1
+        echo "live-state-sync-clawcontrol: approved communications fallback captured messages/email metadata" >&2
+      elif [[ "$communications_status" -eq 2 ]]; then
+        echo "live-state-sync-clawcontrol: approved communications fallback unavailable" >&2
+      else
+        exit "$communications_status"
+      fi
+    else
+      echo "live-state-sync-clawcontrol: approved communications fallback script not executable: $APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT" >&2
+    fi
+  fi
+}
+
 if [[ "$CAPTURE_HTTP" == "1" || "$CAPTURE_HTTP" == "true" ]]; then
   if [[ ! -x "$CAPTURE_SCRIPT" ]]; then
     echo "live-state-sync-clawcontrol: capture script not executable: $CAPTURE_SCRIPT" >&2
@@ -51,53 +98,15 @@ if [[ "$CAPTURE_HTTP" == "1" || "$CAPTURE_HTTP" == "true" ]]; then
   set -e
   if [[ "$capture_status" -eq 2 ]]; then
     CAPTURE_UNAVAILABLE=1
-    echo "live-state-sync-clawcontrol: capture unavailable; continuing with existing bundle records" >&2
-    if [[ "$MAC_BRIDGE_FALLBACK" == "1" || "$MAC_BRIDGE_FALLBACK" == "true" ]]; then
-      if [[ -x "$MAC_BRIDGE_CAPTURE_SCRIPT" ]]; then
-        if [[ "$MAC_BRIDGE_GUARD_ENABLED" == "1" || "$MAC_BRIDGE_GUARD_ENABLED" == "true" ]]; then
-          if [[ -x "$MAC_BRIDGE_GUARD_SCRIPT" ]]; then
-            "$MAC_BRIDGE_GUARD_SCRIPT" || true
-          else
-            echo "live-state-sync-clawcontrol: mac-bridge guard not executable: $MAC_BRIDGE_GUARD_SCRIPT" >&2
-          fi
-        fi
-        set +e
-        MEMD_BIN="$MEMD_BIN" MEMD_OUTPUT="$MEMD_OUTPUT" "$MAC_BRIDGE_CAPTURE_SCRIPT"
-        bridge_status=$?
-        set -e
-        if [[ "$bridge_status" -eq 0 ]]; then
-          FALLBACK_CAPTURED=1
-          echo "live-state-sync-clawcontrol: mac-bridge fallback ran; inspect live-state tasks for remaining gaps" >&2
-        elif [[ "$bridge_status" -eq 2 ]]; then
-          echo "live-state-sync-clawcontrol: mac-bridge fallback unavailable" >&2
-        else
-          exit "$bridge_status"
-        fi
-      else
-        echo "live-state-sync-clawcontrol: mac-bridge fallback script not executable: $MAC_BRIDGE_CAPTURE_SCRIPT" >&2
-      fi
-    fi
-    if [[ "$APPROVED_COMMUNICATIONS_FALLBACK" == "1" || "$APPROVED_COMMUNICATIONS_FALLBACK" == "true" ]]; then
-      if [[ -x "$APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT" ]]; then
-        set +e
-        MEMD_BIN="$MEMD_BIN" MEMD_OUTPUT="$MEMD_OUTPUT" "$APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT"
-        communications_status=$?
-        set -e
-        if [[ "$communications_status" -eq 0 ]]; then
-          FALLBACK_CAPTURED=1
-          echo "live-state-sync-clawcontrol: approved communications fallback captured messages/email metadata" >&2
-        elif [[ "$communications_status" -eq 2 ]]; then
-          echo "live-state-sync-clawcontrol: approved communications fallback unavailable" >&2
-        else
-          exit "$communications_status"
-        fi
-      else
-        echo "live-state-sync-clawcontrol: approved communications fallback script not executable: $APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT" >&2
-      fi
-    fi
+    echo "live-state-sync-clawcontrol: ClawControl HTTP capture unavailable; continuing with memd-owned fallbacks" >&2
+    run_fallback_captures
   elif [[ "$capture_status" -ne 0 ]]; then
     exit "$capture_status"
   fi
+else
+  echo "live-state-sync-clawcontrol: ClawControl HTTP capture disabled; using memd-owned fallbacks only" >&2
+  CAPTURE_UNAVAILABLE=1
+  run_fallback_captures
 fi
 
 args=(
@@ -126,6 +135,14 @@ if [[ "$CAPTURE_UNAVAILABLE" == "1" && "$FALLBACK_CAPTURED" == "1" ]]; then
   echo "live-state-sync-clawcontrol: fallback records satisfy live-state requirements" >&2
   "$MEMD_BIN" live-state status --output "$MEMD_OUTPUT"
   exit 0
+fi
+
+if [[ "$CAPTURE_UNAVAILABLE" == "1" \
+  && "$IMPORT_CLAWCONTROL_BUNDLE" != "1" \
+  && "$IMPORT_CLAWCONTROL_BUNDLE" != "true" ]]; then
+  echo "live-state-sync-clawcontrol: ClawControl bundle import disabled; live-state still requires approved producers" >&2
+  "$MEMD_BIN" live-state status --output "$MEMD_OUTPUT" --tasks
+  exit 2
 fi
 
 if [[ "$CAPTURE_UNAVAILABLE" == "1" ]]; then

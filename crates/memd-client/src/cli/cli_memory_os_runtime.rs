@@ -2233,7 +2233,7 @@ fn live_state_auto_sync_status(output: &Path) -> LiveStateAutoSyncStatus {
         &home,
         project_root,
         std::env::consts::OS,
-        "com.memd.live-state-sync-clawcontrol",
+        "com.memd.live-state-sync",
         300,
     )
 }
@@ -2261,7 +2261,7 @@ fn live_state_auto_sync_status_for(
     }
     let expected_script = project_root
         .join("scripts")
-        .join("live-state-sync-clawcontrol.sh")
+        .join("live-state-sync-memd.sh")
         .display()
         .to_string();
     let status = match std::fs::read_to_string(&path) {
@@ -4444,10 +4444,8 @@ mod tests {
         let home = root.join("home");
         let project = root.join("project");
         let launch_agents = home.join("Library").join("LaunchAgents");
-        let plist = launch_agents.join("com.memd.live-state-sync-clawcontrol.plist");
-        let script = project
-            .join("scripts")
-            .join("live-state-sync-clawcontrol.sh");
+        let plist = launch_agents.join("com.memd.live-state-sync.plist");
+        let script = project.join("scripts").join("live-state-sync-memd.sh");
         fs::create_dir_all(script.parent().expect("script dir")).expect("create script dir");
         fs::create_dir_all(&launch_agents).expect("create launch agents");
 
@@ -4470,7 +4468,7 @@ mod tests {
             &home,
             &project,
             "macos",
-            "com.memd.live-state-sync-clawcontrol",
+            "com.memd.live-state-sync",
             300,
         );
         assert_eq!(misconfigured.status, "misconfigured");
@@ -4484,7 +4482,7 @@ mod tests {
             &home,
             &project,
             "macos",
-            "com.memd.live-state-sync-clawcontrol",
+            "com.memd.live-state-sync",
             300,
         );
         assert_eq!(installed.status, "installed");
@@ -4493,7 +4491,7 @@ mod tests {
             &home,
             &project,
             "linux",
-            "com.memd.live-state-sync-clawcontrol",
+            "com.memd.live-state-sync",
             300,
         );
         assert_eq!(unsupported.status, "unsupported");

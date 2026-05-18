@@ -152,8 +152,45 @@ if [[ "$clawcontrol_refusal_status" -ne 66 ]]; then
 fi
 grep -q 'refusing to launch ClawControl from memd' /tmp/memd-dev-server-clawcontrol-refusal-test.out
 
+no_clawcontrol_dir="$(mktemp -d "${TMPDIR:-/tmp}/memd-no-clawcontrol-sync.XXXXXX")"
+cat > "$no_clawcontrol_dir/memd" <<'SH'
+#!/usr/bin/env bash
+if [[ "$1" == "live-state" && "$2" == "status" ]]; then
+  echo "task source=clawcontrol module=messages scope=approved status=missing"
+  exit 0
+fi
+echo "unexpected memd invocation: $*" >&2
+exit 64
+SH
+cat > "$no_clawcontrol_dir/clawcontrol-http" <<'SH'
+#!/usr/bin/env bash
+echo "clawcontrol http capture should not run by default" >&2
+exit 97
+SH
+chmod +x "$no_clawcontrol_dir/memd" "$no_clawcontrol_dir/clawcontrol-http"
+set +e
+HOST_IO_GUARD_ENABLED=0 \
+MEMD_BIN="$no_clawcontrol_dir/memd" \
+CAPTURE_SCRIPT="$no_clawcontrol_dir/clawcontrol-http" \
+MAC_BRIDGE_FALLBACK=0 \
+APPROVED_COMMUNICATIONS_FALLBACK=0 \
+"$ROOT/scripts/live-state-sync-clawcontrol.sh" >/tmp/memd-live-state-no-clawcontrol-default.out 2>&1
+no_clawcontrol_status=$?
+set -e
+if [[ "$no_clawcontrol_status" -ne 2 ]]; then
+  echo "memd host I/O guard test: live-state sync default should stop at memd-owned producers" >&2
+  sed -n '1,40p' /tmp/memd-live-state-no-clawcontrol-default.out >&2
+  exit 1
+fi
+grep -q 'ClawControl HTTP capture disabled' /tmp/memd-live-state-no-clawcontrol-default.out
+grep -q 'ClawControl bundle import disabled' /tmp/memd-live-state-no-clawcontrol-default.out
+if grep -q 'clawcontrol http capture should not run' /tmp/memd-live-state-no-clawcontrol-default.out; then
+  echo "memd host I/O guard test: live-state sync ran ClawControl HTTP capture by default" >&2
+  exit 1
+fi
+
 fake_ps_dir="$(mktemp -d "${TMPDIR:-/tmp}/memd-host-io-fake-ps.XXXXXX")"
-trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture"; rm -rf "$fixture_report_repo" "$sibling_report_repo" "$fake_ps_dir"' EXIT
+trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture"; rm -rf "$fixture_report_repo" "$sibling_report_repo" "$fake_ps_dir" "$no_clawcontrol_dir"' EXIT
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'sleep 5' \
@@ -171,7 +208,7 @@ grep -q 'state=timeout' <<<"$timeout_output"
 grep -q 'timeout_s=1' <<<"$timeout_output"
 
 fresh_report="$(mktemp "${TMPDIR:-/tmp}/memd-host-io-fresh-report.XXXXXX")"
-trap 'rm -f "$fixture" "$clear_fixture" "$fresh_report"; rm -rf "$fake_ps_dir"' EXIT
+trap 'rm -f "$fixture" "$clear_fixture" "$fresh_report"; rm -rf "$fake_ps_dir" "$no_clawcontrol_dir"' EXIT
 cat > "$fresh_report" <<EOF
 ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 repo=/Volumes/T7/projects/memd
@@ -213,7 +250,7 @@ if [[ "$(cat "$fresh_report")" != "$fresh_report_before" ]]; then
 fi
 
 stale_report="$(mktemp "${TMPDIR:-/tmp}/memd-host-io-stale-report.XXXXXX")"
-trap 'rm -f "$fixture" "$clear_fixture" "$fresh_report" "$stale_report"; rm -rf "$fake_ps_dir"' EXIT
+trap 'rm -f "$fixture" "$clear_fixture" "$fresh_report" "$stale_report"; rm -rf "$fake_ps_dir" "$no_clawcontrol_dir"' EXIT
 cat > "$stale_report" <<'EOF'
 ts=2000-01-01T00:00:00Z
 repo=/Volumes/T7/projects/memd
@@ -461,7 +498,7 @@ report="$(mktemp "${TMPDIR:-/tmp}/memd-host-io-report.XXXXXX")"
 public_bench_report="$(mktemp "${TMPDIR:-/tmp}/memd-public-bench-host-io-report.XXXXXX")"
 live_map_events="$(mktemp "${TMPDIR:-/tmp}/memd-codebase-live-map-events.XXXXXX")"
 live_map_state="$fake_ps_dir/codebase-live-map.json"
-trap 'rm -f "$fixture" "$clear_fixture" "$fresh_report" "$stale_report" "$fake_guard" "$report" "$public_bench_report" "$live_map_events"; rm -rf "$fake_ps_dir"' EXIT
+trap 'rm -f "$fixture" "$clear_fixture" "$fresh_report" "$stale_report" "$fake_guard" "$report" "$public_bench_report" "$live_map_events"; rm -rf "$fake_ps_dir" "$no_clawcontrol_dir"' EXIT
 cat > "$fake_guard" <<'SH'
 #!/usr/bin/env bash
 echo "fake guard blocked host work" >&2

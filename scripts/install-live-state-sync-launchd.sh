@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LABEL="${LABEL:-com.memd.live-state-sync-clawcontrol}"
+LABEL="${LABEL:-com.memd.live-state-sync}"
 INTERVAL_SECS="${INTERVAL_SECS:-300}"
 TARGET="${TARGET:-$HOME/Library/LaunchAgents/$LABEL.plist}"
 ACTION="${1:---print}"
@@ -31,19 +31,18 @@ Environment:
   INTERVAL_SECS=$INTERVAL_SECS
   TARGET=$TARGET
   LAUNCHD_PATH=${LAUNCHD_PATH:-/Volumes/T7/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}
-  CLAWCONTROL_API_BASES=${CLAWCONTROL_API_BASES:-http://127.0.0.1:3010,http://127.0.0.1:3000}
-  CLAWCONTROL_API_KEY or MC_API_KEY can provide the X-API-Key header when the local backend requires auth.
+  CAPTURE_HTTP=${CAPTURE_HTTP:-0}
+  IMPORT_CLAWCONTROL_BUNDLE=${IMPORT_CLAWCONTROL_BUNDLE:-0}
 
-The generated launchd job runs scripts/live-state-sync-clawcontrol.sh every
-INTERVAL_SECS seconds. The sync script only imports when memd live-state is
-missing, stale, or due, so frequent launchd checks are safe. If the live
-producer is unavailable and no existing records can be imported, the script
-prints live-state status evidence and exits 2 to mean "sync still required".
+The generated launchd job runs scripts/live-state-sync-memd.sh every
+INTERVAL_SECS seconds. By default it uses memd-owned producers only and does
+not probe, launch, or import from ClawControl. Set CAPTURE_HTTP=1 and
+IMPORT_CLAWCONTROL_BUNDLE=1 only for an intentional ClawControl HTTP sync.
 USAGE
 }
 
 render_plist() {
-  local script_path="$ROOT/scripts/live-state-sync-clawcontrol.sh"
+  local script_path="$ROOT/scripts/live-state-sync-memd.sh"
   cat <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -60,7 +59,9 @@ render_plist() {
     <key>PATH</key>
     <string>${LAUNCHD_PATH:-/Volumes/T7/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}</string>
     <key>CAPTURE_HTTP</key>
-    <string>1</string>
+    <string>${CAPTURE_HTTP:-0}</string>
+    <key>IMPORT_CLAWCONTROL_BUNDLE</key>
+    <string>${IMPORT_CLAWCONTROL_BUNDLE:-0}</string>
   </dict>
   <key>StartInterval</key>
   <integer>$INTERVAL_SECS</integer>
