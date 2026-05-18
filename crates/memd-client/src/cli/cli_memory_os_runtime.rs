@@ -4346,6 +4346,7 @@ mod tests {
 
         let now = Utc::now();
         let expires = now + chrono::Duration::hours(1);
+        let stale_source_checked_at = now - chrono::Duration::hours(1);
         let records = vec![
             serde_json::json!({
                 "id": "clawcontrol:visible_page:current",
@@ -4435,7 +4436,7 @@ mod tests {
                     {
                         "source_app": "clawcontrol",
                         "status": "auth_required",
-                        "checked_at": now,
+                        "checked_at": stale_source_checked_at,
                         "api_base": "http://127.0.0.1:3010",
                         "api_bases": ["http://127.0.0.1:3010"],
                         "auth_configured": false,
@@ -4478,6 +4479,10 @@ mod tests {
             !gaps.contains("source clawcontrol is auth_required"),
             "{gaps}"
         );
+        assert!(
+            !gaps.contains("live app source status checks are stale"),
+            "{gaps}"
+        );
         assert!(gaps.contains("source clawcontrol is missing_approval missing=messages,email"));
         assert!(
             !gaps.contains("auth_required missing=visible_page,calendar"),
@@ -4492,6 +4497,7 @@ mod tests {
             evidence.contains("state_map_unmet=messages,email"),
             "{evidence}"
         );
+        assert!(evidence.contains("source_stale=0"), "{evidence}");
         assert!(!gaps.contains("clawcontrol:status=auth_required"), "{gaps}");
         assert!(gaps.contains("clawcontrol:status=missing_approval missing=messages,email"));
 

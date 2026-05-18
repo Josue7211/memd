@@ -596,7 +596,22 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
     let source_stale = source_status_store
         .sources
         .len()
-        .saturating_sub(source_fresh);
+        .saturating_sub(source_fresh)
+        .min(
+            source_status_store
+                .sources
+                .iter()
+                .filter(|source| !live_state_source_status_is_fresh(source, now))
+                .filter(|source| {
+                    !live_state_unmet_modules_for_source_from(
+                        &requirements,
+                        &source_status_store.sources,
+                        source,
+                    )
+                    .is_empty()
+                })
+                .count(),
+        );
     let source_unavailable = source_status_store
         .sources
         .iter()
@@ -656,11 +671,19 @@ pub(crate) fn live_state_unmet_modules_for_source(
     report: &LiveAppStateReport,
     source: &LiveAppStateSourceStatus,
 ) -> Vec<String> {
+    live_state_unmet_modules_for_source_from(&report.requirements, &report.source_statuses, source)
+}
+
+fn live_state_unmet_modules_for_source_from(
+    requirements: &[LiveAppStateRequirementStatus],
+    sources: &[LiveAppStateSourceStatus],
+    source: &LiveAppStateSourceStatus,
+) -> Vec<String> {
     if live_state_source_is_approved_communications(source) {
         return source.missing.clone();
     }
 
-    let approved_communications_blocker = report.source_statuses.iter().any(|candidate| {
+    let approved_communications_blocker = sources.iter().any(|candidate| {
         candidate.status != "ok" && live_state_source_is_approved_communications(candidate)
     });
     let filter_communications_from_generic_source = approved_communications_blocker
@@ -671,8 +694,7 @@ pub(crate) fn live_state_unmet_modules_for_source(
     let source_claims_module_missing =
         |module: &String| source.missing.iter().any(|missing| missing == module);
 
-    let unmet_before_route_filter = report
-        .requirements
+    let unmet_before_route_filter = requirements
         .iter()
         .filter(|requirement| {
             requirement.source_app == source.source_app && requirement.status != "fresh"
