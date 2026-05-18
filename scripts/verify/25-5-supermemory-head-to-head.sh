@@ -63,7 +63,7 @@ PY
 )"
 fi
 
-if [[ "$TRY_REPLAY" == "1" && ! -f "$SUPERMEMORY_REPLAYS" && -n "${SUPERMEMORY_API_KEY:-}" ]]; then
+if [[ "$TRY_REPLAY" == "1" && ! -e "$SUPERMEMORY_REPLAYS" && -n "${SUPERMEMORY_API_KEY:-}" ]]; then
   "$ROOT/scripts/bench-supermemory.py" \
     --benchmark longmemeval \
     --benchmark locomo \
@@ -196,6 +196,26 @@ def write_and_exit(status, exit_code, **extra):
     raise SystemExit(exit_code)
 
 
+def load_replays(path):
+    if path.is_file():
+        return json.loads(path.read_text(encoding="utf-8"))
+    if not path.is_dir():
+        return None
+    replays = {}
+    for dataset in datasets:
+        candidates = [
+            path / dataset / "latest" / "summary.json",
+            path / "supermemory-replays" / dataset / "latest" / "summary.json",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                row = json.loads(candidate.read_text(encoding="utf-8"))
+                row.setdefault("source", str(candidate))
+                replays[dataset] = row
+                break
+    return replays
+
+
 if not memd_report_path or not memd_report_path.exists():
     write_and_exit("blocked", 2, reason="missing memd external public scale report")
 
@@ -203,7 +223,8 @@ memd_report = json.loads(memd_report_path.read_text(encoding="utf-8"))
 if memd_report.get("status") != "pass":
     write_and_exit("blocked", 2, reason="memd report is not passing")
 
-if not replays_path.exists():
+replays = load_replays(replays_path)
+if replays is None:
     reason = "missing Supermemory live replay artifacts"
     required = "use the approved Supermemory access route with TRY_REPLAY=1 or provide SUPERMEMORY_REPLAYS"
     missing_requirements = ["supermemory_same_fixture_replay_artifact"]
@@ -220,7 +241,6 @@ if not replays_path.exists():
         missing_requirements=missing_requirements,
     )
 
-replays = json.loads(replays_path.read_text(encoding="utf-8"))
 memd_rows = {row.get("dataset"): row for row in memd_report.get("rows", [])}
 memd_limit = memd_report.get("limit")
 missing = []
