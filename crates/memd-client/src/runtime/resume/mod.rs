@@ -1424,6 +1424,30 @@ mod tests {
     }
 
     #[test]
+    fn latest_raw_spine_next_action_prefers_fresh_current_checkpoint() {
+        let root =
+            std::env::temp_dir().join(format!("memd-raw-next-checkpoint-{}", uuid::Uuid::new_v4()));
+        let bundle = root.join(".memd");
+        let state = bundle.join("state");
+        std::fs::create_dir_all(&state).expect("create state");
+        std::fs::write(
+            state.join("raw-spine.jsonl"),
+            r#"{"id":"raw-old","stage":"canonical","tags":["checkpoint","current-task","continuity","authority"],"content_preview":"CURRENT NEXT ACTION after commit ba70d8f2: stale authority blocker","recorded_at":"2026-05-18T14:14:49Z"}
+{"id":"raw-noise","stage":"canonical","tags":["checkpoint","current-task","auto-short-term","bundle-refresh"],"content_preview":"status: wake project=memd namespace=main","recorded_at":"2026-05-18T15:12:30Z"}
+{"id":"raw-new","stage":"canonical","tags":["checkpoint","current-task","continuity","supermemory","authority"],"content_preview":"CURRENT CHECKPOINT after commit 622e8e70 proof: accept supermemory replay directories. Deployed memd-only authority current. Remaining blockers: approved communications and Supermemory replay artifact.","recorded_at":"2026-05-18T15:12:09Z"}"#,
+        )
+        .expect("write raw spine");
+
+        let raw_next = latest_raw_spine_next_action(&bundle).expect("raw next action");
+
+        assert!(raw_next.contains("raw-new"), "{raw_next}");
+        assert!(raw_next.contains("622e8e70"), "{raw_next}");
+        assert!(!raw_next.contains("raw-old"), "{raw_next}");
+        assert!(!raw_next.contains("raw-noise"), "{raw_next}");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn continuity_blocker_prefers_explicit_next_action_blockers_over_refresh_pressure() {
         let mut snapshot = ResumeSnapshot::empty();
         snapshot.refresh_recommended = true;
@@ -3322,7 +3346,14 @@ fn latest_raw_spine_next_action(output: &Path) -> Option<String> {
             {
                 return None;
             }
-            let looks_like_next = content.to_ascii_lowercase().contains("current next action")
+            let content_lower = content.to_ascii_lowercase();
+            let looks_like_current_checkpoint =
+                content_lower.contains("current checkpoint")
+                    && tags.iter().any(|tag| *tag == "current-task")
+                    && tags.iter().any(|tag| *tag == "continuity")
+                    && !tags.iter().any(|tag| *tag == "auto-short-term");
+            let looks_like_next = content_lower.contains("current next action")
+                || looks_like_current_checkpoint
                 || tags.iter().any(|tag| *tag == "next-agent");
             if !looks_like_next {
                 return None;
