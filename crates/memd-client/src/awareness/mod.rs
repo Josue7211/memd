@@ -1282,7 +1282,10 @@ fn should_skip_live_map_path(repo_root: &Path, path: &Path, name: &str) -> bool 
         });
     matches!(
         (components.next(), components.next()),
-        (Some(".memd"), Some("state" | "logs"))
+        (
+            Some(".memd"),
+            Some("agents" | "compiled" | "logs" | "state")
+        ) | (Some(".memd"), Some("events.md" | "mem.md" | "wake.md"))
     )
 }
 
@@ -1893,6 +1896,26 @@ mod tests {
             repo,
             Path::new("/Volumes/T7/projects/memd/.memd/logs/hook-trace.ndjson"),
             "hook-trace.ndjson",
+        ));
+        assert!(should_skip_live_map_path(
+            repo,
+            Path::new("/Volumes/T7/projects/memd/.memd/compiled/memory/working.md"),
+            "working.md",
+        ));
+        assert!(should_skip_live_map_path(
+            repo,
+            Path::new("/Volumes/T7/projects/memd/.memd/agents/AGENTS.md.example"),
+            "AGENTS.md.example",
+        ));
+        assert!(should_skip_live_map_path(
+            repo,
+            Path::new("/Volumes/T7/projects/memd/.memd/wake.md"),
+            "wake.md",
+        ));
+        assert!(!should_skip_live_map_path(
+            repo,
+            Path::new("/Volumes/T7/projects/memd/.memd/config.json"),
+            "config.json",
         ));
         assert!(!should_skip_live_map_path(
             repo,
