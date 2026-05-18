@@ -1467,6 +1467,7 @@ fn cli_parses_hive_handoff_subcommand() {
         "parser-refactor",
         "--scope",
         "crates/memd-client/src/main.rs,task:parser-refactor",
+        "--allow-ephemeral",
         "--summary",
     ])
     .expect("hive handoff command should parse");
@@ -1484,6 +1485,7 @@ fn cli_parses_hive_handoff_subcommand() {
                         "task:parser-refactor".to_string()
                     ]
                 );
+                assert!(handoff.allow_ephemeral);
                 assert!(handoff.summary);
             }
             other => panic!("expected hive handoff subcommand, got {other:?}"),
@@ -2166,6 +2168,7 @@ async fn run_hive_handoff_command_emits_message_and_receipt_for_target_worker() 
             next_action: Some("Finish overlap guard cleanup".to_string()),
             blocker: Some("render lane is converging".to_string()),
             note: Some("Keep render.rs out of scope".to_string()),
+            allow_ephemeral: false,
             json: false,
             summary: false,
         },
@@ -2363,6 +2366,7 @@ async fn hive_handoff_is_visible_in_target_inbox_and_follow_surfaces() {
             next_action: Some("Reply with review notes".to_string()),
             blocker: None,
             note: Some("Stay on parser review.".to_string()),
+            allow_ephemeral: false,
             json: false,
             summary: false,
         },

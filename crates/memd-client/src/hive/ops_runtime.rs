@@ -387,6 +387,7 @@ pub(crate) async fn run_hive_handoff_command(
         args.to_worker.as_deref(),
         "hive handoff",
     )?;
+    refuse_ephemeral_hive_handoff_target(target_entry, args.allow_ephemeral)?;
     let workspace = runtime
         .as_ref()
         .and_then(|config| config.workspace.clone())
@@ -1160,6 +1161,28 @@ fn resolve_hive_target_entry<'a>(
     anyhow::bail!("{command} requires --session or --worker");
 }
 
+fn refuse_ephemeral_hive_handoff_target(
+    target: &ProjectAwarenessEntry,
+    allow_ephemeral: bool,
+) -> anyhow::Result<()> {
+    if allow_ephemeral {
+        return Ok(());
+    }
+    let session = target.session.as_deref().unwrap_or_default().trim();
+    if is_ephemeral_hive_session_name(session) {
+        anyhow::bail!(
+            "hive handoff target '{session}' looks like a proof/fixture session; refusing because the handoff may never be read. Use --allow-ephemeral only for intentional proof traffic."
+        );
+    }
+    Ok(())
+}
+
+fn is_ephemeral_hive_session_name(session: &str) -> bool {
+    session == "codex-fresh"
+        || session.starts_with("session-live-")
+        || session.starts_with("session-dogfood-")
+}
+
 fn format_hive_handoff_message(packet: &HiveHandoffPacket) -> String {
     let mut lines = vec!["handoff_packet".to_string()];
     lines.push(format!(
@@ -1442,6 +1465,44 @@ fn derive_hive_relationship(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
+
+    fn awareness_entry_with_session(session: &str) -> ProjectAwarenessEntry {
+        ProjectAwarenessEntry {
+            project_dir: "remote".to_string(),
+            bundle_root: ".memd".to_string(),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
+            base_branch: None,
+            agent: Some("codex".to_string()),
+            session: Some(session.to_string()),
+            tab_id: None,
+            effective_agent: Some(format!("codex@{session}")),
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("worker".to_string()),
+            capabilities: Vec::new(),
+            hive_groups: vec!["project:memd".to_string()],
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            base_url: Some("http://127.0.0.1:8788".to_string()),
+            presence: "active".to_string(),
+            host: None,
+            pid: None,
+            active_claims: 0,
+            workspace: None,
+            visibility: Some("workspace".to_string()),
+            topic_claim: None,
+            scope_claims: Vec::new(),
+            task_id: None,
+            focus: None,
+            pressure: None,
+            next_recovery: None,
+            last_updated: Some(Utc::now()),
+        }
+    }
 
     #[test]
     fn hive_blocks_host_io_report_and_tooling_diagnostics() {
@@ -1462,5 +1523,21 @@ mod tests {
                 "expected refresh diagnostic: {diagnostic}"
             );
         }
+    }
+
+    #[test]
+    fn hive_handoff_refuses_ephemeral_proof_targets_without_opt_in() {
+        for session in ["codex-fresh", "session-live-codex", "session-dogfood-1"] {
+            let target = awareness_entry_with_session(session);
+            let err = refuse_ephemeral_hive_handoff_target(&target, false)
+                .expect_err("ephemeral target should be rejected");
+            assert!(err.to_string().contains("proof/fixture session"));
+            assert!(err.to_string().contains("--allow-ephemeral"));
+            refuse_ephemeral_hive_handoff_target(&target, true)
+                .expect("explicit proof traffic may pass");
+        }
+
+        let target = awareness_entry_with_session("session-real-codex");
+        refuse_ephemeral_hive_handoff_target(&target, false).expect("ordinary target should pass");
     }
 }

@@ -3768,6 +3768,9 @@ pub(crate) struct HiveHandoffArgs {
     pub(crate) note: Option<String>,
 
     #[arg(long)]
+    pub(crate) allow_ephemeral: bool,
+
+    #[arg(long)]
     pub(crate) json: bool,
 
     #[arg(long)]

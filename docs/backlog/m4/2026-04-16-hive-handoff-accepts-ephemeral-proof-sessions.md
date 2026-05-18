@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 severity: medium
 phase: L2
 opened: 2026-04-16
@@ -7,7 +7,7 @@ scope: memd-client, memd-server, hive
 ---
 # Hive Handoff Accepts Ephemeral Proof / Fixture Sessions As Live Targets
 
-- status: `open`
+- status: `closed`
 - found: `2026-04-16`
 - scope: memd-client (primary), memd-server (secondary)
 - severity: medium — handoff silently lands on a dead/test session, packet is
@@ -124,3 +124,11 @@ Three options, ordered cheapest → strongest:
 - Also consider whether `base_url_healthy` should be promoted from
   `Option<bool>` (currently always `None` on roster output) to an active
   ping probe.
+
+## Resolution
+
+Closed on 2026-05-18 by `memd hive handoff --allow-ephemeral`.
+The client handoff path now rejects `codex-fresh`, `session-live-*`, and
+`session-dogfood-*` targets by default, even when awareness still marks them
+fresh. Proof traffic must opt in explicitly with `--allow-ephemeral`, so normal
+hive handoffs cannot silently disappear into fixture sessions.
