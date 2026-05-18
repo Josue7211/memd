@@ -1378,7 +1378,7 @@ mod tests {
             "{markdown}"
         );
         assert!(
-            markdown.contains("clawcontrol:status=missing_approval"),
+            markdown.contains("approved_communications:status=missing_approval"),
             "{markdown}"
         );
         assert!(

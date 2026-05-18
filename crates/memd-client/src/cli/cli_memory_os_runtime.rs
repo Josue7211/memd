@@ -1678,7 +1678,7 @@ fn server_authority_feature_probe(output: &Path) -> ServerAuthorityFeatureProbe 
         return ServerAuthorityFeatureProbe::default();
     };
     let base_url = resolve_bundle_command_base_url(&default_base_url(), Some(runtime_base_url));
-    match fetch_server_status_json(&base_url) {
+    match fetch_server_status_json_with_warmup(&base_url) {
         Ok(value) => evaluate_server_authority_status(&value),
         Err(error) => ServerAuthorityFeatureProbe {
             evidence: vec![format!("server_api_status=unavailable:{error}")],
@@ -1693,6 +1693,48 @@ fn fetch_server_status_json(base_url: &str) -> anyhow::Result<serde_json::Value>
         anyhow::bail!("http status {status}");
     }
     serde_json::from_str(body.trim()).context("parse status JSON")
+}
+
+fn fetch_server_status_json_with_warmup(base_url: &str) -> anyhow::Result<serde_json::Value> {
+    let mut value = fetch_server_status_json(base_url)?;
+    if !server_status_json_should_warm(&value) {
+        return Ok(value);
+    }
+
+    for _ in 0..3 {
+        let _ = fetch_server_path(base_url, "/healthz");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        value = fetch_server_status_json(base_url)?;
+        if !server_status_json_should_warm(&value) {
+            break;
+        }
+    }
+    Ok(value)
+}
+
+fn server_status_json_should_warm(value: &serde_json::Value) -> bool {
+    let benchmark_gate = value
+        .get("benchmark_gate")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    if matches!(benchmark_gate, "pass" | "acceptable") {
+        return false;
+    }
+    let Some(local_commit) = local_git_commit_short() else {
+        return false;
+    };
+    let server_commit = value
+        .get("git_commit")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    if !git_commits_match(server_commit, &local_commit) {
+        return false;
+    }
+    let git_dirty = value
+        .get("git_dirty")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    git_dirty == "clean" || git_dirty.is_empty()
 }
 
 fn fetch_server_path(base_url: &str, path: &str) -> anyhow::Result<(u16, String)> {
@@ -2814,6 +2856,66 @@ fn estimate_file_tokens(path: &Path) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_authority_status_probe_warms_transient_benchmark_gate() {
+        let local_commit = local_git_commit_short().expect("local git commit");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind status server");
+        let address = listener.local_addr().expect("status server address");
+        let handle = std::thread::spawn(move || {
+            let mut status_requests = 0usize;
+            for stream in listener.incoming().take(3) {
+                let mut stream = stream.expect("accept status request");
+                let mut reader = std::io::BufReader::new(
+                    stream.try_clone().expect("clone status request stream"),
+                );
+                let mut request_line = String::new();
+                std::io::BufRead::read_line(&mut reader, &mut request_line)
+                    .expect("read status request line");
+                let path = request_line.split_whitespace().nth(1).unwrap_or("/");
+                let body = if path == "/healthz" {
+                    "ok".to_string()
+                } else {
+                    status_requests += 1;
+                    let gate = if status_requests == 1 { "fail" } else { "pass" };
+                    let latency = if status_requests == 1 { 2048.0 } else { 64.0 };
+                    serde_json::json!({
+                        "git_commit": local_commit,
+                        "git_dirty": "clean",
+                        "benchmark_gate": gate,
+                        "latency_p95_ms": latency,
+                        "schema_version": 6,
+                        "atlas": { "dormant": false }
+                    })
+                    .to_string()
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                std::io::Write::write_all(&mut stream, response.as_bytes())
+                    .expect("write status response");
+            }
+        });
+
+        let value = fetch_server_status_json_with_warmup(&format!("http://{address}"))
+            .expect("fetch warmed status");
+
+        handle.join().expect("status server thread");
+        assert_eq!(
+            value
+                .get("benchmark_gate")
+                .and_then(serde_json::Value::as_str),
+            Some("pass")
+        );
+        assert_eq!(
+            value
+                .get("latency_p95_ms")
+                .and_then(serde_json::Value::as_f64),
+            Some(64.0)
+        );
+    }
 
     #[test]
     fn token_savings_ledger_records_context_packet_savings() {
