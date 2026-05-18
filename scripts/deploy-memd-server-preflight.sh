@@ -214,12 +214,14 @@ elif [[ -n "$status_url" ]]; then
       blockers+=("server benchmark_gate=${gate:-unknown}$suffix")
     fi
     blocker_text=""
-    for blocker in "${blockers[@]}"; do
-      if [[ -n "$blocker_text" ]]; then
-        blocker_text+=" | "
-      fi
-      blocker_text+="$blocker"
-    done
+    if ((${#blockers[@]} > 0)); then
+      for blocker in "${blockers[@]}"; do
+        if [[ -n "$blocker_text" ]]; then
+          blocker_text+=" | "
+        fi
+        blocker_text+="$blocker"
+      done
+    fi
     status="ready"
     if [[ -n "$blocker_text" ]]; then
       status="blocked"
