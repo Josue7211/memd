@@ -667,6 +667,10 @@ pub(crate) fn approved_communications_access_route_command() -> &'static str {
     "memd access route --output .memd --purpose approved-communications-file --provider process-env --agent codex"
 }
 
+pub(crate) fn approved_communications_empty_approval_command() -> &'static str {
+    "APPROVED_COMMUNICATIONS_EMPTY_APPROVED=1 scripts/live-state-capture-approved-communications.mjs"
+}
+
 pub(crate) fn live_state_unmet_modules_for_source(
     report: &LiveAppStateReport,
     source: &LiveAppStateSourceStatus,
@@ -800,7 +804,10 @@ fn live_state_blocker_detail_from_report_with_options(
         } else if source.source_app == "clawcontrol"
             && (source.status == "missing_approval" || source.status == "invalid_approval")
         {
-            " producer_route=\"scripts/live-state-capture-approved-communications.mjs\"".to_string()
+            format!(
+                " producer_route=\"scripts/live-state-capture-approved-communications.mjs\" approved_zero_route=\"{}\" approved_zero_note=\"only when the user/process explicitly approves zero message/email metadata\"",
+                approved_communications_empty_approval_command()
+            )
         } else {
             String::new()
         };
@@ -2487,6 +2494,16 @@ mod tests {
             detail.contains(
                 r#"producer_route="scripts/live-state-capture-approved-communications.mjs""#
             ),
+            "{detail}"
+        );
+        assert!(
+            detail.contains(
+                r#"approved_zero_route="APPROVED_COMMUNICATIONS_EMPTY_APPROVED=1 scripts/live-state-capture-approved-communications.mjs""#
+            ),
+            "{detail}"
+        );
+        assert!(
+            detail.contains("explicitly approves zero message/email metadata"),
             "{detail}"
         );
         let summary = render_live_state_summary(&report);

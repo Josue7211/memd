@@ -1488,8 +1488,10 @@ fn render_live_app_state_prompt_blocker_lines(bundle_root: &Path) -> Vec<String>
             } else if source.source_app == "clawcontrol"
                 && (source.status == "missing_approval" || source.status == "invalid_approval")
             {
-                " producer_route=\"scripts/live-state-capture-approved-communications.mjs\""
-                    .to_string()
+                format!(
+                    " producer_route=\"scripts/live-state-capture-approved-communications.mjs\" approved_zero_route=\"{}\" approved_zero_note=\"only when the user/process explicitly approves zero message/email metadata\"",
+                    approved_communications_empty_approval_command()
+                )
             } else {
                 String::new()
             };
