@@ -1451,8 +1451,11 @@ fn render_live_app_state_prompt_blocker_lines(bundle_root: &Path) -> Vec<String>
         .source_statuses
         .iter()
         .filter(|source| source.status != "ok")
-        .map(|source| {
+        .filter_map(|source| {
             let missing_modules = live_state_unmet_modules_for_source(&report, source);
+            if missing_modules.is_empty() {
+                return None;
+            }
             let missing = live_state_prompt_module_list(&missing_modules);
             let access_route = if source.source_app == "clawcontrol"
                 && source.status == "auth_required"
@@ -1487,10 +1490,10 @@ fn render_live_app_state_prompt_blocker_lines(bundle_root: &Path) -> Vec<String>
             } else {
                 String::new()
             };
-            format!(
+            Some(format!(
                 "- blocker:{} status={} missing={}{}{}",
                 source.source_app, source.status, missing, access_route, producer_route
-            )
+            ))
         })
         .collect()
 }

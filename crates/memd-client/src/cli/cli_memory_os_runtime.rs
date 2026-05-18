@@ -817,17 +817,16 @@ fn build_feature_report(output: &Path) -> MemoryOsFeatureReport {
                                 )
                             }),
                     );
-                    blockers.extend(report.source_statuses.iter().filter(|source| source.status != "ok").map(|source| {
+                    blockers.extend(report.source_statuses.iter().filter(|source| source.status != "ok").filter_map(|source| {
                         let missing_modules = live_state_unmet_modules_for_source(report, source);
-                        let missing = if missing_modules.is_empty() {
-                            "none".to_string()
-                        } else {
-                            missing_modules.join(",")
-                        };
-                        format!(
+                        if missing_modules.is_empty() {
+                            return None;
+                        }
+                        let missing = missing_modules.join(",");
+                        Some(format!(
                             "live app state source {} is {} missing={}",
                             source.source_app, source.status, missing
-                        )
+                        ))
                     }));
                     if let Some(detail) = live_state_blocker_detail_from_report(report) {
                         blockers.push(format!("live app state blocker detail: {detail}"));
@@ -4412,7 +4411,10 @@ mod tests {
             .expect("live state feature");
         let gaps = live_state.gaps.join(";");
 
-        assert!(gaps.contains("source clawcontrol is auth_required missing=messages,email"));
+        assert!(
+            !gaps.contains("source clawcontrol is auth_required"),
+            "{gaps}"
+        );
         assert!(gaps.contains("source clawcontrol is missing_approval missing=messages,email"));
         assert!(
             !gaps.contains("auth_required missing=visible_page,calendar"),
@@ -4427,7 +4429,7 @@ mod tests {
             evidence.contains("state_map_unmet=messages,email"),
             "{evidence}"
         );
-        assert!(gaps.contains("clawcontrol:status=auth_required missing=messages,email"));
+        assert!(!gaps.contains("clawcontrol:status=auth_required"), "{gaps}");
         assert!(gaps.contains("clawcontrol:status=missing_approval missing=messages,email"));
 
         fs::remove_dir_all(output).expect("cleanup feature temp");

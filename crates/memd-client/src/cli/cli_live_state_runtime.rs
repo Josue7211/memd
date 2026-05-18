@@ -656,27 +656,58 @@ pub(crate) fn live_state_unmet_modules_for_source(
     report: &LiveAppStateReport,
     source: &LiveAppStateSourceStatus,
 ) -> Vec<String> {
-    if source.api_base.as_deref() == Some("approved-communications")
-        || source
-            .api_bases
-            .iter()
-            .any(|base| base == "approved-communications")
-    {
+    if live_state_source_is_approved_communications(source) {
         return source.missing.clone();
     }
-    let unmet = report
+
+    let approved_communications_blocker = report.source_statuses.iter().any(|candidate| {
+        candidate.status != "ok" && live_state_source_is_approved_communications(candidate)
+    });
+    let filter_communications_from_generic_source = approved_communications_blocker
+        && matches!(source.status.as_str(), "auth_required" | "unavailable");
+    let filter_module = |module: &String| {
+        !(filter_communications_from_generic_source && sensitive_communication_module(module))
+    };
+    let source_claims_module_missing =
+        |module: &String| source.missing.iter().any(|missing| missing == module);
+
+    let unmet_before_route_filter = report
         .requirements
         .iter()
         .filter(|requirement| {
             requirement.source_app == source.source_app && requirement.status != "fresh"
         })
         .map(|requirement| requirement.module.clone())
+        .filter(|module| source_claims_module_missing(module))
         .collect::<Vec<_>>();
+    let unmet = unmet_before_route_filter
+        .iter()
+        .filter(|module| filter_module(module))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unmet_before_route_filter.is_empty() {
+        return unmet;
+    }
     if unmet.is_empty() {
-        source.missing.clone()
+        source
+            .missing
+            .iter()
+            .filter(|module| filter_module(module))
+            .cloned()
+            .collect()
     } else {
         unmet
     }
+}
+
+pub(crate) fn live_state_source_is_approved_communications(
+    source: &LiveAppStateSourceStatus,
+) -> bool {
+    source.api_base.as_deref() == Some("approved-communications")
+        || source
+            .api_bases
+            .iter()
+            .any(|base| base == "approved-communications")
 }
 
 pub(crate) fn live_state_blocker_detail(output: &Path) -> Option<String> {
@@ -706,6 +737,9 @@ fn live_state_blocker_detail_from_report_with_options(
         .filter(|source| source.status != "ok")
     {
         let missing_modules = live_state_unmet_modules_for_source(report, source);
+        if missing_modules.is_empty() {
+            continue;
+        }
         let missing = if missing_modules.is_empty() {
             "none".to_string()
         } else {
@@ -2358,12 +2392,12 @@ mod tests {
       "api_base": "http://127.0.0.1:3010",
       "api_bases": ["http://127.0.0.1:3010"],
       "auth_configured": false,
-      "visible_page": "missing",
+      "visible_page": "ok",
       "produced": [],
-      "missing": ["visible_page", "calendar", "todos", "reminders", "messages", "email"],
+      "missing": ["messages", "email"],
       "record_count": 0,
       "endpoints": [],
-      "last_error": "provide CLAWCONTROL_API_KEY or MC_API_KEY"
+      "last_error": "provide approved communications file for messages/email"
     },
     {
       "source_app": "clawcontrol",
@@ -2389,6 +2423,7 @@ mod tests {
             input_json: Some(
                 r#"{
   "records": [
+    {"sourceApp":"clawcontrol","module":"visible_page","scope":"current","visibility":"private","privacy":"metadata","approved":true,"summary":"visible page fallback fresh","payload":{"producer":"mac-bridge-fallback","title":"workspace"}},
     {"sourceApp":"clawcontrol","module":"calendar","scope":"primary","visibility":"private","privacy":"metadata","approved":true,"summary":"calendar fallback fresh","payload":{"producer":"mac-bridge","events":[]}},
     {"sourceApp":"clawcontrol","module":"reminders","scope":"default","visibility":"private","privacy":"metadata","approved":true,"summary":"reminders fallback fresh","payload":{"producer":"mac-bridge","reminders":[]}},
     {"sourceApp":"clawcontrol","module":"todos","scope":"default","visibility":"private","privacy":"metadata","approved":true,"summary":"todos fallback fresh","payload":{"producer":"mac-bridge","todos":[]}}
@@ -2402,16 +2437,11 @@ mod tests {
         let report = ingest_live_state_batch(&batch).expect("ingest fallback records");
         let detail = live_state_blocker_detail_from_report(&report).expect("blocker detail");
 
+        assert!(!detail.contains("status=auth_required"), "{detail}");
+        assert!(detail.contains("status=missing_approval"), "{detail}");
+        assert!(detail.contains("missing=messages,email"), "{detail}");
         assert!(
-            detail.contains("missing=visible_page,messages,email"),
-            "{detail}"
-        );
-        assert!(
-            !detail.contains("missing=visible_page,calendar"),
-            "{detail}"
-        );
-        assert!(
-            detail.contains(clawcontrol_api_key_access_route_command()),
+            !detail.contains(clawcontrol_api_key_access_route_command()),
             "{detail}"
         );
         assert!(
@@ -2425,16 +2455,13 @@ mod tests {
             "{detail}"
         );
         let summary = render_live_state_summary(&report);
+        assert!(summary.contains("missing=messages,email"), "{summary}");
         assert!(
-            summary.contains("missing=visible_page,calendar,todos,reminders,messages,email"),
+            summary.contains("state_map_fresh=visible_page,calendar,reminders,todos"),
             "{summary}"
         );
         assert!(
-            summary.contains("state_map_fresh=calendar,reminders,todos"),
-            "{summary}"
-        );
-        assert!(
-            summary.contains("state_map_unmet=visible_page,messages,email"),
+            summary.contains("state_map_unmet=messages,email"),
             "{summary}"
         );
     }
