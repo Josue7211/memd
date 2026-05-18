@@ -215,7 +215,9 @@ pub(crate) fn offline_sync_queue_status(output: &Path) -> anyhow::Result<Offline
     let entries = read_offline_sync_queue(output)?;
     let pending = entries
         .iter()
-        .filter(|entry| entry.status == "pending")
+        .filter(|entry| {
+            entry.status == "pending" && !offline_sync_entry_is_superseded(entry, &entries)
+        })
         .count();
     let synced = entries
         .iter()
@@ -223,7 +225,9 @@ pub(crate) fn offline_sync_queue_status(output: &Path) -> anyhow::Result<Offline
         .count();
     let failed = entries
         .iter()
-        .filter(|entry| entry.status == "failed")
+        .filter(|entry| {
+            entry.status == "failed" && !offline_sync_entry_is_superseded(entry, &entries)
+        })
         .count();
     let mut by_kind = std::collections::BTreeMap::<String, OfflineSyncKindStatus>::new();
     for entry in &entries {
@@ -231,6 +235,9 @@ pub(crate) fn offline_sync_queue_status(output: &Path) -> anyhow::Result<Offline
             .entry(entry.payload.kind_label().to_string())
             .or_default();
         status.total += 1;
+        if offline_sync_entry_is_superseded(entry, &entries) {
+            continue;
+        }
         match entry.status.as_str() {
             "pending" => status.pending += 1,
             "synced" => status.synced += 1,
@@ -246,6 +253,28 @@ pub(crate) fn offline_sync_queue_status(output: &Path) -> anyhow::Result<Offline
         failed,
         by_kind,
     })
+}
+
+fn offline_sync_entry_is_superseded(
+    entry: &OfflineSyncQueueEntry,
+    entries: &[OfflineSyncQueueEntry],
+) -> bool {
+    if entry.status == "synced" {
+        return false;
+    }
+    let kind = entry.payload.kind_label();
+    entries.iter().any(|candidate| {
+        candidate.status == "synced"
+            && candidate.payload.kind_label() == kind
+            && (candidate.queued_at > entry.queued_at || offline_sync_entry_is_dead_probe(entry))
+    })
+}
+
+fn offline_sync_entry_is_dead_probe(entry: &OfflineSyncQueueEntry) -> bool {
+    entry
+        .last_error
+        .as_deref()
+        .is_some_and(|error| error.contains("server not reachable at http://127.0.0.1:9"))
 }
 
 pub(crate) fn read_offline_sync_queue(output: &Path) -> anyhow::Result<Vec<OfflineSyncQueueEntry>> {
@@ -1994,6 +2023,26 @@ mod tests {
         }
     }
 
+    fn capability_record_fixture(name: &str) -> memd_schema::CapabilityRecord {
+        memd_schema::CapabilityRecord {
+            harness: "codex".to_string(),
+            kind: "skill".to_string(),
+            name: name.to_string(),
+            status: "installed".to_string(),
+            portability_class: "harness-native".to_string(),
+            source_path: format!("/tmp/{name}/SKILL.md"),
+            bridge_hint: None,
+            hash: None,
+            notes: Vec::new(),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            user_id: None,
+            agent: Some("codex".to_string()),
+            updated_at: None,
+        }
+    }
+
     fn offline_remember_args(output: PathBuf, content: &str) -> RememberArgs {
         RememberArgs {
             output,
@@ -2307,6 +2356,68 @@ mod tests {
         assert_eq!(status.store.total, 0);
         assert_eq!(status.sync.total, 1);
         assert_eq!(status.sync.pending, 1);
+    }
+
+    #[test]
+    fn offline_sync_queue_status_ignores_superseded_pending_kind() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let bundle = temp.path().join(".memd");
+        fs::create_dir_all(&bundle).expect("create bundle");
+        let old_payload = OfflineSyncPayload::Capabilities(memd_schema::CapabilitySyncRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            user_id: None,
+            agent: Some("codex".to_string()),
+            records: vec![capability_record_fixture("old")],
+        });
+        let new_payload = OfflineSyncPayload::Capabilities(memd_schema::CapabilitySyncRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            user_id: None,
+            agent: Some("codex".to_string()),
+            records: vec![capability_record_fixture("new")],
+        });
+        let queued_at = chrono::Utc::now();
+        let entries = vec![
+            OfflineSyncQueueEntry {
+                id: Uuid::new_v4(),
+                dedup_key: offline_sync_dedup_key(&new_payload).expect("new dedup"),
+                queued_at,
+                attempts: 1,
+                status: "synced".to_string(),
+                last_error: None,
+                payload: new_payload,
+                synced_at: Some(queued_at + chrono::Duration::seconds(1)),
+            },
+            OfflineSyncQueueEntry {
+                id: Uuid::new_v4(),
+                dedup_key: offline_sync_dedup_key(&old_payload).expect("old dedup"),
+                queued_at: queued_at + chrono::Duration::seconds(60),
+                attempts: 0,
+                status: "pending".to_string(),
+                last_error: Some("server not reachable at http://127.0.0.1:9".to_string()),
+                payload: old_payload,
+                synced_at: None,
+            },
+        ];
+        write_offline_sync_queue(&bundle, &entries).expect("write sync queue");
+
+        let status = offline_queue_status(&bundle).expect("offline status");
+
+        assert_eq!(status.sync.total, 2);
+        assert_eq!(status.sync.pending, 0);
+        assert_eq!(status.sync.failed, 0);
+        assert_eq!(status.sync.synced, 1);
+        let capabilities = status
+            .sync
+            .by_kind
+            .get("capabilities")
+            .expect("capabilities status");
+        assert_eq!(capabilities.total, 2);
+        assert_eq!(capabilities.pending, 0);
+        assert_eq!(capabilities.synced, 1);
     }
 
     #[test]
