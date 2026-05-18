@@ -55,6 +55,8 @@ render_plist() {
   </array>
   <key>EnvironmentVariables</key>
   <dict>
+    <key>MEMD_LIVE_STATE_SYNC_DAEMON</key>
+    <string>1</string>
     <key>PATH</key>
     <string>${LAUNCHD_PATH:-/Volumes/T7/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}</string>
   </dict>

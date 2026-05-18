@@ -225,6 +225,26 @@ if grep -q 'IMPORT_CLAWCONTROL_BUNDLE' "$ROOT/scripts/live-state-sync-memd.sh"; 
 fi
 set +e
 HOST_IO_GUARD_ENABLED=0 \
+MEMD_BIN="$no_clawcontrol_dir/memd" \
+CAPTURE_SCRIPT="$no_clawcontrol_dir/clawcontrol-http" \
+MAC_BRIDGE_FALLBACK=0 \
+APPROVED_COMMUNICATIONS_FALLBACK=0 \
+MEMD_LIVE_STATE_SYNC_DAEMON=1 \
+"$ROOT/scripts/live-state-sync-memd.sh" >/tmp/memd-live-state-daemon-blocked.out 2>&1
+daemon_blocked_status=$?
+set -e
+if [[ "$daemon_blocked_status" -ne 0 ]]; then
+  echo "memd host I/O guard test: daemon sync should record blockers without launchd failure" >&2
+  sed -n '1,40p' /tmp/memd-live-state-daemon-blocked.out >&2
+  exit 1
+fi
+grep -q 'daemon mode: recorded live-state blockers' /tmp/memd-live-state-daemon-blocked.out
+if ! "$ROOT/scripts/install-live-state-sync-launchd.sh" --print | grep -q '<key>MEMD_LIVE_STATE_SYNC_DAEMON</key>'; then
+  echo "memd host I/O guard test: launchd plist missing daemon mode env" >&2
+  exit 1
+fi
+set +e
+HOST_IO_GUARD_ENABLED=0 \
 MEMD_BIN=true \
 "$ROOT/scripts/live-state-sync-clawcontrol.sh" >/tmp/memd-live-state-clawcontrol-refusal.out 2>&1
 clawcontrol_sync_refusal_status=$?

@@ -13,6 +13,7 @@ APPROVED_COMMUNICATIONS_FALLBACK="${APPROVED_COMMUNICATIONS_FALLBACK:-1}"
 APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT="${APPROVED_COMMUNICATIONS_CAPTURE_SCRIPT:-$ROOT/scripts/live-state-capture-approved-communications.mjs}"
 HOST_IO_GUARD="${HOST_IO_GUARD:-$ROOT/scripts/memd-host-io-guard.sh}"
 HOST_IO_GUARD_ENABLED="${HOST_IO_GUARD_ENABLED:-1}"
+DAEMON_MODE="${MEMD_LIVE_STATE_SYNC_DAEMON:-0}"
 FALLBACK_CAPTURED=0
 
 say() {
@@ -100,5 +101,15 @@ if [[ "$FALLBACK_CAPTURED" == "1" ]]; then
 else
   say "memd-owned producers unavailable; live-state still requires approved producers"
 fi
+set +e
 "$MEMD_BIN" live-state status --output "$MEMD_OUTPUT" --tasks
+tasks_status=$?
+set -e
+if [[ "$tasks_status" -ne 0 ]]; then
+  say "live-state task report exited $tasks_status"
+fi
+if [[ "$DAEMON_MODE" == "1" || "$DAEMON_MODE" == "true" ]]; then
+  say "daemon mode: recorded live-state blockers; exiting cleanly so launchd keeps polling"
+  exit 0
+fi
 exit "$status_check"
