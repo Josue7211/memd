@@ -1450,6 +1450,7 @@ fn render_live_app_state_prompt_status_line(bundle_root: &Path) -> String {
         .source_statuses
         .iter()
         .filter(|source| source.status != "ok")
+        .filter(|source| !live_state_unmet_modules_for_source(&report, source).is_empty())
         .count();
     format!(
         "- map_status={} requirement_fresh={} requirement_stale={} requirement_missing={} fresh_modules={} stale_modules={} missing_modules={} sync_required={} next_refresh_at={} blockers={}",

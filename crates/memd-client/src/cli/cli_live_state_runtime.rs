@@ -589,33 +589,30 @@ pub(crate) fn live_state_report(output: &Path) -> anyhow::Result<LiveAppStateRep
     let sync_required = requirement_missing > 0 || requirement_stale > 0;
     let sync_actions = live_state_sync_actions(&requirements);
     let sync_tasks = live_state_sync_tasks(&requirements);
+    let source_has_unmet_requirements = |source: &LiveAppStateSourceStatus| {
+        !live_state_unmet_modules_for_source_from(
+            &requirements,
+            &source_status_store.sources,
+            source,
+        )
+        .is_empty()
+    };
     let source_fresh = source_status_store
         .sources
         .iter()
+        .filter(|source| source_has_unmet_requirements(source))
         .filter(|source| live_state_source_status_is_fresh(source, now))
         .count();
     let source_stale = source_status_store
         .sources
-        .len()
-        .saturating_sub(source_fresh)
-        .min(
-            source_status_store
-                .sources
-                .iter()
-                .filter(|source| !live_state_source_status_is_fresh(source, now))
-                .filter(|source| {
-                    !live_state_unmet_modules_for_source_from(
-                        &requirements,
-                        &source_status_store.sources,
-                        source,
-                    )
-                    .is_empty()
-                })
-                .count(),
-        );
+        .iter()
+        .filter(|source| source_has_unmet_requirements(source))
+        .filter(|source| !live_state_source_status_is_fresh(source, now))
+        .count();
     let source_unavailable = source_status_store
         .sources
         .iter()
+        .filter(|source| source_has_unmet_requirements(source))
         .filter(|source| source.status != "ok")
         .count();
     let (next_refresh_at, refresh_reason) =
