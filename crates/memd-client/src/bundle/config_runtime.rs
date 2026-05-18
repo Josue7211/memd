@@ -135,6 +135,12 @@ pub(crate) fn set_bundle_base_url(output: &Path, base_url: &str) -> anyhow::Resu
     let mut config: BundleConfigFile =
         serde_json::from_str(&raw).with_context(|| format!("parse {}", config_path.display()))?;
     config.base_url = Some(base_url.to_string());
+    if config.authority_state.mode == "shared" {
+        config.authority_state.shared_base_url = Some(base_url.to_string());
+        config.authority_state.fallback_base_url = None;
+        config.authority_state.degraded = false;
+        config.authority_state.blocked_capabilities.clear();
+    }
     fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")
         .with_context(|| format!("write {}", config_path.display()))?;
 
@@ -144,6 +150,9 @@ pub(crate) fn set_bundle_base_url(output: &Path, base_url: &str) -> anyhow::Resu
         "$env:MEMD_BASE_URL = ",
         &format!("$env:MEMD_BASE_URL = \"{}\"\n", escape_ps1(base_url)),
     )?;
+    if config.authority_state.mode == "shared" {
+        write_bundle_authority_env(output, &config.authority_policy, &config.authority_state)?;
+    }
 
     Ok(())
 }
@@ -202,6 +211,69 @@ pub(crate) fn set_bundle_route(output: &Path, route: &str) -> anyhow::Result<()>
     )?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_bundle_base_url_updates_shared_authority_state_when_shared() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-bundle-shared-base-url-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "general",
+  "authority_policy": {
+    "shared_primary": true,
+    "localhost_fallback_policy": "deny"
+  },
+  "authority_state": {
+    "mode": "shared",
+    "degraded": false,
+    "shared_base_url": "http://127.0.0.1:8787",
+    "fallback_base_url": null,
+    "blocked_capabilities": []
+  }
+}
+"#,
+        )
+        .expect("write config");
+        fs::write(
+            dir.join("env"),
+            "MEMD_BASE_URL=http://127.0.0.1:8787\nMEMD_SHARED_BASE_URL=http://127.0.0.1:8787\n",
+        )
+        .expect("write env");
+        fs::write(
+            dir.join("env.ps1"),
+            "$env:MEMD_BASE_URL = \"http://127.0.0.1:8787\"\n$env:MEMD_SHARED_BASE_URL = \"http://127.0.0.1:8787\"\n",
+        )
+        .expect("write env.ps1");
+
+        set_bundle_base_url(&dir, "http://127.0.0.1:9797").expect("set bundle base url");
+
+        let config = fs::read_to_string(dir.join("config.json")).expect("read config");
+        let env = fs::read_to_string(dir.join("env")).expect("read env");
+        let env_ps1 = fs::read_to_string(dir.join("env.ps1")).expect("read env.ps1");
+        assert!(config.contains(r#""base_url": "http://127.0.0.1:9797""#));
+        assert!(config.contains(r#""shared_base_url": "http://127.0.0.1:9797""#));
+        assert!(env.contains("MEMD_BASE_URL='http://127.0.0.1:9797'"));
+        assert!(env.contains("MEMD_SHARED_BASE_URL='http://127.0.0.1:9797'"));
+        assert!(env_ps1.contains("$env:MEMD_BASE_URL = \"http://127.0.0.1:9797\""));
+        assert!(env_ps1.contains("$env:MEMD_SHARED_BASE_URL = \"http://127.0.0.1:9797\""));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
 }
 
 pub(crate) fn set_bundle_intent(output: &Path, intent: &str) -> anyhow::Result<()> {
