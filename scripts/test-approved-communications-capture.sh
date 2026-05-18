@@ -59,4 +59,26 @@ if [[ "$raw_status" -eq 0 ]]; then
 fi
 grep -q 'raw communication field is not allowed' "$tmp/raw.err"
 
+request_output="$tmp/request-output"
+mkdir -p "$request_output/state"
+set +e
+MEMD_OUTPUT="$request_output" \
+SOURCE_STATUS_OUTPUT="$request_output" \
+"$ROOT/scripts/live-state-capture-approved-communications.mjs" >"$tmp/request.out" 2>"$tmp/request.err"
+request_status=$?
+set -e
+if [[ "$request_status" -ne 2 ]]; then
+  echo "approved communications capture test: missing approval did not block" >&2
+  exit 1
+fi
+request_json="$request_output/state/approved-communications-request.json"
+status_json="$request_output/state/live-app-source-status.json"
+test -f "$request_json"
+request_json="$(cd "$(dirname "$request_json")" && pwd)/$(basename "$request_json")"
+jq -e '.schema == "memd.approved-communications-request.v1"' "$request_json" >/dev/null
+jq -e '.status == "needs_user_or_process_approval"' "$request_json" >/dev/null
+jq -e '.approval.set == "APPROVED_COMMUNICATIONS_FILE"' "$request_json" >/dev/null
+jq -e '.privacyContract[] | select(. == "Raw chat/mail body text, HTML, transcripts, blobs, and raw media are rejected.")' "$request_json" >/dev/null
+jq -e --arg path "$request_json" '.sources[] | select(.source_app == "approved_communications" and .approval_request_path == $path)' "$status_json" >/dev/null
+
 echo "approved communications capture test: ok"

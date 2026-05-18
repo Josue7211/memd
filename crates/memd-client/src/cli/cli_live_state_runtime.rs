@@ -167,6 +167,8 @@ pub(crate) struct LiveAppStateSourceStatus {
     #[serde(default)]
     pub(crate) endpoints: Vec<LiveAppStateSourceEndpointStatus>,
     pub(crate) last_error: Option<String>,
+    #[serde(default)]
+    pub(crate) approval_request_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -810,9 +812,22 @@ fn live_state_blocker_detail_from_report_with_options(
         } else {
             String::new()
         };
+        let approval_request = if live_state_source_is_approved_communications(source)
+            && matches!(
+                source.status.as_str(),
+                "missing_approval" | "invalid_approval"
+            ) {
+            source
+                .approval_request_path
+                .as_deref()
+                .map(|path| format!(" approval_request=\"{}\"", path))
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
         details.push(format!(
-            "{}:status={} missing={}{}{}",
-            source_name, source.status, missing, access_route, producer_route
+            "{}:status={} missing={}{}{}{}",
+            source_name, source.status, missing, access_route, producer_route, approval_request
         ));
     }
 
@@ -1169,6 +1184,7 @@ fn render_live_state_source_status_lines(
                 source.missing.join(",")
             };
             let error = source.last_error.as_deref().unwrap_or("none");
+            let approval_request = source.approval_request_path.as_deref().unwrap_or("none");
             let fresh_until =
                 source.checked_at + Duration::seconds(LIVE_STATE_SOURCE_STATUS_FRESH_SECS);
             let freshness = if fresh_until > now { "fresh" } else { "stale" };
@@ -1176,7 +1192,7 @@ fn render_live_state_source_status_lines(
             let state_map_unmet =
                 source_requirement_modules_not_status(requirements, source_name, "fresh");
             format!(
-                "source_status:{} status={} freshness={} checked_at={} fresh_until={} api_base={} api_bases={} auth_configured={} visible_page={} produced={} missing={} state_map_fresh={} state_map_unmet={} endpoints={} error=\"{}\"",
+                "source_status:{} status={} freshness={} checked_at={} fresh_until={} api_base={} api_bases={} auth_configured={} visible_page={} produced={} missing={} state_map_fresh={} state_map_unmet={} endpoints={} approval_request={} error=\"{}\"",
                 source_name,
                 source.status,
                 freshness,
@@ -1191,6 +1207,7 @@ fn render_live_state_source_status_lines(
                 render_module_list(&state_map_fresh),
                 render_module_list(&state_map_unmet),
                 source.endpoints.len(),
+                shell_quote(approval_request),
                 compact_live_state_text(error, 160)
             )
         })
@@ -2460,7 +2477,8 @@ mod tests {
       "missing": ["messages", "email"],
       "record_count": 0,
       "endpoints": [],
-      "last_error": "no approved communications file configured"
+      "last_error": "no approved communications file configured",
+      "approval_request_path": ".memd/state/approved-communications-request.json"
     }
   ]
 }"#,
@@ -2513,8 +2531,17 @@ mod tests {
             detail.contains("explicitly approves zero message/email metadata"),
             "{detail}"
         );
+        assert!(
+            detail
+                .contains(r#"approval_request=".memd/state/approved-communications-request.json""#),
+            "{detail}"
+        );
         let summary = render_live_state_summary(&report);
         assert!(summary.contains("missing=messages,email"), "{summary}");
+        assert!(
+            summary.contains("approval_request=.memd/state/approved-communications-request.json"),
+            "{summary}"
+        );
         assert!(
             summary.contains("state_map_fresh=visible_page,calendar,reminders,todos"),
             "{summary}"

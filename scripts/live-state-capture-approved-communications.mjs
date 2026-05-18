@@ -56,6 +56,67 @@ function sourceStatusFile() {
   return join(sourceStatusOutput, 'state', 'live-app-source-status.json');
 }
 
+function approvalRequestFile() {
+  return join(sourceStatusOutput, 'state', 'approved-communications-request.json');
+}
+
+function approvalRequestDocument({ missing = ['messages', 'email'], lastError = null } = {}) {
+  return {
+    schema: 'memd.approved-communications-request.v1',
+    status: 'needs_user_or_process_approval',
+    approval: {
+      set: 'APPROVED_COMMUNICATIONS_FILE',
+      path: approvalRequestFile(),
+      emptyApproval: 'APPROVED_COMMUNICATIONS_EMPTY_APPROVED=1',
+      emptyApprovalRule:
+        'Use empty approval only when the user/process explicitly approves zero message/email metadata.',
+    },
+    missing,
+    lastError,
+    privacyContract: [
+      'Only metadata or redacted snippets are allowed.',
+      'Every message/email item must set approved=true.',
+      'redactedSnippet requires redacted=true or redactionApproved=true.',
+      'Attachment/media metadata requires agentsecretsApproved=true.',
+      'Raw chat/mail body text, HTML, transcripts, blobs, and raw media are rejected.',
+    ],
+    template: {
+      messages: [
+        {
+          approved: true,
+          contact: 'Approved contact name',
+          threadId: 'optional-thread-id',
+          unreadCount: 0,
+          lastMessageAt: '2026-05-18T00:00:00Z',
+          topic: 'Short approved metadata topic',
+          redacted: true,
+          redactedSnippet: 'Optional user-approved redacted snippet',
+        },
+      ],
+      email: [
+        {
+          approved: true,
+          from: 'approved-sender@example.com',
+          subject: 'Approved subject metadata',
+          folder: 'INBOX',
+          receivedAt: '2026-05-18T00:00:00Z',
+          unread: false,
+          redacted: true,
+          redactedSnippet: 'Optional user-approved redacted snippet',
+        },
+      ],
+    },
+  };
+}
+
+function writeApprovalRequest(options) {
+  if (dryRun) return null;
+  const path = approvalRequestFile();
+  mkdirSync(join(sourceStatusOutput, 'state'), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(approvalRequestDocument(options), null, 2)}\n`);
+  return path;
+}
+
 function readSourceStatusStore() {
   const path = sourceStatusFile();
   if (!existsSync(path)) {
@@ -79,6 +140,10 @@ function writeSourceStatus({ status, produced = [], missing = [], lastError = nu
   if (dryRun) return;
   const now = new Date().toISOString();
   const store = readSourceStatusStore();
+  const approvalRequestPath =
+    status === 'missing_approval' || status === 'invalid_approval'
+      ? writeApprovalRequest({ missing, lastError })
+      : null;
   const endpoints = ['messages', 'email'].map((module) => {
     const ok = produced.includes(module);
     return {
@@ -103,6 +168,7 @@ function writeSourceStatus({ status, produced = [], missing = [], lastError = nu
     record_count: produced.length,
     endpoints,
     last_error: lastError,
+    approval_request_path: approvalRequestPath,
   };
   store.version = 1;
   store.updated_at = now;
