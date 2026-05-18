@@ -144,6 +144,22 @@ MSG
 fi
 
 status_url="${MEMD_SERVER_STATUS_URL:-}"
+authority_container="${MEMD_AUTHORITY_CONTAINER:-memd-authority}"
+authority_image_repo="${MEMD_AUTHORITY_IMAGE_REPO:-memd-authority}"
+authority_deploy_contract="$ROOT/docs/contracts/memd-authority-deploy.md"
+authority_identity_status="ready"
+authority_identity_blockers=""
+if [[ "$authority_container" == clawcontrol-* ]]; then
+  authority_identity_status="blocked"
+  authority_identity_blockers="MEMD_AUTHORITY_CONTAINER=$authority_container is ClawControl-owned; use memd-authority"
+fi
+if [[ "$authority_image_repo" == clawcontrol-* || "$authority_image_repo" == portainer-clawcontrol-* ]]; then
+  if [[ -n "$authority_identity_blockers" ]]; then
+    authority_identity_blockers+=" | "
+  fi
+  authority_identity_status="blocked"
+  authority_identity_blockers+="MEMD_AUTHORITY_IMAGE_REPO=$authority_image_repo is ClawControl-owned; use memd-authority"
+fi
 if [[ "${MEMD_SKIP_SERVER_STATUS:-0}" == "1" || "${MEMD_SKIP_SERVER_STATUS:-0}" == "true" ]]; then
   status_url=""
 elif [[ -z "$status_url" && -f ".memd/config.json" ]]; then
@@ -290,6 +306,11 @@ cat <<ENV
 MEMD_GIT_BRANCH=$branch
 MEMD_GIT_COMMIT=$commit
 MEMD_GIT_DIRTY=$dirty
+MEMD_AUTHORITY_CONTAINER=$authority_container
+MEMD_AUTHORITY_IMAGE_REPO=$authority_image_repo
+MEMD_AUTHORITY_DEPLOY_CONTRACT=$authority_deploy_contract
+MEMD_AUTHORITY_IDENTITY_STATUS=$authority_identity_status
+MEMD_AUTHORITY_IDENTITY_BLOCKERS=$authority_identity_blockers
 MEMD_SERVER_STATUS=$server_status
 MEMD_SERVER_STATUS_URL=$status_url
 MEMD_SERVER_GIT_COMMIT=$server_git_commit
@@ -316,6 +337,11 @@ memd-server deploy env:
   MEMD_GIT_BRANCH=$branch
   MEMD_GIT_COMMIT=$commit
   MEMD_GIT_DIRTY=$dirty
+  MEMD_AUTHORITY_CONTAINER=$authority_container
+  MEMD_AUTHORITY_IMAGE_REPO=$authority_image_repo
+  MEMD_AUTHORITY_DEPLOY_CONTRACT=$authority_deploy_contract
+  MEMD_AUTHORITY_IDENTITY_STATUS=$authority_identity_status
+  MEMD_AUTHORITY_IDENTITY_BLOCKERS=$authority_identity_blockers
   MEMD_SERVER_STATUS=$server_status
   MEMD_SERVER_STATUS_URL=$status_url
   MEMD_SERVER_GIT_COMMIT=$server_git_commit
@@ -339,8 +365,17 @@ Docker build example:
     --build-arg MEMD_GIT_BRANCH=$branch \\
     --build-arg MEMD_GIT_COMMIT=$commit \\
     --build-arg MEMD_GIT_DIRTY=$dirty \\
-    -t memd-server:$commit .
+    -t $authority_image_repo:$commit .
 MSG
+
+if [[ "$authority_identity_status" == "blocked" ]]; then
+  cat >&2 <<MSG
+
+memd authority identity blocked:
+  $authority_identity_blockers
+  contract: $authority_deploy_contract
+MSG
+fi
 
 if [[ "$server_status" == "blocked" ]]; then
   cat >&2 <<MSG
@@ -354,6 +389,10 @@ elif [[ "$server_status" == "unavailable" ]]; then
 memd-server live status unavailable:
   ${server_blockers:-no status URL configured}
 MSG
+fi
+
+if [[ "$authority_identity_status" != "ready" && "${MEMD_REQUIRE_AUTHORITY_IDENTITY_READY:-1}" == "1" ]]; then
+  exit 4
 fi
 
 if [[ "$server_status" != "ready" && "${MEMD_REQUIRE_SERVER_READY:-0}" == "1" ]]; then

@@ -3,6 +3,10 @@
 This directory is the deployment path for running `memd-server` on `openclaw-vm`
 under Portainer management.
 
+This is memd-owned infrastructure. ClawControl may use this authority endpoint,
+but memd deploys must not create, start, stop, or replace `clawcontrol-*`
+containers. See `docs/contracts/memd-authority-deploy.md`.
+
 ## Current reality
 
 - `openclaw-vm` is reachable and has Docker.
@@ -33,12 +37,22 @@ under Portainer management.
 5. Create the stack in Portainer using:
    - `deploy/portainer/openclaw-vm/memd-server.compose.yml`
 
+For direct SSH deploy work, prefer the guarded memd-owned path:
+
+- `scripts/deploy-memd-authority-openclaw.sh build-only`
+- `scripts/deploy-memd-authority-openclaw.sh activate`
+
+The guarded script refuses ClawControl-prefixed container/image names and refuses
+activation when port `8787` is still owned by a `clawcontrol-*` service.
+
 `GET /api/status` must show the deployed commit, `git_dirty=clean`, and an
 acceptable `benchmark_gate` before `server_authority` can be considered ready.
 
 ## Runtime defaults
 
-- container name: `memd-server`
+- container name: `memd-authority` for direct guarded deploys,
+  `memd-server` for this Portainer stack
 - exposed port: `8787`
-- database volume: `memd_server_data`
+- database volume: `memd_authority_data` for direct guarded deploys,
+  `memd_server_data` for this Portainer stack
 - bind address inside container: `0.0.0.0:8787`
