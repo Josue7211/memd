@@ -125,9 +125,35 @@ unknown_runtime_output="$(
 )"
 grep -q 'unknown project_hint=active-runtime pid=32 state=R' <<<"$unknown_runtime_output"
 grep -q 'unknown project_hint=active-runtime pid=33 state=R' <<<"$unknown_runtime_output"
+
+tooling_fixture="$(mktemp "${TMPDIR:-/tmp}/memd-host-io-tooling.XXXXXX")"
+trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture" "$unknown_runtime_fixture" "$tooling_fixture"; rm -rf "$fixture_report_repo"' EXIT
+printf '%s\n' \
+  'PID PPID STAT COMMAND' \
+  '34 1 U /Volumes/T7/.cargo/bin/cargo build --manifest-path /tmp/app/Cargo.toml' \
+  '35 1 U /Volumes/T7/node-v24.14.0-darwin-arm64/bin/tsc --build /tmp/app/tsconfig.json' \
+  > "$tooling_fixture"
+tooling_output="$(
+  MEMD_CARGO_REPO_ROOT=/Volumes/T7/projects/memd \
+  MEMD_CARGO_VOLUME_ROOT=/Volumes/T7 \
+  MEMD_HOST_IO_PS_FILE="$tooling_fixture" \
+  memd_cargo_host_blockers
+)"
+grep -q 'volume:/Volumes/T7 project_hint=cargo-tooling pid=34 state=U' <<<"$tooling_output"
+grep -q 'volume:/Volumes/T7 project_hint=node-tooling pid=35 state=U' <<<"$tooling_output"
+set +e
+tooling_hard_output="$(printf '%s\n' "$tooling_output" | MEMD_CARGO_REPO_ROOT=/Volumes/T7/projects/memd memd_host_io_hard_blockers)"
+tooling_hard_status=$?
+set -e
+if [[ "$tooling_hard_status" -ne 0 ]]; then
+  echo "memd host I/O guard test: tooling hard blocker filter failed" >&2
+  exit 1
+fi
+grep -q 'project_hint=cargo-tooling' <<<"$tooling_hard_output"
+grep -q 'project_hint=node-tooling' <<<"$tooling_hard_output"
 sibling_report_repo="$(mktemp -d "${TMPDIR:-/tmp}/memd-host-io-sibling-report.XXXXXX")"
 awareness_report="$(mktemp "${TMPDIR:-/tmp}/memd-host-io-awareness.XXXXXX")"
-trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture" "$unknown_runtime_fixture" "$awareness_report"; rm -rf "$fixture_report_repo" "$sibling_report_repo"' EXIT
+trap 'rm -f "$fixture" "$clear_fixture" "$sibling_fixture" "$active_runtime_fixture" "$unknown_runtime_fixture" "$tooling_fixture" "$awareness_report"; rm -rf "$fixture_report_repo" "$sibling_report_repo"' EXIT
 MEMD_CARGO_REPO_ROOT="$sibling_report_repo" \
 MEMD_CARGO_VOLUME_ROOT=/Volumes/T7 \
 MEMD_HOST_IO_PS_FILE="$sibling_fixture" \

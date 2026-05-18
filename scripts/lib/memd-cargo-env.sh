@@ -254,7 +254,9 @@ memd_host_io_hard_blockers() {
     /project_hint=filesystem/ { print; next }
     repo_name != "" && index($0, "project_hint=" repo_name) > 0 { print; next }
     /project_hint=app-git/ { print; next }
+    /project_hint=cargo-tooling/ { print; next }
     /project_hint=native-tooling/ { print; next }
+    /project_hint=node-tooling/ { print; next }
   '
 }
 
