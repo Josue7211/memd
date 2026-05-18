@@ -72,13 +72,20 @@ if [[ "$request_status" -ne 2 ]]; then
   exit 1
 fi
 request_json="$request_output/state/approved-communications-request.json"
+template_json="$request_output/state/approved-communications-template.json"
 status_json="$request_output/state/live-app-source-status.json"
 test -f "$request_json"
+test -f "$template_json"
 request_json="$(cd "$(dirname "$request_json")" && pwd)/$(basename "$request_json")"
+template_json="$(cd "$(dirname "$template_json")" && pwd)/$(basename "$template_json")"
 jq -e '.schema == "memd.approved-communications-request.v1"' "$request_json" >/dev/null
 jq -e '.status == "needs_user_or_process_approval"' "$request_json" >/dev/null
+jq -e --arg path "$request_json" '.approval.requestPath == $path' "$request_json" >/dev/null
 jq -e '.approval.set == "APPROVED_COMMUNICATIONS_FILE"' "$request_json" >/dev/null
+jq -e --arg path "$template_json" '.approval.approvedFileTemplate == $path' "$request_json" >/dev/null
+jq -e --arg path "$template_json" '.approval.approvedFileExample | contains("APPROVED_COMMUNICATIONS_FILE=" + $path)' "$request_json" >/dev/null
 jq -e '.privacyContract[] | select(. == "Raw chat/mail body text, HTML, transcripts, blobs, and raw media are rejected.")' "$request_json" >/dev/null
+jq -e '.messages[0].approved == true and .email[0].approved == true' "$template_json" >/dev/null
 jq -e --arg path "$request_json" '.sources[] | select(.source_app == "approved_communications" and .approval_request_path == $path)' "$status_json" >/dev/null
 
 echo "approved communications capture test: ok"

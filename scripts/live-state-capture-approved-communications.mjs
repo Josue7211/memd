@@ -60,13 +60,51 @@ function approvalRequestFile() {
   return join(sourceStatusOutput, 'state', 'approved-communications-request.json');
 }
 
+function approvalTemplateFile() {
+  return join(sourceStatusOutput, 'state', 'approved-communications-template.json');
+}
+
+function approvalTemplateDocument() {
+  return {
+    messages: [
+      {
+        approved: true,
+        contact: 'Approved contact name',
+        threadId: 'optional-thread-id',
+        unreadCount: 0,
+        lastMessageAt: '2026-05-18T00:00:00Z',
+        topic: 'Short approved metadata topic',
+        redacted: true,
+        redactedSnippet: 'Optional user-approved redacted snippet',
+      },
+    ],
+    email: [
+      {
+        approved: true,
+        from: 'approved-sender@example.com',
+        subject: 'Approved subject metadata',
+        folder: 'INBOX',
+        receivedAt: '2026-05-18T00:00:00Z',
+        unread: false,
+        redacted: true,
+        redactedSnippet: 'Optional user-approved redacted snippet',
+      },
+    ],
+  };
+}
+
 function approvalRequestDocument({ missing = ['messages', 'email'], lastError = null } = {}) {
+  const requestPath = approvalRequestFile();
+  const templatePath = approvalTemplateFile();
   return {
     schema: 'memd.approved-communications-request.v1',
     status: 'needs_user_or_process_approval',
     approval: {
+      requestPath,
       set: 'APPROVED_COMMUNICATIONS_FILE',
-      path: approvalRequestFile(),
+      approvedFileTemplate: templatePath,
+      approvedFileExample:
+        `APPROVED_COMMUNICATIONS_FILE=${templatePath} scripts/live-state-capture-approved-communications.mjs`,
       emptyApproval: 'APPROVED_COMMUNICATIONS_EMPTY_APPROVED=1',
       emptyApprovalRule:
         'Use empty approval only when the user/process explicitly approves zero message/email metadata.',
@@ -80,32 +118,7 @@ function approvalRequestDocument({ missing = ['messages', 'email'], lastError = 
       'Attachment/media metadata requires agentsecretsApproved=true.',
       'Raw chat/mail body text, HTML, transcripts, blobs, and raw media are rejected.',
     ],
-    template: {
-      messages: [
-        {
-          approved: true,
-          contact: 'Approved contact name',
-          threadId: 'optional-thread-id',
-          unreadCount: 0,
-          lastMessageAt: '2026-05-18T00:00:00Z',
-          topic: 'Short approved metadata topic',
-          redacted: true,
-          redactedSnippet: 'Optional user-approved redacted snippet',
-        },
-      ],
-      email: [
-        {
-          approved: true,
-          from: 'approved-sender@example.com',
-          subject: 'Approved subject metadata',
-          folder: 'INBOX',
-          receivedAt: '2026-05-18T00:00:00Z',
-          unread: false,
-          redacted: true,
-          redactedSnippet: 'Optional user-approved redacted snippet',
-        },
-      ],
-    },
+    template: approvalTemplateDocument(),
   };
 }
 
@@ -113,6 +126,7 @@ function writeApprovalRequest(options) {
   if (dryRun) return null;
   const path = approvalRequestFile();
   mkdirSync(join(sourceStatusOutput, 'state'), { recursive: true });
+  writeFileSync(approvalTemplateFile(), `${JSON.stringify(approvalTemplateDocument(), null, 2)}\n`);
   writeFileSync(path, `${JSON.stringify(approvalRequestDocument(options), null, 2)}\n`);
   return path;
 }
