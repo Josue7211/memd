@@ -752,6 +752,20 @@ fi
 grep -q 'fake guard blocked host work' /tmp/memd-live-state-guard-test.out
 
 set +e
+HOST_IO_GUARD="$fake_guard" \
+MEMD_LIVE_STATE_SYNC_DAEMON=1 \
+"$ROOT/scripts/live-state-sync-memd.sh" >/tmp/memd-live-state-daemon-guard-test.out 2>&1
+live_state_daemon_guard_status=$?
+set -e
+if [[ "$live_state_daemon_guard_status" -ne 0 ]]; then
+  echo "memd host I/O guard test: daemon live-state sync should not poison launchd on guard block" >&2
+  sed -n '1,20p' /tmp/memd-live-state-daemon-guard-test.out >&2
+  exit 1
+fi
+grep -q 'fake guard blocked host work' /tmp/memd-live-state-daemon-guard-test.out
+grep -q 'daemon mode: host I/O guard blocked this run' /tmp/memd-live-state-daemon-guard-test.out
+
+set +e
 HOST_IO_GUARD="$fake_guard" "$ROOT/scripts/dev-server-guard.sh" --port 1 -- true >/tmp/memd-dev-server-guard-test.out 2>&1
 dev_server_status=$?
 set -e

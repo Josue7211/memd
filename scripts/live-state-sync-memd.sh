@@ -22,7 +22,17 @@ say() {
 
 if [[ "$HOST_IO_GUARD_ENABLED" == "1" || "$HOST_IO_GUARD_ENABLED" == "true" ]]; then
   if [[ -x "$HOST_IO_GUARD" ]]; then
+    set +e
     "$HOST_IO_GUARD"
+    guard_status=$?
+    set -e
+    if [[ "$guard_status" -ne 0 ]]; then
+      if [[ ("$DAEMON_MODE" == "1" || "$DAEMON_MODE" == "true") && "$guard_status" -eq 75 ]]; then
+        say "daemon mode: host I/O guard blocked this run; exiting cleanly so launchd keeps polling"
+        exit 0
+      fi
+      exit "$guard_status"
+    fi
   else
     say "host I/O guard not executable: $HOST_IO_GUARD"
     exit 127
