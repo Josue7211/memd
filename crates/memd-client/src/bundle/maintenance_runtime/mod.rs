@@ -986,6 +986,12 @@ pub(crate) async fn publish_bundle_heartbeat(
     else {
         return Ok(0);
     };
+    #[cfg(test)]
+    if base_url.trim_end_matches('/') == SHARED_MEMD_BASE_URL {
+        anyhow::bail!(
+            "test heartbeat publication to shared memd authority is blocked; use a mock server or disable publish_heartbeat"
+        );
+    }
     let Some(session) = state
         .session
         .as_deref()

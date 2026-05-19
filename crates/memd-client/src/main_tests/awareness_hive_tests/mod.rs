@@ -2760,6 +2760,28 @@ fn build_hive_heartbeat_derives_group_goal_from_wake_when_runtime_missing() {
     std::fs::remove_dir_all(dir).expect("cleanup temp dir");
 }
 
+#[tokio::test]
+async fn publish_bundle_heartbeat_blocks_shared_authority_in_tests() {
+    let state = BundleHeartbeatState {
+        session: Some("test-session".to_string()),
+        agent: Some("codex".to_string()),
+        base_url: Some(SHARED_MEMD_BASE_URL.to_string()),
+        authority_mode: Some("shared".to_string()),
+        status: "live".to_string(),
+        last_seen: Utc::now(),
+        ..BundleHeartbeatState::default()
+    };
+
+    let error = publish_bundle_heartbeat(&state)
+        .await
+        .expect_err("shared authority publish should be blocked in tests");
+    assert!(
+        error
+            .to_string()
+            .contains("test heartbeat publication to shared memd authority is blocked")
+    );
+}
+
 #[test]
 fn derive_hive_display_name_uses_session_for_generic_agents() {
     assert_eq!(
