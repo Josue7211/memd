@@ -425,7 +425,7 @@ PY
 }
 
 run_tailscale_canary() {
-  local canary_base="${MEMD_HIVE_TAILSCALE_BASE_URL:-${MEMD_BASE_URL:-http://100.104.154.24:8787}}"
+  local canary_base="${MEMD_HIVE_TAILSCALE_BASE_URL:-${MEMD_BASE_URL:-http://100.104.154.24:8788}}"
   BASE_URL="$canary_base"
   log "tailscale canary base=$BASE_URL"
   curl -fsS "$BASE_URL/healthz" >/dev/null

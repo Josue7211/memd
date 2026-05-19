@@ -225,9 +225,9 @@
         assert!(attach.contains("--route local_first --intent general"));
         assert!(shell.contains("memd wake --output \"$MEMD_BUNDLE_ROOT\" --route local_first --intent general --write >/dev/null 2>&1 || true"));
         assert!(ps1.contains("try { memd wake --output $env:MEMD_BUNDLE_ROOT --route local_first --intent general --write | Out-Null } catch { }"));
-        assert!(shell.contains("export MEMD_BASE_URL=\"http://100.104.154.24:8787\""));
-        assert!(ps1.contains("$env:MEMD_BASE_URL = \"http://100.104.154.24:8787\""));
-        assert!(attach.contains("export MEMD_BASE_URL=\"http://100.104.154.24:8787\""));
+        assert!(shell.contains("export MEMD_BASE_URL=\"http://100.104.154.24:8788\""));
+        assert!(ps1.contains("$env:MEMD_BASE_URL = \"http://100.104.154.24:8788\""));
+        assert!(attach.contains("export MEMD_BASE_URL=\"http://100.104.154.24:8788\""));
         assert!(shell.contains("memd heartbeat --output \"$MEMD_BUNDLE_ROOT\" --watch"));
         assert!(ps1.contains("FilePath memd -ArgumentList @('heartbeat'"));
         assert!(attach.contains("memd heartbeat --output \"$MEMD_BUNDLE_ROOT\" --watch"));

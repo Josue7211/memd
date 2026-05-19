@@ -1,5 +1,5 @@
 param(
-  [string]$BaseUrl = $(if ($env:MEMD_BASE_URL) { $env:MEMD_BASE_URL } else { "http://100.104.154.24:8787" }),
+  [string]$BaseUrl = $(if ($env:MEMD_BASE_URL) { $env:MEMD_BASE_URL } else { "http://100.104.154.24:8788" }),
   [string]$Project = $(if ($env:MEMD_PROJECT) { $env:MEMD_PROJECT } else { "" }),
   [string]$Namespace = $(if ($env:MEMD_NAMESPACE) { $env:MEMD_NAMESPACE } else { "" }),
   [string]$Workspace = $(if ($env:MEMD_WORKSPACE) { $env:MEMD_WORKSPACE } else { "" }),

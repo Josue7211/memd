@@ -28,7 +28,7 @@
       "event": "UserPromptSubmit",
       "harness": "claude-code",
       "purpose": "Runs memd wake on first prompt; enforces caveman voice + memd policy.",
-      "sha256": "d212f0d2953074903039b01aaa3c4dd75ea597d6b7eaef069c47041941f4a615"
+      "sha256": "c7c842173495ac034afa067a907f881ce44b9134a9ef1ba52d7cc1a2770a019f"
     },
     {
       "name": "memd-capture.sh",
@@ -36,7 +36,7 @@
       "event": "Stop",
       "harness": "claude-code",
       "purpose": "Captures end-of-turn summary into memd via `memd hook capture`.",
-      "sha256": "7837052116ccf3a661716294542b911cffcf2088567a297ef31973ea43848fd8"
+      "sha256": "e19f7e1fd05569ce50f942f69a0a2e24f306e24f2a1b980e7aafc4f25b0a6e25"
     },
     {
       "name": "memd-capture.ps1",
@@ -44,7 +44,7 @@
       "event": "Stop",
       "harness": "claude-code",
       "purpose": "Windows counterpart of memd-capture.sh.",
-      "sha256": "a8a9d31a2fa0095957f241c77d6ce3278476af80d6dd687453c20db86ccb905c"
+      "sha256": "d0982e5299233f2c9d857254f9d9e7fd989f5d5f1a29170cd9ccc12b05e82a08"
     },
     {
       "name": "memd-context.sh",
@@ -52,7 +52,7 @@
       "event": "SessionStart",
       "harness": "claude-code",
       "purpose": "Emits wake packet into session context.",
-      "sha256": "bf27d8bea53a660c02c5c194f2fceb491e933eed9a879f2e6da678c8d4e22494"
+      "sha256": "8aa29e0a7999188a0f969cd976ab66b28446278d7a2d7069a83cae91bab029c4"
     },
     {
       "name": "memd-context.ps1",
@@ -60,7 +60,7 @@
       "event": "SessionStart",
       "harness": "claude-code",
       "purpose": "Windows counterpart of memd-context.sh.",
-      "sha256": "a742735509e7bdba53910d4c80604cfac307df249027dc497a94fc4842ee596e"
+      "sha256": "a3d7533a3f50e52a786c91eeb9bad7a2309cb60aee9d5205028bcef96cd80a75"
     },
     {
       "name": "memd-file-interaction.sh",
@@ -84,7 +84,7 @@
       "event": "PreCompact",
       "harness": "claude-code",
       "purpose": "NON-BLOCKING save before compaction; seals file-interaction ledger snapshot.",
-      "sha256": "4647916d818c18070ea24dc4cb91d401ebbf871973c6e23d38d3363ed372d4bf"
+      "sha256": "1dda3eae6a35bcd06efb9a024c27bda2ccf7e8a0a12502cb41f6497cee637e4a"
     },
     {
       "name": "memd-precompact-save.ps1",
@@ -92,7 +92,7 @@
       "event": "PreCompact",
       "harness": "claude-code",
       "purpose": "Windows counterpart of memd-precompact-save.sh.",
-      "sha256": "6bc717057a5250cc5bb2913ad2b8b7717f54d30124b752a8040701cd39cdbc67"
+      "sha256": "689053ba22f66d4df755ee0d0eee070b586e7e8c9bc3d0f484c0c0b59659a1b8"
     },
     {
       "name": "memd-postcompact-restore.sh",
@@ -140,7 +140,7 @@
       "event": "PreCompact",
       "harness": "claude-code",
       "purpose": "Spills transcript into memd short-term lane before compaction.",
-      "sha256": "4972606ba98b0fabeafce9f39664fa8f64117b91ea64c9dbd2d96c21207a58d0"
+      "sha256": "63644e15a37cd19d2fec2317d81d33c80a14859416f2ea0b8a9ee75e14b59e88"
     },
     {
       "name": "memd-spill.ps1",
@@ -148,7 +148,7 @@
       "event": "PreCompact",
       "harness": "claude-code",
       "purpose": "Windows counterpart of memd-spill.sh.",
-      "sha256": "ae3e1f4cdf7a31af61152cb1cc5ca1b456d35929dabd50096ff8cedb9cce5f83"
+      "sha256": "15b34e49e77f0ada97ace181cc661479828a41c4338c61de575163952e397496"
     },
     {
       "name": "memd-stop-save.sh",
@@ -156,7 +156,7 @@
       "event": "Stop",
       "harness": "claude-code",
       "purpose": "End-of-turn checkpoint save; commits dirty tracked files when configured.",
-      "sha256": "acaa9a52a9f5b5b4e6e2208535a01f6014ca48df7f314345780a54e811528e29"
+      "sha256": "36a8c77170b1444ff9e8b11bd737bf95955475a8b4a164fbfa769f0fe66bbd71"
     },
     {
       "name": "memd-turn-tick.sh",
@@ -172,7 +172,7 @@
       "event": "Stop",
       "harness": "claude-code",
       "purpose": "Windows counterpart of memd-stop-save.sh.",
-      "sha256": "6474026f8d38f4a4ce1ef443ee79c1ad66445c039626ac1fe9de0b674b5436af"
+      "sha256": "646bdff5321dbd7b9af54090159a60e2c001de7f6e869c7d6dc5d767f9e1a01f"
     }
   ]
 }

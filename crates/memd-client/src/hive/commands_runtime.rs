@@ -352,8 +352,20 @@ pub(crate) async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWire
             "shared authority available",
         )?;
     }
-    let runtime = read_bundle_runtime_config(&output)?
+    let mut runtime = read_bundle_runtime_config(&output)?
         .context("reload bundle runtime config after hive wiring")?;
+    if runtime
+        .hive_group_goal
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+        && let Some(goal) = derive_hive_group_goal_from_wake(&output)
+    {
+        set_bundle_hive_group_goal(&output, &goal)?;
+        runtime = read_bundle_runtime_config(&output)?
+            .context("reload bundle runtime config after deriving hive group goal")?;
+    }
     let bundle_session = runtime_before_overlay
         .as_ref()
         .and_then(|config| config.session.clone());
@@ -404,6 +416,49 @@ pub(crate) async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWire
             .map(|surface| serde_json::to_value(surface).unwrap_or(JsonValue::Null)),
         heartbeat,
     })
+}
+
+fn derive_hive_group_goal_from_wake(output: &Path) -> Option<String> {
+    let wake = fs::read_to_string(output.join("wake.md")).ok()?;
+    let recovery_line = wake
+        .lines()
+        .find(|line| line.trim_start().starts_with("- recovery voice="))?;
+    let next = wake_recovery_field(recovery_line, "next")
+        .filter(|value| !value.eq_ignore_ascii_case("none"))?;
+    let stripped = next
+        .split_once(':')
+        .map(|(_, rest)| rest.trim())
+        .unwrap_or(next.trim());
+    compact_hive_group_goal(stripped)
+}
+
+fn wake_recovery_field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let marker = format!("{key}=");
+    let start = line.find(&marker)? + marker.len();
+    let rest = &line[start..];
+    let end = rest.find(" | ").unwrap_or(rest.len());
+    let value = rest[..end].trim();
+    (!value.is_empty()).then_some(value)
+}
+
+fn compact_hive_group_goal(value: &str) -> Option<String> {
+    let compact = value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim_matches(|ch: char| ch == '"' || ch == '\'' || ch == '`')
+        .to_string();
+    if compact.is_empty() {
+        return None;
+    }
+    let mut out = String::new();
+    for ch in compact.chars() {
+        if out.len() + ch.len_utf8() > 160 {
+            break;
+        }
+        out.push(ch);
+    }
+    Some(out.trim().to_string())
 }
 
 pub(crate) async fn propagate_hive_metadata_to_active_project_bundles(

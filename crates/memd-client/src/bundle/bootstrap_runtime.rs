@@ -41,7 +41,7 @@ pub(crate) fn default_voice_mode() -> String {
     hardcoded_default_voice_mode()
 }
 
-pub(crate) const SHARED_MEMD_BASE_URL: &str = "http://100.104.154.24:8787";
+pub(crate) const SHARED_MEMD_BASE_URL: &str = "http://100.104.154.24:8788";
 pub(crate) const LOCALHOST_MEMD_BASE_URL: &str = "http://127.0.0.1:8787";
 
 pub(crate) fn default_base_url() -> String {

@@ -147,8 +147,8 @@ async fn hive_join_forces_shared_base_url_for_stale_bundle() {
     assert_eq!(response.session.as_deref(), Some("codex-a"));
     let config = fs::read_to_string(dir.join("config.json")).expect("read config");
     let env = fs::read_to_string(dir.join("env")).expect("read env");
-    assert!(config.contains(r#""base_url": "http://100.104.154.24:8787""#));
-    assert!(env.contains("MEMD_BASE_URL='http://100.104.154.24:8787'"));
+    assert!(config.contains(r#""base_url": "http://100.104.154.24:8788""#));
+    assert!(env.contains("MEMD_BASE_URL='http://100.104.154.24:8788'"));
 
     fs::remove_dir_all(dir).expect("cleanup temp bundle");
 }
@@ -220,8 +220,8 @@ async fn hive_join_all_active_rewrites_live_bundles_in_project() {
     for bundle_root in [&current_bundle, &sibling_bundle] {
         let config = fs::read_to_string(bundle_root.join("config.json")).expect("read config");
         let env = fs::read_to_string(bundle_root.join("env")).expect("read env");
-        assert!(config.contains(r#""base_url": "http://100.104.154.24:8787""#));
-        assert!(env.contains("MEMD_BASE_URL='http://100.104.154.24:8787'"));
+        assert!(config.contains(r#""base_url": "http://100.104.154.24:8788""#));
+        assert!(env.contains("MEMD_BASE_URL='http://100.104.154.24:8788'"));
     }
 
     fs::remove_dir_all(root).expect("cleanup project root");
@@ -304,7 +304,7 @@ async fn hive_command_propagates_hive_metadata_to_active_sibling_bundles() {
         intent: "current_task".to_string(),
         workspace: Some("shared".to_string()),
         visibility: Some("workspace".to_string()),
-        publish_heartbeat: true,
+        publish_heartbeat: false,
         force: false,
         summary: false,
     })
@@ -345,6 +345,73 @@ async fn hive_command_propagates_hive_metadata_to_active_sibling_bundles() {
     );
 
     fs::remove_dir_all(root).expect("cleanup project root");
+}
+
+#[tokio::test]
+async fn hive_command_derives_group_goal_from_wake_when_missing() {
+    let dir = std::env::temp_dir().join(format!("memd-hive-wake-goal-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(dir.join("state")).expect("create bundle state");
+    fs::write(
+        dir.join("config.json"),
+        r#"{
+  "project": "memd",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "hive_system": "codex",
+  "hive_role": "agent",
+  "hive_groups": ["project:memd"],
+  "hive_group_goal": null,
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+    )
+    .expect("write config");
+    fs::write(
+        dir.join("wake.md"),
+        "# memd wake-up\n- recovery voice=caveman-ultra | quality=ready:0.99 | dirty=0 | next=raw-1234: continue memd continuity and authority sync without launching ClawControl | blocker=none\n",
+    )
+    .expect("write wake");
+
+    let response = run_hive_command(&HiveArgs {
+        command: None,
+        global: false,
+        project_root: None,
+        seed_existing: false,
+        project: None,
+        namespace: None,
+        agent: None,
+        session: None,
+        tab_id: None,
+        hive_system: None,
+        hive_role: None,
+        capability: Vec::new(),
+        hive_group: Vec::new(),
+        hive_group_goal: None,
+        authority: None,
+        output: dir.clone(),
+        base_url: SHARED_MEMD_BASE_URL.to_string(),
+        rag_url: None,
+        route: "auto".to_string(),
+        intent: "current_task".to_string(),
+        workspace: None,
+        visibility: None,
+        publish_heartbeat: false,
+        force: false,
+        summary: false,
+    })
+    .await
+    .expect("run hive command");
+
+    assert_eq!(
+        response.hive_group_goal.as_deref(),
+        Some("continue memd continuity and authority sync without launching ClawControl")
+    );
+    assert!(response.heartbeat.is_none());
+
+    fs::remove_dir_all(dir).expect("cleanup temp bundle");
 }
 
 #[tokio::test]
@@ -1286,8 +1353,8 @@ async fn hive_join_all_local_rewrites_all_local_bundles_in_project() {
     for bundle_root in [&current_bundle, &sibling_bundle] {
         let config = fs::read_to_string(bundle_root.join("config.json")).expect("read config");
         let env = fs::read_to_string(bundle_root.join("env")).expect("read env");
-        assert!(config.contains(r#""base_url": "http://100.104.154.24:8787""#));
-        assert!(env.contains("MEMD_BASE_URL='http://100.104.154.24:8787'"));
+        assert!(config.contains(r#""base_url": "http://100.104.154.24:8788""#));
+        assert!(env.contains("MEMD_BASE_URL='http://100.104.154.24:8788'"));
     }
 
     fs::remove_dir_all(root).expect("cleanup project root");
@@ -1542,7 +1609,7 @@ async fn hive_project_enable_then_hive_join_then_hive_fix_all_work_together() {
 
     let config = fs::read_to_string(dir.join("config.json")).expect("read config");
     assert!(config.contains(r#""hive_project_enabled": true"#));
-    assert!(config.contains(r#""base_url": "http://100.104.154.24:8787""#));
+    assert!(config.contains(r#""base_url": "http://100.104.154.24:8788""#));
 
     fs::remove_dir_all(dir).expect("cleanup temp bundle");
 }
@@ -1815,7 +1882,7 @@ fn hive_project_state_round_trips_through_bundle_runtime_config() {
         hive_groups: vec!["openclaw-stack".to_string()],
         hive_group_goal: Some("coordinate the project hive".to_string()),
         authority: Some("participant".to_string()),
-        base_url: Some("http://100.104.154.24:8787".to_string()),
+        base_url: Some("http://100.104.154.24:8788".to_string()),
         route: Some("auto".to_string()),
         intent: Some("current_task".to_string()),
         voice_mode: None,
@@ -2027,7 +2094,7 @@ fn resolve_hive_command_base_url_prefers_global_bundle_override() {
   "namespace": "global",
   "agent": "codex",
   "session": "codex-a",
-  "base_url": "http://100.104.154.24:8787"
+  "base_url": "http://100.104.154.24:8788"
 }
 "#,
     )
@@ -2038,7 +2105,7 @@ fn resolve_hive_command_base_url_prefers_global_bundle_override() {
     }
 
     let resolved = resolve_hive_command_base_url(SHARED_MEMD_BASE_URL);
-    assert_eq!(resolved, "http://100.104.154.24:8787");
+    assert_eq!(resolved, "http://100.104.154.24:8788");
 
     if let Some(value) = original_home {
         unsafe {
@@ -2064,18 +2131,20 @@ fn default_base_url_prefers_global_bundle_override() {
   "namespace": "global",
   "agent": "codex",
   "session": "codex-a",
-  "base_url": "http://100.104.154.24:8787"
+  "base_url": "http://100.104.154.24:8788"
 }
 "#,
     )
     .expect("write fake global config");
     let original_home = std::env::var_os("HOME");
+    let original_base_url = std::env::var_os("MEMD_BASE_URL");
     unsafe {
         std::env::set_var("HOME", &home);
+        std::env::remove_var("MEMD_BASE_URL");
     }
 
     let resolved = default_base_url();
-    assert_eq!(resolved, "http://100.104.154.24:8787");
+    assert_eq!(resolved, "http://100.104.154.24:8788");
 
     if let Some(value) = original_home {
         unsafe {
@@ -2084,6 +2153,11 @@ fn default_base_url_prefers_global_bundle_override() {
     } else {
         unsafe {
             std::env::remove_var("HOME");
+        }
+    }
+    if let Some(value) = original_base_url {
+        unsafe {
+            std::env::set_var("MEMD_BASE_URL", value);
         }
     }
     fs::remove_dir_all(home).expect("cleanup fake home");
@@ -2098,9 +2172,9 @@ fn resolve_bundle_command_base_url_prefers_runtime_over_env_default() {
 
     let resolved = resolve_bundle_command_base_url(
         "http://127.0.0.1:8787",
-        Some("http://100.104.154.24:8787"),
+        Some("http://100.104.154.24:8788"),
     );
-    assert_eq!(resolved, "http://100.104.154.24:8787");
+    assert_eq!(resolved, "http://100.104.154.24:8788");
 
     if let Some(value) = original_base_url {
         unsafe {
@@ -2122,7 +2196,7 @@ fn resolve_bundle_command_base_url_honors_explicit_non_default_request() {
 
     let resolved = resolve_bundle_command_base_url(
         "http://127.0.0.1:9797",
-        Some("http://100.104.154.24:8787"),
+        Some("http://100.104.154.24:8788"),
     );
     assert_eq!(resolved, "http://127.0.0.1:9797");
 
@@ -2191,7 +2265,7 @@ fn resolve_live_session_overlay_uses_global_session_for_current_project_bundle()
   "agent": "codex",
   "session": "codex-fresh",
   "tab_id": "tab-alpha",
-  "base_url": "http://100.104.154.24:8787"
+  "base_url": "http://100.104.154.24:8788"
 }
 "#,
     )
@@ -2203,7 +2277,7 @@ fn resolve_live_session_overlay_uses_global_session_for_current_project_bundle()
   "namespace": "main",
   "agent": "codex",
   "session": "codex-stale",
-  "base_url": "http://100.104.154.24:8787",
+  "base_url": "http://100.104.154.24:8788",
   "workspace": "shared",
   "visibility": "workspace"
 }
@@ -2243,7 +2317,7 @@ fn resolve_live_session_overlay_skips_plain_local_bundle_without_hive_scope() {
   "agent": "codex",
   "session": "codex-fresh",
   "tab_id": "tab-alpha",
-  "base_url": "http://100.104.154.24:8787"
+  "base_url": "http://100.104.154.24:8788"
 }
 "#,
     )
@@ -2255,7 +2329,7 @@ fn resolve_live_session_overlay_skips_plain_local_bundle_without_hive_scope() {
   "namespace": "main",
   "agent": "codex",
   "session": "codex-stale",
-  "base_url": "http://100.104.154.24:8787",
+  "base_url": "http://100.104.154.24:8788",
   "route": "auto",
   "intent": "current_task"
 }

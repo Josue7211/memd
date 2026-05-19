@@ -2724,6 +2724,43 @@ fn build_hive_heartbeat_derives_first_class_intent_fields() {
 }
 
 #[test]
+fn build_hive_heartbeat_derives_group_goal_from_wake_when_runtime_missing() {
+    let dir = std::env::temp_dir().join(format!("memd-heartbeat-goal-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(dir.join("state")).expect("create temp dir");
+    std::fs::write(
+        dir.join("config.json"),
+        r#"{
+  "project": "memd",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "session-live",
+  "hive_system": "codex",
+  "hive_role": "agent",
+  "hive_groups": ["project:memd"],
+  "hive_group_goal": null,
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+    )
+    .expect("write config");
+    std::fs::write(
+        dir.join("wake.md"),
+        "# memd wake-up\n- recovery voice=caveman-ultra | quality=ready:0.99 | dirty=0 | next=raw-1234: keep live map and hive awareness synced | blocker=none\n",
+    )
+    .expect("write wake");
+
+    let heartbeat = build_hive_heartbeat(&dir, None).expect("build heartbeat");
+    assert_eq!(
+        heartbeat.hive_group_goal.as_deref(),
+        Some("keep live map and hive awareness synced")
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+}
+
+#[test]
 fn derive_hive_display_name_uses_session_for_generic_agents() {
     assert_eq!(
         derive_hive_display_name(Some("codex"), Some("session-6d422e56")).as_deref(),

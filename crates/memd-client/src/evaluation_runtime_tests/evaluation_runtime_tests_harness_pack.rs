@@ -786,7 +786,7 @@
         assert_eq!(response.session.as_deref(), Some("codex-a"));
         let config = fs::read_to_string(dir.join("config.json")).expect("read config");
         let env = fs::read_to_string(dir.join("env")).expect("read env");
-        assert!(config.contains(r#""base_url": "http://100.104.154.24:8787""#));
-        assert!(env.contains("MEMD_BASE_URL=http://100.104.154.24:8787"));
+        assert!(config.contains(r#""base_url": "http://100.104.154.24:8788""#));
+        assert!(env.contains("MEMD_BASE_URL=http://100.104.154.24:8788"));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
