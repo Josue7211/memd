@@ -577,8 +577,8 @@ mod tests {
   "updated_at": "2026-05-17T09:00:00Z",
   "records": [
     {
-      "id": "clawcontrol:calendar:primary",
-      "source_app": "clawcontrol",
+      "id": "memd:calendar:primary",
+      "source_app": "memd",
       "module": "calendar",
       "scope": "primary",
       "visibility": "private",
@@ -604,7 +604,7 @@ mod tests {
   "updated_at": "2026-05-17T09:00:00Z",
   "sources": [
     {
-      "source_app": "clawcontrol",
+      "source_app": "memd",
       "status": "auth_required",
       "checked_at": "2026-05-17T09:00:00Z",
       "api_base": "http://127.0.0.1:3010",
@@ -645,7 +645,7 @@ mod tests {
         assert!(section.contains("fresh_modules=calendar"));
         assert!(section.contains("missing_modules=visible_page,reminders,todos,messages,email"));
         assert!(section.contains("blockers=2"));
-        assert!(section.contains("- blocker:clawcontrol status=auth_required"));
+        assert!(section.contains("- blocker:memd status=auth_required"));
         assert!(section.contains("- blocker:approved_communications status=missing_approval"));
         assert!(section.contains("access_route="));
         assert!(section.contains("producer_route=\"scripts/live-state-sync-memd.sh\""));
@@ -654,14 +654,12 @@ mod tests {
                 "producer_route=\"scripts/live-state-capture-approved-communications.mjs\""
             )
         );
-        assert!(section.contains(
-            "external_source_route=\"MEMD_ALLOW_CLAWCONTROL_SYNC=1 CAPTURE_HTTP=1 IMPORT_CLAWCONTROL_BUNDLE=1 scripts/live-state-sync-clawcontrol.sh\""
-        ));
+        assert!(section.contains("memd-owned producers only; does not launch ClawControl"));
         assert!(section.contains("freshness_rule=trust only fresh records"));
         assert!(section.contains("privacy_rule=messages/email require private metadata/redacted"));
         assert!(section.contains("AgentSecrets approval"));
         assert!(section.contains("never ingest raw chat/mail bodies or raw media"));
-        assert!(section.contains("clawcontrol:calendar"));
+        assert!(section.contains("memd:calendar"));
         assert!(section.contains("privacy=metadata"));
         assert!(section.contains("visibility=private"));
         assert!(section.contains("sync_task:approved_communications:messages"));
@@ -1496,7 +1494,11 @@ fn render_live_app_state_prompt_blocker_lines(bundle_root: &Path) -> Vec<String>
             } else {
                 String::new()
             };
-            let producer_route = if live_state_source_is_clawcontrol_app(source)
+            let producer_route = if live_state_source_is_memd_app(source)
+                && matches!(source.status.as_str(), "auth_required" | "unavailable")
+            {
+                " producer_route=\"scripts/live-state-sync-memd.sh\" external_source_note=\"memd-owned producers only; does not launch ClawControl\"".to_string()
+            } else if live_state_source_is_clawcontrol_app(source)
                 && matches!(source.status.as_str(), "auth_required" | "unavailable")
             {
                 let api_bases = if source.api_bases.is_empty() {

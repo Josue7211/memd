@@ -1332,7 +1332,7 @@ mod tests {
   "updated_at": "2026-05-17T06:00:00Z",
   "sources": [
     {
-      "source_app": "clawcontrol",
+      "source_app": "memd",
       "status": "auth_required",
       "checked_at": "2026-05-17T06:00:00Z",
       "api_base": "http://127.0.0.1:3010",
@@ -1346,7 +1346,7 @@ mod tests {
       "last_error": "provide CLAWCONTROL_API_KEY or MC_API_KEY"
     },
     {
-      "source_app": "clawcontrol",
+      "source_app": "memd",
       "status": "missing_approval",
       "checked_at": "2026-05-17T06:00:00Z",
       "api_base": "approved-communications",
@@ -1391,13 +1391,11 @@ mod tests {
             "{markdown}"
         );
         assert!(
-            markdown.contains("live_state_blockers=clawcontrol:status=auth_required"),
+            markdown.contains("live_state_blockers=memd:status=auth_required"),
             "{markdown}"
         );
         assert!(
-            markdown.contains(
-                "access_route=\"memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex\""
-            ),
+            !markdown.contains("purpose clawcontrol-api-key"),
             "{markdown}"
         );
         assert!(

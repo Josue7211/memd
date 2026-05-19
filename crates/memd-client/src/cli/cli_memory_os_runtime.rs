@@ -3195,9 +3195,9 @@ mod tests {
                         "partial",
                         Vec::new(),
                         vec![
-                            "live app state source clawcontrol is auth_required missing=visible_page,calendar".to_string(),
+                            "live app state source memd is auth_required missing=visible_page,calendar".to_string(),
                             "live app state auto-sync is missing; install with scripts/install-live-state-sync-launchd.sh --install".to_string(),
-                            "live app state blocker detail: clawcontrol:status=auth_required missing=visible_page,calendar access_route=\"memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex\"".to_string(),
+                            "live app state blocker detail: memd:status=auth_required missing=visible_page,calendar producer_route=\"scripts/live-state-sync-memd.sh\" external_source_note=\"memd-owned producers only; does not launch ClawControl\"".to_string(),
                         ],
                     ),
                 ],
@@ -3278,9 +3278,9 @@ mod tests {
         assert!(summary.contains("server git_commit=d819af89 does not match local HEAD f0e2a715"));
         assert!(summary.contains("server benchmark_gate=fail latency_p95_ms=2048"));
         assert!(summary.contains("live_state_blocker_detail="));
-        assert!(summary.contains("clawcontrol:status=auth_required"));
+        assert!(summary.contains("memd:status=auth_required"));
         assert!(summary.contains("live app state auto-sync is missing"));
-        assert!(summary.contains("access route --output .memd --purpose clawcontrol-api-key"));
+        assert!(summary.contains("memd-owned producers only; does not launch ClawControl"));
         assert!(summary.contains("token_source=server"));
         assert!(summary.contains("server_events=2"));
     }
@@ -3662,7 +3662,7 @@ mod tests {
         fs::create_dir_all(&output).expect("create feature temp");
         fs::write(
             output.join("wake.md"),
-            "# wake\n\n- recovery voice=caveman-ultra | quality=ready:0.99 | dirty=0 | next=abc: CURRENT NEXT ACTION: continue live-state authority | proof_blockers=full_public:missing_explicit_env=RUN_LABEL | live_state_blockers=clawcontrol:status=auth_required missing=messages,email\n",
+            "# wake\n\n- recovery voice=caveman-ultra | quality=ready:0.99 | dirty=0 | next=abc: CURRENT NEXT ACTION: continue live-state authority | proof_blockers=full_public:missing_explicit_env=RUN_LABEL | live_state_blockers=memd:status=auth_required missing=messages,email\n",
         )
         .expect("write wake");
         fs::write(output.join("mem.md"), "# mem\n").expect("write mem");
@@ -4367,7 +4367,7 @@ mod tests {
   "updated_at": "2026-05-17T06:00:00Z",
   "sources": [
     {
-      "source_app": "clawcontrol",
+      "source_app": "memd",
       "status": "auth_required",
       "checked_at": "2026-05-17T06:00:00Z",
       "api_base": "http://127.0.0.1:3000",
@@ -4417,7 +4417,7 @@ mod tests {
             live_state
                 .evidence
                 .iter()
-                .any(|item| item.contains("live_state_source_status=clawcontrol"))
+                .any(|item| item.contains("live_state_source_status=memd"))
         );
         assert!(
             live_state
@@ -4447,11 +4447,13 @@ mod tests {
             live_state
                 .gaps
                 .iter()
-                .any(|gap| gap.contains("source clawcontrol is auth_required"))
+                .any(|gap| gap.contains("source memd is auth_required"))
         );
-        assert!(live_state.gaps.iter().any(|gap| {
-            gap.contains("access route --output .memd --purpose clawcontrol-api-key")
-        }));
+        assert!(
+            live_state.gaps.iter().any(|gap| {
+                gap.contains("memd-owned producers only; does not launch ClawControl")
+            })
+        );
 
         fs::remove_dir_all(output).expect("cleanup feature temp");
     }
@@ -4471,8 +4473,8 @@ mod tests {
         let stale_source_checked_at = now - chrono::Duration::hours(1);
         let records = vec![
             serde_json::json!({
-                "id": "clawcontrol:visible_page:current",
-                "source_app": "clawcontrol",
+                "id": "memd:visible_page:current",
+                "source_app": "memd",
                 "module": "visible_page",
                 "scope": "current",
                 "visibility": "private",
@@ -4488,8 +4490,8 @@ mod tests {
                 "expires_at": expires
             }),
             serde_json::json!({
-                "id": "clawcontrol:calendar:primary",
-                "source_app": "clawcontrol",
+                "id": "memd:calendar:primary",
+                "source_app": "memd",
                 "module": "calendar",
                 "scope": "primary",
                 "visibility": "private",
@@ -4506,7 +4508,7 @@ mod tests {
             }),
             serde_json::json!({
                 "id": "clawcontrol:reminders:default",
-                "source_app": "clawcontrol",
+                "source_app": "memd",
                 "module": "reminders",
                 "scope": "default",
                 "visibility": "private",
@@ -4523,7 +4525,7 @@ mod tests {
             }),
             serde_json::json!({
                 "id": "clawcontrol:todos:default",
-                "source_app": "clawcontrol",
+                "source_app": "memd",
                 "module": "todos",
                 "scope": "default",
                 "visibility": "private",
@@ -4556,7 +4558,7 @@ mod tests {
                 "updated_at": now,
                 "sources": [
                     {
-                        "source_app": "clawcontrol",
+                        "source_app": "memd",
                         "status": "auth_required",
                         "checked_at": stale_source_checked_at,
                         "api_base": "http://127.0.0.1:3010",
@@ -4597,10 +4599,7 @@ mod tests {
             .expect("live state feature");
         let gaps = live_state.gaps.join(";");
 
-        assert!(
-            !gaps.contains("source clawcontrol is auth_required"),
-            "{gaps}"
-        );
+        assert!(!gaps.contains("source memd is auth_required"), "{gaps}");
         assert!(
             !gaps.contains("live app source status checks are stale"),
             "{gaps}"
@@ -4624,7 +4623,7 @@ mod tests {
             "{evidence}"
         );
         assert!(evidence.contains("source_stale=0"), "{evidence}");
-        assert!(!gaps.contains("clawcontrol:status=auth_required"), "{gaps}");
+        assert!(!gaps.contains("memd:status=auth_required"), "{gaps}");
         assert!(
             gaps.contains("approved_communications:status=missing_approval missing=messages,email")
         );

@@ -3081,7 +3081,7 @@ pub(crate) struct LiveStateSyncArgs {
     pub(crate) from_output: PathBuf,
 
     /// Only sync records from this source app. Use "all" for a composite authority import.
-    #[arg(long, default_value = "clawcontrol")]
+    #[arg(long, default_value = "memd")]
     pub(crate) source: String,
 
     /// Also sync when next_refresh_at is within this many seconds.

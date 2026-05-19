@@ -149,7 +149,7 @@ function reminderItems(data) {
 
 function record({ module, scope, summary, payload }) {
   return {
-    sourceApp: 'clawcontrol',
+    sourceApp: 'memd',
     module,
     scope,
     visibility: 'private',
@@ -161,7 +161,7 @@ function record({ module, scope, summary, payload }) {
     summary,
     payload: {
       producer: 'mac-bridge',
-      sourceAppAlias: 'clawcontrol',
+      sourceAppAlias: 'memd',
       ...payload,
     },
   };

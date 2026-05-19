@@ -11,6 +11,7 @@ const LIVE_STATE_VERSION: u32 = 1;
 const LIVE_STATE_PRODUCER_CONTRACT_VERSION: u32 = 1;
 const LIVE_STATE_DEFAULT_REFRESH_SECS: i64 = 86_400;
 const LIVE_STATE_SOURCE_STATUS_FRESH_SECS: i64 = 900;
+const MEMD_LIVE_STATE_SOURCE: &str = "memd";
 
 #[derive(Debug)]
 pub(crate) struct LiveStateCheckExitCode(pub(crate) i32);
@@ -35,7 +36,7 @@ struct LiveAppStateRequirement {
 
 const LIVE_APP_STATE_REQUIREMENTS: &[LiveAppStateRequirement] = &[
     LiveAppStateRequirement {
-        source_app: "clawcontrol",
+        source_app: MEMD_LIVE_STATE_SOURCE,
         module: "visible_page",
         canonical_scope: "current",
         accepted_scopes: &["current"],
@@ -43,7 +44,7 @@ const LIVE_APP_STATE_REQUIREMENTS: &[LiveAppStateRequirement] = &[
         action: "capture visible app/page state before answering present-tense UI questions",
     },
     LiveAppStateRequirement {
-        source_app: "clawcontrol",
+        source_app: MEMD_LIVE_STATE_SOURCE,
         module: "calendar",
         canonical_scope: "primary",
         accepted_scopes: &["primary", "current"],
@@ -51,7 +52,7 @@ const LIVE_APP_STATE_REQUIREMENTS: &[LiveAppStateRequirement] = &[
         action: "ingest current/next calendar events before answering calendar questions",
     },
     LiveAppStateRequirement {
-        source_app: "clawcontrol",
+        source_app: MEMD_LIVE_STATE_SOURCE,
         module: "reminders",
         canonical_scope: "default",
         accepted_scopes: &["default", "current"],
@@ -59,7 +60,7 @@ const LIVE_APP_STATE_REQUIREMENTS: &[LiveAppStateRequirement] = &[
         action: "ingest active reminders before answering reminder questions",
     },
     LiveAppStateRequirement {
-        source_app: "clawcontrol",
+        source_app: MEMD_LIVE_STATE_SOURCE,
         module: "todos",
         canonical_scope: "default",
         accepted_scopes: &["default", "current"],
@@ -736,6 +737,20 @@ pub(crate) fn live_state_source_is_clawcontrol_app(source: &LiveAppStateSourceSt
     source.source_app == "clawcontrol" && !live_state_source_is_approved_communications(source)
 }
 
+pub(crate) fn live_state_source_is_memd_app(source: &LiveAppStateSourceStatus) -> bool {
+    source.source_app == MEMD_LIVE_STATE_SOURCE
+        && !live_state_source_is_approved_communications(source)
+}
+
+fn live_state_source_satisfies_requirement(
+    source_app: &str,
+    requirement: &LiveAppStateRequirement,
+) -> bool {
+    source_app == requirement.source_app
+        || (requirement.source_app == MEMD_LIVE_STATE_SOURCE
+            && matches!(source_app, "clawcontrol" | "mac_bridge" | "mac-bridge"))
+}
+
 pub(crate) fn live_state_blocker_detail(output: &Path) -> Option<String> {
     live_state_report(output)
         .ok()
@@ -790,6 +805,10 @@ fn live_state_blocker_detail_from_report_with_options(
             };
         let producer_route = if !include_producer_route {
             String::new()
+        } else if live_state_source_is_memd_app(source)
+            && matches!(source.status.as_str(), "auth_required" | "unavailable")
+        {
+            " producer_route=\"scripts/live-state-sync-memd.sh\" external_source_note=\"memd-owned producers only; does not launch ClawControl\"".to_string()
         } else if live_state_source_is_clawcontrol_app(source)
             && matches!(source.status.as_str(), "auth_required" | "unavailable")
         {
@@ -1326,7 +1345,7 @@ fn live_state_record_matches_requirement(
     record: &LiveAppStateRecord,
     requirement: &LiveAppStateRequirement,
 ) -> bool {
-    record.source_app == requirement.source_app
+    live_state_source_satisfies_requirement(&record.source_app, requirement)
         && record.module == requirement.module
         && requirement
             .accepted_scopes
@@ -1941,8 +1960,8 @@ mod tests {
         assert_eq!(report.fresh, 1);
 
         let section = render_live_app_state_section(&output, 4);
-        assert!(section.contains("clawcontrol:calendar"));
-        assert!(section.contains("required:clawcontrol:calendar"));
+        assert!(section.contains("memd:calendar"));
+        assert!(section.contains("required:memd:calendar"));
         assert!(section.contains("status=fresh"));
         assert!(section.contains("required:approved_communications:messages"));
         assert!(section.contains("no unrestricted chat access"));
@@ -1986,7 +2005,7 @@ mod tests {
 
         let summary = render_live_state_summary(&report);
         assert!(summary.contains("requirement_fresh=1"));
-        assert!(summary.contains("required:clawcontrol:calendar"));
+        assert!(summary.contains("required:memd:calendar"));
         assert!(summary.contains("matched_scope=current"));
     }
 
@@ -1997,7 +2016,7 @@ mod tests {
         let batch = serde_json::json!({
             "records": [
                 {
-                    "sourceApp": "clawcontrol",
+                    "sourceApp": "memd",
                     "module": "visible_page",
                     "scope": "current",
                     "visibility": "private",
@@ -2008,7 +2027,7 @@ mod tests {
                     "payload": {"route": "/calendar", "title": "Calendar", "facts": []}
                 },
                 {
-                    "sourceApp": "clawcontrol",
+                    "sourceApp": "memd",
                     "module": "calendar",
                     "scope": "current",
                     "visibility": "private",
@@ -2020,7 +2039,7 @@ mod tests {
                     "payload": {"events": [{"title": "Dentist"}]}
                 },
                 {
-                    "sourceApp": "clawcontrol",
+                    "sourceApp": "memd",
                     "module": "reminders",
                     "scope": "current",
                     "visibility": "private",
@@ -2032,7 +2051,7 @@ mod tests {
                     "payload": {"reminders": []}
                 },
                 {
-                    "sourceApp": "clawcontrol",
+                    "sourceApp": "memd",
                     "module": "todos",
                     "scope": "current",
                     "visibility": "private",
@@ -2086,8 +2105,7 @@ mod tests {
         assert_eq!(report.requirement_stale, 0);
         assert!(!report.sync_required);
         assert!(report.records.iter().any(|record| {
-            record.id == "clawcontrol:visible_page:current"
-                && record.summary.contains("route=/calendar")
+            record.id == "memd:visible_page:current" && record.summary.contains("route=/calendar")
         }));
     }
 
@@ -2123,7 +2141,7 @@ mod tests {
             report
                 .records
                 .iter()
-                .any(|record| record.source_app == "clawcontrol")
+                .any(|record| record.source_app == "memd")
         );
         assert!(
             report
@@ -2237,9 +2255,9 @@ mod tests {
         assert!(section.contains("refresh_policy contract=1"));
         assert!(section.contains("reason=\"missing required live-state surface"));
         assert!(section.contains("default_ttl=86400s"));
-        assert!(section.contains("required:clawcontrol:visible_page"));
-        assert!(section.contains("required:clawcontrol:calendar"));
-        assert!(section.contains("required:clawcontrol:reminders"));
+        assert!(section.contains("required:memd:visible_page"));
+        assert!(section.contains("required:memd:calendar"));
+        assert!(section.contains("required:memd:reminders"));
         assert!(section.contains("required:approved_communications:messages"));
         assert!(section.contains("sync_required=true sync_tasks=6"));
         assert!(section.contains("sync_task:approved_communications:messages"));
@@ -2271,7 +2289,7 @@ mod tests {
             report
                 .sync_actions
                 .iter()
-                .any(|action| action.contains("clawcontrol:visible_page status=missing"))
+                .any(|action| action.contains("memd:visible_page status=missing"))
         );
         let messages_task = report
             .sync_tasks
@@ -2298,12 +2316,12 @@ mod tests {
         assert!(summary.contains("sync_required=true"));
         assert!(summary.contains("next_refresh_at="));
         assert!(summary.contains("contract=1"));
-        assert!(summary.contains("sync_action:clawcontrol:calendar status=missing"));
+        assert!(summary.contains("sync_action:memd:calendar status=missing"));
         assert!(summary.contains("sync_task:approved_communications:messages"));
 
         let tasks = render_live_state_task_lines(&report);
         assert!(tasks.contains("live_state_tasks sync_required=true count=6"));
-        assert!(tasks.contains("task source=clawcontrol module=visible_page"));
+        assert!(tasks.contains("task source=memd module=visible_page"));
         assert!(tasks.contains("task source=approved_communications module=messages"));
         assert!(tasks.contains("approved_required=true"));
         assert!(tasks.contains("media_agentsecrets=true"));
@@ -2354,7 +2372,7 @@ mod tests {
   "updated_at": "2026-05-17T06:00:00Z",
   "sources": [
     {
-      "source_app": "clawcontrol",
+      "source_app": "memd",
       "status": "unavailable",
       "checked_at": "2026-05-17T06:00:00Z",
       "api_base": "http://127.0.0.1:3000",
@@ -2382,7 +2400,7 @@ mod tests {
             report.source_status_path,
             source_status_path.display().to_string()
         );
-        assert_eq!(report.source_statuses[0].source_app, "clawcontrol");
+        assert_eq!(report.source_statuses[0].source_app, "memd");
         assert_eq!(
             report.source_statuses[0].api_bases,
             vec![
@@ -2396,7 +2414,7 @@ mod tests {
         let summary = render_live_state_summary(&report);
         assert!(summary.contains("source_unavailable=1"));
         assert!(summary.contains("source_stale=1"));
-        assert!(summary.contains("source_status:clawcontrol status=unavailable"));
+        assert!(summary.contains("source_status:memd status=unavailable"));
         assert!(summary.contains("api_bases=http://127.0.0.1:3010,http://127.0.0.1:3000"));
         assert!(summary.contains("auth_configured=false"));
         assert!(summary.contains("freshness=stale"));
@@ -2405,30 +2423,21 @@ mod tests {
         assert!(summary.contains("state_map_unmet=visible_page,calendar,reminders,todos"));
 
         let section = render_live_app_state_section(&output, 8);
-        assert!(section.contains("source_status:clawcontrol status=unavailable"));
+        assert!(section.contains("source_status:memd status=unavailable"));
         assert!(section.contains("freshness=stale"));
         assert!(section.contains("api_base=http://127.0.0.1:3000"));
 
         let detail = live_state_blocker_detail_from_report(&report).expect("blocker detail");
-        assert!(
-            detail.contains("clawcontrol:status=unavailable"),
-            "{detail}"
-        );
+        assert!(detail.contains("memd:status=unavailable"), "{detail}");
         assert!(
             detail.contains(r#"producer_route="scripts/live-state-sync-memd.sh""#),
             "{detail}"
         );
         assert!(
-            detail.contains(
-                r#"external_source_route="MEMD_ALLOW_CLAWCONTROL_SYNC=1 CAPTURE_HTTP=1 IMPORT_CLAWCONTROL_BUNDLE=1 scripts/live-state-sync-clawcontrol.sh""#
-            ),
+            detail.contains("memd-owned producers only; does not launch ClawControl"),
             "{detail}"
         );
-        assert!(detail.contains("does not launch it"), "{detail}");
-        assert!(
-            detail.contains("api_bases=http://127.0.0.1:3010,http://127.0.0.1:3000"),
-            "{detail}"
-        );
+        assert!(!detail.contains("external_source_route="), "{detail}");
     }
 
     #[test]
@@ -2445,7 +2454,7 @@ mod tests {
   "updated_at": "2026-05-17T06:00:00Z",
   "sources": [
     {
-      "source_app": "clawcontrol",
+      "source_app": "memd",
       "status": "auth_required",
       "checked_at": "2026-05-17T06:00:00Z",
       "api_base": "http://127.0.0.1:3010",
@@ -2468,16 +2477,13 @@ mod tests {
         let report = live_state_report(&output).expect("status report");
         let detail = live_state_blocker_detail_from_report(&report).expect("blocker detail");
 
-        assert!(
-            detail.contains("clawcontrol:status=auth_required"),
-            "{detail}"
-        );
+        assert!(detail.contains("memd:status=auth_required"), "{detail}");
         assert!(
             detail.contains("missing=visible_page,calendar,reminders,todos"),
             "{detail}"
         );
         assert!(
-            detail.contains(clawcontrol_api_key_access_route_command()),
+            !detail.contains(clawcontrol_api_key_access_route_command()),
             "{detail}"
         );
         assert!(
@@ -2485,9 +2491,7 @@ mod tests {
             "{detail}"
         );
         assert!(
-            detail.contains(
-                r#"external_source_route="MEMD_ALLOW_CLAWCONTROL_SYNC=1 CAPTURE_HTTP=1 IMPORT_CLAWCONTROL_BUNDLE=1 scripts/live-state-sync-clawcontrol.sh""#
-            ),
+            detail.contains("memd-owned producers only; does not launch ClawControl"),
             "{detail}"
         );
         assert!(!detail.contains("CLAWCONTROL_API_KEY="), "{detail}");
@@ -2508,7 +2512,7 @@ mod tests {
   "updated_at": "2026-05-17T08:00:00Z",
   "sources": [
     {
-      "source_app": "clawcontrol",
+      "source_app": "memd",
       "status": "auth_required",
       "checked_at": "2026-05-17T08:00:00Z",
       "api_base": "http://127.0.0.1:3010",

@@ -1015,8 +1015,8 @@ mod tests {
   "updated_at": "2026-05-17T09:00:00Z",
   "records": [
     {
-      "id": "clawcontrol:calendar:primary",
-      "source_app": "clawcontrol",
+      "id": "memd:calendar:primary",
+      "source_app": "memd",
       "module": "calendar",
       "scope": "primary",
       "visibility": "private",
@@ -1122,7 +1122,7 @@ mod tests {
   "updated_at": "2026-05-17T06:00:00Z",
   "sources": [
     {
-      "source_app": "clawcontrol",
+      "source_app": "memd",
       "status": "auth_required",
       "checked_at": "2026-05-17T06:00:00Z",
       "api_base": "http://127.0.0.1:3010",
@@ -1166,17 +1166,16 @@ mod tests {
             "{prompt}"
         );
         assert!(
-            prompt.contains("Live-state blockers: clawcontrol:status=auth_required"),
+            prompt.contains("Live-state blockers: memd:status=auth_required"),
             "{prompt}"
         );
         assert!(
-            prompt.contains("- live_state_blockers=clawcontrol:status=auth_required"),
+            prompt.contains("- live_state_blockers=memd:status=auth_required"),
             "{prompt}"
         );
+        assert!(!prompt.contains("purpose clawcontrol-api-key"), "{prompt}");
         assert!(
-            prompt.contains(
-                "access_route=\"memd access route --output .memd --purpose clawcontrol-api-key --provider process-env --agent codex\""
-            ),
+            prompt.contains("memd-owned producers only; does not launch ClawControl"),
             "{prompt}"
         );
         assert!(!prompt.contains("SUPERMEMORY_API_KEY"));
