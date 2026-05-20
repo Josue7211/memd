@@ -31,14 +31,16 @@ find crates -type f -name '*.rs' -print0 \
   | head -30
 echo
 
-echo "OVERSIZED_SOURCE_FILES_OVER_5000_LINES"
+MAX_SOURCE_LINES="${MEMD_HYGIENE_MAX_SOURCE_LINES:-3000}"
+
+echo "OVERSIZED_SOURCE_FILES_OVER_${MAX_SOURCE_LINES}_LINES"
 find crates apps integrations tests scripts \
   \( -path '*/node_modules' -o -path 'apps/dist' -o -path './apps/dist' -o -path 'apps/dashboard/dist' -o -path './apps/dashboard/dist' -o -path 'apps/.astro' -o -path './apps/.astro' \) -prune \
   -o -type f \( -name '*.rs' -o -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.astro' -o -name '*.sh' -o -name '*.py' \) -print 2>/dev/null \
   | while IFS= read -r path; do
       [[ -f "$path" ]] || continue
       lines="$(wc -l <"$path" | tr -d '[:space:]')"
-      if [[ "$lines" -gt 5000 ]]; then
+      if [[ "$lines" -gt "$MAX_SOURCE_LINES" ]]; then
         printf '%s %s\n' "$lines" "$path"
       fi
     done \

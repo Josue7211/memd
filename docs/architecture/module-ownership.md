@@ -36,7 +36,7 @@ small sibling module over extending a large parent module.
 
 ## Guardrails
 
-- Keep source files below `MEMD_HYGIENE_MAX_SOURCE_LINES`, default `4000`.
+- Keep source files below `MEMD_HYGIENE_MAX_SOURCE_LINES`, default `3000`.
 - Run `scripts/verify/repo-hygiene-guard.sh` before broad cleanup commits.
 - Move repeated route UI into `components/ui` before adding another route-local
   copy.
