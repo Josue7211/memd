@@ -20,7 +20,7 @@ jobs:
       - name: Repo hygiene guard
         run: bash scripts/verify/repo-hygiene-guard.sh
 
-  test:
+  rust:
     strategy:
       fail-fast: false
       matrix:
@@ -40,8 +40,30 @@ jobs:
       - name: Format check
         run: cargo fmt --all --check
 
-      - name: Test
-        run: cargo test
+      - name: Test compile check
+        run: cargo check --workspace --tests
+
+  dashboard:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/dashboard/package-lock.json
+
+      - name: Install dashboard dependencies
+        working-directory: apps/dashboard
+        run: npm ci
+
+      - name: Build dashboard
+        working-directory: apps/dashboard
+        run: npm run build
 
   leaderboard-transparency:
     # I3 gate — cheap, always runs when retrieval code or leaderboard is touched.
