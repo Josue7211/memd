@@ -3,8 +3,15 @@ import { useState } from "react";
 import { useSearch } from "../lib/queries";
 import { CorrectionEditor } from "../components/correction/correction-editor";
 import { GlassPanel } from "../components/ui/glass-panel";
-import { KindBadge, StageBadge, StatusDot, ConfidenceBar, ScopeLabel } from "../components/ui/badge";
+import {
+  KindBadge,
+  StageBadge,
+  StatusDot,
+  ConfidenceBar,
+  ScopeLabel,
+} from "../components/ui/badge";
 import { EmptyState } from "../components/ui/empty-state";
+import { FilterGroup } from "../components/ui/filter-group";
 import type {
   MemoryKind,
   MemoryScope,
@@ -19,11 +26,26 @@ export const Route = createFileRoute("/memory")({
 });
 
 const ALL_KINDS: MemoryKind[] = [
-  "fact", "decision", "preference", "runbook", "procedural",
-  "self_model", "topology", "status", "live_truth", "pattern", "constraint",
+  "fact",
+  "decision",
+  "preference",
+  "runbook",
+  "procedural",
+  "self_model",
+  "topology",
+  "status",
+  "live_truth",
+  "pattern",
+  "constraint",
 ];
 const ALL_SCOPES: MemoryScope[] = ["local", "synced", "project", "global"];
-const ALL_STATUSES: MemoryStatus[] = ["active", "stale", "superseded", "contested", "expired"];
+const ALL_STATUSES: MemoryStatus[] = [
+  "active",
+  "stale",
+  "superseded",
+  "contested",
+  "expired",
+];
 const ALL_STAGES: MemoryStage[] = ["canonical", "candidate"];
 
 function MemoryBrowser() {
@@ -46,7 +68,11 @@ function MemoryBrowser() {
     limit,
   };
 
-  const canSearch = scopes.length > 0 && kinds.length > 0 && statuses.length > 0 && stages.length > 0;
+  const canSearch =
+    scopes.length > 0 &&
+    kinds.length > 0 &&
+    statuses.length > 0 &&
+    stages.length > 0;
   const { data, isLoading, error } = useSearch(searchReq, canSearch);
 
   return (
@@ -76,16 +102,38 @@ function MemoryBrowser() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-4">
-        <FilterGroup label="Scope" options={ALL_SCOPES} selected={scopes} onChange={setScopes} />
-        <FilterGroup label="Status" options={ALL_STATUSES} selected={statuses} onChange={setStatuses} />
-        <FilterGroup label="Stage" options={ALL_STAGES} selected={stages} onChange={setStages} />
-        <FilterGroup label="Kind" options={ALL_KINDS} selected={kinds} onChange={setKinds} />
+        <FilterGroup
+          label="Scope"
+          options={ALL_SCOPES}
+          selected={scopes}
+          onChange={setScopes}
+        />
+        <FilterGroup
+          label="Status"
+          options={ALL_STATUSES}
+          selected={statuses}
+          onChange={setStatuses}
+        />
+        <FilterGroup
+          label="Stage"
+          options={ALL_STAGES}
+          selected={stages}
+          onChange={setStages}
+        />
+        <FilterGroup
+          label="Kind"
+          options={ALL_KINDS}
+          selected={kinds}
+          onChange={setKinds}
+        />
       </div>
 
       {/* Results */}
       <GlassPanel padding="none">
         {isLoading && (
-          <div className="p-8 text-center text-text-tertiary text-sm">Loading...</div>
+          <div className="p-8 text-center text-text-tertiary text-sm">
+            Loading...
+          </div>
         )}
         {error && (
           <div className="p-8 text-center text-status-expired text-sm">
@@ -93,7 +141,10 @@ function MemoryBrowser() {
           </div>
         )}
         {data && data.items.length === 0 && (
-          <EmptyState title="No results" description="Adjust filters or search query" />
+          <EmptyState
+            title="No results"
+            description="Adjust filters or search query"
+          />
         )}
         {data && data.items.length > 0 && (
           <div>
@@ -102,7 +153,9 @@ function MemoryBrowser() {
                 key={item.id}
                 item={item}
                 isExpanded={expanded === item.id}
-                onToggle={() => setExpanded(expanded === item.id ? null : item.id)}
+                onToggle={() =>
+                  setExpanded(expanded === item.id ? null : item.id)
+                }
                 correcting={correcting}
                 setCorrecting={setCorrecting}
               />
@@ -113,7 +166,8 @@ function MemoryBrowser() {
 
       {data && (
         <p className="text-[11px] tracking-wide uppercase text-text-tertiary">
-          Showing {data.items.length} items · route: {data.route} · intent: {data.intent}
+          Showing {data.items.length} items · route: {data.route} · intent:{" "}
+          {data.intent}
         </p>
       )}
     </div>
@@ -162,12 +216,29 @@ function MemoryRow({
             <MetaField label="ID" value={item.id} mono />
             <MetaField label="Project" value={item.project ?? "—"} />
             <MetaField label="Namespace" value={item.namespace ?? "—"} />
-            <MetaField label="Source Agent" value={item.source_agent ?? "—"} mono />
-            <MetaField label="Source System" value={item.source_system ?? "—"} />
-            <MetaField label="Source Quality" value={item.source_quality ?? "—"} />
+            <MetaField
+              label="Source Agent"
+              value={item.source_agent ?? "—"}
+              mono
+            />
+            <MetaField
+              label="Source System"
+              value={item.source_system ?? "—"}
+            />
+            <MetaField
+              label="Source Quality"
+              value={item.source_quality ?? "—"}
+            />
             <MetaField label="Created" value={formatDate(item.created_at)} />
             <MetaField label="Updated" value={formatDate(item.updated_at)} />
-            <MetaField label="Verified" value={item.last_verified_at ? formatDate(item.last_verified_at) : "never"} />
+            <MetaField
+              label="Verified"
+              value={
+                item.last_verified_at
+                  ? formatDate(item.last_verified_at)
+                  : "never"
+              }
+            />
           </div>
 
           {/* Confidence */}
@@ -193,7 +264,9 @@ function MemoryRow({
           {item.supersedes.length > 0 && (
             <div className="text-xs text-text-tertiary">
               <span className="tracking-wide uppercase">Supersedes: </span>
-              <span className="font-mono">{item.supersedes.map((id) => id.slice(0, 8)).join(", ")}</span>
+              <span className="font-mono">
+                {item.supersedes.map((id) => id.slice(0, 8)).join(", ")}
+              </span>
             </div>
           )}
 
@@ -224,65 +297,25 @@ function MemoryRow({
   );
 }
 
-function MetaField({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <p className="text-[11px] tracking-wide uppercase text-text-tertiary mb-0.5">{label}</p>
-      <p className={`text-text-secondary truncate ${mono ? "font-mono text-[11px]" : "text-xs"}`}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function FilterGroup<T extends string>({
+function MetaField({
   label,
-  options,
-  selected,
-  onChange,
+  value,
+  mono,
 }: {
   label: string;
-  options: T[];
-  selected: T[];
-  onChange: (v: T[]) => void;
+  value: string;
+  mono?: boolean;
 }) {
-  const allSelected = selected.length === options.length;
-
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-2">
-        <span className="text-[11px] tracking-wide uppercase text-text-tertiary">{label}</span>
-        <button
-          onClick={() => onChange(allSelected ? [] : [...options])}
-          className="text-[10px] text-accent-bright hover:opacity-80 transition-opacity"
-        >
-          {allSelected ? "none" : "all"}
-        </button>
-      </div>
-      <div className="flex flex-wrap gap-1">
-        {options.map((opt) => {
-          const active = selected.includes(opt);
-          return (
-            <button
-              key={opt}
-              onClick={() =>
-                onChange(
-                  active
-                    ? selected.filter((s) => s !== opt)
-                    : [...selected, opt],
-                )
-              }
-              className={`px-2 py-0.5 rounded text-[11px] border transition-colors ${
-                active
-                  ? "bg-accent-primary/15 text-accent-bright border-accent-primary/40"
-                  : "bg-glass text-text-tertiary border-border-subtle hover:border-border-active"
-              }`}
-            >
-              {opt.replace(/_/g, " ")}
-            </button>
-          );
-        })}
-      </div>
+    <div>
+      <p className="text-[11px] tracking-wide uppercase text-text-tertiary mb-0.5">
+        {label}
+      </p>
+      <p
+        className={`text-text-secondary truncate ${mono ? "font-mono text-[11px]" : "text-xs"}`}
+      >
+        {value}
+      </p>
     </div>
   );
 }

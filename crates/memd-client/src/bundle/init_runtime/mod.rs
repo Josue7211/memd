@@ -62,7 +62,68 @@ pub(crate) fn render_skill_policy_query_summary(
     markdown
 }
 
+const MEMD_BRIDGE_SKILLS: [&str; 4] = ["memd", "memd-init", "memd-reload", "memd-status"];
+
+#[derive(Clone, Copy)]
+enum CapabilityBridgeMode {
+    Apply,
+    Inspect,
+}
+
+struct CapabilityBridgePaths {
+    claude_settings: PathBuf,
+    claude_skill_root: PathBuf,
+    claude_modern_commands: PathBuf,
+    claude_legacy_commands: PathBuf,
+    codex_skill_root: PathBuf,
+    codex_builtin_skill_root: PathBuf,
+    opencode_modern_commands: PathBuf,
+    opencode_legacy_commands: PathBuf,
+    opencode_modern_plugins: PathBuf,
+    opencode_legacy_plugins: PathBuf,
+}
+
+impl CapabilityBridgePaths {
+    fn new(home: &Path) -> Self {
+        Self {
+            claude_settings: home.join(".claude").join("settings.json"),
+            claude_skill_root: home.join(".claude").join("skills"),
+            claude_modern_commands: home.join(".claude").join("commands"),
+            claude_legacy_commands: home.join(".claude").join("command"),
+            codex_skill_root: home.join(".agents").join("skills"),
+            codex_builtin_skill_root: home.join(".codex").join("skills"),
+            opencode_modern_commands: home.join(".config").join("opencode").join("command"),
+            opencode_legacy_commands: home.join(".opencode").join("command"),
+            opencode_modern_plugins: home.join(".config").join("opencode").join("plugins"),
+            opencode_legacy_plugins: home.join(".opencode").join("plugins"),
+        }
+    }
+
+    fn opencode_command_roots(&self) -> [&Path; 2] {
+        [
+            &self.opencode_modern_commands,
+            &self.opencode_legacy_commands,
+        ]
+    }
+
+    fn opencode_plugin_roots(&self) -> [&Path; 2] {
+        [&self.opencode_modern_plugins, &self.opencode_legacy_plugins]
+    }
+
+    fn claude_command_roots(&self) -> [&Path; 2] {
+        [&self.claude_modern_commands, &self.claude_legacy_commands]
+    }
+}
+
 pub(crate) fn apply_capability_bridges() -> CapabilityBridgeRegistry {
+    capability_bridge_registry(CapabilityBridgeMode::Apply)
+}
+
+pub(crate) fn detect_capability_bridges() -> CapabilityBridgeRegistry {
+    capability_bridge_registry(CapabilityBridgeMode::Inspect)
+}
+
+fn capability_bridge_registry(mode: CapabilityBridgeMode) -> CapabilityBridgeRegistry {
     let mut actions = Vec::new();
     let Some(home) = home_dir() else {
         return CapabilityBridgeRegistry {
@@ -71,153 +132,103 @@ pub(crate) fn apply_capability_bridges() -> CapabilityBridgeRegistry {
         };
     };
 
-    let claude_settings = home.join(".claude").join("settings.json");
-    let claude_skill_root = home.join(".claude").join("skills");
-    let claude_modern_commands = home.join(".claude").join("commands");
-    let claude_legacy_commands = home.join(".claude").join("command");
-    let codex_skill_root = home.join(".agents").join("skills");
-    let codex_builtin_skill_root = home.join(".codex").join("skills");
-    let opencode_modern_commands = home.join(".config").join("opencode").join("command");
-    let opencode_legacy_commands = home.join(".opencode").join("command");
-    let opencode_modern_plugins = home.join(".config").join("opencode").join("plugins");
-    let opencode_legacy_plugins = home.join(".opencode").join("plugins");
-    for target_root in [&opencode_modern_commands, &opencode_legacy_commands] {
-        actions.extend(ensure_opencode_command_skill_bridges(
-            &codex_builtin_skill_root,
-            target_root,
-            "codex",
-        ));
-        actions.extend(ensure_opencode_command_skill_bridges(
-            &codex_skill_root,
-            target_root,
-            "codex-bridge",
-        ));
-    }
-    for skill_name in ["memd", "memd-init", "memd-reload", "memd-status"] {
-        let source_skill = codex_builtin_skill_root.join(skill_name);
-        if source_skill.is_dir() {
-            let target = claude_skill_root.join(skill_name);
-            actions.push(ensure_directory_skill_bridge(
-                "claude",
-                skill_name,
-                &source_skill,
-                &target,
-            ));
-        }
-    }
-    for target_root in [&claude_modern_commands, &claude_legacy_commands] {
-        actions.extend(ensure_claude_command_bridges(
-            &codex_builtin_skill_root,
-            target_root,
-            "codex",
-        ));
-    }
-    let plugin_records = collect_enabled_plugin_cache_records(&claude_settings, &home);
-    for record in plugin_records {
-        let source_skills = record.cache_root.join("skills");
-        if source_skills.is_dir() {
-            let target = codex_skill_root.join(&record.plugin_name);
-            actions.push(ensure_directory_skill_bridge(
-                "codex",
-                &record.plugin_name,
-                &source_skills,
-                &target,
-            ));
-        }
-
-        let source_opencode_plugins = record.cache_root.join(".opencode").join("plugins");
-        if source_opencode_plugins.is_dir() {
-            for target_root in [&opencode_modern_plugins, &opencode_legacy_plugins] {
-                let target = target_root.join(&record.plugin_name);
-                actions.push(ensure_directory_skill_bridge(
-                    "opencode",
-                    &record.plugin_name,
-                    &source_opencode_plugins,
-                    &target,
+    let paths = CapabilityBridgePaths::new(&home);
+    for target_root in paths.opencode_command_roots() {
+        match mode {
+            CapabilityBridgeMode::Apply => {
+                actions.extend(ensure_opencode_command_skill_bridges(
+                    &paths.codex_builtin_skill_root,
+                    target_root,
+                    "codex",
+                ));
+                actions.extend(ensure_opencode_command_skill_bridges(
+                    &paths.codex_skill_root,
+                    target_root,
+                    "codex-bridge",
+                ));
+            }
+            CapabilityBridgeMode::Inspect => {
+                actions.extend(inspect_opencode_command_skill_bridges(
+                    &paths.codex_builtin_skill_root,
+                    target_root,
+                    "codex",
+                ));
+                actions.extend(inspect_opencode_command_skill_bridges(
+                    &paths.codex_skill_root,
+                    target_root,
+                    "codex-bridge",
                 ));
             }
         }
     }
 
-    CapabilityBridgeRegistry {
-        generated_at: Utc::now(),
-        actions,
-    }
-}
-
-pub(crate) fn detect_capability_bridges() -> CapabilityBridgeRegistry {
-    let mut actions = Vec::new();
-    let Some(home) = home_dir() else {
-        return CapabilityBridgeRegistry {
-            generated_at: Utc::now(),
-            actions,
-        };
-    };
-
-    let claude_settings = home.join(".claude").join("settings.json");
-    let claude_skill_root = home.join(".claude").join("skills");
-    let claude_modern_commands = home.join(".claude").join("commands");
-    let claude_legacy_commands = home.join(".claude").join("command");
-    let codex_skill_root = home.join(".agents").join("skills");
-    let codex_builtin_skill_root = home.join(".codex").join("skills");
-    let opencode_modern_commands = home.join(".config").join("opencode").join("command");
-    let opencode_legacy_commands = home.join(".opencode").join("command");
-    let opencode_modern_plugins = home.join(".config").join("opencode").join("plugins");
-    let opencode_legacy_plugins = home.join(".opencode").join("plugins");
-    for target_root in [&opencode_modern_commands, &opencode_legacy_commands] {
-        actions.extend(inspect_opencode_command_skill_bridges(
-            &codex_builtin_skill_root,
-            target_root,
-            "codex",
-        ));
-        actions.extend(inspect_opencode_command_skill_bridges(
-            &codex_skill_root,
-            target_root,
-            "codex-bridge",
-        ));
-    }
-    for skill_name in ["memd", "memd-init", "memd-reload", "memd-status"] {
-        let source_skill = codex_builtin_skill_root.join(skill_name);
+    for skill_name in MEMD_BRIDGE_SKILLS {
+        let source_skill = paths.codex_builtin_skill_root.join(skill_name);
         if source_skill.is_dir() {
-            let target = claude_skill_root.join(skill_name);
-            actions.push(inspect_directory_skill_bridge(
-                "claude",
-                skill_name,
-                &source_skill,
-                &target,
-            ));
+            let target = paths.claude_skill_root.join(skill_name);
+            actions.push(match mode {
+                CapabilityBridgeMode::Apply => {
+                    ensure_directory_skill_bridge("claude", skill_name, &source_skill, &target)
+                }
+                CapabilityBridgeMode::Inspect => {
+                    inspect_directory_skill_bridge("claude", skill_name, &source_skill, &target)
+                }
+            });
         }
     }
-    for target_root in [&claude_modern_commands, &claude_legacy_commands] {
-        actions.extend(inspect_claude_command_bridges(
-            &codex_builtin_skill_root,
-            target_root,
-            "codex",
-        ));
+
+    for target_root in paths.claude_command_roots() {
+        actions.extend(match mode {
+            CapabilityBridgeMode::Apply => {
+                ensure_claude_command_bridges(&paths.codex_builtin_skill_root, target_root, "codex")
+            }
+            CapabilityBridgeMode::Inspect => inspect_claude_command_bridges(
+                &paths.codex_builtin_skill_root,
+                target_root,
+                "codex",
+            ),
+        });
     }
-    let plugin_records = collect_enabled_plugin_cache_records(&claude_settings, &home);
+
+    let plugin_records = collect_enabled_plugin_cache_records(&paths.claude_settings, &home);
     for record in plugin_records {
         let source_skills = record.cache_root.join("skills");
         if source_skills.is_dir() {
-            let target = codex_skill_root.join(&record.plugin_name);
-            actions.push(inspect_directory_skill_bridge(
-                "codex",
-                &record.plugin_name,
-                &source_skills,
-                &target,
-            ));
+            let target = paths.codex_skill_root.join(&record.plugin_name);
+            actions.push(match mode {
+                CapabilityBridgeMode::Apply => ensure_directory_skill_bridge(
+                    "codex",
+                    &record.plugin_name,
+                    &source_skills,
+                    &target,
+                ),
+                CapabilityBridgeMode::Inspect => inspect_directory_skill_bridge(
+                    "codex",
+                    &record.plugin_name,
+                    &source_skills,
+                    &target,
+                ),
+            });
         }
 
         let source_opencode_plugins = record.cache_root.join(".opencode").join("plugins");
         if source_opencode_plugins.is_dir() {
-            for target_root in [&opencode_modern_plugins, &opencode_legacy_plugins] {
+            for target_root in paths.opencode_plugin_roots() {
                 let target = target_root.join(&record.plugin_name);
-                actions.push(inspect_directory_skill_bridge(
-                    "opencode",
-                    &record.plugin_name,
-                    &source_opencode_plugins,
-                    &target,
-                ));
+                actions.push(match mode {
+                    CapabilityBridgeMode::Apply => ensure_directory_skill_bridge(
+                        "opencode",
+                        &record.plugin_name,
+                        &source_opencode_plugins,
+                        &target,
+                    ),
+                    CapabilityBridgeMode::Inspect => inspect_directory_skill_bridge(
+                        "opencode",
+                        &record.plugin_name,
+                        &source_opencode_plugins,
+                        &target,
+                    ),
+                });
             }
         }
     }
@@ -622,7 +633,7 @@ pub(crate) fn ensure_claude_command_bridges(
     capability_prefix: &str,
 ) -> Vec<CapabilityBridgeAction> {
     let mut actions = Vec::new();
-    for skill_name in ["memd", "memd-init", "memd-reload", "memd-status"] {
+    for skill_name in MEMD_BRIDGE_SKILLS {
         let source_skill = source_root.join(skill_name).join("SKILL.md");
         if !source_skill.is_file() {
             continue;
@@ -644,7 +655,7 @@ pub(crate) fn inspect_claude_command_bridges(
     capability_prefix: &str,
 ) -> Vec<CapabilityBridgeAction> {
     let mut actions = Vec::new();
-    for skill_name in ["memd", "memd-init", "memd-reload", "memd-status"] {
+    for skill_name in MEMD_BRIDGE_SKILLS {
         let source_skill = source_root.join(skill_name).join("SKILL.md");
         if !source_skill.is_file() {
             continue;
