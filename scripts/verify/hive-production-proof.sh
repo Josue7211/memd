@@ -46,6 +46,8 @@ need jq
 need python3
 need git
 
+"$ROOT/scripts/verify/hive-live-map-guard-contract.sh"
+
 MEMD_CARGO_TARGET_DIR="${MEMD_CARGO_TARGET_DIR:-${TMPDIR:-/tmp}/memd-cargo-target-hive-proof}"
 source "$ROOT/scripts/lib/memd-cargo-env.sh"
 memd_cargo_refuse_on_host_blockers

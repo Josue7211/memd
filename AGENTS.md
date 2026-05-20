@@ -68,3 +68,4 @@ These instructions are managed by memd.
 - `scripts/deploy-memd-server-preflight.sh` must not run local Git on `/Volumes/...` without a fresh clear host report. If the report is missing, stale, or blocked, `MEMD_GIT_DIRTY=unknown` with `MEMD_GIT_STATUS_BLOCKERS` is the correct safe result.
 - `MEMD_HOST_IO_GUARD=0` is the intentional override for rare manual recovery work; do not set it for normal agent builds/tests.
 - If awareness reports `codebase_live_map status=blocked`, `host_process_blocked`, `host_process_scan_timeout`, `host_filesystem_blocked`, or `awareness_scan_skipped`, stop broad repo scans, Git, and Cargo work for same-repo/filesystem/unknown blockers. Report sibling project hints as awareness and coordinate with the owning agent without treating them as memd build blockers.
+- Contract: `docs/contracts/hive-live-map-guard.md`.
