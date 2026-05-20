@@ -38,6 +38,8 @@ small sibling module over extending a large parent module.
 
 - Keep source files below `MEMD_HYGIENE_MAX_SOURCE_LINES`, default `2500`.
 - Run `scripts/verify/repo-hygiene-guard.sh` before broad cleanup commits.
+- Run `scripts/clean-local-artifacts.sh` to dry-run cleanup of ignored local
+  build/runtime artifacts; add `--apply` only when the candidate list is safe.
 - Move repeated route UI into `components/ui` before adding another route-local
   copy.
 - Move repeated CLI arg groups into `args_*.rs` before extending `args.rs`.
