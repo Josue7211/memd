@@ -31,6 +31,38 @@ find crates -type f -name '*.rs' -print0 \
   | head -30
 echo
 
+echo "OVERSIZED_SOURCE_FILES_OVER_5000_LINES"
+find crates apps integrations tests scripts \
+  \( -path '*/node_modules' -o -path 'apps/dist' -o -path './apps/dist' -o -path 'apps/dashboard/dist' -o -path './apps/dashboard/dist' -o -path 'apps/.astro' -o -path './apps/.astro' \) -prune \
+  -o -type f \( -name '*.rs' -o -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.astro' -o -name '*.sh' -o -name '*.py' \) -print 2>/dev/null \
+  | while IFS= read -r path; do
+      [[ -f "$path" ]] || continue
+      lines="$(wc -l <"$path" | tr -d '[:space:]')"
+      if [[ "$lines" -gt 5000 ]]; then
+        printf '%s %s\n' "$lines" "$path"
+      fi
+    done \
+  | sort -nr \
+  | head -50
+echo
+
+echo "EMPTY_DIRECTORIES"
+find . \
+  \( -path './.git' -o -path './target' -o -path '*/node_modules' -o -path './apps/dist' -o -path './apps/dashboard/dist' -o -path './apps/.astro' -o -path './.memd' \) -prune \
+  -o -type d -empty -print \
+  | sort
+echo
+
+echo "REQUIRED_MANIFESTS"
+for path in Cargo.toml Cargo.lock apps/package.json apps/package-lock.json apps/dashboard/package.json apps/dashboard/package-lock.json; do
+  if [[ -f "$path" ]]; then
+    printf 'present %s\n' "$path"
+  else
+    printf 'missing %s\n' "$path"
+  fi
+done
+echo
+
 echo "LOCAL_WORKTREES"
 git worktree list
 echo

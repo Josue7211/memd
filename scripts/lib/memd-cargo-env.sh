@@ -174,7 +174,7 @@ memd_cargo_host_blockers() {
   fi
 
   { memd_host_io_ps_snapshot "$repo_root" "$volume_root" 2>/dev/null || true; } | awk -v repo="$repo_root" -v volume="$volume_root" '
-    /project_hint=host-process-scan/ { print; next }
+    /^(repo|unknown|volume:[^[:space:]]+) project_hint=host-process-scan / { print; next }
     NR == 1 && $1 == "PID" { next }
     {
       pid = $1
@@ -182,6 +182,9 @@ memd_cargo_host_blockers() {
       $1 = $2 = $3 = ""
       sub(/^[[:space:]]+/, "", $0)
       command = $0
+      if (command ~ /^awk -v repo=/ && command ~ /active_runtime = command/) {
+        next
+      }
       active_runtime = command ~ /(cargo[[:space:]]+tauri[[:space:]]+dev|tauri[[:space:]]+dev|npm[[:space:]]+run[[:space:]]+dev|node .*vite|\/vite(\.js)?([[:space:]]|$)|agent-shell-adapter\.js|clawctrl([[:space:]]|$))/
       filesystem = command ~ /(UVFSService|mds_stores|\/mds)/
       interesting = filesystem || command ~ /(^|[[:space:]\/])(git|cargo|rustc|rustfmt|clang|clang\+\+|cc|c\+\+)([[:space:]]|$)/ || command ~ /(vitest|tsc)/
@@ -213,7 +216,7 @@ memd_cargo_host_blockers() {
       project_start = index(command, project_marker)
       if (project_start > 0) {
         project_tail = substr(command, project_start + length(project_marker))
-        split(project_tail, project_parts, /[\/[:space:]\"\047]/)
+        split(project_tail, project_parts, /[\/[:space:]"\047]/)
         if (project_parts[1] != "") {
           project = project_parts[1]
         }
@@ -249,7 +252,7 @@ memd_host_io_hard_blockers() {
     NF == 0 { next }
     block_scope == "volume" { print; next }
     /project_hint=host-io-report/ { print; next }
-    /project_hint=host-process-scan/ { print; next }
+    /^(repo|unknown|volume:[^[:space:]]+) project_hint=host-process-scan / { print; next }
     /^repo[[:space:]]/ { print; next }
     /project_hint=filesystem/ { print; next }
     repo_name != "" && index($0, "project_hint=" repo_name) > 0 { print; next }
