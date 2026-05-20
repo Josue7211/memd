@@ -7,10 +7,19 @@ on:
       - ".github/PULL_REQUEST_TEMPLATE.md"
       - ".github/CODEOWNERS"
       - ".coderabbit.yaml"
-      - ".github/workflows/ci.yml"
       - ".github/workflows/cargo-audit.yml"
 
 jobs:
+  hygiene:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Repo hygiene guard
+        run: bash scripts/verify/repo-hygiene-guard.sh
+
   test:
     strategy:
       fail-fast: false
