@@ -1448,6 +1448,32 @@ mod tests {
     }
 
     #[test]
+    fn latest_raw_spine_next_action_accepts_current_checkpoint_without_continuity_tag() {
+        let root = std::env::temp_dir().join(format!(
+            "memd-raw-next-plain-checkpoint-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let bundle = root.join(".memd");
+        let state = bundle.join("state");
+        std::fs::create_dir_all(&state).expect("create state");
+        std::fs::write(
+            state.join("raw-spine.jsonl"),
+            r#"{"id":"raw-wake","stage":"canonical","tags":["checkpoint","current-task","auto-short-term","bundle-refresh","wake"],"content_preview":"status: wake project=memd namespace=main focus=\"stale cached decision\"","recorded_at":"2026-05-20T14:04:01Z"}
+{"id":"raw-current","stage":"canonical","tags":["checkpoint","current-task"],"content_preview":"CURRENT CHECKPOINT after commit fefb5866: continuity now surfaces exact unblock actions. Git clean, live map current, hive no blockers. Remaining real gates: approved messages/email metadata or explicit approved-zero; Supermemory replay artifact or process-local approved credential after Bitwarden unlock.","recorded_at":"2026-05-20T14:03:07Z"}
+{"id":"raw-stale","stage":"canonical","tags":["checkpoint","current-task","continuity"],"content_preview":"CURRENT CHECKPOINT after commit 75bf0736: stale live-map contract slice.","recorded_at":"2026-05-20T13:57:21Z"}"#,
+        )
+        .expect("write raw spine");
+
+        let raw_next = latest_raw_spine_next_action(&bundle).expect("raw next action");
+
+        assert!(raw_next.contains("raw-current"), "{raw_next}");
+        assert!(raw_next.contains("fefb5866"), "{raw_next}");
+        assert!(!raw_next.contains("raw-wake"), "{raw_next}");
+        assert!(!raw_next.contains("raw-stale"), "{raw_next}");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn continuity_blocker_prefers_explicit_next_action_blockers_over_refresh_pressure() {
         let mut snapshot = ResumeSnapshot::empty();
         snapshot.refresh_recommended = true;
@@ -1468,6 +1494,21 @@ mod tests {
             continuity.blocker.as_deref(),
             Some("Supermemory same-fixture replay and full external public proof opt-in")
         );
+    }
+
+    #[test]
+    fn continuity_next_ignores_auto_bundle_refresh_status_records() {
+        let mut snapshot = ResumeSnapshot::empty();
+        snapshot.preferences = vec![
+            "id=auto | stage=canonical | kind=decision | status=active | tags=checkpoint,current-task,auto-short-term,bundle-refresh,wake | upd=1779285841 | c=status: wake project=memd namespace=main focus=\"id=old | kind=decision | c=stale\" source_path=wake".to_string(),
+            "id=current | stage=canonical | kind=decision | status=active | tags=checkpoint,current-task | upd=1779285787 | c=CURRENT CHECKPOINT after commit fefb5866: continuity now surfaces exact unblock actions. Remaining real gates: approved messages/email metadata or explicit approved-zero; Supermemory replay artifact or process-local approved credential after Bitwarden unlock.".to_string(),
+        ];
+
+        let continuity = snapshot.continuity_capsule();
+
+        let next = continuity.next_action.as_deref().unwrap_or_default();
+        assert!(next.contains("fefb5866"), "{next}");
+        assert!(!next.contains("status: wake project"), "{next}");
     }
 
     #[test]
@@ -3299,10 +3340,21 @@ fn is_procedural_record_text(record: &str) -> bool {
 
 fn is_next_action_record(record: &str) -> bool {
     let normalized = record.to_ascii_lowercase();
+    if is_auto_bundle_refresh_status_record(&normalized) {
+        return false;
+    }
     is_decision_record_text(record)
         || normalized.contains("next-agent")
         || normalized.contains("next action")
         || normalized.contains("next_action")
+}
+
+fn is_auto_bundle_refresh_status_record(normalized: &str) -> bool {
+    (normalized.contains("status: wake project=")
+        || normalized.contains("source_path=wake")
+        || normalized.contains("source_path=checkpoint")
+        || normalized.contains("source_path=handoff"))
+        && (normalized.contains("auto-short-term") || normalized.contains("bundle-refresh"))
 }
 
 fn best_next_action_record(records: Vec<String>) -> Option<String> {
@@ -3363,7 +3415,7 @@ fn latest_raw_spine_next_action(output: &Path) -> Option<String> {
             let looks_like_current_checkpoint =
                 content_lower.contains("current checkpoint")
                     && tags.iter().any(|tag| *tag == "current-task")
-                    && tags.iter().any(|tag| *tag == "continuity")
+                    && tags.iter().any(|tag| *tag == "checkpoint")
                     && !tags.iter().any(|tag| *tag == "auto-short-term");
             let looks_like_next = content_lower.contains("current next action")
                 || looks_like_current_checkpoint
