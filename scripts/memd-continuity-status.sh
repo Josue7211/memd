@@ -375,3 +375,15 @@ if [[ -f "$host_awareness" ]]; then
     }
   ' "$host_awareness"
 fi
+
+unblock_status_script="${MEMD_UNBLOCK_STATUS_SCRIPT:-$ROOT/scripts/memd-unblock-status.sh}"
+if [[ -x "$unblock_status_script" ]]; then
+  set +e
+  unblock_status_output="$("$unblock_status_script" 2>&1)"
+  unblock_status_exit=$?
+  set -e
+  printf 'UNBLOCK_STATUS_SCRIPT_EXIT=%s\n' "$unblock_status_exit"
+  printf '%s\n' "$unblock_status_output" | awk '
+    /^UNBLOCK_/ { print }
+  '
+fi
