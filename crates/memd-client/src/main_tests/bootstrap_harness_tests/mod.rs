@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Stdio};
 
@@ -279,8 +280,11 @@ fn agent_profiles_include_teach_helpers_for_user_taught_facts() {
     assert!(teach_ps1.contains("@(\"teach\", \"--output\""));
     assert!(teach_ps1.contains("MEMD_BIN"));
 
-    let metadata = fs::metadata(dir.join("agents/teach.sh")).expect("teach sh metadata");
-    assert_ne!(metadata.permissions().mode() & 0o111, 0);
+    #[cfg(unix)]
+    {
+        let metadata = fs::metadata(dir.join("agents/teach.sh")).expect("teach sh metadata");
+        assert_ne!(metadata.permissions().mode() & 0o111, 0);
+    }
 
     fs::remove_dir_all(dir).expect("cleanup teach helper temp");
 }
@@ -1574,9 +1578,12 @@ fn codex_pack_backend_failure_falls_back_to_local_bundle_truth() {
 
 fn write_executable(path: &Path, content: &str) {
     fs::write(path, content).expect("write executable");
-    let mut perms = fs::metadata(path).expect("read metadata").permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(path, perms).expect("set executable permissions");
+    #[cfg(unix)]
+    {
+        let mut perms = fs::metadata(path).expect("read metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(path, perms).expect("set executable permissions");
+    }
 }
 
 fn run_bootstrap_hook(
