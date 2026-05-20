@@ -31,7 +31,7 @@ find crates -type f -name '*.rs' -print0 \
   | head -30
 echo
 
-MAX_SOURCE_LINES="${MEMD_HYGIENE_MAX_SOURCE_LINES:-3000}"
+MAX_SOURCE_LINES="${MEMD_HYGIENE_MAX_SOURCE_LINES:-2500}"
 
 echo "OVERSIZED_SOURCE_FILES_OVER_${MAX_SOURCE_LINES}_LINES"
 find crates apps integrations tests scripts \
