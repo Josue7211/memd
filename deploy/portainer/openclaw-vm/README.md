@@ -1,19 +1,23 @@
-# Deprecated Path
+# memd Portainer Deployment
 
-Do not deploy memd from this directory.
+Deploy memd from the memd repo, not from ClawControl.
 
-memd is its own stack. The canonical deployment path is:
+Canonical Portainer stack file:
 
-- `deploy/memd-authority/openclaw-vm/memd-authority.compose.yml`
+- `deploy/portainer/memd-authority.stack.yml`
+
+Scripted deployment path:
+
 - `scripts/deploy-memd-authority.sh`
 
-Canonical runtime ownership:
+Runtime ownership:
 
 - stack: `memd-authority-stack`
 - container: `memd-authority`
 - image repo: `memd-authority`
 - network: `memd-authority-network`
 - volume: `memd_authority_data`
+- host port: `${MEMD_AUTHORITY_PORT:-8788}` -> container `8787`
 
-This path remains only so old references fail visibly instead of silently
-recreating a mixed app stack. Do not add a compose file here.
+ClawControl should consume this service through `MEMD_BASE_URL`; it must not
+define, build, start, stop, or migrate memd services.
