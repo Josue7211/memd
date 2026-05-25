@@ -17,9 +17,11 @@ ARG MEMD_GIT_DIRTY=unknown
 
 WORKDIR /srv/memd
 COPY --from=builder /app/target/release/memd-server /usr/local/bin/memd-server
+COPY apps/dashboard/dist ./apps/dashboard/dist
 
 ENV MEMD_DB_PATH=/data/memd.db
 ENV MEMD_BIND_ADDR=0.0.0.0:8787
+ENV MEMD_DASHBOARD_DIST=/srv/memd/apps/dashboard/dist
 ENV MEMD_GIT_BRANCH=${MEMD_GIT_BRANCH}
 ENV MEMD_GIT_COMMIT=${MEMD_GIT_COMMIT}
 ENV MEMD_GIT_DIRTY=${MEMD_GIT_DIRTY}
