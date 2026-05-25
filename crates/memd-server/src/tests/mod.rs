@@ -1345,7 +1345,7 @@ async fn tiny_ollama_context_packet_route_preserves_core_sections_and_server_syn
             records: vec![CapabilityRecord {
                 harness: "ollama".to_string(),
                 kind: "model".to_string(),
-                name: "qwen-local-profile".to_string(),
+                name: "tiny-local-profile".to_string(),
                 status: "available".to_string(),
                 portability_class: "local-model".to_string(),
                 source_path: "ollama:list".to_string(),
@@ -1472,7 +1472,7 @@ async fn tiny_ollama_context_packet_route_preserves_core_sections_and_server_syn
     }
     assert!(packet.packet.contains("Brenda owns"));
     assert!(packet.packet.contains("unlock Bitwarden"));
-    assert!(packet.packet.contains("qwen-local-profile"));
+    assert!(packet.packet.contains("tiny-local-profile"));
     assert!(packet.packet.contains("bitwarden"));
     assert!(packet.packet.contains("ollama-local"));
 

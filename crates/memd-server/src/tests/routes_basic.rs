@@ -598,13 +598,13 @@ async fn hive_board_route_auto_retires_stale_sessions() {
 }
 
 #[tokio::test]
-async fn dashboard_route_surfaces_hive_controls_and_coordination_endpoints() {
+async fn dashboard_root_redirects_to_react_dashboard_and_coordination_endpoints_remain_live() {
     let (dir, state) = temp_state("memd-dashboard-hive-controls");
     crate::ui::test_insert_visible_item(&state, "runtime spine", true)
         .expect("seed visible memory");
     seed_hive_route_state(&state);
     let app = Router::new()
-        .route("/", get(dashboard))
+        .route("/", get(dashboard_redirect))
         .route(
             "/coordination/sessions/retire",
             post(post_hive_session_retire),
@@ -631,26 +631,14 @@ async fn dashboard_route_surfaces_hive_controls_and_coordination_endpoints() {
         )
         .await
         .expect("run dashboard route");
-    assert_eq!(response.status(), StatusCode::OK);
-    let html = String::from_utf8(
-        to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("read dashboard body")
-            .to_vec(),
-    )
-    .expect("decode dashboard html");
-    assert!(html.contains("data-hive-queen-action=\"deny-focused\""));
-    assert!(html.contains("data-hive-queen-action=\"reroute-focused\""));
-    assert!(html.contains("data-hive-queen-action=\"handoff-focused\""));
-    assert!(html.contains("/hive/queen/deny"));
-    assert!(html.contains("/hive/queen/reroute"));
-    assert!(html.contains("/hive/queen/handoff"));
-    assert!(html.contains("queen auto-retire"));
-    assert!(html.contains("<strong>action</strong>"));
-    assert!(html.contains("<strong>latest message</strong>"));
-    assert!(html.contains("<strong>latest receipt</strong>"));
-    assert!(html.contains("window.setInterval(refreshHiveBoardIfVisible, hiveRefreshIntervalMs)"));
-    assert!(html.contains("const hiveRefreshIntervalMs = 5000;"));
+    assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+    assert_eq!(
+        response
+            .headers()
+            .get("location")
+            .and_then(|v| v.to_str().ok()),
+        Some("/dashboard/")
+    );
 
     let receipt_response = app
         .clone()

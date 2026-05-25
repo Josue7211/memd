@@ -13,6 +13,11 @@
 /.memd/*
 # A3-D5: the live memory contract is the published shape — track it.
 !/.memd/contract.json
+# Runtime defaults are part of the shared agent contract; keep only non-secret
+# bundle config tracked.
+!/.memd/config.json
+!/.memd/env
+!/.memd/env.ps1
 # A3 Part 2: hook scripts are part of the continuity foundation.
 !/.memd/hooks/
 !/.memd/hooks/**

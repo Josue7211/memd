@@ -425,7 +425,7 @@ pub(crate) fn display_bootstrap_source_path(path: &Path, project_root: Option<&P
 }
 
 pub(crate) fn default_heartbeat_model() -> String {
-    "llama-desktop/qwen".to_string()
+    "gpt-5.4-mini".to_string()
 }
 
 pub(crate) fn default_bundle_session() -> String {

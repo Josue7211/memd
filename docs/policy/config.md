@@ -43,7 +43,7 @@ model. This is the cheap coordination lane used for:
 - shared short-term cowork awareness
 - low-cost cross-harness status updates
 
-The bundle defaults it to `llama-desktop/qwen` as the lightweight heartbeat
+The bundle defaults it to `gpt-5.4-mini` via codex-lb as the lightweight heartbeat
 preference currently used in the adjacent OpenClaw runtime path. Treat this as
 the 0.8B-class lane, not the primary reasoning lane.
 

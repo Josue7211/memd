@@ -39,7 +39,10 @@ pub(crate) use rag_bridge::*;
 pub(crate) use routes::*;
 pub(crate) use store::{DuplicateMatch, RecordEventArgs, SqliteStore};
 
-use std::collections::{HashSet, VecDeque};
+use std::{
+    collections::{HashSet, VecDeque},
+    path::PathBuf,
+};
 
 use anyhow::Context;
 use axum::{
@@ -47,7 +50,7 @@ use axum::{
     extract::{Query, Request, State},
     http::StatusCode,
     middleware::Next,
-    response::{Html, Response},
+    response::{Redirect, Response},
     routing::{get, post},
 };
 use chrono::Utc;
@@ -105,7 +108,11 @@ use memd_schema::{
 };
 pub(crate) use routing::RetrievalPlan;
 use serde::Deserialize;
-use tower_http::trace::TraceLayer;
+use tower_http::{
+    services::{ServeDir, ServeFile},
+    set_status::SetStatus,
+    trace::TraceLayer,
+};
 use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
@@ -117,6 +124,23 @@ struct AppState {
     rate_limiter: std::sync::Arc<rate_limit::RateLimiter>,
     rag: Option<std::sync::Arc<RagClient>>,
     embedder: Option<std::sync::Arc<embed::Embedder>>,
+}
+
+pub(crate) async fn dashboard_redirect() -> Redirect {
+    Redirect::permanent("/dashboard/")
+}
+
+fn dashboard_dist_dir() -> PathBuf {
+    std::env::var_os("MEMD_DASHBOARD_DIST")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../apps/dashboard/dist")
+        })
+}
+
+fn dashboard_static_service() -> ServeDir<SetStatus<ServeFile>> {
+    let dist = dashboard_dist_dir();
+    ServeDir::new(&dist).not_found_service(ServeFile::new(dist.join("index.html")))
 }
 
 // B3-Part2-prereq: kill-switch for quadratic entity auto-link on the store hot path.
@@ -906,7 +930,8 @@ async fn main() {
     };
     schedule_reembed_sweep(state.clone());
     let app = Router::new()
-        .route("/", get(dashboard))
+        .route("/", get(dashboard_redirect))
+        .nest_service("/dashboard", dashboard_static_service())
         .route("/ui/snapshot", get(get_visible_memory_snapshot))
         .route("/ui/artifact", get(get_visible_memory_artifact))
         .route("/ui/action", post(post_visible_memory_action))

@@ -1925,7 +1925,7 @@ fn merge_bundle_runtime_config_prefers_overlay_scope() {
         voice_mode: None,
         workspace: Some("global".to_string()),
         visibility: Some("private".to_string()),
-        heartbeat_model: Some("llama-desktop/qwen".to_string()),
+        heartbeat_model: Some("openai/gpt-5.4-mini".to_string()),
         auto_short_term_capture: true,
         auto_commit: BundleAutoCommitConfig::default(),
         authority_policy: BundleAuthorityPolicy::default(),

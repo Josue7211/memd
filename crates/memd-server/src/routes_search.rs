@@ -939,13 +939,6 @@ pub(crate) async fn healthz(
     }))
 }
 
-pub(crate) async fn dashboard(
-    State(state): State<AppState>,
-) -> Result<Html<String>, (StatusCode, String)> {
-    let snapshot = ui::build_visible_memory_snapshot(&state).map_err(internal_error)?;
-    Ok(Html(ui::dashboard_html(&snapshot, ui::UiPage::Home)))
-}
-
 pub(crate) async fn get_visible_memory_snapshot(
     State(state): State<AppState>,
 ) -> Result<Json<VisibleMemorySnapshotResponse>, (StatusCode, String)> {
@@ -1369,4 +1362,3 @@ pub(crate) async fn search_memory(
         trace,
     }))
 }
-
