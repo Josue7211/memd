@@ -4,7 +4,7 @@ import { promisify } from 'util'
 import { homedir, tmpdir } from 'os'
 import { join, resolve, extname } from 'path'
 import { createHash, timingSafeEqual, randomBytes } from 'crypto'
-import { mkdirSync, chmodSync, lstatSync, readFileSync, writeFileSync } from 'fs'
+import { mkdirSync, chmodSync, lstatSync, readFileSync, writeFileSync, readdirSync } from 'fs'
 
 const execFileP = promisify(execFile)
 const app = express()
@@ -127,6 +127,91 @@ function safeError(err) {
 async function remindctl(...args) {
   const { stdout } = await execFileP('remindctl', [...args, '--json'], { timeout: 10000 })
   try { return JSON.parse(stdout) } catch { throw new Error('remindctl returned invalid JSON') }
+}
+
+function remindersStoreDir() {
+  return join(HOME, 'Library', 'Group Containers', 'group.com.apple.reminders', 'Container_v1', 'Stores')
+}
+
+function appleDateExpression(column) {
+  return `CASE WHEN ${column} IS NULL THEN NULL ELSE datetime(${column} + 978307200, 'unixepoch') END`
+}
+
+async function sqliteJson(dbPath, query) {
+  const { stdout } = await execFileP('sqlite3', ['-json', dbPath, query], { timeout: 10000 })
+  try { return JSON.parse(stdout || '[]') } catch { return [] }
+}
+
+async function remindersFromSqlite(filter = 'all', listName = '') {
+  let files = []
+  try {
+    files = readdirSync(remindersStoreDir())
+      .filter(name => /^Data-.*\.sqlite$/.test(name))
+      .map(name => join(remindersStoreDir(), name))
+  } catch {
+    return []
+  }
+
+  const titleFilter = String(listName || '').replace(/'/g, "''")
+  const rows = []
+  for (const dbPath of files) {
+    const where = [
+      'coalesce(r.ZMARKEDFORDELETION, 0) = 0',
+      titleFilter ? `coalesce(l.ZNAME, 'Reminders') = '${titleFilter}'` : '',
+      filter === 'completed' ? 'coalesce(r.ZCOMPLETED, 0) = 1' : '',
+      ['open', 'incomplete'].includes(filter) ? 'coalesce(r.ZCOMPLETED, 0) = 0' : '',
+      filter === 'today' ? `date(${appleDateExpression('r.ZDUEDATE')}) = date('now', 'localtime')` : '',
+      filter === 'tomorrow' ? `date(${appleDateExpression('r.ZDUEDATE')}) = date('now', '+1 day', 'localtime')` : '',
+      filter === 'overdue' ? `date(${appleDateExpression('r.ZDUEDATE')}) < date('now', 'localtime') and coalesce(r.ZCOMPLETED, 0) = 0` : '',
+      ['upcoming', 'scheduled'].includes(filter) ? 'r.ZDUEDATE is not null and coalesce(r.ZCOMPLETED, 0) = 0' : '',
+    ].filter(Boolean).join(' and ')
+    const query = `
+      select
+        coalesce(r.ZCKIDENTIFIER, hex(r.ZIDENTIFIER), 'reminder:' || r.Z_PK) as id,
+        coalesce(r.ZTITLE, '') as title,
+        case when coalesce(r.ZCOMPLETED, 0) = 0 then json('false') else json('true') end as completed,
+        ${appleDateExpression('r.ZDUEDATE')} as dueDate,
+        coalesce(r.ZPRIORITY, 0) as priority,
+        r.ZNOTES as notes,
+        coalesce(l.ZNAME, 'Reminders') as list
+      from ZREMCDREMINDER r
+      left join ZREMCDBASELIST l on l.Z_PK = r.ZLIST
+      where ${where}
+      order by coalesce(r.ZDUEDATE, r.ZCREATIONDATE, 0) asc
+      limit 500;
+    `
+    rows.push(...await sqliteJson(dbPath, query))
+  }
+
+  const seen = new Set()
+  return rows.filter(row => {
+    const key = `${row.id}:${row.title}:${row.list}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+async function reminderListsFromSqlite() {
+  let files = []
+  try {
+    files = readdirSync(remindersStoreDir())
+      .filter(name => /^Data-.*\.sqlite$/.test(name))
+      .map(name => join(remindersStoreDir(), name))
+  } catch {
+    return []
+  }
+  const names = new Set()
+  for (const dbPath of files) {
+    const rows = await sqliteJson(dbPath, `
+      select coalesce(ZNAME, 'Reminders') as name
+      from ZREMCDBASELIST
+      where coalesce(ZMARKEDFORDELETION, 0) = 0
+      order by ZNAME asc;
+    `)
+    for (const row of rows) if (row.name) names.add(row.name)
+  }
+  return [...names].map(name => ({ name }))
 }
 
 function reminderFilter(filter) {
@@ -479,17 +564,26 @@ app.get('/reminders', async (req, res) => {
     const allowed = ['all', 'incomplete', 'open', 'completed', 'today', 'tomorrow', 'week', 'overdue', 'upcoming', 'scheduled']
     const filter = allowed.includes(req.query.filter) ? reminderFilter(req.query.filter) : 'all'
     res.json(await remindctl('show', filter))
-  } catch (err) { res.status(500).json({ error: safeError(err) }) }
+  } catch (err) {
+    try { res.json(await remindersFromSqlite(reminderFilter(req.query.filter))) }
+    catch { res.status(500).json({ error: safeError(err) }) }
+  }
 })
 
 app.get('/reminders/lists', async (_req, res) => {
   try { res.json(await remindctl('list')) }
-  catch (err) { res.status(500).json({ error: safeError(err) }) }
+  catch (err) {
+    try { res.json(await reminderListsFromSqlite()) }
+    catch { res.status(500).json({ error: safeError(err) }) }
+  }
 })
 
 app.get('/reminders/lists/:name', async (req, res) => {
   try { res.json(await remindctl('list', assertNotFlag(req.params.name))) }
-  catch (err) { res.status(500).json({ error: safeError(err) }) }
+  catch (err) {
+    try { res.json(await remindersFromSqlite('all', assertNotFlag(req.params.name))) }
+    catch { res.status(500).json({ error: safeError(err) }) }
+  }
 })
 
 app.post('/reminders', async (req, res) => {
@@ -1038,8 +1132,8 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'internal server error' })
 })
 
-const server = app.listen(PORT, '127.0.0.1', () => {
-  console.log(`mac-bridge listening on 127.0.0.1:${PORT}`)
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`mac-bridge listening on 0.0.0.0:${PORT}`)
   console.log('Services: reminders, notes, contacts, messages, findmy')
 })
 // Prevent slowloris DoS — headersTimeout must be > keepAliveTimeout per Node.js docs
