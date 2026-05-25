@@ -50,6 +50,50 @@ async fn lookup_with_fallbacks_retries_until_match() {
 }
 
 #[tokio::test]
+async fn lookup_route_all_retries_without_project_filters() {
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+    let client = MemdClient::new(&base_url).expect("client");
+    let req = SearchMemoryRequest {
+        query: Some("cross project imported memory".to_string()),
+        route: Some(memd_schema::RetrievalRoute::All),
+        intent: Some(memd_schema::RetrievalIntent::General),
+        scopes: vec![
+            memd_schema::MemoryScope::Project,
+            memd_schema::MemoryScope::Synced,
+            memd_schema::MemoryScope::Global,
+        ],
+        kinds: vec![memd_schema::MemoryKind::Fact],
+        statuses: vec![memd_schema::MemoryStatus::Active],
+        project: Some("clawcontrol".to_string()),
+        namespace: Some("main".to_string()),
+        workspace: None,
+        visibility: None,
+        belief_branch: None,
+        source_agent: None,
+        region: None,
+        tags: Vec::new(),
+        stages: vec![memd_schema::MemoryStage::Canonical],
+        limit: Some(6),
+        max_chars_per_item: Some(280),
+    };
+
+    let response = lookup_with_fallbacks(&client, &req, "cross project imported memory")
+        .await
+        .expect("lookup fallback");
+
+    assert_eq!(response.items.len(), 1);
+    assert_eq!(response.items[0].project.as_deref(), Some("cornerstone"));
+    let requests = state.search_requests.lock().expect("lock search requests");
+    assert!(
+        requests.iter().any(|request| request.project.is_none()
+            && request.namespace.is_none()
+            && request.workspace.is_none()),
+        "expected an unscoped route=all fallback request"
+    );
+}
+
+#[tokio::test]
 async fn source_memory_request_uses_repo_bundle_identity_defaults() {
     let state = MockRuntimeState::default();
     let base_url = spawn_mock_runtime_server(state.clone(), false).await;

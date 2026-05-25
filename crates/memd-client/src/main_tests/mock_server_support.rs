@@ -965,6 +965,38 @@ pub(crate) async fn mock_search_memory(
                     version: 1,
                     correction_meta: None,
             }]
+    } else if query.contains("cross") && req.project.is_some() {
+        Vec::new()
+    } else if query.contains("cross") && req.project.is_none() {
+        vec![memd_schema::MemoryItem {
+            id: uuid::Uuid::new_v4(),
+            content: "cross project imported memory: desktop bundle record should be visible when route=all clears project filters.".to_string(),
+            redundancy_key: Some("Fact|Project|cornerstone|main||cross|desktop|imported|memory|project|route|visible".to_string()),
+            belief_branch: None,
+            preferred: false,
+            kind: memd_schema::MemoryKind::Fact,
+            scope: memd_schema::MemoryScope::Project,
+            project: Some("cornerstone".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: memd_schema::MemoryVisibility::Private,
+            source_agent: Some("codex@session-a".to_string()),
+            source_system: Some("memd".to_string()),
+            source_path: Some("desktop/.memd/state/raw-spine.jsonl:1".to_string()),
+            source_quality: Some(memd_schema::SourceQuality::Canonical),
+            confidence: 0.9,
+            ttl_seconds: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_verified_at: Some(Utc::now()),
+            supersedes: Vec::new(),
+            tags: vec!["desktop-import".to_string()],
+            status: memd_schema::MemoryStatus::Active,
+            stage: memd_schema::MemoryStage::Canonical,
+            lane: Some("desktop-import".to_string()),
+            version: 1,
+            correction_meta: None,
+        }]
     } else if query.contains("stale belief") {
         vec![memd_schema::MemoryItem {
             id: uuid::Uuid::new_v4(),
