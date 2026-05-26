@@ -16,3 +16,11 @@ path
 Other Note
 wiki-style
 integrations/codex/README.md:99-105
+# Generated/local memd lane anchors (ignored by git; referenced as source anchors in historical phase docs)
+.memd/lanes/architecture/A2-01-benchmark-harness.md
+.memd/lanes/architecture/A2-02-atlas-entity-graph.md
+.memd/lanes/architecture/A2-04-dedup.md
+.memd/lanes/architecture/A2-09-retrieval-pipeline.md
+.memd/lanes/architecture/A2-10-embedding-strategy.md
+.memd/lanes/architecture/A2-11-context-compilation-profile.md
+.memd/lanes/architecture/A2-13-temporal-freshness.md

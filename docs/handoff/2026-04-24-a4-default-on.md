@@ -17,11 +17,11 @@ Single-line change in both hook scripts:
 
 - `.memd/hooks/memd-postcompact-restore.sh`: change
   ```bash
-  if [[ "${MEMD_A4_LEDGER_SURVIVAL:-0}" != "1" ]]; then
+  if \[\[ "${MEMD_A4_LEDGER_SURVIVAL:-0}" != "1" \]\]; then
   ```
   to
   ```bash
-  if [[ "${MEMD_A4_LEDGER_SURVIVAL:-1}" == "0" ]]; then
+  if \[\[ "${MEMD_A4_LEDGER_SURVIVAL:-1}" == "0" \]\]; then
   ```
 - `.memd/hooks/memd-postcompact-restore.ps1`: same-shape inversion in the
   PowerShell check.
