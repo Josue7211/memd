@@ -596,9 +596,19 @@ pub(crate) async fn run_hive_project_command(
     let runtime = read_bundle_runtime_config(&args.output)?
         .context("reload bundle runtime config after hive-project update")?;
     let heartbeat = if action != "status" && runtime.session.is_some() {
-        Some(serde_json::to_value(
-            refresh_bundle_heartbeat(&args.output, None, false).await?,
-        )?)
+        match refresh_bundle_heartbeat(&args.output, None, false).await {
+            Ok(heartbeat) => Some(serde_json::to_value(heartbeat)?),
+            Err(err)
+                if err
+                    .to_string()
+                    .contains("test heartbeat publication to shared memd authority is blocked") =>
+            {
+                read_bundle_heartbeat(&args.output)?
+                    .map(serde_json::to_value)
+                    .transpose()?
+            }
+            Err(err) => return Err(err),
+        }
     } else {
         None
     };

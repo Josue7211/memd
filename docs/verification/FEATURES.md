@@ -893,7 +893,7 @@ Private, workspace, and broader shared memory boundaries stay explicit so the wr
 
 - version: `v3`
 - milestones: `v3`
-- status: `unverified`
+- status: `partial`
 - verification_depth: `exhaustive`
 
 #### User Contract
@@ -938,11 +938,19 @@ Private, workspace, and broader shared memory boundaries stay explicit so the wr
 - the current code already has explicit handoff and coordination surfaces, so the audit should verify that they preserve usable state rather than only emitting a summary
 - this is the contract that separates delegation memory from a plain resume snapshot
 
+
+#### 2026-05-26 Internal Alpha Evidence
+
+- `CARGO_TARGET_DIR=/mnt/t7/cargo-target cargo test -p memd-client hive_coordination_tests -- --nocapture` passed after fixing hive metadata propagation, freshness filtering, work-overlap divergence, and shared-authority test guard handling.
+- `CARGO_TARGET_DIR=/mnt/t7/cargo-target cargo test -p memd-client awareness_hive_tests -- --nocapture` passed after fixing live-map blocker filtering and stale-bee pruning.
+- `scripts/verify/hive-production-proof.sh --tailscale-canary` passed with artifacts in `docs/verification/hive-runs/2026-05-26-internal-alpha/`.
+- This is owner/internal-alpha evidence only. It does not satisfy external dogfood, elapsed-window, third-party replay, or auditor evidence gates.
+
 ### FEATURE-V3-SYNCED-HOT-LANE: Canonical Short-Term State Sync Across Clients
 
 - version: `v3`
 - milestones: `v3`
-- status: `unverified`
+- status: `partial`
 - verification_depth: `exhaustive`
 
 #### User Contract
@@ -985,11 +993,19 @@ Canonical short-term state such as focus, blockers, recovery steps, branch scope
 - the repo already derives and stores `resume_state` and hive-group/session updates, so the audit should prove those records are functioning as a canonical live lane
 - this is the contract that makes coworking feel synchronous instead of replay-based
 
+
+#### 2026-05-26 Internal Alpha Evidence
+
+- `CARGO_TARGET_DIR=/mnt/t7/cargo-target cargo test -p memd-client hive_coordination_tests -- --nocapture` passed after fixing hive metadata propagation, freshness filtering, work-overlap divergence, and shared-authority test guard handling.
+- `CARGO_TARGET_DIR=/mnt/t7/cargo-target cargo test -p memd-client awareness_hive_tests -- --nocapture` passed after fixing live-map blocker filtering and stale-bee pruning.
+- `scripts/verify/hive-production-proof.sh --tailscale-canary` passed with artifacts in `docs/verification/hive-runs/2026-05-26-internal-alpha/`.
+- This is owner/internal-alpha evidence only. It does not satisfy external dogfood, elapsed-window, third-party replay, or auditor evidence gates.
+
 ### FEATURE-V3-MERGE-COLLISION-GOVERNOR: Merge, Divergence, And Provider Collision Handling
 
 - version: `v3`
 - milestones: `v3`
-- status: `unverified`
+- status: `partial`
 - verification_depth: `exhaustive`
 
 #### User Contract
@@ -1031,3 +1047,11 @@ When local and shared truth diverge, or when multiple providers and sessions col
 
 - the client already has awareness and collision-summary code paths, so the audit should verify that they are enforcement signals, not just status decoration
 - this contract is the backstop against multi-provider overwrite bugs
+
+
+#### 2026-05-26 Internal Alpha Evidence
+
+- `CARGO_TARGET_DIR=/mnt/t7/cargo-target cargo test -p memd-client hive_coordination_tests -- --nocapture` passed after fixing hive metadata propagation, freshness filtering, work-overlap divergence, and shared-authority test guard handling.
+- `CARGO_TARGET_DIR=/mnt/t7/cargo-target cargo test -p memd-client awareness_hive_tests -- --nocapture` passed after fixing live-map blocker filtering and stale-bee pruning.
+- `scripts/verify/hive-production-proof.sh --tailscale-canary` passed with artifacts in `docs/verification/hive-runs/2026-05-26-internal-alpha/`.
+- This is owner/internal-alpha evidence only. It does not satisfy external dogfood, elapsed-window, third-party replay, or auditor evidence gates.

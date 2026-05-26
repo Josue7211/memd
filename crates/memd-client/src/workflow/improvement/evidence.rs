@@ -229,7 +229,7 @@ pub(crate) fn collect_recent_repo_changes(project_root: &Path) -> Vec<String> {
     changes
 }
 
-const REPO_DIRTY_TOTAL_PREFIX: &str = "repo_dirty_total=";
+pub(crate) const REPO_DIRTY_TOTAL_PREFIX: &str = "repo_dirty_total=";
 
 fn format_repo_dirty_total_line(status_lines: &[String]) -> String {
     let tracked = status_lines

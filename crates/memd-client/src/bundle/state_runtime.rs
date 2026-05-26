@@ -190,18 +190,42 @@ fn default_claims_args(output: &Path) -> ClaimsArgs {
     }
 }
 
+fn effective_change_summary(snapshot: &ResumeSnapshot) -> Vec<String> {
+    snapshot
+        .change_summary
+        .iter()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+        .collect()
+}
+
 fn effective_repo_changes(snapshot: &ResumeSnapshot) -> Vec<String> {
     snapshot
         .recent_repo_changes
         .iter()
         .filter_map(|line| {
             let trimmed = line.trim();
-            let is_generated_bundle_artifact =
-                [".memd/env", ".memd/env.ps1", ".memd/state/heartbeat.json"]
-                    .iter()
-                    .any(|needle| trimmed.contains(needle));
+            let is_generated_bundle_artifact = [
+                ".memd/env",
+                ".memd/env.ps1",
+                ".memd/state/claims.json",
+                ".memd/state/heartbeat.json",
+                ".memd/state/codebase-live-map.json",
+                ".memd/state/codebase-live-map-events.ndjson",
+                ".memd/state/host-io-guard.txt",
+                ".memd/state/resume-snapshot-cache.json",
+            ]
+            .iter()
+            .any(|needle| trimmed.contains(needle));
             if trimmed.is_empty()
                 || trimmed.eq_ignore_ascii_case("repo clean")
+                || trimmed.starts_with(crate::workflow::REPO_DIRTY_TOTAL_PREFIX)
                 || is_generated_bundle_artifact
             {
                 None
@@ -219,7 +243,9 @@ fn operator_freshness_status(snapshot: &ResumeSnapshot) -> &'static str {
             .is_some_and(|age| age >= 30)
     {
         "stale"
-    } else if !snapshot.change_summary.is_empty() || !effective_repo_changes(snapshot).is_empty() {
+    } else if !effective_change_summary(snapshot).is_empty()
+        || !effective_repo_changes(snapshot).is_empty()
+    {
         "changed"
     } else {
         "unchanged"
@@ -263,6 +289,7 @@ pub(crate) async fn read_bundle_state(output: &Path, base_url: &str) -> anyhow::
     expired_claims.retain(|claim| !active_keys.contains(&claim_identity(claim)));
     let claim_conflicts = build_claim_conflicts(&active_claims);
     let divergence_items = build_divergence_items(&awareness, &status);
+    let effective_change_summary = effective_change_summary(&snapshot);
     let effective_repo_changes = effective_repo_changes(&snapshot);
 
     let mut warnings = Vec::<String>::new();
@@ -330,9 +357,9 @@ pub(crate) async fn read_bundle_state(output: &Path, base_url: &str) -> anyhow::
             "status": operator_freshness_status(&snapshot),
             "since_checkpoint_minutes": snapshot.resume_state_age_minutes,
             "refresh_recommended": snapshot.refresh_recommended,
-            "change_count": snapshot.change_summary.len(),
+            "change_count": effective_change_summary.len(),
             "repo_change_count": effective_repo_changes.len(),
-            "changed": !snapshot.change_summary.is_empty() || !effective_repo_changes.is_empty(),
+            "changed": !effective_change_summary.is_empty() || !effective_repo_changes.is_empty(),
             "event_spine": snapshot.event_spine(),
         },
         "divergence": {

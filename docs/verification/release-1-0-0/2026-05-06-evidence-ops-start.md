@@ -38,3 +38,29 @@ Earliest honest 1.0.0 close: 2026-08-06, assuming every real gate passes.
 4. Start collecting correction graph chains with chain ids.
 5. Assign V19 auditor and V20 replay reviewer.
 6. Add first weekly review note by 2026-05-13.
+
+## 2026-05-26 Internal Alpha Hive/Hivemind Validation
+
+Status: internal owner-smoke passed; this is not external dogfood credit and does not close 1.0.0.
+
+Evidence artifacts: `docs/verification/hive-runs/2026-05-26-internal-alpha/`
+
+Verified commands:
+
+```bash
+CARGO_TARGET_DIR=/mnt/t7/cargo-target cargo test -p memd-client hive_coordination_tests -- --nocapture
+CARGO_TARGET_DIR=/mnt/t7/cargo-target cargo test -p memd-client awareness_hive_tests -- --nocapture
+MEMD_CARGO_TARGET_DIR=/mnt/t7/cargo-target CARGO_TARGET_DIR=/mnt/t7/cargo-target \
+  MEMD_HIVE_PROOF_KEEP_TMP=1 scripts/verify/hive-production-proof.sh --tailscale-canary
+```
+
+Observed result:
+
+- `hive_coordination_tests`: 42 passed, 0 failed.
+- `awareness_hive_tests`: 51 passed, 0 failed.
+- `hive-production-proof.sh --tailscale-canary`: exit 0.
+- Local isolated hive proof exercised roster/follow, messages/inbox/ack, task assignment/help/review, handoff receipts, claim acquire/transfer/release, dev-server lease hard-block/board visibility, lane collision rejection, and hive-join reroute.
+- Shared authority canary passed against `http://100.104.154.24:8788` under an isolated `hive-canary-*` namespace and cleaned up sessions/claims.
+
+Scope note: this upgrades hive/hivemind internal validation from failing to owner-smoke green, but real-user dogfood, elapsed-window, multi-device sync, external auditor, and third-party replay gates remain open.
+

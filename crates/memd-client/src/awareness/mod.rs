@@ -1478,6 +1478,9 @@ fn host_process_live_map_diagnostic(
         return None;
     }
     let scope = host_process_scope(&command, repo_root, volume);
+    if scope == "unknown" {
+        return None;
+    }
     let kind = if stuck {
         "host_process_blocked"
     } else {

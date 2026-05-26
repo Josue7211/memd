@@ -907,7 +907,17 @@ pub(crate) async fn run_hive_board_command(
             board
                 .stale_bees
                 .retain(|session| !retired_sessions.iter().any(|retired| retired == session));
+            let retired = retired_sessions.iter().cloned().collect::<BTreeSet<_>>();
+            board
+                .active_bees
+                .retain(|bee| !retired.contains(&bee.session));
         }
+        board.stale_bees.retain(|session| {
+            !board
+                .active_bees
+                .iter()
+                .any(|bee| bee.session.as_str() == session.as_str())
+        });
         attach_hive_collision_diagnostics(&mut board, &hive_diagnostics);
         return Ok(board);
     }

@@ -16,7 +16,7 @@ v4_status: complete
 v4_closed: 2026-05-02
 v4_composite: 3.60
 v4_deviation: docs/verification/milestones/MILESTONE-v4-deviation-2026-05-02.md
-next_step: Runtime/RAG/server/Mac Bridge/authority-search cleanup is committed. Continue evidence ops: clean secondary machine install, 3 real users, 3 harness-user pairs, 3 devices, V19 auditor, V20 third-party replay. Do not tag 1.0.0 until real gates land.
+next_step: Internal-alpha hive/hivemind owner-smoke is green with artifacts under docs/verification/hive-runs/2026-05-26-internal-alpha/. Continue evidence ops: RAG live path, short-term-to-canonical lifecycle, dashboard/runtime, sync, clean secondary machine install, real users, harness-user pairs, devices, V19 auditor, and V20 third-party replay. Do not tag 1.0.0 until real gates land.
 active_blockers: ["v14_real_user_30_day_dogfood_pending", "v15_real_user_60_day_tuning_pending", "v16_real_90_day_3_device_sync_pending", "v17_real_30_day_marketplace_pending", "v18_real_3_month_50_chain_pending", "v19_external_auditor_smoke_pending", "v20_third_party_replay_pending", "external_stranger_review_artifacts_pending_for_public_review_gate"]
 v3_tail_deferred: []
 v3_tail_followups: ["canonical rerun: LongMemEval/LoCoMo/ConvoMem via codex-lb route (OPENAI_BASE_URL=http://127.0.0.1:2455/v1 OPENAI_API_KEY=$CODEX_LB_API_KEY)"]
@@ -91,6 +91,7 @@ v21_v35_status: deferred_post_1_0_strategy
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
 - current milestone: `V20` - 1.0.0 ceiling substrate code complete; runtime authority cleanup is complete; evidence gates remain active.
 - current phase: `V20-evidence-ops` - M0-M4 dogfood installer path is done; real-user dogfood and third-party replay gates remain pending.
+- Internal-alpha hive/hivemind owner-smoke passed on 2026-05-26; this is internal validation only and does not close real evidence gates.
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
