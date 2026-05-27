@@ -66,6 +66,21 @@ where did (I|we) leave off
 Case-insensitive. Matched against the query post-sanitization (server-side
 `memd-server::query_sanitize`).
 
+## Selective expansion CEO mode
+
+`lookup` depth may add a selective-expansion CEO-mode guidance block when the
+query explicitly asks for CEO / 25-star synthesis or implicitly asks a strategic
+quality question. This is an overlay on lookup, not a new depth and not an
+auto-escalation path.
+
+CEO mode keeps the 1–3 record lookup ceiling, adds the answer-shape guidance
+`Read, Prize, Bottleneck, Moves, Recommendation, Proof`, and may emit an
+advisory hint to rerun with `--depth resume` if thread reconstruction is needed.
+The dispatcher must not silently rerun at resume depth.
+
+Normative details, labels, and eval fixtures are defined in
+`docs/contracts/selective-expansion-ceo.md`.
+
 ## Telemetry
 
 Every recall call (any depth, including `memd wake`) appends one NDJSON

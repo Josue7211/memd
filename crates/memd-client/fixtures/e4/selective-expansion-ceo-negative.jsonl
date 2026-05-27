@@ -1,0 +1,10 @@
+{"query":"configuration files","expected_mode":"normal","expected_guidance":false,"expected_hint":false}
+{"query":"json schema validation","expected_mode":"normal","expected_guidance":false,"expected_hint":false}
+{"query":"search api endpoint","expected_mode":"normal","expected_guidance":false,"expected_hint":false}
+{"query":"the migration plan","expected_mode":"normal","expected_guidance":false,"expected_hint":false}
+{"query":"where did I leave off","expected_mode":"normal","expected_guidance":false,"expected_hint":false}
+{"query":"what was I doing yesterday","expected_mode":"normal","expected_guidance":false,"expected_hint":false}
+{"query":"show me the wake brief","expected_mode":"normal","expected_guidance":false,"expected_hint":false}
+{"query":"session config path","expected_mode":"normal","expected_guidance":false,"expected_hint":false}
+{"query":"lookup limit clamping","expected_mode":"normal","expected_guidance":false,"expected_hint":false}
+{"query":"telemetry writer error handling","expected_mode":"normal","expected_guidance":false,"expected_hint":false}

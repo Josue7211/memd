@@ -1,0 +1,10 @@
+{"query":"CEO mode: make this 25/5 star","expected_mode":"ceo_explicit","expected_guidance":true,"expected_hint":true}
+{"query":"run this in CEO mode","expected_mode":"ceo_explicit","expected_guidance":true,"expected_hint":true}
+{"query":"make this 25 out of 5","expected_mode":"ceo_explicit","expected_guidance":true,"expected_hint":true}
+{"query":"think bigger about the launch plan","expected_mode":"ceo_explicit","expected_guidance":true,"expected_hint":true}
+{"query":"make this world-class","expected_mode":"ceo_explicit","expected_guidance":true,"expected_hint":true}
+{"query":"how can we make this better","expected_mode":"ceo_inferred","expected_guidance":true,"expected_hint":true}
+{"query":"what are we missing","expected_mode":"ceo_inferred","expected_guidance":true,"expected_hint":true}
+{"query":"what should we do next","expected_mode":"ceo_inferred","expected_guidance":true,"expected_hint":true}
+{"query":"why is this failing","expected_mode":"ceo_inferred","expected_guidance":true,"expected_hint":true}
+{"query":"what is the bottleneck","expected_mode":"ceo_inferred","expected_guidance":true,"expected_hint":true}

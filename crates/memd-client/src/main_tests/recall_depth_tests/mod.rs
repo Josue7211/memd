@@ -253,6 +253,125 @@ async fn lookup_depth_lookup_zero_hit_no_hint_on_neutral_query() {
     );
 }
 
+#[test]
+fn selective_expansion_ceo_mode_detects_explicit_and_inferred_triggers() {
+    use crate::runtime::recall::escalation::SelectiveExpansionMode;
+
+    assert_eq!(
+        escalation::selective_expansion_mode("CEO mode: make this 25/5 star"),
+        SelectiveExpansionMode::CeoExplicit
+    );
+    assert_eq!(
+        escalation::selective_expansion_mode("how can we make this better"),
+        SelectiveExpansionMode::CeoInferred
+    );
+    assert_eq!(
+        escalation::selective_expansion_mode("configuration files"),
+        SelectiveExpansionMode::Normal
+    );
+}
+
+#[tokio::test]
+async fn lookup_depth_lookup_ceo_mode_adds_selective_expansion_guidance() {
+    let bundle =
+        std::env::temp_dir().join(format!("memd-recall-ceo-mode-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&bundle).expect("create bundle root");
+
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+    let client = MemdClient::new(&base_url).expect("client");
+
+    let mut args = baseline_lookup_args(
+        bundle,
+        "CEO mode how can we make this 25/5 star",
+        RecallDepth::Lookup,
+    );
+    args.tag = vec!["resume_state".to_string()];
+
+    let outcome = run_lookup_arm_inner(&client, &base_url, args)
+        .await
+        .expect("dispatch lookup inner");
+
+    assert!(outcome.markdown.contains("Selective expansion: CEO mode"));
+    assert!(
+        outcome
+            .markdown
+            .contains("Read, Prize, Bottleneck, Moves, Recommendation, Proof")
+    );
+    let hint = outcome.escalation_hint.expect("expected CEO mode hint");
+    assert!(hint.contains("selective expansion CEO mode"));
+    assert!(hint.contains("ceo_explicit"));
+}
+
+#[test]
+fn selective_expansion_ceo_positive_fixture_matches_contract() {
+    for (line_no, line) in
+        include_str!("../../../fixtures/e4/selective-expansion-ceo-positive.jsonl")
+            .lines()
+            .enumerate()
+    {
+        let row: serde_json::Value = serde_json::from_str(line).expect("positive fixture row");
+        let query = row["query"].as_str().expect("query");
+        let expected_mode = row["expected_mode"].as_str().expect("expected_mode");
+        let mode = escalation::selective_expansion_mode(query);
+
+        assert_eq!(
+            mode.label(),
+            expected_mode,
+            "positive fixture line {} should match expected mode",
+            line_no + 1
+        );
+        assert_eq!(
+            escalation::ceo_mode_guidance_markdown(mode).is_some(),
+            row["expected_guidance"]
+                .as_bool()
+                .expect("expected_guidance"),
+            "positive fixture line {} guidance mismatch",
+            line_no + 1
+        );
+        assert_eq!(
+            escalation::ceo_mode_hint_line(query, mode).is_some(),
+            row["expected_hint"].as_bool().expect("expected_hint"),
+            "positive fixture line {} hint mismatch",
+            line_no + 1
+        );
+    }
+}
+
+#[test]
+fn selective_expansion_ceo_negative_fixture_stays_normal() {
+    for (line_no, line) in
+        include_str!("../../../fixtures/e4/selective-expansion-ceo-negative.jsonl")
+            .lines()
+            .enumerate()
+    {
+        let row: serde_json::Value = serde_json::from_str(line).expect("negative fixture row");
+        let query = row["query"].as_str().expect("query");
+        let mode = escalation::selective_expansion_mode(query);
+
+        assert_eq!(
+            mode.label(),
+            row["expected_mode"].as_str().expect("expected_mode"),
+            "negative fixture line {} should stay normal",
+            line_no + 1
+        );
+        assert_eq!(
+            escalation::ceo_mode_guidance_markdown(mode).is_some(),
+            row["expected_guidance"]
+                .as_bool()
+                .expect("expected_guidance"),
+            "negative fixture line {} guidance mismatch",
+            line_no + 1
+        );
+        assert_eq!(
+            escalation::ceo_mode_hint_line(query, mode).is_some(),
+            row["expected_hint"].as_bool().expect("expected_hint"),
+            "negative fixture line {} hint mismatch",
+            line_no + 1
+        );
+    }
+}
+
 fn read_depth_log(bundle_root: &PathBuf) -> Vec<serde_json::Value> {
     let path = telemetry::log_path(bundle_root);
     let raw = fs::read_to_string(&path).unwrap_or_default();
