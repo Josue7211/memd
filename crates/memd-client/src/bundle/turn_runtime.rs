@@ -203,6 +203,7 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
             tokens_returned: crate::runtime::recall::telemetry::approx_tokens(wakeup.len()),
             latency_ms: recall_started.elapsed().as_millis() as u64,
             escalation_hint: None,
+            expansion_plan: None,
         });
 
     Ok(())

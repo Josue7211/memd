@@ -253,56 +253,6 @@ async fn lookup_depth_lookup_zero_hit_no_hint_on_neutral_query() {
     );
 }
 
-#[test]
-fn selective_expansion_ceo_mode_detects_explicit_and_inferred_triggers() {
-    use crate::runtime::recall::escalation::SelectiveExpansionMode;
-
-    assert_eq!(
-        escalation::selective_expansion_mode("CEO mode: make this 25/5 star"),
-        SelectiveExpansionMode::CeoExplicit
-    );
-    assert_eq!(
-        escalation::selective_expansion_mode("how can we make this better"),
-        SelectiveExpansionMode::CeoInferred
-    );
-    assert_eq!(
-        escalation::selective_expansion_mode("configuration files"),
-        SelectiveExpansionMode::Normal
-    );
-}
-
-#[tokio::test]
-async fn lookup_depth_lookup_ceo_mode_adds_selective_expansion_guidance() {
-    let bundle =
-        std::env::temp_dir().join(format!("memd-recall-ceo-mode-{}", uuid::Uuid::new_v4()));
-    fs::create_dir_all(&bundle).expect("create bundle root");
-
-    let state = MockRuntimeState::default();
-    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
-    let client = MemdClient::new(&base_url).expect("client");
-
-    let mut args = baseline_lookup_args(
-        bundle,
-        "CEO mode how can we make this 25/5 star",
-        RecallDepth::Lookup,
-    );
-    args.tag = vec!["resume_state".to_string()];
-
-    let outcome = run_lookup_arm_inner(&client, &base_url, args)
-        .await
-        .expect("dispatch lookup inner");
-
-    assert!(outcome.markdown.contains("Selective expansion: CEO mode"));
-    assert!(
-        outcome
-            .markdown
-            .contains("Read, Prize, Bottleneck, Moves, Recommendation, Proof")
-    );
-    let hint = outcome.escalation_hint.expect("expected CEO mode hint");
-    assert!(hint.contains("selective expansion CEO mode"));
-    assert!(hint.contains("ceo_explicit"));
-}
-
 fn read_depth_log(bundle_root: &PathBuf) -> Vec<serde_json::Value> {
     let path = telemetry::log_path(bundle_root);
     let raw = fs::read_to_string(&path).unwrap_or_default();
@@ -371,6 +321,83 @@ async fn telemetry_records_zero_hit_with_escalation_hint() {
         .expect("escalation_hint should be a string when set");
     assert!(hint.starts_with("hint: zero results at lookup depth."));
     assert_eq!(lines[0]["records_returned"], 0);
+}
+
+#[test]
+fn selective_expansion_ladder_rules_are_stable() {
+    let normal = crate::runtime::recall::expansion::plan_for_lookup("configuration files");
+    assert_eq!(normal.stage_names(), vec!["needle"]);
+    assert!(!normal.ceo_mode);
+
+    let ceo =
+        crate::runtime::recall::expansion::plan_for_lookup("CEO recommendation for next moves");
+    assert_eq!(ceo.stage_names(), vec!["needle", "thread", "ceo"]);
+    assert!(ceo.ceo_mode);
+    assert!(!ceo.forensics);
+
+    let forensic = crate::runtime::recall::expansion::plan_for_lookup(
+        "executive decision packet with raw history and conflict proof",
+    );
+    assert_eq!(
+        forensic.stage_names(),
+        vec!["needle", "thread", "ceo", "forensics"]
+    );
+    assert!(forensic.ceo_mode);
+    assert!(forensic.forensics);
+}
+
+#[tokio::test]
+async fn selective_expansion_ceo_packet_labels_gaps_on_zero_hits() {
+    let bundle = std::env::temp_dir().join(format!(
+        "memd-selective-expansion-ceo-{}",
+        uuid::Uuid::new_v4()
+    ));
+    fs::create_dir_all(&bundle).expect("create bundle root");
+
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+    let client = MemdClient::new(&base_url).expect("client");
+
+    let mut args = baseline_lookup_args(
+        bundle.clone(),
+        "CEO recommendation for migration strategy",
+        RecallDepth::Lookup,
+    );
+    args.json = false;
+    args.tag = vec!["resume_state".to_string()];
+
+    let outcome = run_lookup_arm_inner(&client, &base_url, args)
+        .await
+        .expect("dispatch lookup inner");
+
+    assert_eq!(
+        outcome.expansion_plan.stage_names(),
+        vec!["needle", "thread", "ceo"]
+    );
+    assert!(outcome.markdown.contains("## CEO synthesis packet"));
+    assert!(outcome.markdown.contains("### Read"));
+    assert!(outcome.markdown.contains("### Prize"));
+    assert!(outcome.markdown.contains("### Bottleneck"));
+    assert!(outcome.markdown.contains("### Moves"));
+    assert!(outcome.markdown.contains("### Recommendation"));
+    assert!(outcome.markdown.contains("### Proof"));
+    assert!(outcome.markdown.contains("Gap:"));
+
+    telemetry::record(telemetry::RecordOpts {
+        bundle_root: &bundle,
+        session_id: None,
+        query: "CEO recommendation for migration strategy",
+        depth: RecallDepth::Lookup,
+        records_returned: outcome.response.items.len(),
+        tokens_returned: telemetry::approx_tokens(outcome.markdown.len()),
+        latency_ms: 1,
+        escalation_hint: outcome.escalation_hint.as_deref(),
+        expansion_plan: Some(&outcome.expansion_plan),
+    })
+    .expect("record telemetry");
+    let lines = read_depth_log(&bundle);
+    assert_eq!(lines[0]["selective_expansion"]["stages"][0], "needle");
+    assert_eq!(lines[0]["selective_expansion"]["ceo_mode"], true);
 }
 
 // E4.5 — Test 13: `--explain-depth` produces a one-line rationale that

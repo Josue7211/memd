@@ -5,7 +5,7 @@ use std::path::Path;
 use chrono::Utc;
 use serde::Serialize;
 
-use super::RecallDepth;
+use super::{RecallDepth, expansion::ExpansionPlan};
 
 const RELPATH: &str = "logs/recall-depth.ndjson";
 
@@ -21,6 +21,15 @@ pub(crate) struct DepthLine<'a> {
     pub(crate) tokens_returned: usize,
     pub(crate) latency_ms: u64,
     pub(crate) escalation_hint: Option<&'a str>,
+    pub(crate) selective_expansion: Option<SelectiveExpansionLine<'a>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SelectiveExpansionLine<'a> {
+    pub(crate) stages: Vec<&'static str>,
+    pub(crate) ceo_mode: bool,
+    pub(crate) forensics: bool,
+    pub(crate) rationale: &'a str,
 }
 
 pub(crate) struct RecordOpts<'a> {
@@ -32,6 +41,7 @@ pub(crate) struct RecordOpts<'a> {
     pub(crate) tokens_returned: usize,
     pub(crate) latency_ms: u64,
     pub(crate) escalation_hint: Option<&'a str>,
+    pub(crate) expansion_plan: Option<&'a ExpansionPlan>,
 }
 
 pub(crate) fn record(opts: RecordOpts<'_>) -> std::io::Result<()> {
@@ -44,6 +54,12 @@ pub(crate) fn record(opts: RecordOpts<'_>) -> std::io::Result<()> {
         tokens_returned: opts.tokens_returned,
         latency_ms: opts.latency_ms,
         escalation_hint: opts.escalation_hint,
+        selective_expansion: opts.expansion_plan.map(|plan| SelectiveExpansionLine {
+            stages: plan.stage_names(),
+            ceo_mode: plan.ceo_mode,
+            forensics: plan.forensics,
+            rationale: plan.rationale,
+        }),
     };
     append_ndjson(opts.bundle_root, &line)
 }
