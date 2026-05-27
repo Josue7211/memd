@@ -115,16 +115,25 @@ pub(crate) async fn run_lookup_arm_inner(
     let runtime = read_bundle_runtime_config(&args.output)?;
     let mut args = crate::cli::apply_lookup_bundle_defaults(args, runtime.as_ref());
     let expansion_plan = expansion::plan_for_lookup(&args.query);
+    let selective_expansion_mode = escalation::selective_expansion_mode(&args.query);
     args.limit = Some(clamp_lookup_limit(args.limit));
     let req = build_lookup_request(&args, runtime.as_ref())?;
     let mut response = lookup_with_fallbacks(client, &req, &args.query).await?;
     if response.items.is_empty() {
         response = lookup_resume_snapshot_fallback(base_url, &args, &req).await?;
     }
-    let escalation_hint =
-        (response.items.is_empty() && escalation_hint_enabled() && escalation::detect(&args.query))
-            .then(|| escalation::hint_line(&args.query));
+    let escalation_hint = escalation::ceo_mode_hint_line(&args.query, selective_expansion_mode)
+        .or_else(|| {
+            (response.items.is_empty()
+                && escalation_hint_enabled()
+                && escalation::detect(&args.query))
+            .then(|| escalation::hint_line(&args.query))
+        });
     let mut markdown = render_lookup_markdown(&args.query, &req, &response, args.verbose);
+    if let Some(guidance) = escalation::ceo_mode_guidance_markdown(selective_expansion_mode) {
+        markdown.push_str("\\n");
+        markdown.push_str(&guidance);
+    }
     markdown.push_str(&format!(
         "\n- selective_expansion: {} ({})\n",
         expansion_plan.stage_names().join(" -> "),
