@@ -504,6 +504,11 @@ mod tests {
                 profile: Some("fastembed:test".to_string()),
                 indexed_count: Some(2),
             },
+            sidecar: None,
+            lightrag: None,
+            lightrag_url: None,
+            parser: None,
+            job_store_size: None,
         })
     }
 

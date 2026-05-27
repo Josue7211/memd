@@ -1,6 +1,7 @@
 use anyhow::Context;
 use memd_schema::{MemoryItem, SourceQuality};
-use serde::{Deserialize, Serialize};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -9,21 +10,82 @@ pub struct RagClient {
     http: reqwest::Client,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RagBackendHealthResponse {
     pub status: String,
     pub backend: RagBackendHealth,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidecar: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lightrag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lightrag_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parser: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_store_size: Option<usize>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RagBackendHealth {
+    #[serde(default)]
     pub connected: bool,
+    #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
     pub multimodal: bool,
     #[serde(default)]
     pub profile: Option<String>,
     #[serde(default)]
     pub indexed_count: Option<usize>,
+}
+
+impl<'de> Deserialize<'de> for RagBackendHealthResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Raw {
+            status: String,
+            #[serde(default)]
+            backend: Option<RagBackendHealth>,
+            #[serde(default)]
+            sidecar: Option<String>,
+            #[serde(default)]
+            lightrag: Option<String>,
+            #[serde(default)]
+            lightrag_url: Option<String>,
+            #[serde(default)]
+            parser: Option<String>,
+            #[serde(default)]
+            job_store_size: Option<usize>,
+        }
+
+        let raw = Raw::deserialize(deserializer)?;
+        let had_backend = raw.backend.is_some();
+        let mut backend = raw.backend.unwrap_or_default();
+        if !had_backend {
+            let sidecar_ok = matches!(raw.sidecar.as_deref(), Some("ok") | Some("healthy"));
+            let lightrag_ok = matches!(raw.lightrag.as_deref(), Some("ok") | Some("healthy"));
+            backend.connected =
+                matches!(raw.status.as_str(), "ok" | "healthy") && (sidecar_ok || lightrag_ok);
+            backend.name = Some("lightrag-sidecar".to_string());
+            backend.multimodal = true;
+            backend.profile = raw.parser.clone();
+            backend.indexed_count = raw.job_store_size;
+        }
+
+        Ok(Self {
+            status: raw.status,
+            backend,
+            sidecar: raw.sidecar,
+            lightrag: raw.lightrag,
+            lightrag_url: raw.lightrag_url,
+            parser: raw.parser,
+            job_store_size: raw.job_store_size,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +124,7 @@ pub enum RagRetrieveMode {
     Graph,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct RagRetrieveRequest {
     pub query: String,
     pub project: Option<String>,
@@ -72,18 +134,77 @@ pub struct RagRetrieveRequest {
     pub include_cross_modal: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RagRetrieveItem {
-    pub content: String,
-    pub source: Option<String>,
-    pub score: f32,
+impl Serialize for RagRetrieveRequest {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let collection = self
+            .namespace
+            .as_deref()
+            .or(self.project.as_deref())
+            .unwrap_or("default");
+        let mut state = serializer.serialize_struct("RagRetrieveRequest", 7)?;
+        state.serialize_field("collection", collection)?;
+        state.serialize_field("query", &self.query)?;
+        state.serialize_field("top_k", &self.limit.unwrap_or(5))?;
+        state.serialize_field("mode", &self.mode)?;
+        state.serialize_field("include_cross_modal", &self.include_cross_modal)?;
+        state.serialize_field("project", &self.project)?;
+        state.serialize_field("namespace", &self.namespace)?;
+        state.end()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagRetrieveItem {
+    pub content: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_score")]
+    pub score: f32,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct RagRetrieveResponse {
     pub status: String,
     pub mode: RagRetrieveMode,
     pub items: Vec<RagRetrieveItem>,
+}
+
+fn deserialize_optional_score<'de, D>(deserializer: D) -> Result<f32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Option::<f32>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+impl<'de> Deserialize<'de> for RagRetrieveResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Raw {
+            #[serde(default)]
+            status: Option<String>,
+            #[serde(default)]
+            mode: Option<RagRetrieveMode>,
+            #[serde(default)]
+            mode_used: Option<RagRetrieveMode>,
+            #[serde(default)]
+            items: Option<Vec<RagRetrieveItem>>,
+            #[serde(default)]
+            results: Option<Vec<RagRetrieveItem>>,
+        }
+
+        let raw = Raw::deserialize(deserializer)?;
+        Ok(Self {
+            status: raw.status.unwrap_or_else(|| "ok".to_string()),
+            mode: raw.mode.or(raw.mode_used).unwrap_or(RagRetrieveMode::Auto),
+            items: raw.items.or(raw.results).unwrap_or_default(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
