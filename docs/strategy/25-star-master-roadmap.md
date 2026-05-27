@@ -186,6 +186,25 @@ Kill criterion: users will not pay for the package.
 
 Recovery: V25.5 packaging/pricing reset, no feature expansion.
 
+
+## Current Next 25/5-Star Layer: V26 Network Identity
+
+Decision: after selective expansion CEO mode lands, the next 25/5-star layer is V26 Network Identity.
+
+Why this is next:
+
+- CEO mode now improves strategic recall and answer shape.
+- The next leverage point is cross-app trust, not more synthesis.
+- V26 is the first memory-network gate and unlocks federation, agent work markets, and external product adoption.
+
+Target outcome:
+
+- One portable user/org memory identity works across independent apps without private leakage.
+
+Immediate first move:
+
+- Create `docs/plans/YYYY-MM-DD-v26-network-identity-plan.md` with A-G phases: capability, UX, evidence harness, dogfood, external review, kill/recovery decision, final proof packet.
+
 ## V26-V30: 20-Star Memory Network
 
 ### V26 Network Identity
