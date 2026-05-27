@@ -3,8 +3,12 @@ use memd_schema::IngestLanesRequest;
 
 pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> anyhow::Result<()> {
     let recall_started = std::time::Instant::now();
-    // F2: Re-ingest lane source files on every wake so modified files are picked up.
-    if let Some(project_root) = infer_bundle_project_root(&args.output) {
+    // F2: Re-ingest lane source files on mutating wake so modified files are picked up.
+    // Lookup-depth wake is read-only; doing network ingestion there makes latency tests
+    // pay the lane-ingest path and can poison unrelated mock-server state.
+    if args.write
+        && let Some(project_root) = infer_bundle_project_root(&args.output)
+    {
         let runtime = read_bundle_runtime_config(&args.output).ok().flatten();
         let resolved_url = resolve_bundle_command_base_url(
             base_url,
@@ -37,7 +41,9 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
             set_bundle_tab_id(&args.output, &tab_id)?;
         }
     }
-    crate::runtime::invalidate_bundle_runtime_caches(&args.output)?;
+    if args.write {
+        crate::runtime::invalidate_bundle_runtime_caches(&args.output)?;
+    }
     let codex_pack = harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "codex");
     let agent_zero_pack =
         harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "agent-zero");
@@ -176,7 +182,9 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
             wake_token_metrics.per_kind.chars_per_kind.len(),
         );
     }
-    if codex_pack || agent_zero_pack || openclaw_pack || hermes_pack || opencode_pack {
+    if args.write
+        && (codex_pack || agent_zero_pack || openclaw_pack || hermes_pack || opencode_pack)
+    {
         let _ = refresh_harness_pack_files_for_snapshot(
             &args.output,
             &snapshot,
@@ -185,14 +193,9 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
         )
         .await?;
     }
-    if args.summary {
-        println!("{}", render_bundle_wakeup_summary(&snapshot));
-    } else {
-        println!("{wakeup}");
-    }
-
     // E4.4: every wake invocation logs a depth-telemetry line so the
-    // `recall-depth.ndjson` distribution captures wake calls too.
+    // `recall-depth.ndjson` distribution captures wake calls too. Record before
+    // stdout so terminal/backpressure does not inflate wake retrieval latency.
     let _ =
         crate::runtime::recall::telemetry::record(crate::runtime::recall::telemetry::RecordOpts {
             bundle_root: &args.output,
@@ -205,6 +208,12 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
             escalation_hint: None,
             expansion_plan: None,
         });
+
+    if args.summary {
+        println!("{}", render_bundle_wakeup_summary(&snapshot));
+    } else {
+        println!("{wakeup}");
+    }
 
     Ok(())
 }
