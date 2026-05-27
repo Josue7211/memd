@@ -253,6 +253,56 @@ async fn lookup_depth_lookup_zero_hit_no_hint_on_neutral_query() {
     );
 }
 
+#[test]
+fn selective_expansion_ceo_mode_detects_explicit_and_inferred_triggers() {
+    use crate::runtime::recall::escalation::SelectiveExpansionMode;
+
+    assert_eq!(
+        escalation::selective_expansion_mode("CEO mode: make this 25/5 star"),
+        SelectiveExpansionMode::CeoExplicit
+    );
+    assert_eq!(
+        escalation::selective_expansion_mode("how can we make this better"),
+        SelectiveExpansionMode::CeoInferred
+    );
+    assert_eq!(
+        escalation::selective_expansion_mode("configuration files"),
+        SelectiveExpansionMode::Normal
+    );
+}
+
+#[tokio::test]
+async fn lookup_depth_lookup_ceo_mode_adds_selective_expansion_guidance() {
+    let bundle =
+        std::env::temp_dir().join(format!("memd-recall-ceo-mode-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&bundle).expect("create bundle root");
+
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+    let client = MemdClient::new(&base_url).expect("client");
+
+    let mut args = baseline_lookup_args(
+        bundle,
+        "CEO mode how can we make this 25/5 star",
+        RecallDepth::Lookup,
+    );
+    args.tag = vec!["resume_state".to_string()];
+
+    let outcome = run_lookup_arm_inner(&client, &base_url, args)
+        .await
+        .expect("dispatch lookup inner");
+
+    assert!(outcome.markdown.contains("Selective expansion: CEO mode"));
+    assert!(
+        outcome
+            .markdown
+            .contains("Read, Prize, Bottleneck, Moves, Recommendation, Proof")
+    );
+    let hint = outcome.escalation_hint.expect("expected CEO mode hint");
+    assert!(hint.contains("selective expansion CEO mode"));
+    assert!(hint.contains("ceo_explicit"));
+}
+
 fn read_depth_log(bundle_root: &PathBuf) -> Vec<serde_json::Value> {
     let path = telemetry::log_path(bundle_root);
     let raw = fs::read_to_string(&path).unwrap_or_default();

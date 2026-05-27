@@ -146,10 +146,20 @@ pub(crate) async fn run_lookup_arm_inner(
         };
     }
     response = overlay_wake_current_handoff(&args.output, &args.query, &req, response);
-    let escalation_hint =
-        (response.items.is_empty() && escalation_hint_enabled() && escalation::detect(&args.query))
-            .then(|| escalation::hint_line(&args.query));
-    let markdown = render_lookup_markdown(&args.query, &req, &response, args.verbose);
+    let selective_expansion_mode = escalation::selective_expansion_mode(&args.query);
+    let escalation_hint = if escalation_hint_enabled() {
+        escalation::ceo_mode_hint_line(&args.query, selective_expansion_mode).or_else(|| {
+            (response.items.is_empty() && escalation::detect(&args.query))
+                .then(|| escalation::hint_line(&args.query))
+        })
+    } else {
+        None
+    };
+    let mut markdown = render_lookup_markdown(&args.query, &req, &response, args.verbose);
+    if let Some(guidance) = escalation::ceo_mode_guidance_markdown(selective_expansion_mode) {
+        markdown.push('\n');
+        markdown.push_str(&guidance);
+    }
     Ok(LookupArmOutcome {
         response,
         markdown,
