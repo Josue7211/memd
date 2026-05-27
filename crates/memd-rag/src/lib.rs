@@ -366,4 +366,132 @@ mod tests {
         let err = normalize_base_url("http://localhost:9000/rag").expect_err("path rejected");
         assert!(err.to_string().contains("must not include a path"));
     }
+
+    #[test]
+    fn health_response_deserializes_backend_shape() {
+        let health: RagBackendHealthResponse = serde_json::from_value(serde_json::json!({
+            "status": "ok",
+            "backend": {
+                "connected": true,
+                "name": "local",
+                "multimodal": false,
+                "profile": "fastembed:test",
+                "indexed_count": 12
+            }
+        }))
+        .expect("deserialize backend health");
+
+        assert_eq!(health.status, "ok");
+        assert!(health.backend.connected);
+        assert_eq!(health.backend.name.as_deref(), Some("local"));
+        assert!(!health.backend.multimodal);
+        assert_eq!(health.backend.profile.as_deref(), Some("fastembed:test"));
+        assert_eq!(health.backend.indexed_count, Some(12));
+        assert_eq!(health.sidecar, None);
+    }
+
+    #[test]
+    fn health_response_deserializes_lightrag_sidecar_shape_without_backend() {
+        let health: RagBackendHealthResponse = serde_json::from_value(serde_json::json!({
+            "status": "ok",
+            "sidecar": "ok",
+            "lightrag": "healthy",
+            "lightrag_url": "http://127.0.0.1:9621",
+            "parser": "mineru",
+            "job_store_size": 7
+        }))
+        .expect("deserialize sidecar health");
+
+        assert_eq!(health.status, "ok");
+        assert!(health.backend.connected);
+        assert_eq!(health.backend.name.as_deref(), Some("lightrag-sidecar"));
+        assert!(health.backend.multimodal);
+        assert_eq!(health.backend.profile.as_deref(), Some("mineru"));
+        assert_eq!(health.backend.indexed_count, Some(7));
+        assert_eq!(health.sidecar.as_deref(), Some("ok"));
+        assert_eq!(health.lightrag.as_deref(), Some("healthy"));
+        assert_eq!(
+            health.lightrag_url.as_deref(),
+            Some("http://127.0.0.1:9621")
+        );
+        assert_eq!(health.parser.as_deref(), Some("mineru"));
+        assert_eq!(health.job_store_size, Some(7));
+    }
+
+    #[test]
+    fn retrieve_request_serializes_sidecar_collection_and_top_k() {
+        let request = RagRetrieveRequest {
+            query: "where is the note?".to_string(),
+            project: Some("project-a".to_string()),
+            namespace: Some("namespace-a".to_string()),
+            mode: RagRetrieveMode::Graph,
+            limit: Some(9),
+            include_cross_modal: true,
+        };
+
+        let value = serde_json::to_value(&request).expect("serialize retrieve request");
+        assert_eq!(value["collection"], "namespace-a");
+        assert_eq!(value["query"], "where is the note?");
+        assert_eq!(value["top_k"], 9);
+        assert_eq!(value["mode"], "graph");
+        assert_eq!(value["include_cross_modal"], true);
+        assert_eq!(value["project"], "project-a");
+        assert_eq!(value["namespace"], "namespace-a");
+    }
+
+    #[test]
+    fn retrieve_request_serializes_defaults_for_sidecar() {
+        let request = RagRetrieveRequest {
+            query: "hello".to_string(),
+            project: None,
+            namespace: None,
+            mode: RagRetrieveMode::Auto,
+            limit: None,
+            include_cross_modal: false,
+        };
+
+        let value = serde_json::to_value(&request).expect("serialize retrieve request");
+        assert_eq!(value["collection"], "default");
+        assert_eq!(value["top_k"], 5);
+    }
+
+    #[test]
+    fn retrieve_response_deserializes_items_shape() {
+        let response: RagRetrieveResponse = serde_json::from_value(serde_json::json!({
+            "status": "ok",
+            "mode": "text",
+            "items": [{
+                "content": "plain item",
+                "source": "memory",
+                "score": 0.42
+            }]
+        }))
+        .expect("deserialize retrieve response");
+
+        assert_eq!(response.status, "ok");
+        assert_eq!(response.mode, RagRetrieveMode::Text);
+        assert_eq!(response.items.len(), 1);
+        assert_eq!(response.items[0].content, "plain item");
+        assert_eq!(response.items[0].source.as_deref(), Some("memory"));
+        assert!((response.items[0].score - 0.42).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn retrieve_response_deserializes_lightrag_results_shape_with_missing_score() {
+        let response: RagRetrieveResponse = serde_json::from_value(serde_json::json!({
+            "mode_used": "multimodal",
+            "results": [{
+                "content": "sidecar result",
+                "source": null
+            }]
+        }))
+        .expect("deserialize lightrag retrieve response");
+
+        assert_eq!(response.status, "ok");
+        assert_eq!(response.mode, RagRetrieveMode::Multimodal);
+        assert_eq!(response.items.len(), 1);
+        assert_eq!(response.items[0].content, "sidecar result");
+        assert_eq!(response.items[0].source, None);
+        assert_eq!(response.items[0].score, 0.0);
+    }
 }
