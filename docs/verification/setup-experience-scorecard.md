@@ -50,6 +50,7 @@ A 25-star claim requires the product experience, not just internal proof:
 - [x] `scripts/verify/setup-experience-smoke.sh` runs setup proof commands.
 - [x] `memd setup --guided` exposes the beginner path without needing this doc.
 - [x] `memd setup-demo --summary` proves setup in a temp bundle.
+- [x] `scripts/verify/local-25-star-product-proof.sh` aggregates local proof gates and external blockers.
 - [ ] Fresh developer trial passes without live handholding.
 
 ## Honest status

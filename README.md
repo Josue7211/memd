@@ -196,6 +196,8 @@ Use the beginner setup docs:
 - [First run](./docs/setup/first-run.md)
 - [Troubleshooting](./docs/setup/troubleshooting.md)
 - [Data and privacy](./docs/setup/data-and-privacy.md)
+- [Local 25-star scorecard](./docs/verification/LOCAL-25-STAR-SCORECARD.md)
+- [External verifier checklist](./docs/verification/EXTERNAL-25-STAR-VERIFIERS.md)
 
 Manual dev setup still works:
 

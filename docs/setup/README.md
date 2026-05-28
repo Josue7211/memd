@@ -25,6 +25,8 @@ memd setup-demo --summary
 | Pick providers and harnesses | [Interactive Setup](interactive.md) |
 | Verify first use | [First Run](first-run.md) |
 | Fix an error | [Troubleshooting](troubleshooting.md) |
+| Match an error code | [Failure Registry](failure-registry.md) |
+| Check OS support proof | [OS Matrix](os-matrix.md) |
 | Update safely | [Update](update.md) |
 | Remove the binary safely | [Uninstall](uninstall.md) |
 | Understand data/privacy | [Data and Privacy](data-and-privacy.md) |
