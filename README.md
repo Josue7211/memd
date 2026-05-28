@@ -148,6 +148,12 @@ memd setup --interactive
 
 This opens a centered Hermes/OpenClaw-style setup screen. Use arrow keys to move and Enter to select provider and harness options.
 
+If you want a non-interactive beginner guide first:
+
+```bash
+memd setup --guided --summary
+```
+
 ### 3. Check health
 
 ```bash
@@ -164,6 +170,12 @@ memd resume --output .memd --intent current_task
 ```
 
 You should see the active memory bundle and compact startup context. That is the first proof that memd is installed and readable.
+
+For an isolated product proof that leaves your repo alone:
+
+```bash
+memd setup-demo --summary
+```
 
 ### 5. Start real dogfood, only when you want real evidence
 

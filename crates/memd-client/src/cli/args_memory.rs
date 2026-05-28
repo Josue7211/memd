@@ -1001,6 +1001,10 @@ pub(crate) struct SetupArgs {
     #[arg(long)]
     pub(crate) force: bool,
 
+    /// Print the beginner guided setup path and exact proof commands.
+    #[arg(long, default_value_t = false)]
+    pub(crate) guided: bool,
+
     /// Open a centered arrow-key provider/harness picker.
     #[arg(long, default_value_t = false)]
     pub(crate) interactive: bool,
@@ -1008,6 +1012,16 @@ pub(crate) struct SetupArgs {
     #[arg(long, default_value_t = false)]
     pub(crate) allow_localhost_read_only_fallback: bool,
 
+    #[arg(long)]
+    pub(crate) summary: bool,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct SetupDemoArgs {
     #[arg(long)]
     pub(crate) summary: bool,
 

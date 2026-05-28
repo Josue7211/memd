@@ -91,9 +91,59 @@ fn maybe_symlink_worktree_bundle(output: &Path) -> anyhow::Result<bool> {
     }
 }
 
+const INTERACTIVE_PROVIDERS: &[&str] =
+    &["Local only", "Shared memd server", "Custom MEMD_BASE_URL"];
+const INTERACTIVE_HARNESSES: &[&str] = &[
+    "codex",
+    "claude-code",
+    "hermes",
+    "openclaw",
+    "opencode",
+    "done",
+];
+const SETUP_BEGINNER_STEPS: &[(&str, &str)] = &[
+    ("Install", "scripts/install-memd.sh"),
+    ("Configure", "memd setup --interactive"),
+    ("Doctor", "memd doctor --summary"),
+    (
+        "First proof",
+        "memd status --output .memd --summary && memd resume --output .memd --intent current_task",
+    ),
+    (
+        "Fixes",
+        "docs/setup/troubleshooting.md maps symptom -> cause -> fix -> verify",
+    ),
+];
 
-const INTERACTIVE_PROVIDERS: &[&str] = &["Local only", "Shared memd server", "Custom MEMD_BASE_URL"];
-const INTERACTIVE_HARNESSES: &[&str] = &["codex", "claude-code", "hermes", "openclaw", "opencode", "done"];
+fn render_setup_guided_markdown() -> String {
+    let mut out = String::new();
+    out.push_str("# memd guided setup\n\n");
+    out.push_str(
+        "Goal: Apple-level first run. Clear steps, exact proof, no maintainer handholding.\n\n",
+    );
+    for (idx, (name, command)) in SETUP_BEGINNER_STEPS.iter().enumerate() {
+        out.push_str(&format!("{}. **{}** — `{}`\n", idx + 1, name, command));
+    }
+    out.push_str("\nRun `memd setup-demo --summary` for an isolated proof that setup can create and read a bundle.\n");
+    out
+}
+
+fn render_setup_guided_json() -> serde_json::Value {
+    json!({
+        "goal": "Apple-level first run: understandable setup, thorough docs, reliable proof",
+        "steps": SETUP_BEGINNER_STEPS
+            .iter()
+            .enumerate()
+            .map(|(idx, (name, command))| json!({
+                "step": idx + 1,
+                "name": name,
+                "command": command,
+            }))
+            .collect::<Vec<_>>(),
+        "proof_command": "memd setup-demo --summary",
+        "troubleshooting": "docs/setup/troubleshooting.md",
+    })
+}
 
 fn centered_line(text: &str) -> String {
     const WIDTH: usize = 72;
@@ -133,7 +183,9 @@ fn run_centered_picker(title: &str, prompt: &str, options: &[&str]) -> anyhow::R
             Key::ArrowUp => selected = selected.saturating_sub(1),
             Key::ArrowDown => selected = (selected + 1).min(options.len().saturating_sub(1)),
             Key::Enter => return Ok(selected),
-            Key::Char('q') | Key::Escape | Key::CtrlC => anyhow::bail!("interactive setup cancelled"),
+            Key::Char('q') | Key::Escape | Key::CtrlC => {
+                anyhow::bail!("interactive setup cancelled")
+            }
             _ => {}
         }
     }
@@ -157,7 +209,9 @@ fn run_interactive_setup(args: &SetupArgs) -> anyhow::Result<SetupArgs> {
         harness => Some(harness.to_string()),
     };
     if provider_idx == 2 && configured.base_url.is_none() {
-        println!("custom provider selected; using MEMD_BASE_URL/default unless --base-url is supplied");
+        println!(
+            "custom provider selected; using MEMD_BASE_URL/default unless --base-url is supplied"
+        );
     }
     println!(
         "setup selection provider={} harness={}",
@@ -168,6 +222,14 @@ fn run_interactive_setup(args: &SetupArgs) -> anyhow::Result<SetupArgs> {
 }
 
 pub(crate) async fn run_bundle_setup_command(args: &SetupArgs) -> anyhow::Result<()> {
+    if args.guided {
+        if args.json {
+            print_json(&render_setup_guided_json())?;
+        } else {
+            print!("{}", render_setup_guided_markdown());
+        }
+        return Ok(());
+    }
     let interactive_args;
     let args = if args.interactive {
         interactive_args = run_interactive_setup(args)?;
@@ -257,7 +319,6 @@ pub(crate) async fn run_bundle_setup_command(args: &SetupArgs) -> anyhow::Result
     Ok(())
 }
 
-
 #[cfg(test)]
 mod setup_interactive_tests {
     use super::*;
@@ -278,6 +339,84 @@ mod setup_interactive_tests {
         assert!(menu.contains("› openclaw"));
         assert!(menu.contains("opencode"));
     }
+
+    #[test]
+    fn guided_setup_renders_hands_on_beginner_path() {
+        let guide = render_setup_guided_markdown();
+        assert!(guide.contains("Apple-level first run"));
+        assert!(guide.contains("memd setup --interactive"));
+        assert!(guide.contains("memd setup-demo --summary"));
+        assert!(guide.contains("docs/setup/troubleshooting.md"));
+    }
+
+    #[test]
+    fn guided_setup_json_has_redacted_proof_path() {
+        let guide = render_setup_guided_json();
+        assert_eq!(guide["proof_command"], "memd setup-demo --summary");
+        assert!(guide["steps"].as_array().unwrap().len() >= 5);
+    }
+}
+
+pub(crate) async fn run_bundle_setup_demo_command(args: &SetupDemoArgs) -> anyhow::Result<()> {
+    let temp_root = tempfile::tempdir().context("create setup demo temp root")?;
+    let output = temp_root.path().join(".memd");
+    let setup_args = SetupArgs {
+        project: Some("memd-setup-demo".to_string()),
+        namespace: Some("demo".to_string()),
+        global: false,
+        project_root: Some(temp_root.path().to_path_buf()),
+        seed_existing: true,
+        agent: Some("codex".to_string()),
+        session: None,
+        tab_id: None,
+        hive_system: None,
+        hive_role: None,
+        capability: Vec::new(),
+        hive_group: Vec::new(),
+        hive_group_goal: None,
+        authority: None,
+        output: Some(output.clone()),
+        base_url: None,
+        rag_url: None,
+        route: None,
+        intent: Some("current_task".to_string()),
+        workspace: None,
+        visibility: Some("private".to_string()),
+        voice_mode: Some(default_voice_mode()),
+        force: true,
+        guided: false,
+        allow_localhost_read_only_fallback: true,
+        interactive: false,
+        summary: true,
+        json: false,
+    };
+    let decision = resolve_bootstrap_authority(setup_args_to_init_args(&setup_args)).await?;
+    write_init_bundle(&decision.init_args)?;
+    let bundle_root = if output.join("config.json").is_file() {
+        output.clone()
+    } else {
+        temp_root.path().join(&output)
+    };
+    let first_memory_proof =
+        bundle_root.join("wake.md").is_file() || bundle_root.join("mem.md").is_file();
+    let status_ok = bundle_root.join("config.json").is_file() && first_memory_proof;
+    if args.json {
+        print_json(&json!({
+            "demo_ready": status_ok,
+            "bundle": "<temp>/.memd",
+            "project": "memd-setup-demo",
+            "first_memory_proof": first_memory_proof,
+            "result": if status_ok { "setup-demo=pass" } else { "setup-demo=fail" },
+        }))?;
+    } else {
+        println!(
+            "setup-demo bundle=<temp>/.memd project=memd-setup-demo first_memory_proof={} ready={}",
+            first_memory_proof, status_ok
+        );
+        println!("setup-demo={}", if status_ok { "pass" } else { "fail" });
+    }
+    anyhow::ensure!(status_ok, "setup demo did not create readable bundle");
+    Ok(())
 }
 
 pub(crate) async fn run_bundle_doctor_command(

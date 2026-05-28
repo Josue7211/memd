@@ -8,9 +8,11 @@ This is the beginner setup lane. It gets memd installed, configured, checked, an
 
 ```bash
 scripts/install-memd.sh
+memd setup --guided --summary
 memd setup --interactive
 memd doctor --summary
 memd status --output .memd --summary
+memd setup-demo --summary
 ```
 
 `memd setup --interactive` is the Hermes/OpenClaw-style setup surface: centered choices, arrow keys to move, Enter to select providers and harnesses.
@@ -34,4 +36,5 @@ memd status --output .memd --summary
 - Interactive setup lets them pick providers and harnesses without memorizing flags.
 - Doctor gives exact next fixes.
 - Status/resume prove the bundle works.
+- `memd setup-demo --summary` proves a temp first run without touching repo memory.
 - No live handholding on the happy path.

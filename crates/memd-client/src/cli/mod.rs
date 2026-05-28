@@ -1130,6 +1130,9 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::Setup(args) => {
             crate::run_bundle_setup_command(&args).await?;
         }
+        Commands::SetupDemo(args) => {
+            crate::run_bundle_setup_demo_command(&args).await?;
+        }
         Commands::Doctor(args) => {
             crate::run_bundle_doctor_command(&args, &base_url).await?;
         }

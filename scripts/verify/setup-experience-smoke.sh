@@ -2,38 +2,65 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT"
+MEMD_BIN="$(command -v memd || true)"
+if [ -z "$MEMD_BIN" ] && [ -x "$ROOT/target/debug/memd" ]; then
+  MEMD_BIN="$ROOT/target/debug/memd"
+fi
+if [ -z "$MEMD_BIN" ]; then
+  echo "memd binary not found; run cargo build -p memd-client --bin memd" >&2
+  exit 1
+fi
 
-OUT_DIR="docs/verification/setup-runs"
-mkdir -p "$OUT_DIR"
-STAMP="$(date +%F-%H%M%S)"
-REPORT="$OUT_DIR/${STAMP}-setup-experience-smoke.md"
+TMP="$(mktemp -d)"
+KEEP="${MEMD_SETUP_SMOKE_KEEP:-0}"
+cleanup() {
+  if [ "$KEEP" != "1" ]; then
+    rm -rf "$TMP"
+  else
+    echo "setup smoke kept temp dir: $TMP"
+  fi
+}
+trap cleanup EXIT
+
+MEMD_OUTPUT="$TMP/.memd"
+REPORT="$TMP/setup-experience-smoke.md"
+RESUME_OUT="$TMP/resume.out"
+export MEMD_OUTPUT
+cd "$TMP"
 
 {
   echo "# Setup Experience Smoke"
   echo
-  echo "- date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "- date_utc: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "- host: $(hostname 2>/dev/null || echo unknown)"
   echo "- os: $(uname -a)"
+  echo "- memd_path: $MEMD_BIN"
+  echo "- output: $MEMD_OUTPUT"
   echo
   echo "## Commands"
   echo
   echo '```text'
   echo "command -v memd"
-  command -v memd || true
+  echo "$MEMD_BIN"
   echo
-  echo "memd setup --summary --force"
-  memd setup --summary --force
+  echo "memd setup --output '$MEMD_OUTPUT' --summary --force --allow-localhost-read-only-fallback"
+  "$MEMD_BIN" setup --output "$MEMD_OUTPUT" --summary --force --allow-localhost-read-only-fallback
   echo
-  echo "memd doctor --summary"
-  memd doctor --summary
+  echo "memd setup --guided --summary"
+  "$MEMD_BIN" setup --guided --summary | sed -n '1,40p'
   echo
-  echo "memd status --output .memd --summary"
-  memd status --output .memd --summary
+  echo "memd setup-demo --summary"
+  "$MEMD_BIN" setup-demo --summary
   echo
-  echo "memd resume --output .memd --intent current_task"
-  memd resume --output .memd --intent current_task >/tmp/memd-setup-resume.out
-  sed -n '1,40p' /tmp/memd-setup-resume.out
+  echo "memd doctor --output '$MEMD_OUTPUT' --summary"
+  "$MEMD_BIN" doctor --output "$MEMD_OUTPUT" --summary
+  echo
+  echo "memd status --output '$MEMD_OUTPUT' --summary"
+  "$MEMD_BIN" status --output "$MEMD_OUTPUT" --summary
+  echo
+  echo "memd resume --output '$MEMD_OUTPUT' --intent current_task"
+  "$MEMD_BIN" resume --output "$MEMD_OUTPUT" --intent current_task >"$RESUME_OUT"
+  sed -n '1,40p' "$RESUME_OUT"
   echo '```'
   echo
   echo "## Result"

@@ -87,6 +87,8 @@ pub(crate) enum Commands {
     Packs(PacksArgs),
     Commands(CommandCatalogArgs),
     Setup(SetupArgs),
+    #[command(name = "setup-demo")]
+    SetupDemo(SetupDemoArgs),
     Doctor(DoctorArgs),
     Device(DeviceArgs),
     Dogfood(DogfoodArgs),
