@@ -132,14 +132,60 @@ flowchart LR
 
 ## Quickstart
 
-For dogfood/new-machine setup from a checkout:
+This path is for a first-time local install from a checkout. Goal: install, pick providers/harnesses, and prove memd works.
+
+### 1. Install
 
 ```bash
 scripts/install-memd.sh
-memd dogfood enroll --user-id <your-name> --consent --summary
 ```
 
-Manual dev setup:
+### 2. Pick provider and harnesses
+
+```bash
+memd setup --interactive
+```
+
+This opens a centered Hermes/OpenClaw-style setup screen. Use arrow keys to move and Enter to select provider and harness options.
+
+### 3. Check health
+
+```bash
+memd doctor --summary
+```
+
+Green means the bundle is usable. Red means follow the exact fix from [Setup Troubleshooting](./docs/setup/troubleshooting.md).
+
+### 4. Prove first use
+
+```bash
+memd status --output .memd --summary
+memd resume --output .memd --intent current_task
+```
+
+You should see the active memory bundle and compact startup context. That is the first proof that memd is installed and readable.
+
+### 5. Start real dogfood, only when you want real evidence
+
+```bash
+memd dogfood enroll --user-id <your-name> --consent --summary
+memd dogfood status --output .memd --summary
+```
+
+Dogfood means real usage evidence. Skip it for a quick local install.
+
+### If anything fails
+
+Use the beginner setup docs:
+
+- [Setup overview](./docs/setup/README.md)
+- [Install guide](./docs/setup/install.md)
+- [Interactive setup](./docs/setup/interactive.md)
+- [First run](./docs/setup/first-run.md)
+- [Troubleshooting](./docs/setup/troubleshooting.md)
+- [Data and privacy](./docs/setup/data-and-privacy.md)
+
+Manual dev setup still works:
 
 ```bash
 cargo run -p memd-server
@@ -150,11 +196,7 @@ memd commands --output .memd --summary
 memd resume --output .memd --intent current_task
 ```
 
-If you are using Codex, `memd` can load or reload the current bundle for you.
-For an opt-in project hive, use `memd hive-project --output .memd --enable --summary`
-to turn the repo on, `memd hive --output .memd --publish-heartbeat --summary` to
-join the live session, and `memd hive-link` only when you need a safe link
-between different projects.
+If you are using Codex, `memd` can load or reload the current bundle for you. For an opt-in project hive, use `memd hive-project --output .memd --enable --summary` to turn the repo on, `memd hive --output .memd --publish-heartbeat --summary` to join the live session, and `memd hive-link` only when you need a safe link between different projects.
 
 ## Docs
 

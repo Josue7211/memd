@@ -157,4 +157,6 @@ if [ "$(uname -s)" = "Darwin" ] && [ "${MEMD_INSTALL_MAC_BRIDGE:-1}" != "0" ]; t
 fi
 
 say "ready"
-say "next: run 'memd dogfood enroll --user-id <your-name> --consent --summary' if this is a real dogfood machine"
+say "next: run 'memd setup --interactive' to pick providers and harnesses"
+say "proof: run 'memd status --output .memd --summary' and 'memd resume --output .memd --intent current_task'"
+say "dogfood: run 'memd dogfood enroll --user-id <your-name> --consent --summary' only if this is a real dogfood machine"

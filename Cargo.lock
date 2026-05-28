@@ -1536,6 +1536,7 @@ dependencies = [
  "axum",
  "chrono",
  "clap",
+ "console",
  "memd-core",
  "memd-multimodal",
  "memd-rag",

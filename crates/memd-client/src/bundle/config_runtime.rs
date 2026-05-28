@@ -389,6 +389,7 @@ pub(crate) fn doctor_args_to_setup_args(
         voice_mode: Some(default_voice_mode()),
         force: args.repair,
         allow_localhost_read_only_fallback: false,
+        interactive: false,
         summary: false,
         json: false,
     }

@@ -91,7 +91,90 @@ fn maybe_symlink_worktree_bundle(output: &Path) -> anyhow::Result<bool> {
     }
 }
 
+
+const INTERACTIVE_PROVIDERS: &[&str] = &["Local only", "Shared memd server", "Custom MEMD_BASE_URL"];
+const INTERACTIVE_HARNESSES: &[&str] = &["codex", "claude-code", "hermes", "openclaw", "opencode", "done"];
+
+fn centered_line(text: &str) -> String {
+    const WIDTH: usize = 72;
+    if text.len() >= WIDTH {
+        text.to_string()
+    } else {
+        format!("{}{}", " ".repeat((WIDTH - text.len()) / 2), text)
+    }
+}
+
+fn render_interactive_menu(title: &str, prompt: &str, options: &[&str], selected: usize) -> String {
+    let mut out = String::new();
+    out.push_str(&centered_line("memd setup"));
+    out.push_str("\n\n");
+    out.push_str(&centered_line(title));
+    out.push_str("\n\n");
+    out.push_str(&centered_line(prompt));
+    out.push_str("\n\n");
+    for (idx, option) in options.iter().enumerate() {
+        let marker = if idx == selected { "›" } else { " " };
+        out.push_str(&centered_line(&format!("{marker} {option}")));
+        out.push('\n');
+    }
+    out.push('\n');
+    out.push_str(&centered_line("↑/↓ move   Enter select   q quit"));
+    out
+}
+
+fn run_centered_picker(title: &str, prompt: &str, options: &[&str]) -> anyhow::Result<usize> {
+    use console::{Key, Term};
+    let term = Term::stdout();
+    let mut selected = 0usize;
+    loop {
+        term.clear_screen()?;
+        term.write_line(&render_interactive_menu(title, prompt, options, selected))?;
+        match term.read_key()? {
+            Key::ArrowUp => selected = selected.saturating_sub(1),
+            Key::ArrowDown => selected = (selected + 1).min(options.len().saturating_sub(1)),
+            Key::Enter => return Ok(selected),
+            Key::Char('q') | Key::Escape | Key::CtrlC => anyhow::bail!("interactive setup cancelled"),
+            _ => {}
+        }
+    }
+}
+
+fn run_interactive_setup(args: &SetupArgs) -> anyhow::Result<SetupArgs> {
+    let provider_idx = run_centered_picker(
+        "Provider",
+        "Pick where memd should connect first",
+        INTERACTIVE_PROVIDERS,
+    )?;
+    let harness_idx = run_centered_picker(
+        "Harness",
+        "Pick the agent surface you want to configure first",
+        INTERACTIVE_HARNESSES,
+    )?;
+    let mut configured = args.clone();
+    configured.summary = true;
+    configured.agent = match INTERACTIVE_HARNESSES[harness_idx] {
+        "done" => configured.agent.or_else(|| Some("codex".to_string())),
+        harness => Some(harness.to_string()),
+    };
+    if provider_idx == 2 && configured.base_url.is_none() {
+        println!("custom provider selected; using MEMD_BASE_URL/default unless --base-url is supplied");
+    }
+    println!(
+        "setup selection provider={} harness={}",
+        INTERACTIVE_PROVIDERS[provider_idx],
+        configured.agent.as_deref().unwrap_or("codex")
+    );
+    Ok(configured)
+}
+
 pub(crate) async fn run_bundle_setup_command(args: &SetupArgs) -> anyhow::Result<()> {
+    let interactive_args;
+    let args = if args.interactive {
+        interactive_args = run_interactive_setup(args)?;
+        &interactive_args
+    } else {
+        args
+    };
     let init_args = normalize_init_args(setup_args_to_init_args(args))?;
     let decision = resolve_bootstrap_authority(init_args).await?;
     let init_args = decision.init_args;
@@ -172,6 +255,29 @@ pub(crate) async fn run_bundle_setup_command(args: &SetupArgs) -> anyhow::Result
         }
     }
     Ok(())
+}
+
+
+#[cfg(test)]
+mod setup_interactive_tests {
+    use super::*;
+
+    #[test]
+    fn centered_menu_renders_arrow_enter_picker_copy() {
+        let menu = render_interactive_menu("Provider", "Pick one", INTERACTIVE_PROVIDERS, 1);
+        assert!(menu.contains("memd setup"));
+        assert!(menu.contains("› Shared memd server"));
+        assert!(menu.contains("↑/↓ move   Enter select   q quit"));
+    }
+
+    #[test]
+    fn setup_picker_lists_requested_harnesses() {
+        let menu = render_interactive_menu("Harness", "Pick one", INTERACTIVE_HARNESSES, 3);
+        assert!(menu.contains("codex"));
+        assert!(menu.contains("hermes"));
+        assert!(menu.contains("› openclaw"));
+        assert!(menu.contains("opencode"));
+    }
 }
 
 pub(crate) async fn run_bundle_doctor_command(
