@@ -4,6 +4,8 @@ date: 2026-04-22
 sources: [MEMD-10-STAR.md, ROADMAP.md, MILESTONE-v4.md, phase-docs V4-V8]
 ---
 
+Secondary/reference doc. Start from [[ROADMAP]] for project truth.
+
 # memd Gap × Milestone Coverage Matrix
 
 ## Executive Summary

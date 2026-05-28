@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+shopt -s nullglob
 
 root_docs=(
   README.md
@@ -47,6 +48,7 @@ for f in docs/phases/*.md; do
 done
 
 for f in docs/backlog/*.md; do
+  [[ "$(basename "$f")" == "INDEX.md" ]] && continue
   check_contains "$f" "BACKLOG_STATE" "backlog state block"
 done
 

@@ -8,6 +8,8 @@ depends_on:
   - 25-star-phase-ledger.md
 ---
 
+Secondary/reference doc. Start from [[ROADMAP]] for project truth.
+
 # memd 25-Star Contract
 
 > Evidence contract for V21-V35. This does not modify the 10-STAR substrate

@@ -1,5 +1,7 @@
 # memd public leaderboard
 
+Secondary/reference doc. Start from [[ROADMAP]] for project truth.
+
 - generated_at: 2026-04-21T18:45:00+00:00
 - rows: 4
 - spec: H3 (canonical metrics) + I3 (leaderboard transparency) + J3 (V3 intrinsic floor)

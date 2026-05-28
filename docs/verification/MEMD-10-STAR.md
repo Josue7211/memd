@@ -1,5 +1,7 @@
 # memd 10-Star Target
 
+Secondary/reference doc. Start from [[ROADMAP]] for project truth.
+
 > Authoritative 10-star contract. Updated 2026-04-13 from full codebase audit,
 > zero-generosity regrade 2026-04-14, scorecard table reconciled 2026-04-22.
 > For execution truth: [[ROADMAP.md]].

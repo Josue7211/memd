@@ -7,6 +7,8 @@ depends_on:
   - ../strategy/25-star-master-roadmap.md
 ---
 
+Secondary/reference doc. Start from [[ROADMAP]] for project truth.
+
 # 25-Star Phase Ledger
 
 This is the atomic execution ledger for V21-V35. It does not activate V21+.

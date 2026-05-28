@@ -1,5 +1,7 @@
 # Substrate Competitor Card
 
+Secondary/reference doc. Start from [[ROADMAP]] for project truth.
+
 > Compares memd's substrate benchmark numbers against named external
 > systems. Cells marked `<< PLACEHOLDER — FILL FROM PRIMARY SOURCE >>`
 > MUST be filled from a primary source (paper, official repo, public

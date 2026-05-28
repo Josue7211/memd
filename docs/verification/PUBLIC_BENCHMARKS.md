@@ -1,5 +1,7 @@
 # memd public benchmark suite
 
+Secondary/reference doc. Start from [[ROADMAP]] for project truth.
+
 <!-- public-bench-report/v6 -->
 ## V6 canonical scorecard
 

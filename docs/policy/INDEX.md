@@ -1,5 +1,7 @@
 # Policy Docs Index
 
+Secondary/reference doc. Start from [[ROADMAP]] for project truth.
+
 > Secondary/reference index. For current project truth start with [[ROADMAP]]
 > and [[docs/WHERE-AM-I.md|WHERE-AM-I]].
 

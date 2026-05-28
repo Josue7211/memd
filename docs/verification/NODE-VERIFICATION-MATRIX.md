@@ -1,5 +1,7 @@
 # Architecture Graph — Node Verification Matrix
 
+Secondary/reference doc. Start from [[ROADMAP]] for project truth.
+
 > Authoritative per-node verification criteria for the architecture graph
 > (see `docs/core/architecture.md` mermaid diagram). Each milestone gate
 > verifies every node. A node can be ✓ (passes), ~ (partial), or ✗ (fails).

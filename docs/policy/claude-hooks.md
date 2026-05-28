@@ -1,5 +1,7 @@
 # Claude Code hook wiring for memd A3
 
+Secondary/reference doc. Start from [[ROADMAP]] for project truth.
+
 memd's A3 continuity foundation uses two Claude Code hooks:
 
 1. **PostToolUse** on `Read|Edit|Write|NotebookEdit` — appends a file-interaction

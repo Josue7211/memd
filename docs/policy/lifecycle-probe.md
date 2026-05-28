@@ -1,5 +1,7 @@
 # Working-Memory Lifecycle Probe (A3-D3)
 
+Secondary/reference doc. Start from [[ROADMAP]] for project truth.
+
 The lifecycle probe is a self-test that exercises the full memory pipeline:
 
 1. **store** — write a probe record (scope=local, namespace=`lifecycle_probe`,

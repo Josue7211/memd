@@ -1,5 +1,7 @@
 # memd 25/5 Memory OS Implementation Audit
 
+Secondary/reference doc. Start from [[ROADMAP]] for project truth.
+
 Date: 2026-05-13
 Status: active, not complete
 

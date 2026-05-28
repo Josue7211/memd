@@ -9,6 +9,8 @@ depends_on:
   - v21-v25-ceo-mode.md
 ---
 
+Secondary/reference doc. Start from [[ROADMAP]] for project truth.
+
 # 25-Star memd Master Roadmap
 
 > Strategy contract. For active project truth, start with `ROADMAP.md`.
