@@ -25,7 +25,7 @@ This is a static Pillar 01 coverage report. It summarizes registry coverage and 
 | `feature.memory_core` | `partial` | `strong` | `ad_hoc` | `none` | Local proof maps capture/lookup/resume/corrections/provenance/trust, but external validation and production reliability remain unproven. |
 | `feature.context_compiler_token_savings` | `partial` | `strong` | `ad_hoc` | `planned` | Local fixture proof records saved-token ledger, retained quality, and budget enforcement; independent external replay remains pending. |
 | `feature.shared_research_cache` | `partial` | `partial` | `none` | `none` | Local inspiration cache proof covers hit/miss, attribution, and narrow allowlist/root-fingerprint guardrails; full RAG/donor extraction, private-data safety, external replay, and cross-repo sharing remain unproven. |
-| `feature.hive_hivemind_coordination` | `partial` | `stale` | `ad_hoc` | `none` | Existing hive proof surfaces are stale until re-run. |
+| `feature.hive_hivemind_coordination` | `partial` | `partial` | `ad_hoc` | `none` | Local proof maps archived hive coordination, roster/authority scripts, and no private context broadcast; sustained production and external hive review remain unproven. |
 | `feature.competitor_public_benchmark_replay` | `partial` | `stale` | `none` | `planned` | Competitor/public benchmark claims require current public replay artifacts. |
 | `feature.dogfood_reliability_windows` | `partial` | `planned` | `ad_hoc` | `none` | No sustained dated reliability window is registered. |
 | `feature.external_replay_auditor_proof` | `partial` | `planned` | `none` | `planned` | No independent external replay artifact is registered. |
