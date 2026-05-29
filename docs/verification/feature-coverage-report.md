@@ -27,7 +27,7 @@ This is a static Pillar 01 coverage report. It summarizes registry coverage and 
 | `feature.shared_research_cache` | `partial` | `partial` | `none` | `none` | Local inspiration cache proof covers hit/miss, attribution, and narrow allowlist/root-fingerprint guardrails; full RAG/donor extraction, private-data safety, external replay, and cross-repo sharing remain unproven. |
 | `feature.hive_hivemind_coordination` | `partial` | `partial` | `ad_hoc` | `none` | Local proof maps archived hive coordination, roster/authority scripts, and no private context broadcast; sustained production and external hive review remain unproven. |
 | `feature.competitor_public_benchmark_replay` | `partial` | `stale` | `none` | `planned` | Competitor/public benchmark claims require current public replay artifacts. |
-| `feature.dogfood_reliability_windows` | `partial` | `planned` | `ad_hoc` | `none` | No sustained dated reliability window is registered. |
+| `feature.dogfood_reliability_windows` | `partial` | `partial` | `ad_hoc` | `none` | Local proof inspects dated dogfood/reliability artifacts and finds ad hoc evidence, but no closed sustained reliability window is proven. |
 | `feature.external_replay_auditor_proof` | `partial` | `planned` | `none` | `planned` | No independent external replay artifact is registered. |
 | `feature.product_ux_dashboard_cli_language` | `unknown` | `none` | `none` | `none` | UX/dashboard status and walkthrough proof are unknown. |
 | `feature.network_identity_federation_market` | `unknown` | `none` | `none` | `none` | Network/federation/market implementation and proof are unknown. |
