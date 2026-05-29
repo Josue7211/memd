@@ -459,14 +459,16 @@
       ],
       "docs": [
         "docs/verification/EXTERNAL-25-STAR-VERIFIERS.md",
-        "docs/verification/25-star-human-trial-template.md"
+        "docs/verification/25-star-human-trial-template.md",
+        "docs/verification/feature-external-replay-auditor-proof-25.md"
       ],
       "proof_commands": [
-        "bash scripts/verify/25-5-external-public-smoke.sh"
+        "bash scripts/verify/25-5-external-public-smoke.sh",
+        "bash scripts/verify/feature-external-replay-auditor-proof.sh"
       ],
       "proof_artifacts": [],
       "current_status": "partial",
-      "proof_status": "planned",
+      "proof_status": "partial",
       "dogfood_status": "none",
       "external_status": "planned",
       "blocks_25_25": true,
@@ -476,10 +478,10 @@
         "instruction_clarity"
       ],
       "allowed_claims": [
-        "External proof is planned and registered."
+        "Local external replay/auditor readiness proof is wired and checks public instructions, checklist, and local artifact integrity when present."
       ],
       "forbidden_claims": [
-        "Do not claim externally verified until an independent replay artifact is recorded."
+        "Do not claim externally verified or independently replayed until an independent external replay artifact is recorded."
       ],
       "freshness_policy": "Refresh instructions and artifacts after every verifier, release, or dependency change."
     },
