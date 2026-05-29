@@ -2,9 +2,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-MEMD_BIN="$(command -v memd || true)"
+MEMD_BIN="${MEMD_BIN:-}"
 if [ -z "$MEMD_BIN" ] && [ -x "$ROOT/target/debug/memd" ]; then
   MEMD_BIN="$ROOT/target/debug/memd"
+fi
+if [ -z "$MEMD_BIN" ]; then
+  MEMD_BIN="$(command -v memd || true)"
 fi
 if [ -z "$MEMD_BIN" ]; then
   echo "memd binary not found; run cargo build -p memd-client --bin memd" >&2
