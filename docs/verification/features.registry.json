@@ -425,15 +425,16 @@
         "local 25-star proof scripts"
       ],
       "docs": [
+        "docs/verification/feature-dogfood-reliability-windows-25.md",
         "docs/verification/LOCAL-25-STAR-SCORECARD.md",
         "docs/verification/LOOPS.md"
       ],
       "proof_commands": [
-        "bash scripts/verify/local-25-star-product-proof.sh"
+        "bash scripts/verify/feature-dogfood-reliability-windows-proof.sh"
       ],
       "proof_artifacts": [],
       "current_status": "partial",
-      "proof_status": "planned",
+      "proof_status": "partial",
       "dogfood_status": "ad_hoc",
       "external_status": "none",
       "blocks_25_25": true,
@@ -444,10 +445,12 @@
         "regression_rate"
       ],
       "allowed_claims": [
-        "Ad-hoc dogfood exists where artifacts are cited."
+        "Local proof can inspect dated dogfood/reliability artifacts and report whether spans are ad hoc or sustained.",
+        "Current checkout contains dated ad hoc dogfood evidence, but no closed sustained reliability window is proven."
       ],
       "forbidden_claims": [
-        "Do not claim sustained reliability windows until dated window artifacts exist."
+        "Do not claim sustained or continuous dogfood until dated closed window artifacts/logs prove actual real-use duration and failure/recovery review.",
+        "Do not claim external validation, production reliability, or 25/25 dogfood readiness from local repository proof alone."
       ],
       "freshness_policy": "Close or refresh windows on release, storage, server, installer, or agent workflow changes."
     },
