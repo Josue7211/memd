@@ -49,19 +49,27 @@
       "docs": [
         "START-HERE.md",
         "README.md",
-        "docs/verification/setup-experience-scorecard.md"
+        "docs/setup/README.md",
+        "docs/setup/install.md",
+        "docs/setup/update.md",
+        "docs/setup/uninstall.md",
+        "docs/setup/first-run.md",
+        "docs/verification/setup-experience-scorecard.md",
+        "docs/verification/feature-setup-install-onboarding-25.md"
       ],
       "proof_commands": [
+        "bash scripts/verify/feature-setup-install-onboarding-proof.sh",
         "bash scripts/verify/setup-experience-smoke.sh"
       ],
       "proof_artifacts": [
-        "setup-slice local proof at commit 53b0df5",
-        "docs/verification/setup-experience-scorecard.md"
+        "docs/verification/feature-setup-install-onboarding-25.md",
+        "scripts/verify/feature-setup-install-onboarding-proof.sh",
+        "scripts/verify/setup-experience-smoke.sh"
       ],
       "current_status": "partial",
-      "proof_status": "smoke",
+      "proof_status": "strong",
       "dogfood_status": "ad_hoc",
-      "external_status": "none",
+      "external_status": "planned",
       "blocks_25_25": true,
       "scorecard_axes": [
         "first_run",
@@ -70,12 +78,12 @@
         "recovery"
       ],
       "allowed_claims": [
-        "Setup slice has local smoke proof where cited."
+        "Setup/install/onboarding slice has local 25-star implementation proof; external validation remains pending."
       ],
       "forbidden_claims": [
-        "Do not claim universal one-command install or production onboarding until external replay passes."
+        "Do not claim public 25/25, universal one-command install, production onboarding, or external validation until external replay passes."
       ],
-      "freshness_policy": "Re-run setup smoke after installer, CLI bootstrap, README/START-HERE, or release changes."
+      "freshness_policy": "Re-run feature setup/install/onboarding proof after installer, CLI bootstrap, setup docs, README/START-HERE, update/uninstall scripts, or release changes."
     },
     {
       "id": "feature.docs_product_education",
