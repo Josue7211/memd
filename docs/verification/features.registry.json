@@ -504,12 +504,18 @@
       ],
       "docs": [
         "README.md",
-        "START-HERE.md"
+        "START-HERE.md",
+        "docs/verification/feature-product-ux-dashboard-cli-language-25.md",
+        "apps/dashboard/DESIGN.md"
       ],
-      "proof_commands": [],
-      "proof_artifacts": [],
-      "current_status": "unknown",
-      "proof_status": "none",
+      "proof_commands": [
+        "bash scripts/verify/feature-product-ux-dashboard-cli-language-proof.sh"
+      ],
+      "proof_artifacts": [
+        "docs/verification/feature-product-ux-dashboard-cli-language-25.md"
+      ],
+      "current_status": "partial",
+      "proof_status": "partial",
       "dogfood_status": "none",
       "external_status": "none",
       "blocks_25_25": true,
@@ -520,12 +526,12 @@
         "accessibility"
       ],
       "allowed_claims": [
-        "UX surfaces are recognized as a first-class feature area."
+        "Local docs, CLI help, and dashboard source language have current text-inspection proof for setup discoverability and vocabulary consistency."
       ],
       "forbidden_claims": [
-        "Do not claim polished product UX or dashboard completeness without walkthrough evidence."
+        "Do not claim polished product UX, complete dashboard, browser-verified walkthrough, accessibility compliance, external validation, or 25/25 readiness from this local text proof alone."
       ],
-      "freshness_policy": "Review after every CLI, dashboard, status, docs, or error-message change."
+      "freshness_policy": "Re-run this proof after every CLI, dashboard, status, docs, setup, or error-message language change; add browser walkthrough/external evidence before unblocking 25/25."
     },
     {
       "id": "feature.network_identity_federation_market",
