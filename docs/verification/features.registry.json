@@ -242,15 +242,26 @@
         "token accounting"
       ],
       "docs": [
+        "docs/verification/feature-context-compiler-token-savings-25.md",
         "docs/verification/BENCHMARKS.md",
         "docs/verification/benchmark-registry.json"
       ],
-      "proof_commands": [],
-      "proof_artifacts": [],
+      "proof_commands": [
+        "bash scripts/verify/feature-context-compiler-token-savings-proof.sh"
+      ],
+      "proof_artifacts": [
+        "docs/verification/feature-context-compiler-token-savings-25.md",
+        "scripts/verify/v15-self-tuning-suite.sh",
+        "docs/verification/v15-proof-runs/2026-05-12-self-tuning-suite.md",
+        "docs/verification/v15-proof-runs/2026-05-12-self-tuning-suite.ndjson",
+        "scripts/verify/v11-compiler-sota-suite.sh",
+        "docs/verification/v11-proof-runs/2026-05-12-compiler-sota-suite.md",
+        "docs/verification/v11-proof-runs/2026-05-12-compiler-sota-suite.ndjson"
+      ],
       "current_status": "partial",
-      "proof_status": "planned",
+      "proof_status": "strong",
       "dogfood_status": "ad_hoc",
-      "external_status": "none",
+      "external_status": "planned",
       "blocks_25_25": true,
       "scorecard_axes": [
         "compression",
@@ -259,12 +270,14 @@
         "honest_accounting"
       ],
       "allowed_claims": [
-        "Token-savings feature is in scope and requires measured proof."
+        "Local context compiler/token-savings proof has a reproducible fixture ledger with positive saved tokens, quality retention, and budget enforcement.",
+        "Historical in-repository V11/V15 compiler/token proof scripts and dated artifacts are cited as supporting local evidence."
       ],
       "forbidden_claims": [
-        "Do not publish token-savings percentages without reproducible measurements and artifacts."
+        "Do not claim externally verified token savings until an independent/public replay artifact is registered.",
+        "Do not publish broad product-wide savings percentages beyond the local fixture and cited historical artifacts."
       ],
-      "freshness_policy": "Refresh measurements after compiler, prompt, tokenizer, or benchmark corpus changes."
+      "freshness_policy": "Refresh measurements after compiler, prompt, tokenizer, benchmark corpus, budget policy, or quality rubric changes; keep external verification pending until independent replay lands."
     },
     {
       "id": "feature.shared_research_cache",
