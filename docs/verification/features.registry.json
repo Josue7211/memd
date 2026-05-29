@@ -432,7 +432,9 @@
       "proof_commands": [
         "bash scripts/verify/feature-dogfood-reliability-windows-proof.sh"
       ],
-      "proof_artifacts": [],
+      "proof_artifacts": [
+        "docs/verification/feature-dogfood-reliability-windows-25.md"
+      ],
       "current_status": "partial",
       "proof_status": "partial",
       "dogfood_status": "ad_hoc",
@@ -473,7 +475,10 @@
         "bash scripts/verify/25-5-external-public-smoke.sh",
         "bash scripts/verify/feature-external-replay-auditor-proof.sh"
       ],
-      "proof_artifacts": [],
+      "proof_artifacts": [
+        "docs/verification/feature-external-replay-auditor-proof-25.md",
+        "docs/verification/25-5-memory-os-runs/2026-05-29-external-public-smoke.json"
+      ],
       "current_status": "partial",
       "proof_status": "partial",
       "dogfood_status": "none",
