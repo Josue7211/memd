@@ -23,19 +23,19 @@ bash scripts/verify/feature-registry-audit.sh
 
 | ID | Category | Current | Proof | Dogfood | External | Blocks 25/25 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `feature.setup_install_onboarding` | setup/install/onboarding | `partial` | `smoke` | `ad_hoc` | `none` | yes |
+| `feature.setup_install_onboarding` | setup/install/onboarding | `partial` | `strong` | `ad_hoc` | `planned` | yes |
 | `feature.docs_product_education` | docs/product education | `partial` | `smoke` | `ad_hoc` | `none` | yes |
-| `feature.doctor_status_recovery_update_uninstall` | doctor/status/recovery/update/uninstall | `unknown` | `none` | `none` | `none` | yes |
-| `feature.memory_core` | memory capture/lookup/recall/corrections/provenance/trust | `partial` | `planned` | `ad_hoc` | `none` | yes |
-| `feature.context_compiler_token_savings` | context compiler/token savings | `partial` | `planned` | `ad_hoc` | `none` | yes |
-| `feature.shared_research_cache` | shared research cache/donor repo extraction | `unknown` | `none` | `none` | `none` | yes |
-| `feature.hive_hivemind_coordination` | hive/hivemind coordination | `partial` | `stale` | `ad_hoc` | `none` | yes |
-| `feature.competitor_public_benchmark_replay` | competitor/public benchmark replay | `partial` | `stale` | `none` | `planned` | yes |
-| `feature.dogfood_reliability_windows` | dogfood/reliability windows | `partial` | `planned` | `ad_hoc` | `none` | yes |
-| `feature.external_replay_auditor_proof` | external replay/auditor proof | `partial` | `planned` | `none` | `planned` | yes |
-| `feature.product_ux_dashboard_cli_language` | product UX surfaces/dashboard/CLI language | `unknown` | `none` | `none` | `none` | yes |
+| `feature.doctor_status_recovery_update_uninstall` | doctor/status/recovery/update/uninstall | `partial` | `strong` | `ad_hoc` | `planned` | yes |
+| `feature.memory_core` | memory capture/lookup/recall/corrections/provenance/trust | `partial` | `strong` | `ad_hoc` | `none` | yes |
+| `feature.context_compiler_token_savings` | context compiler/token savings | `partial` | `strong` | `ad_hoc` | `planned` | yes |
+| `feature.shared_research_cache` | shared research cache/donor repo extraction | `partial` | `partial` | `none` | `none` | yes |
+| `feature.hive_hivemind_coordination` | hive/hivemind coordination | `partial` | `partial` | `ad_hoc` | `none` | yes |
+| `feature.competitor_public_benchmark_replay` | competitor/public benchmark replay | `partial` | `partial` | `none` | `planned` | yes |
+| `feature.dogfood_reliability_windows` | dogfood/reliability windows | `partial` | `partial` | `ad_hoc` | `none` | yes |
+| `feature.external_replay_auditor_proof` | external replay/auditor proof | `partial` | `partial` | `none` | `planned` | yes |
+| `feature.product_ux_dashboard_cli_language` | product UX surfaces/dashboard/CLI language | `partial` | `partial` | `none` | `none` | yes |
 | `feature.network_identity_federation_market` | network identity/federation/market layer | `partial` | `partial` | `none` | `none` | yes |
-| `feature.release_claim_honesty_gates` | release/claim honesty gates | `partial` | `smoke` | `ad_hoc` | `none` | yes |
+| `feature.release_claim_honesty_gates` | release/claim honesty gates | `partial` | `partial` | `ad_hoc` | `none` | yes |
 | `feature.cross_harness_continuity` | cross-harness continuity | `partial` | `planned` | `ad_hoc` | `none` | yes |
 
 ### Claim Rules

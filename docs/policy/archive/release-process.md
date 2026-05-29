@@ -47,11 +47,15 @@ Before tagging a release:
    - `missing`
    - backend reachability
    - resume preview for the hot lane
-5. update `CHANGELOG.md`
-6. confirm CI is green
-7. merge the release-ready state to `main`
-8. create and push the release tag
-9. only then announce the release
+5. run the local release-claim honesty gates:
+   - `bash scripts/verify/feature-registry-audit.sh`
+   - `bash scripts/verify/feature-release-claim-honesty-gates-proof.sh`
+6. confirm any `25/25`, production-ready, external-verification, or benchmark/scorecard claim is supported by registry status and linked proof artifacts; keep unsupported claims blocked
+7. update `CHANGELOG.md`
+8. confirm CI is green
+9. merge the release-ready state to `main`
+10. create and push the release tag
+11. only then announce the release
 
 ## Review Expectations
 
