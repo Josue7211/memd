@@ -139,32 +139,46 @@
       "user_contract": "A user can inspect health, understand failures, recover safely, update, and uninstall without losing data unexpectedly.",
       "implementation_surfaces": [
         "memd doctor/status CLI",
-        "update/uninstall scripts",
+        "scripts/update-memd.sh",
+        "scripts/uninstall-memd.sh",
         "state backup/recovery paths"
       ],
       "docs": [
-        "README.md",
-        "START-HERE.md"
+        "docs/setup/update.md",
+        "docs/setup/uninstall.md",
+        "docs/setup/troubleshooting.md",
+        "docs/verification/feature-doctor-status-recovery-update-uninstall-25.md"
       ],
-      "proof_commands": [],
-      "proof_artifacts": [],
-      "current_status": "unknown",
-      "proof_status": "none",
-      "dogfood_status": "none",
-      "external_status": "none",
+      "proof_commands": [
+        "bash scripts/verify/feature-doctor-status-recovery-update-uninstall-proof.sh"
+      ],
+      "proof_artifacts": [
+        "docs/verification/feature-doctor-status-recovery-update-uninstall-25.md",
+        "local temp proof summary emitted by scripts/verify/feature-doctor-status-recovery-update-uninstall-proof.sh"
+      ],
+      "current_status": "partial",
+      "proof_status": "strong",
+      "dogfood_status": "ad_hoc",
+      "external_status": "planned",
       "blocks_25_25": true,
       "scorecard_axes": [
         "operability",
         "data_safety",
-        "recovery"
+        "recovery",
+        "lifecycle_dry_runs",
+        "failure_modes"
       ],
       "allowed_claims": [
-        "Registry identifies this as required for 25/25."
+        "Doctor/status/update/uninstall recovery slice has local executable proof for current repository surfaces.",
+        "Update and uninstall dry-runs state that .memd memory is preserved by default.",
+        "Doctor repair can recover generated bundle env files without deleting seeded memory/state sentinel files in the local proof."
       ],
       "forbidden_claims": [
-        "Do not claim safe update/uninstall or recovery until executable proof exists."
+        "Do not claim external verification until an independent replay is recorded.",
+        "Do not claim destructive reset safety or complete package-manager uninstall coverage until those contracts exist and are proven.",
+        "Do not claim all real-world corruptions are recoverable from this local generated-file recovery proof."
       ],
-      "freshness_policy": "Audit after any lifecycle command, installer, storage layout, or migration change."
+      "freshness_policy": "Re-run the lifecycle proof after any doctor/status, setup bundle layout, .memd storage, update, uninstall, reset, or recovery behavior change; add external replay before unblocking 25/25."
     },
     {
       "id": "feature.memory_core",
