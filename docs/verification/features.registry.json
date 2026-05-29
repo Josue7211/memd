@@ -375,24 +375,26 @@
       "category": "competitor/public benchmark replay",
       "user_contract": "Benchmark comparisons can be replayed from public fixtures with clear baselines and no private-only assumptions.",
       "implementation_surfaces": [
-        "scripts/verify/25-5-competitor-head-to-head.sh",
         "scripts/verify/25-5-public-benchmark-fixtures.sh",
-        "docs/verification/PUBLIC_BENCHMARKS.md"
+        "scripts/verify/25-5-competitor-head-to-head.sh",
+        "scripts/verify/feature-competitor-public-benchmark-replay-proof.sh",
+        "fixtures/*-mini.json"
       ],
       "docs": [
-        "docs/verification/BENCHMARKS.md",
+        "docs/verification/feature-competitor-public-benchmark-replay-25.md",
         "docs/verification/PUBLIC_LEADERBOARD.md",
         "docs/verification/SUBSTRATE_COMPETITOR.md"
       ],
       "proof_commands": [
-        "bash scripts/verify/25-5-public-benchmark-fixtures.sh",
-        "bash scripts/verify/25-5-competitor-head-to-head.sh"
+        "bash scripts/verify/feature-competitor-public-benchmark-replay-proof.sh"
       ],
       "proof_artifacts": [
-        "docs/verification/substrate-baselines"
+        "docs/verification/feature-competitor-public-benchmark-replay-25.md",
+        "docs/verification/25-5-memory-os-runs/YYYY-MM-DD-public-benchmark-fixtures.json",
+        "docs/verification/25-5-memory-os-runs/YYYY-MM-DD-competitor-head-to-head.json (optional; only current if present and passing)"
       ],
       "current_status": "partial",
-      "proof_status": "stale",
+      "proof_status": "partial",
       "dogfood_status": "none",
       "external_status": "planned",
       "blocks_25_25": true,
@@ -403,12 +405,14 @@
         "public_evidence"
       ],
       "allowed_claims": [
-        "Benchmark replay is tracked and requires current run artifacts."
+        "Local public fixture replay is current when the feature proof command passes.",
+        "Same-fixture competitor comparison is current only when a fresh passing competitor replay artifact exists."
       ],
       "forbidden_claims": [
-        "Do not claim competitor superiority without current public replay and methodology."
+        "Do not claim competitor superiority, market leadership, or external verification from local fixture replay alone.",
+        "Do not reuse stale competitor artifacts as current benchmark proof."
       ],
-      "freshness_policy": "Refresh after benchmark fixture, baseline, competitor version, or scoring changes."
+      "freshness_policy": "Refresh after benchmark fixture, baseline, competitor version, scoring changes, or any day a current proof is claimed; dated artifacts must be same-day or one-day-fresh."
     },
     {
       "id": "feature.dogfood_reliability_windows",
