@@ -285,17 +285,27 @@
       "category": "shared research cache/donor repo extraction",
       "user_contract": "Teams can reuse extracted research context across repos while preserving source attribution and avoiding cross-project contamination.",
       "implementation_surfaces": [
-        "research cache",
-        "donor repo extraction",
-        "source attribution metadata"
+        "crates/memd-client/src/runtime/inspiration_search.rs",
+        "crates/memd-client/src/main_tests/skill_workflow_tests/mod.rs",
+        ".memd/lanes/inspiration/INSPIRATION-*.md",
+        ".memd/state/.inspiration-cache/"
       ],
       "docs": [
-        "docs/verification/benchmark-registry.json"
+        "docs/verification/feature-shared-research-cache-25.md",
+        "docs/core/rag.md",
+        "docs/theory/2026-04-14-donor-map.md"
       ],
-      "proof_commands": [],
-      "proof_artifacts": [],
-      "current_status": "unknown",
-      "proof_status": "none",
+      "proof_commands": [
+        "bash scripts/verify/feature-shared-research-cache-proof.sh"
+      ],
+      "proof_artifacts": [
+        "docs/verification/feature-shared-research-cache-25.md",
+        "scripts/verify/feature-shared-research-cache-proof.sh",
+        "crates/memd-client/src/runtime/inspiration_search.rs",
+        "crates/memd-client/src/main_tests/skill_workflow_tests/mod.rs"
+      ],
+      "current_status": "partial",
+      "proof_status": "partial",
       "dogfood_status": "none",
       "external_status": "none",
       "blocks_25_25": true,
@@ -306,12 +316,15 @@
         "freshness"
       ],
       "allowed_claims": [
-        "Capability is a first-class registry requirement."
+        "The local inspiration/research lane search cache has executable proof for unchanged-file cache hit/miss behavior.",
+        "Current local proof shows source attribution fields and rendered file/line/section metadata for inspiration search hits.",
+        "Current contamination guardrails are limited to root/query/limit cache keys, file fingerprints, and a fixed inspiration-lane file allowlist."
       ],
       "forbidden_claims": [
-        "Do not claim shared cache is production-safe or contamination-free without adversarial proof."
+        "Do not claim production-safe shared research cache, complete RAG cache safety, complete donor repo extraction, or contamination-free/private-data-safe multi-repo sharing from this local proof alone.",
+        "Do not claim external verification until an independent replay is recorded."
       ],
-      "freshness_policy": "Audit with every cache format, extraction, indexing, or multi-repo workflow change."
+      "freshness_policy": "Re-run proof after changes to inspiration search cache keys, lane file allowlists, RAG integration, donor extraction, cache formats, or multi-repo research workflows."
     },
     {
       "id": "feature.hive_hivemind_coordination",
