@@ -311,18 +311,21 @@
         "docs/verification/hive-runs"
       ],
       "docs": [
-        "docs/verification/NODE-VERIFICATION-MATRIX.md",
-        "docs/verification/hive-runs"
+        "docs/verification/feature-hive-hivemind-coordination-25.md",
+        "docs/contracts/hive-live-map-guard.md",
+        "docs/verification/hive-runs/2026-05-26-internal-alpha"
       ],
       "proof_commands": [
+        "bash scripts/verify/feature-hive-hivemind-coordination-proof.sh",
         "bash scripts/verify/hive-live-map-guard-contract.sh",
         "bash scripts/verify/hive-production-proof.sh"
       ],
       "proof_artifacts": [
-        "docs/verification/hive-runs"
+        "docs/verification/feature-hive-hivemind-coordination-25.md",
+        "docs/verification/hive-runs/2026-05-26-internal-alpha"
       ],
       "current_status": "partial",
-      "proof_status": "stale",
+      "proof_status": "partial",
       "dogfood_status": "ad_hoc",
       "external_status": "none",
       "blocks_25_25": true,
@@ -333,12 +336,12 @@
         "conflict_resolution"
       ],
       "allowed_claims": [
-        "Hive proof surfaces exist but must be revalidated before strong claims."
+        "A current static/local proof validates hive coordination contracts and archived ad hoc artifacts for roster, authority, capability, handoff, task ownership, help/review lanes, dev-server conflict receipts, and claim release."
       ],
       "forbidden_claims": [
-        "Do not claim production hive/hivemind reliability until current proof passes."
+        "Do not claim production hive/hivemind reliability, continuous dogfood, external verification, or cross-agent leakage/private-context sharing from this proof."
       ],
-      "freshness_policy": "Re-run hive proofs after coordination, agent contract, map, or handoff changes."
+      "freshness_policy": "Re-run this proof after hive coordination, authority, capability, live-map, handoff, task-board, or receipt changes; rerun the full hive production proof before upgrading beyond partial/ad hoc."
     },
     {
       "id": "feature.competitor_public_benchmark_replay",
