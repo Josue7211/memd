@@ -639,15 +639,21 @@
         "external replay scripts"
       ],
       "docs": [
+        "docs/verification/feature-cross-harness-continuity-25.md",
         "docs/verification/COVERAGE-MATRIX.md",
         "docs/verification/25-star-phase-ledger.md"
       ],
       "proof_commands": [
+        "bash scripts/verify/feature-cross-harness-continuity-proof.sh",
         "bash scripts/verify/25-5-harness-process-replay.sh"
       ],
-      "proof_artifacts": [],
+      "proof_artifacts": [
+        "docs/verification/feature-cross-harness-continuity-25.md",
+        "scripts/verify/feature-cross-harness-continuity-proof.sh",
+        "docs/verification/25-5-memory-os-runs/*-harness-process-replay.json"
+      ],
       "current_status": "partial",
-      "proof_status": "planned",
+      "proof_status": "partial",
       "dogfood_status": "ad_hoc",
       "external_status": "none",
       "blocks_25_25": true,
@@ -658,12 +664,12 @@
         "replayability"
       ],
       "allowed_claims": [
-        "Cross-harness continuity is required and has planned proof."
+        "Current local proof validates documented continuity surfaces across available Codex, Hermes, OpenClaw, and Claude-style harness packs, including shared wake/memory/event bundle surfaces, wake/resume/write-path parity, and existing local process replay artifact sanity checks when present."
       ],
       "forbidden_claims": [
-        "Do not claim seamless cross-harness continuity until replay artifacts pass."
+        "Do not claim seamless cross-harness continuity, production-grade continuity, real external cross-session continuity, or independent external verification from this local/ad hoc proof alone."
       ],
-      "freshness_policy": "Re-run cross-harness replay after state schema, CLI/server protocol, export/import, or harness changes."
+      "freshness_policy": "Re-run feature-cross-harness-continuity-proof after state schema, CLI/server protocol, import/export, handoff/resume/wake, generated harness pack, or integration doc changes; re-run the process replay before upgrading beyond local/ad hoc status."
     }
   ]
 }
