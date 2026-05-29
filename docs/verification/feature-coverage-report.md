@@ -10,8 +10,8 @@ This is a static Pillar 01 coverage report. It summarizes registry coverage and 
 
 - Registered first-class feature areas: 14
 - Areas blocking any honest 25/25 claim: 14
-- Areas with no executable proof commands listed: 1
-- Areas with no proof artifacts listed: 4
+- Areas with no executable proof commands listed: 0
+- Areas with no proof artifacts listed: 3
 - Areas externally verified: 0
 - Areas with sustained/continuous dogfood: 0
 
@@ -29,9 +29,9 @@ This is a static Pillar 01 coverage report. It summarizes registry coverage and 
 | `feature.competitor_public_benchmark_replay` | `partial` | `partial` | `none` | `planned` | Fresh local public fixture replay artifact exists; no same-day independent competitor/external replay is registered. |
 | `feature.dogfood_reliability_windows` | `partial` | `partial` | `ad_hoc` | `none` | Ad hoc dated dogfood/reliability evidence exists, but no closed sustained reliability window is proven. |
 | `feature.external_replay_auditor_proof` | `partial` | `partial` | `none` | `planned` | Local auditor-readiness bundle proof exists; no independent external replay artifact is registered. |
-| `feature.product_ux_dashboard_cli_language` | `partial` | `partial` | `none` | `none` | Local docs/CLI/dashboard-source language proof exists; no real browser walkthrough, accessibility proof, dogfood, or external validation is recorded. |
-| `feature.network_identity_federation_market` | `unknown` | `none` | `none` | `none` | Network/federation/market implementation and proof are unknown. |
-| `feature.release_claim_honesty_gates` | `partial` | `smoke` | `ad_hoc` | `none` | Registry audit exists, but release gates need integration with release flow. |
+| `feature.product_ux_dashboard_cli_language` | `partial` | `partial` | `none` | `none` | Local CLI/help and dashboard-source language proof exists; no real dashboard browser walkthrough/dogfood/external validation is registered. |
+| `feature.network_identity_federation_market` | `partial` | `partial` | `none` | `none` | Local identity-scope proof exists for one user/org across app surfaces; V26 artifact absent and federation/market remain bounded/planned. |
+| `feature.release_claim_honesty_gates` | `partial` | `smoke` | `ad_hoc` | `none` | Local release honesty proof gate exists; full release-flow integration and external release review remain pending. |
 | `feature.cross_harness_continuity` | `partial` | `planned` | `ad_hoc` | `none` | Cross-harness replay proof is planned but not recorded. |
 
 ## Honest Conclusion
