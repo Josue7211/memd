@@ -193,14 +193,27 @@
       ],
       "docs": [
         "docs/verification/FEATURES.md",
-        "docs/verification/COVERAGE-MATRIX.md"
+        "docs/verification/COVERAGE-MATRIX.md",
+        "docs/verification/feature-memory-core-25.md"
       ],
       "proof_commands": [
-        "cargo test --workspace"
+        "bash scripts/verify/feature-memory-core-proof.sh",
+        "bash scripts/memd-cargo-guard.sh check -p memd-client -p memd-core -p memd-schema",
+        "bash scripts/memd-cargo-guard.sh test -p memd-client correction_e2e_tests",
+        "bash scripts/memd-cargo-guard.sh test -p memd-client recall_depth_tests",
+        "bash scripts/memd-cargo-guard.sh test -p memd-client runtime_memory_tests"
       ],
-      "proof_artifacts": [],
+      "proof_artifacts": [
+        "docs/verification/feature-memory-core-25.md",
+        "crates/memd-client/src/main_tests/correction_e2e_tests/mod.rs",
+        "crates/memd-client/src/main_tests/recall_depth_tests/mod.rs",
+        "crates/memd-client/src/main_tests/runtime_memory_tests/mod.rs",
+        "crates/memd-server/src/tests/memory_behaviors.rs",
+        "docs/verification/release-0-1-0/*axis-correction_retention*",
+        "docs/verification/release-0-1-0/*axis-trust_provenance*"
+      ],
       "current_status": "partial",
-      "proof_status": "planned",
+      "proof_status": "strong",
       "dogfood_status": "ad_hoc",
       "external_status": "none",
       "blocks_25_25": true,
@@ -211,12 +224,12 @@
         "trust"
       ],
       "allowed_claims": [
-        "Core memory surfaces exist but require current proof before stronger claims."
+        "Memory-core substrate surfaces have current local proof coverage across capture, lookup, resume, corrections, provenance, and trust boundaries."
       ],
       "forbidden_claims": [
-        "Do not claim reliable memory OS, perfect recall, or trust guarantees without current proof artifacts."
+        "Do not claim reliable memory OS, perfect recall, production-grade trust, or external verification from this local proof artifact alone."
       ],
-      "freshness_policy": "Re-run unit/integration and retrieval quality proofs after ingest, store, recall, correction, or provenance changes."
+      "freshness_policy": "Re-run feature-memory-core-proof plus guarded memory cargo check/tests after ingest, store, lookup, resume, correction, provenance, schema, or trust-boundary changes."
     },
     {
       "id": "feature.context_compiler_token_savings",

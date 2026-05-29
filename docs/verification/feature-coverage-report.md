@@ -11,7 +11,7 @@ This is a static Pillar 01 coverage report. It summarizes registry coverage and 
 - Registered first-class feature areas: 14
 - Areas blocking any honest 25/25 claim: 14
 - Areas with no executable proof commands listed: 4
-- Areas with no proof artifacts listed: 8
+- Areas with no proof artifacts listed: 7
 - Areas externally verified: 0
 - Areas with sustained/continuous dogfood: 0
 
@@ -22,7 +22,7 @@ This is a static Pillar 01 coverage report. It summarizes registry coverage and 
 | `feature.setup_install_onboarding` | `partial` | `smoke` | `ad_hoc` | `none` | Needs external replay and broader lifecycle proof beyond local setup smoke. |
 | `feature.docs_product_education` | `partial` | `smoke` | `ad_hoc` | `none` | Docs need ongoing alignment with registry and executable proof. |
 | `feature.doctor_status_recovery_update_uninstall` | `partial` | `strong` | `ad_hoc` | `planned` | Local lifecycle proof exists; destructive reset contract and external replay remain pending. |
-| `feature.memory_core` | `partial` | `planned` | `ad_hoc` | `none` | Core behavior needs current full proof artifacts for capture/recall/correction/provenance. |
+| `feature.memory_core` | `partial` | `strong` | `ad_hoc` | `none` | Local proof maps capture/lookup/resume/corrections/provenance/trust, but external validation and production reliability remain unproven. |
 | `feature.context_compiler_token_savings` | `partial` | `planned` | `ad_hoc` | `none` | Token savings need reproducible measurements and artifacts. |
 | `feature.shared_research_cache` | `unknown` | `none` | `none` | `none` | Implementation/proof status is unknown; contamination controls unproven. |
 | `feature.hive_hivemind_coordination` | `partial` | `stale` | `ad_hoc` | `none` | Existing hive proof surfaces are stale until re-run. |
