@@ -3,14 +3,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MEMD_BIN="${MEMD_BIN:-}"
-if [ -z "$MEMD_BIN" ] && [ -x "$ROOT/target/debug/memd" ]; then
+if [ -z "$MEMD_BIN" ]; then
   MEMD_BIN="$ROOT/target/debug/memd"
 fi
-if [ -z "$MEMD_BIN" ]; then
-  MEMD_BIN="$(command -v memd || true)"
+if [ ! -x "$MEMD_BIN" ]; then
+  (cd "$ROOT" && cargo build -p memd-client --bin memd >/dev/null)
 fi
-if [ -z "$MEMD_BIN" ]; then
-  echo "memd binary not found; run cargo build -p memd-client --bin memd" >&2
+if [ ! -x "$MEMD_BIN" ]; then
+  echo "memd binary not found after cargo build: $MEMD_BIN" >&2
   exit 1
 fi
 

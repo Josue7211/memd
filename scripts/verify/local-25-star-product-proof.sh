@@ -10,10 +10,10 @@ mkdir -p "$OUT_DIR"
 REPORT="$OUT_DIR/local-25-star-product-proof.md"
 MEMD_BIN="${MEMD_BIN:-$ROOT/target/debug/memd}"
 if [[ ! -x "$MEMD_BIN" ]]; then
-  MEMD_BIN="$(command -v memd || true)"
+  cargo build -p memd-client --bin memd >/dev/null
 fi
-if [[ -z "$MEMD_BIN" ]]; then
-  echo "local-25-star: memd binary not found; run cargo build -p memd-client --bin memd" >&2
+if [[ ! -x "$MEMD_BIN" ]]; then
+  echo "local-25-star: memd binary not found after cargo build: $MEMD_BIN" >&2
   exit 1
 fi
 
