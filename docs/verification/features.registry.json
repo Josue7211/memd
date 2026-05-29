@@ -91,14 +91,18 @@
       ],
       "docs": [
         "docs/verification/FEATURES.md",
-        "docs/verification/feature-coverage-report.md"
+        "docs/verification/feature-coverage-report.md",
+        "docs/product/INDEX.md",
+        "docs/verification/feature-docs-product-education-25.md"
       ],
       "proof_commands": [
         "bash scripts/doc-lint.sh",
-        "bash scripts/verify/feature-registry-audit.sh"
+        "bash scripts/verify/feature-registry-audit.sh",
+        "bash scripts/verify/feature-docs-product-education-proof.sh"
       ],
       "proof_artifacts": [
-        "docs/verification/feature-coverage-report.md"
+        "docs/verification/feature-coverage-report.md",
+        "docs/verification/feature-docs-product-education-25.md"
       ],
       "current_status": "partial",
       "proof_status": "smoke",
@@ -111,10 +115,12 @@
         "freshness"
       ],
       "allowed_claims": [
-        "Registry defines current whole-app truth fields."
+        "Registry defines current whole-app truth fields.",
+        "Docs/product education has local proof for navigation, claim-to-proof mapping, and honest pending language when the proof script passes."
       ],
       "forbidden_claims": [
-        "Do not claim docs prove product behavior without linked executable proof."
+        "Do not claim docs prove product behavior without linked executable proof.",
+        "Do not claim external validation, dogfood readiness, production readiness, or whole-product 25/25 from local docs proof alone."
       ],
       "freshness_policy": "Update registry and coverage report with every feature claim, proof artifact, or status change."
     },
