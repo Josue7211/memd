@@ -28,7 +28,7 @@ This is a static Pillar 01 coverage report. It summarizes registry coverage and 
 | `feature.hive_hivemind_coordination` | `partial` | `partial` | `ad_hoc` | `none` | Local proof maps archived hive coordination, roster/authority scripts, and no private context broadcast; sustained production and external hive review remain unproven. |
 | `feature.competitor_public_benchmark_replay` | `partial` | `partial` | `none` | `planned` | Fresh local public fixture replay artifact exists; no same-day independent competitor/external replay is registered. |
 | `feature.dogfood_reliability_windows` | `partial` | `partial` | `ad_hoc` | `none` | Ad hoc dated dogfood/reliability evidence exists, but no closed sustained reliability window is proven. |
-| `feature.external_replay_auditor_proof` | `partial` | `planned` | `none` | `planned` | Local auditor-readiness bundle proof exists; no independent external replay artifact is registered. |
+| `feature.external_replay_auditor_proof` | `partial` | `partial` | `none` | `planned` | Local auditor-readiness bundle proof exists; no independent external replay artifact is registered. |
 | `feature.product_ux_dashboard_cli_language` | `unknown` | `none` | `none` | `none` | UX/dashboard status and walkthrough proof are unknown. |
 | `feature.network_identity_federation_market` | `unknown` | `none` | `none` | `none` | Network/federation/market implementation and proof are unknown. |
 | `feature.release_claim_honesty_gates` | `partial` | `smoke` | `ad_hoc` | `none` | Registry audit exists, but release gates need integration with release flow. |
