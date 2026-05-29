@@ -2,6 +2,55 @@
 
 # Feature Registry
 
+The canonical machine-readable whole-app registry is `docs/verification/features.registry.json`; its schema is `docs/verification/features.schema.json`. This page adds a Pillar 01 whole-app truth index while preserving the legacy feature notes below. Registry inclusion means a feature is tracked; it does **not** mean the feature is implemented, dogfooded, or externally verified.
+
+## Pillar 01 Whole-App Registry Truth
+
+Run:
+
+```bash
+bash scripts/verify/feature-registry-audit.sh
+```
+
+### Status Vocabulary
+
+- `current_status`: `not_started`, `stub`, `partial`, `implemented`, `broken`, `unknown`
+- `proof_status`: `none`, `planned`, `smoke`, `partial`, `strong`, `external_verified`, `stale`
+- `dogfood_status`: `none`, `planned`, `ad_hoc`, `windowed`, `continuous`, `stale`
+- `external_status`: `none`, `planned`, `replayable`, `external_verified`, `stale`
+
+### First-Class Feature Areas
+
+| ID | Category | Current | Proof | Dogfood | External | Blocks 25/25 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `feature.setup_install_onboarding` | setup/install/onboarding | `partial` | `smoke` | `ad_hoc` | `none` | yes |
+| `feature.docs_product_education` | docs/product education | `partial` | `smoke` | `ad_hoc` | `none` | yes |
+| `feature.doctor_status_recovery_update_uninstall` | doctor/status/recovery/update/uninstall | `unknown` | `none` | `none` | `none` | yes |
+| `feature.memory_core` | memory capture/lookup/recall/corrections/provenance/trust | `partial` | `planned` | `ad_hoc` | `none` | yes |
+| `feature.context_compiler_token_savings` | context compiler/token savings | `partial` | `planned` | `ad_hoc` | `none` | yes |
+| `feature.shared_research_cache` | shared research cache/donor repo extraction | `unknown` | `none` | `none` | `none` | yes |
+| `feature.hive_hivemind_coordination` | hive/hivemind coordination | `partial` | `stale` | `ad_hoc` | `none` | yes |
+| `feature.competitor_public_benchmark_replay` | competitor/public benchmark replay | `partial` | `stale` | `none` | `planned` | yes |
+| `feature.dogfood_reliability_windows` | dogfood/reliability windows | `partial` | `planned` | `ad_hoc` | `none` | yes |
+| `feature.external_replay_auditor_proof` | external replay/auditor proof | `partial` | `planned` | `none` | `planned` | yes |
+| `feature.product_ux_dashboard_cli_language` | product UX surfaces/dashboard/CLI language | `unknown` | `none` | `none` | `none` | yes |
+| `feature.network_identity_federation_market` | network identity/federation/market layer | `unknown` | `none` | `none` | `none` | yes |
+| `feature.release_claim_honesty_gates` | release/claim honesty gates | `partial` | `smoke` | `ad_hoc` | `none` | yes |
+| `feature.cross_harness_continuity` | cross-harness continuity | `partial` | `planned` | `ad_hoc` | `none` | yes |
+
+### Claim Rules
+
+- Allowed claims must be copied from each registry row or backed by a newer proof artifact.
+- Forbidden claims are release blockers until the registry status and proof artifacts change.
+- `blocks_25_25: true` means the area must have adequate implementation, proof, dogfood, and external/auditor status before any honest 25/25 claim.
+- Do not use old benchmark, hive, or setup artifacts as current proof unless the feature row freshness policy says they are still valid and the audit/report links them.
+
+See `docs/verification/feature-coverage-report.md` for the current coverage summary and blockers.
+
+---
+
+## Legacy Feature Notes
+
 ## Status Vocabulary
 
 - `unverified`

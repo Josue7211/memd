@@ -1,0 +1,565 @@
+{
+  "version": "2026-05-29.pillar-01",
+  "purpose": "Whole-app CEO truth for feature claims, proof status, blockers, and audit freshness. This registry is deliberately honest: registry presence is not implementation proof.",
+  "status_vocabulary": [
+    "not_started",
+    "stub",
+    "partial",
+    "implemented",
+    "broken",
+    "unknown"
+  ],
+  "proof_vocabularies": {
+    "proof_status": [
+      "none",
+      "planned",
+      "smoke",
+      "partial",
+      "strong",
+      "external_verified",
+      "stale"
+    ],
+    "dogfood_status": [
+      "none",
+      "planned",
+      "ad_hoc",
+      "windowed",
+      "continuous",
+      "stale"
+    ],
+    "external_status": [
+      "none",
+      "planned",
+      "replayable",
+      "external_verified",
+      "stale"
+    ]
+  },
+  "features": [
+    {
+      "id": "feature.setup_install_onboarding",
+      "name": "Setup, install, and onboarding",
+      "category": "setup/install/onboarding",
+      "user_contract": "A new user can install memd, run first-use onboarding, and reach a working local proof without hand-editing hidden state.",
+      "implementation_surfaces": [
+        "install scripts",
+        "memd CLI setup paths",
+        "scripts/verify/setup-experience-smoke.sh"
+      ],
+      "docs": [
+        "START-HERE.md",
+        "README.md",
+        "docs/verification/setup-experience-scorecard.md"
+      ],
+      "proof_commands": [
+        "bash scripts/verify/setup-experience-smoke.sh"
+      ],
+      "proof_artifacts": [
+        "setup-slice local proof at commit 53b0df5",
+        "docs/verification/setup-experience-scorecard.md"
+      ],
+      "current_status": "partial",
+      "proof_status": "smoke",
+      "dogfood_status": "ad_hoc",
+      "external_status": "none",
+      "blocks_25_25": true,
+      "scorecard_axes": [
+        "first_run",
+        "install_reliability",
+        "time_to_value",
+        "recovery"
+      ],
+      "allowed_claims": [
+        "Setup slice has local smoke proof where cited."
+      ],
+      "forbidden_claims": [
+        "Do not claim universal one-command install or production onboarding until external replay passes."
+      ],
+      "freshness_policy": "Re-run setup smoke after installer, CLI bootstrap, README/START-HERE, or release changes."
+    },
+    {
+      "id": "feature.docs_product_education",
+      "name": "Docs and product education",
+      "category": "docs/product education",
+      "user_contract": "Docs tell users what memd does, what is proven, what is aspirational, and where to start without conflicting claims.",
+      "implementation_surfaces": [
+        "README.md",
+        "START-HERE.md",
+        "ROADMAP.md",
+        "docs/**/*.md",
+        "scripts/doc-lint.sh"
+      ],
+      "docs": [
+        "docs/verification/FEATURES.md",
+        "docs/verification/feature-coverage-report.md"
+      ],
+      "proof_commands": [
+        "bash scripts/doc-lint.sh",
+        "bash scripts/verify/feature-registry-audit.sh"
+      ],
+      "proof_artifacts": [
+        "docs/verification/feature-coverage-report.md"
+      ],
+      "current_status": "partial",
+      "proof_status": "smoke",
+      "dogfood_status": "ad_hoc",
+      "external_status": "none",
+      "blocks_25_25": true,
+      "scorecard_axes": [
+        "truthfulness",
+        "navigability",
+        "freshness"
+      ],
+      "allowed_claims": [
+        "Registry defines current whole-app truth fields."
+      ],
+      "forbidden_claims": [
+        "Do not claim docs prove product behavior without linked executable proof."
+      ],
+      "freshness_policy": "Update registry and coverage report with every feature claim, proof artifact, or status change."
+    },
+    {
+      "id": "feature.doctor_status_recovery_update_uninstall",
+      "name": "Doctor, status, recovery, update, and uninstall",
+      "category": "doctor/status/recovery/update/uninstall",
+      "user_contract": "A user can inspect health, understand failures, recover safely, update, and uninstall without losing data unexpectedly.",
+      "implementation_surfaces": [
+        "memd doctor/status CLI",
+        "update/uninstall scripts",
+        "state backup/recovery paths"
+      ],
+      "docs": [
+        "README.md",
+        "START-HERE.md"
+      ],
+      "proof_commands": [],
+      "proof_artifacts": [],
+      "current_status": "unknown",
+      "proof_status": "none",
+      "dogfood_status": "none",
+      "external_status": "none",
+      "blocks_25_25": true,
+      "scorecard_axes": [
+        "operability",
+        "data_safety",
+        "recovery"
+      ],
+      "allowed_claims": [
+        "Registry identifies this as required for 25/25."
+      ],
+      "forbidden_claims": [
+        "Do not claim safe update/uninstall or recovery until executable proof exists."
+      ],
+      "freshness_policy": "Audit after any lifecycle command, installer, storage layout, or migration change."
+    },
+    {
+      "id": "feature.memory_core",
+      "name": "Memory capture, lookup, recall, corrections, provenance, and trust",
+      "category": "memory capture/lookup/recall/corrections/provenance/trust",
+      "user_contract": "Users can capture memories, retrieve them accurately, correct them, and inspect provenance/trust boundaries.",
+      "implementation_surfaces": [
+        "crates/memd-client",
+        "crates/memd-server",
+        "memory store",
+        "correction/provenance surfaces"
+      ],
+      "docs": [
+        "docs/verification/FEATURES.md",
+        "docs/verification/COVERAGE-MATRIX.md"
+      ],
+      "proof_commands": [
+        "cargo test --workspace"
+      ],
+      "proof_artifacts": [],
+      "current_status": "partial",
+      "proof_status": "planned",
+      "dogfood_status": "ad_hoc",
+      "external_status": "none",
+      "blocks_25_25": true,
+      "scorecard_axes": [
+        "recall_quality",
+        "provenance",
+        "correction_safety",
+        "trust"
+      ],
+      "allowed_claims": [
+        "Core memory surfaces exist but require current proof before stronger claims."
+      ],
+      "forbidden_claims": [
+        "Do not claim reliable memory OS, perfect recall, or trust guarantees without current proof artifacts."
+      ],
+      "freshness_policy": "Re-run unit/integration and retrieval quality proofs after ingest, store, recall, correction, or provenance changes."
+    },
+    {
+      "id": "feature.context_compiler_token_savings",
+      "name": "Context compiler and token savings",
+      "category": "context compiler/token savings",
+      "user_contract": "memd compiles useful compact context and reports honest token savings without hiding critical facts.",
+      "implementation_surfaces": [
+        "compiled context paths",
+        "bundle/event generation",
+        "token accounting"
+      ],
+      "docs": [
+        "docs/verification/BENCHMARKS.md",
+        "docs/verification/benchmark-registry.json"
+      ],
+      "proof_commands": [],
+      "proof_artifacts": [],
+      "current_status": "partial",
+      "proof_status": "planned",
+      "dogfood_status": "ad_hoc",
+      "external_status": "none",
+      "blocks_25_25": true,
+      "scorecard_axes": [
+        "compression",
+        "fidelity",
+        "latency",
+        "honest_accounting"
+      ],
+      "allowed_claims": [
+        "Token-savings feature is in scope and requires measured proof."
+      ],
+      "forbidden_claims": [
+        "Do not publish token-savings percentages without reproducible measurements and artifacts."
+      ],
+      "freshness_policy": "Refresh measurements after compiler, prompt, tokenizer, or benchmark corpus changes."
+    },
+    {
+      "id": "feature.shared_research_cache",
+      "name": "Shared research cache and donor repo extraction",
+      "category": "shared research cache/donor repo extraction",
+      "user_contract": "Teams can reuse extracted research context across repos while preserving source attribution and avoiding cross-project contamination.",
+      "implementation_surfaces": [
+        "research cache",
+        "donor repo extraction",
+        "source attribution metadata"
+      ],
+      "docs": [
+        "docs/verification/benchmark-registry.json"
+      ],
+      "proof_commands": [],
+      "proof_artifacts": [],
+      "current_status": "unknown",
+      "proof_status": "none",
+      "dogfood_status": "none",
+      "external_status": "none",
+      "blocks_25_25": true,
+      "scorecard_axes": [
+        "reuse",
+        "attribution",
+        "isolation",
+        "freshness"
+      ],
+      "allowed_claims": [
+        "Capability is a first-class registry requirement."
+      ],
+      "forbidden_claims": [
+        "Do not claim shared cache is production-safe or contamination-free without adversarial proof."
+      ],
+      "freshness_policy": "Audit with every cache format, extraction, indexing, or multi-repo workflow change."
+    },
+    {
+      "id": "feature.hive_hivemind_coordination",
+      "name": "Hive and hivemind coordination",
+      "category": "hive/hivemind coordination",
+      "user_contract": "Multiple agents can coordinate through memd with clear ownership, durable state, and replayable handoffs.",
+      "implementation_surfaces": [
+        "hive scripts",
+        "coordination maps",
+        "docs/verification/hive-runs"
+      ],
+      "docs": [
+        "docs/verification/NODE-VERIFICATION-MATRIX.md",
+        "docs/verification/hive-runs"
+      ],
+      "proof_commands": [
+        "bash scripts/verify/hive-live-map-guard-contract.sh",
+        "bash scripts/verify/hive-production-proof.sh"
+      ],
+      "proof_artifacts": [
+        "docs/verification/hive-runs"
+      ],
+      "current_status": "partial",
+      "proof_status": "stale",
+      "dogfood_status": "ad_hoc",
+      "external_status": "none",
+      "blocks_25_25": true,
+      "scorecard_axes": [
+        "coordination",
+        "handoff_replay",
+        "ownership",
+        "conflict_resolution"
+      ],
+      "allowed_claims": [
+        "Hive proof surfaces exist but must be revalidated before strong claims."
+      ],
+      "forbidden_claims": [
+        "Do not claim production hive/hivemind reliability until current proof passes."
+      ],
+      "freshness_policy": "Re-run hive proofs after coordination, agent contract, map, or handoff changes."
+    },
+    {
+      "id": "feature.competitor_public_benchmark_replay",
+      "name": "Competitor and public benchmark replay",
+      "category": "competitor/public benchmark replay",
+      "user_contract": "Benchmark comparisons can be replayed from public fixtures with clear baselines and no private-only assumptions.",
+      "implementation_surfaces": [
+        "scripts/verify/25-5-competitor-head-to-head.sh",
+        "scripts/verify/25-5-public-benchmark-fixtures.sh",
+        "docs/verification/PUBLIC_BENCHMARKS.md"
+      ],
+      "docs": [
+        "docs/verification/BENCHMARKS.md",
+        "docs/verification/PUBLIC_LEADERBOARD.md",
+        "docs/verification/SUBSTRATE_COMPETITOR.md"
+      ],
+      "proof_commands": [
+        "bash scripts/verify/25-5-public-benchmark-fixtures.sh",
+        "bash scripts/verify/25-5-competitor-head-to-head.sh"
+      ],
+      "proof_artifacts": [
+        "docs/verification/substrate-baselines"
+      ],
+      "current_status": "partial",
+      "proof_status": "stale",
+      "dogfood_status": "none",
+      "external_status": "planned",
+      "blocks_25_25": true,
+      "scorecard_axes": [
+        "replayability",
+        "fairness",
+        "baseline_quality",
+        "public_evidence"
+      ],
+      "allowed_claims": [
+        "Benchmark replay is tracked and requires current run artifacts."
+      ],
+      "forbidden_claims": [
+        "Do not claim competitor superiority without current public replay and methodology."
+      ],
+      "freshness_policy": "Refresh after benchmark fixture, baseline, competitor version, or scoring changes."
+    },
+    {
+      "id": "feature.dogfood_reliability_windows",
+      "name": "Dogfood reliability windows",
+      "category": "dogfood/reliability windows",
+      "user_contract": "The team can demonstrate memd working over sustained real use windows, with failures logged and recovery measured.",
+      "implementation_surfaces": [
+        "dogfood logs",
+        "reliability windows",
+        "local 25-star proof scripts"
+      ],
+      "docs": [
+        "docs/verification/LOCAL-25-STAR-SCORECARD.md",
+        "docs/verification/LOOPS.md"
+      ],
+      "proof_commands": [
+        "bash scripts/verify/local-25-star-product-proof.sh"
+      ],
+      "proof_artifacts": [],
+      "current_status": "partial",
+      "proof_status": "planned",
+      "dogfood_status": "ad_hoc",
+      "external_status": "none",
+      "blocks_25_25": true,
+      "scorecard_axes": [
+        "uptime",
+        "failure_recovery",
+        "real_use",
+        "regression_rate"
+      ],
+      "allowed_claims": [
+        "Ad-hoc dogfood exists where artifacts are cited."
+      ],
+      "forbidden_claims": [
+        "Do not claim sustained reliability windows until dated window artifacts exist."
+      ],
+      "freshness_policy": "Close or refresh windows on release, storage, server, installer, or agent workflow changes."
+    },
+    {
+      "id": "feature.external_replay_auditor_proof",
+      "name": "External replay and auditor proof",
+      "category": "external replay/auditor proof",
+      "user_contract": "An outside auditor can replay proofs and reach the same status conclusions from public instructions and artifacts.",
+      "implementation_surfaces": [
+        "external verifier scripts",
+        "public proof docs",
+        "artifact bundles"
+      ],
+      "docs": [
+        "docs/verification/EXTERNAL-25-STAR-VERIFIERS.md",
+        "docs/verification/25-star-human-trial-template.md"
+      ],
+      "proof_commands": [
+        "bash scripts/verify/25-5-external-public-smoke.sh"
+      ],
+      "proof_artifacts": [],
+      "current_status": "partial",
+      "proof_status": "planned",
+      "dogfood_status": "none",
+      "external_status": "planned",
+      "blocks_25_25": true,
+      "scorecard_axes": [
+        "external_replay",
+        "artifact_completeness",
+        "instruction_clarity"
+      ],
+      "allowed_claims": [
+        "External proof is planned and registered."
+      ],
+      "forbidden_claims": [
+        "Do not claim externally verified until an independent replay artifact is recorded."
+      ],
+      "freshness_policy": "Refresh instructions and artifacts after every verifier, release, or dependency change."
+    },
+    {
+      "id": "feature.product_ux_dashboard_cli_language",
+      "name": "Product UX surfaces, dashboard, and CLI language",
+      "category": "product UX surfaces/dashboard/CLI language",
+      "user_contract": "Users see clear, consistent language in CLI/dashboard surfaces and understand next actions without reading source code.",
+      "implementation_surfaces": [
+        "CLI output",
+        "dashboard surfaces",
+        "status and error messages"
+      ],
+      "docs": [
+        "README.md",
+        "START-HERE.md"
+      ],
+      "proof_commands": [],
+      "proof_artifacts": [],
+      "current_status": "unknown",
+      "proof_status": "none",
+      "dogfood_status": "none",
+      "external_status": "none",
+      "blocks_25_25": true,
+      "scorecard_axes": [
+        "clarity",
+        "consistency",
+        "actionability",
+        "accessibility"
+      ],
+      "allowed_claims": [
+        "UX surfaces are recognized as a first-class feature area."
+      ],
+      "forbidden_claims": [
+        "Do not claim polished product UX or dashboard completeness without walkthrough evidence."
+      ],
+      "freshness_policy": "Review after every CLI, dashboard, status, docs, or error-message change."
+    },
+    {
+      "id": "feature.network_identity_federation_market",
+      "name": "Network identity, federation, and market layer",
+      "category": "network identity/federation/market layer",
+      "user_contract": "Networked identities and federation/market behavior are explicit, safe, and not confused with local-only memory behavior.",
+      "implementation_surfaces": [
+        "network identity",
+        "federation",
+        "market layer"
+      ],
+      "docs": [
+        "ROADMAP.md",
+        "docs/verification/FEATURES.md"
+      ],
+      "proof_commands": [],
+      "proof_artifacts": [],
+      "current_status": "unknown",
+      "proof_status": "none",
+      "dogfood_status": "none",
+      "external_status": "none",
+      "blocks_25_25": true,
+      "scorecard_axes": [
+        "identity",
+        "federation_safety",
+        "market_integrity",
+        "privacy"
+      ],
+      "allowed_claims": [
+        "Network/federation/market layer is a tracked future feature area unless implementation proof is added."
+      ],
+      "forbidden_claims": [
+        "Do not claim active federation, market, or network identity guarantees without implementation and proof."
+      ],
+      "freshness_policy": "Audit before any public claim or code path involving network identity, federation, billing, or markets."
+    },
+    {
+      "id": "feature.release_claim_honesty_gates",
+      "name": "Release and claim honesty gates",
+      "category": "release/claim honesty gates",
+      "user_contract": "Release claims are limited to what registry status and proof artifacts support.",
+      "implementation_surfaces": [
+        "docs/verification/features.registry.json",
+        "scripts/verify/feature-registry-audit.sh",
+        "release docs"
+      ],
+      "docs": [
+        "docs/verification/FEATURES.md",
+        "docs/verification/feature-coverage-report.md",
+        "ROADMAP.md"
+      ],
+      "proof_commands": [
+        "bash scripts/verify/feature-registry-audit.sh",
+        "git diff --check"
+      ],
+      "proof_artifacts": [
+        "docs/verification/feature-coverage-report.md"
+      ],
+      "current_status": "partial",
+      "proof_status": "smoke",
+      "dogfood_status": "ad_hoc",
+      "external_status": "none",
+      "blocks_25_25": true,
+      "scorecard_axes": [
+        "claim_honesty",
+        "release_readiness",
+        "evidence_linkage"
+      ],
+      "allowed_claims": [
+        "Registry audit checks required fields and basic honesty constraints."
+      ],
+      "forbidden_claims": [
+        "Do not claim 25/25 or production-ready based on registry presence alone."
+      ],
+      "freshness_policy": "Run registry audit before release notes, README claim changes, scorecard changes, or public benchmark updates."
+    },
+    {
+      "id": "feature.cross_harness_continuity",
+      "name": "Cross-harness continuity",
+      "category": "cross-harness continuity",
+      "user_contract": "Continuity survives across CLI, server, agent, benchmark, and external replay harnesses with equivalent state interpretation.",
+      "implementation_surfaces": [
+        "harness scripts",
+        "state import/export",
+        "compiled continuity docs",
+        "external replay scripts"
+      ],
+      "docs": [
+        "docs/verification/COVERAGE-MATRIX.md",
+        "docs/verification/25-star-phase-ledger.md"
+      ],
+      "proof_commands": [
+        "bash scripts/verify/25-5-harness-process-replay.sh"
+      ],
+      "proof_artifacts": [],
+      "current_status": "partial",
+      "proof_status": "planned",
+      "dogfood_status": "ad_hoc",
+      "external_status": "none",
+      "blocks_25_25": true,
+      "scorecard_axes": [
+        "continuity",
+        "harness_parity",
+        "state_portability",
+        "replayability"
+      ],
+      "allowed_claims": [
+        "Cross-harness continuity is required and has planned proof."
+      ],
+      "forbidden_claims": [
+        "Do not claim seamless cross-harness continuity until replay artifacts pass."
+      ],
+      "freshness_policy": "Re-run cross-harness replay after state schema, CLI/server protocol, export/import, or harness changes."
+    }
+  ]
+}
