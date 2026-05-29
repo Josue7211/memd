@@ -539,12 +539,24 @@
       ],
       "docs": [
         "ROADMAP.md",
-        "docs/verification/FEATURES.md"
+        "docs/verification/FEATURES.md",
+        "docs/verification/feature-network-identity-federation-market-25.md",
+        "integrations/codex/README.md",
+        "integrations/hermes/README.md",
+        "integrations/hooks/README.md",
+        "docs/verification/25-star-CONTRACT.md",
+        "docs/verification/25-star-phase-ledger.md"
       ],
-      "proof_commands": [],
-      "proof_artifacts": [],
-      "current_status": "unknown",
-      "proof_status": "none",
+      "proof_commands": [
+        "bash scripts/verify/feature-network-identity-federation-market-proof.sh"
+      ],
+      "proof_artifacts": [
+        "docs/verification/feature-network-identity-federation-market-25.md",
+        "docs/verification/v17-proof-runs/2026-05-12-routine-marketplace-suite.md",
+        "docs/verification/v17-proof-runs/2026-05-12-routine-marketplace-suite.ndjson"
+      ],
+      "current_status": "partial",
+      "proof_status": "partial",
       "dogfood_status": "none",
       "external_status": "none",
       "blocks_25_25": true,
@@ -555,12 +567,13 @@
         "privacy"
       ],
       "allowed_claims": [
-        "Network/federation/market layer is a tracked future feature area unless implementation proof is added."
+        "Local proof verifies a single user/org local memory identity/control plane across Codex, Hermes, and OpenClaw/Claude-style harness surfaces.",
+        "Existing federation/market evidence is limited to local/synthetic V17 routine marketplace proof plus planned V26/V27/V28 gates when no newer proof artifacts are present."
       ],
       "forbidden_claims": [
-        "Do not claim active federation, market, or network identity guarantees without implementation and proof."
+        "Do not claim active network identity service, cross-org federation, public marketplace, billing/market economics, production federation safety, or external verification from this local proof alone."
       ],
-      "freshness_policy": "Audit before any public claim or code path involving network identity, federation, billing, or markets."
+      "freshness_policy": "Run the feature proof and registry audit before any public claim or code path involving network identity, federation, billing, or markets; add dated V26/V27/V28 artifacts before expanding claims."
     },
     {
       "id": "feature.release_claim_honesty_gates",

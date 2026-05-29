@@ -10,8 +10,8 @@ This is a static Pillar 01 coverage report. It summarizes registry coverage and 
 
 - Registered first-class feature areas: 14
 - Areas blocking any honest 25/25 claim: 14
-- Areas with no executable proof commands listed: 2
-- Areas with no proof artifacts listed: 5
+- Areas with no executable proof commands listed: 1
+- Areas with no proof artifacts listed: 4
 - Areas externally verified: 0
 - Areas with sustained/continuous dogfood: 0
 
@@ -30,7 +30,7 @@ This is a static Pillar 01 coverage report. It summarizes registry coverage and 
 | `feature.dogfood_reliability_windows` | `partial` | `partial` | `ad_hoc` | `none` | Ad hoc dated dogfood/reliability evidence exists, but no closed sustained reliability window is proven. |
 | `feature.external_replay_auditor_proof` | `partial` | `partial` | `none` | `planned` | Local auditor-readiness bundle proof exists; no independent external replay artifact is registered. |
 | `feature.product_ux_dashboard_cli_language` | `unknown` | `none` | `none` | `none` | UX/dashboard status and walkthrough proof are unknown. |
-| `feature.network_identity_federation_market` | `unknown` | `none` | `none` | `none` | Network/federation/market implementation and proof are unknown. |
+| `feature.network_identity_federation_market` | `partial` | `partial` | `none` | `none` | Local proof verifies single user/org local memory identity across Codex/Hermes/OpenClaw-style surfaces; V17 federation/market evidence is local/synthetic and V26/V27/V28 network/federation/market gates remain planned or absent unless separately proven. |
 | `feature.release_claim_honesty_gates` | `partial` | `smoke` | `ad_hoc` | `none` | Registry audit exists, but release gates need integration with release flow. |
 | `feature.cross_harness_continuity` | `partial` | `planned` | `ad_hoc` | `none` | Cross-harness replay proof is planned but not recorded. |
 
