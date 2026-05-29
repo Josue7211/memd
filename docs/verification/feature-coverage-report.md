@@ -31,7 +31,7 @@ This is a static Pillar 01 coverage report. It summarizes registry coverage and 
 | `feature.external_replay_auditor_proof` | `partial` | `partial` | `none` | `planned` | Local auditor-readiness bundle proof exists; no independent external replay artifact is registered. |
 | `feature.product_ux_dashboard_cli_language` | `unknown` | `none` | `none` | `none` | UX/dashboard status and walkthrough proof are unknown. |
 | `feature.network_identity_federation_market` | `unknown` | `none` | `none` | `none` | Network/federation/market implementation and proof are unknown. |
-| `feature.release_claim_honesty_gates` | `partial` | `smoke` | `ad_hoc` | `none` | Registry audit exists, but release gates need integration with release flow. |
+| `feature.release_claim_honesty_gates` | `partial` | `partial` | `ad_hoc` | `none` | Local honesty proof now checks registry audit, release checklist hooks, executable proof commands, and unsupported 25/25 overclaim blockers; full release-flow integration and external evidence remain pending. |
 | `feature.cross_harness_continuity` | `partial` | `planned` | `ad_hoc` | `none` | Cross-harness replay proof is planned but not recorded. |
 
 ## Honest Conclusion

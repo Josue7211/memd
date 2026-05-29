@@ -35,7 +35,7 @@ bash scripts/verify/feature-registry-audit.sh
 | `feature.external_replay_auditor_proof` | external replay/auditor proof | `partial` | `planned` | `none` | `planned` | yes |
 | `feature.product_ux_dashboard_cli_language` | product UX surfaces/dashboard/CLI language | `unknown` | `none` | `none` | `none` | yes |
 | `feature.network_identity_federation_market` | network identity/federation/market layer | `unknown` | `none` | `none` | `none` | yes |
-| `feature.release_claim_honesty_gates` | release/claim honesty gates | `partial` | `smoke` | `ad_hoc` | `none` | yes |
+| `feature.release_claim_honesty_gates` | release/claim honesty gates | `partial` | `partial` | `ad_hoc` | `none` | yes |
 | `feature.cross_harness_continuity` | cross-harness continuity | `partial` | `planned` | `ad_hoc` | `none` | yes |
 
 ### Claim Rules

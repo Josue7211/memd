@@ -570,22 +570,28 @@
       "implementation_surfaces": [
         "docs/verification/features.registry.json",
         "scripts/verify/feature-registry-audit.sh",
+        "scripts/verify/feature-release-claim-honesty-gates-proof.sh",
+        "docs/policy/archive/release-process.md",
         "release docs"
       ],
       "docs": [
         "docs/verification/FEATURES.md",
         "docs/verification/feature-coverage-report.md",
+        "docs/verification/feature-release-claim-honesty-gates-25.md",
+        "docs/policy/archive/release-process.md",
         "ROADMAP.md"
       ],
       "proof_commands": [
         "bash scripts/verify/feature-registry-audit.sh",
+        "bash scripts/verify/feature-release-claim-honesty-gates-proof.sh",
         "git diff --check"
       ],
       "proof_artifacts": [
-        "docs/verification/feature-coverage-report.md"
+        "docs/verification/feature-coverage-report.md",
+        "docs/verification/feature-release-claim-honesty-gates-25.md"
       ],
       "current_status": "partial",
-      "proof_status": "smoke",
+      "proof_status": "partial",
       "dogfood_status": "ad_hoc",
       "external_status": "none",
       "blocks_25_25": true,
@@ -595,12 +601,12 @@
         "evidence_linkage"
       ],
       "allowed_claims": [
-        "Registry audit checks required fields and basic honesty constraints."
+        "Local release-claim honesty proof checks the registry audit, release checklist hooks, executable proof commands, and unsupported 25/25 overclaim blockers."
       ],
       "forbidden_claims": [
-        "Do not claim 25/25 or production-ready based on registry presence alone."
+        "Do not claim 25/25, production-ready release gating, release-flow integration, or external verification from this local honesty proof alone."
       ],
-      "freshness_policy": "Run registry audit before release notes, README claim changes, scorecard changes, or public benchmark updates."
+      "freshness_policy": "Run registry audit and the local release-claim honesty proof before release notes, README claim changes, scorecard changes, public benchmark updates, tags, or announcements."
     },
     {
       "id": "feature.cross_harness_continuity",
