@@ -488,7 +488,7 @@
         "docs/verification/25-5-memory-os-runs/2026-05-29-external-public-smoke.json"
       ],
       "current_status": "partial",
-      "proof_status": "partial",
+      "proof_status": "strong",
       "dogfood_status": "none",
       "external_status": "planned",
       "blocks_25_25": true,
@@ -498,12 +498,12 @@
         "instruction_clarity"
       ],
       "allowed_claims": [
-        "Local external replay/auditor readiness proof is wired and checks public instructions, checklist, and local artifact integrity when present."
+        "External replay/auditor readiness has strong local proof: registry/schema wiring, verifier instructions, artifact immutability/checksums, registered public-smoke report schema, and fresh 25-5-external-public-smoke generation/validation are checked without leaving dirty proof noise."
       ],
       "forbidden_claims": [
-        "Do not claim externally verified or independently replayed until an independent external replay artifact is recorded."
+        "Do not claim externally verified, independently replayed, auditor-approved, or whole-product 25/25 until an independent external replay/auditor artifact is recorded."
       ],
-      "freshness_policy": "Refresh instructions and artifacts after every verifier, release, or dependency change."
+      "freshness_policy": "Re-run the local readiness proof after every verifier instruction, registry/schema, release bundle, public replay runner, or external-public-smoke artifact change; keep external_status planned until independent external evidence exists."
     },
     {
       "id": "feature.product_ux_dashboard_cli_language",
