@@ -86,9 +86,12 @@ pub(crate) enum Commands {
     Skills(SkillsArgs),
     Packs(PacksArgs),
     Commands(CommandCatalogArgs),
+    /// Configure memd for a local project, provider, and harness.
     Setup(SetupArgs),
+    /// Run an isolated setup proof without changing the current repository.
     #[command(name = "setup-demo")]
     SetupDemo(SetupDemoArgs),
+    /// Check local memd health and print actionable repair guidance.
     Doctor(DoctorArgs),
     Device(DeviceArgs),
     Dogfood(DogfoodArgs),
