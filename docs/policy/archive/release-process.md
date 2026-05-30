@@ -50,7 +50,8 @@ Before tagging a release:
 5. run the local release-claim honesty gates:
    - `bash scripts/verify/feature-registry-audit.sh`
    - `bash scripts/verify/feature-release-claim-honesty-gates-proof.sh`
-6. confirm any `25/25`, production-ready, external-verification, or benchmark/scorecard claim is supported by registry status and linked proof artifacts; keep unsupported claims blocked
+   - `bash scripts/verify/local-25-5-release-claim-honesty-gate.sh`
+6. confirm local `25/5` wording stays distinct from any unsupported `25/25`, production-ready, external-verification, or benchmark/scorecard claim; every stronger claim must be supported by registry status and linked proof artifacts; keep unsupported claims blocked
 7. update `CHANGELOG.md`
 8. confirm CI is green
 9. merge the release-ready state to `main`
