@@ -353,10 +353,13 @@
       ],
       "proof_artifacts": [
         "docs/verification/feature-hive-hivemind-coordination-25.md",
-        "docs/verification/hive-runs/2026-05-26-internal-alpha"
+        "docs/verification/hive-runs/2026-05-26-internal-alpha",
+        "scripts/verify/feature-hive-hivemind-coordination-proof.sh",
+        "scripts/verify/hive-live-map-guard-contract.sh",
+        "scripts/verify/hive-production-proof.sh"
       ],
       "current_status": "partial",
-      "proof_status": "partial",
+      "proof_status": "strong",
       "dogfood_status": "ad_hoc",
       "external_status": "none",
       "blocks_25_25": true,
@@ -367,12 +370,12 @@
         "conflict_resolution"
       ],
       "allowed_claims": [
-        "A current static/local proof validates hive coordination contracts and archived ad hoc artifacts for roster, authority, capability, handoff, task ownership, help/review lanes, dev-server conflict receipts, and claim release."
+        "A current strong local proof validates hive coordination contracts, executable script modes, live-map separation guards, an isolated hive production rehearsal, and archived ad hoc artifacts for roster, authority, capability, handoff, task ownership, help/review lanes, dev-server conflict receipts, and claim release."
       ],
       "forbidden_claims": [
-        "Do not claim production hive/hivemind reliability, continuous dogfood, external verification, or cross-agent leakage/private-context sharing from this proof."
+        "Do not claim sustained production hive/hivemind reliability, continuous dogfood, external verification, optional shared/Tailscale canary coverage, or cross-agent leakage/private-context sharing from this local proof."
       ],
-      "freshness_policy": "Re-run this proof after hive coordination, authority, capability, live-map, handoff, task-board, or receipt changes; rerun the full hive production proof before upgrading beyond partial/ad hoc."
+      "freshness_policy": "Re-run this proof after hive coordination, authority, capability, live-map, handoff, task-board, receipt, or guard-script mode changes; rerun the full hive production proof and add external/shared canary evidence before upgrading dogfood or external status."
     },
     {
       "id": "feature.competitor_public_benchmark_replay",

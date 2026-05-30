@@ -6,9 +6,13 @@ ARTIFACT_DIR="$ROOT/docs/verification/hive-runs/2026-05-26-internal-alpha"
 DOC="$ROOT/docs/verification/feature-hive-hivemind-coordination-25.md"
 REGISTRY="$ROOT/docs/verification/features.registry.json"
 
+bash "$ROOT/scripts/verify/hive-live-map-guard-contract.sh" >/dev/null
+bash "$ROOT/scripts/verify/hive-production-proof.sh" >/dev/null
+
 python3 - "$ROOT" "$ARTIFACT_DIR" "$DOC" "$REGISTRY" <<'PY'
 import hashlib
 import json
+import stat
 import sys
 from pathlib import Path
 
@@ -48,6 +52,28 @@ def load_json(path):
         fail(f"invalid json {rel(path)}: {exc}")
         return None
 
+def require_executable(path):
+    p = root / path
+    if not p.is_file():
+        fail(f"missing executable script: {path}")
+        return
+    mode = p.stat().st_mode
+    if not mode & stat.S_IXUSR:
+        fail(f"script is not user-executable: {path} mode={oct(mode & 0o777)}")
+    text = p.read_text(errors="replace")
+    if not text.startswith("#!/usr/bin/env bash"):
+        fail(f"script missing bash shebang: {path}")
+
+for executable in [
+    "scripts/verify/feature-hive-hivemind-coordination-proof.sh",
+    "scripts/verify/hive-live-map-guard-contract.sh",
+    "scripts/verify/hive-production-proof.sh",
+    "scripts/dev-server-guard.sh",
+    "scripts/live-state-sync-memd.sh",
+    "scripts/live-state-sync-clawcontrol.sh",
+]:
+    require_executable(executable)
+
 require_text("docs/contracts/hive-live-map-guard.md", [
     "memd is the coordination/memory runtime",
     "separate projects, separate lifecycles",
@@ -78,7 +104,7 @@ require_text("crates/memd-client/src/render/render_summary.rs", [
 
 doc_text = require_file("docs/verification/feature-hive-hivemind-coordination-25.md")
 for needle in [
-    "Proof status: partial",
+    "Proof status: strong",
     "Dogfood status: ad_hoc",
     "External status: none",
     "No Cross-Agent Leakage Assumption",
@@ -96,7 +122,7 @@ if registry:
         f = matches[0]
         expected = {
             "current_status": "partial",
-            "proof_status": "partial",
+            "proof_status": "strong",
             "dogfood_status": "ad_hoc",
             "external_status": "none",
             "blocks_25_25": True,
@@ -112,10 +138,17 @@ if registry:
             fail("registry missing feature hive proof command")
         joined_allowed = " ".join(f.get("allowed_claims", []))
         joined_forbidden = " ".join(f.get("forbidden_claims", []))
-        if "current static/local proof" not in joined_allowed:
-            fail("registry allowed_claims do not describe current static/local proof")
-        if "Do not claim production hive/hivemind reliability" not in joined_forbidden:
-            fail("registry forbidden_claims missing production reliability prohibition")
+        if "current strong local proof" not in joined_allowed:
+            fail("registry allowed_claims do not describe current strong local proof")
+        if "Do not claim sustained production hive/hivemind reliability" not in joined_forbidden:
+            fail("registry forbidden_claims missing sustained production reliability prohibition")
+        for artifact in [
+            "scripts/verify/feature-hive-hivemind-coordination-proof.sh",
+            "scripts/verify/hive-live-map-guard-contract.sh",
+            "scripts/verify/hive-production-proof.sh",
+        ]:
+            if artifact not in f.get("proof_artifacts", []):
+                fail(f"registry proof_artifacts missing {artifact}")
 
 if not artifact_dir.is_dir():
     fail(f"missing artifact directory: {rel(artifact_dir)}")
@@ -204,6 +237,6 @@ if errors:
     sys.exit(1)
 
 print("feature-hive-hivemind-coordination-proof: ok")
-print("validated: current authority docs/scripts, no cross-agent leakage assumptions, archived coordination artifacts")
-print("honesty: local/static proof only; archived hive run remains ad hoc and externally unverified")
+print("validated: current authority docs/scripts, executable modes, live-map guard, local hive production proof, no cross-agent leakage assumptions, archived coordination artifacts")
+print("honesty: strong local proof only; ad hoc dogfood and external/shared canary remain unverified")
 PY

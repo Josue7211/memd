@@ -29,7 +29,7 @@ bash scripts/verify/feature-registry-audit.sh
 | `feature.memory_core` | memory capture/lookup/recall/corrections/provenance/trust | `partial` | `strong` | `ad_hoc` | `none` | yes |
 | `feature.context_compiler_token_savings` | context compiler/token savings | `partial` | `strong` | `ad_hoc` | `planned` | yes |
 | `feature.shared_research_cache` | shared research cache/donor repo extraction | `partial` | `strong` | `none` | `none` | yes |
-| `feature.hive_hivemind_coordination` | hive/hivemind coordination | `partial` | `partial` | `ad_hoc` | `none` | yes |
+| `feature.hive_hivemind_coordination` | hive/hivemind coordination | `partial` | `strong` | `ad_hoc` | `none` | yes |
 | `feature.competitor_public_benchmark_replay` | competitor/public benchmark replay | `partial` | `partial` | `none` | `planned` | yes |
 | `feature.dogfood_reliability_windows` | dogfood/reliability windows | `partial` | `partial` | `ad_hoc` | `none` | yes |
 | `feature.external_replay_auditor_proof` | external replay/auditor proof | `partial` | `partial` | `none` | `planned` | yes |
