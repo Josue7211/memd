@@ -6016,8 +6016,8 @@
       "path": "docs/verification/feature-cross-harness-continuity-25.md",
       "signals": {
         "closed_or_reviewed": false,
-        "continuity_language": false,
-        "failure_or_recovery": false,
+        "continuity_language": true,
+        "failure_or_recovery": true,
         "planning_or_future_only_risk": false,
         "real_use": false
       }
@@ -6062,6 +6062,21 @@
       "signals": {
         "closed_or_reviewed": true,
         "continuity_language": false,
+        "failure_or_recovery": true,
+        "planning_or_future_only_risk": false,
+        "real_use": true
+      }
+    },
+    {
+      "date_observations": [],
+      "dates": [],
+      "has_dated_evidence": false,
+      "kind": "dogfood_evidence",
+      "labels": {},
+      "path": "docs/verification/feature-release-claim-honesty-gates-25.md",
+      "signals": {
+        "closed_or_reviewed": false,
+        "continuity_language": true,
         "failure_or_recovery": false,
         "planning_or_future_only_risk": true,
         "real_use": false
@@ -6118,7 +6133,7 @@
   "generated_by": "scripts/verify/feature-dogfood-reliability-windows-proof.sh",
   "inventory": {
     "dated_artifact_count": 185,
-    "matching_artifact_count": 204,
+    "matching_artifact_count": 205,
     "sustained_window_count": 0,
     "window_evaluation_count": 185
   },
