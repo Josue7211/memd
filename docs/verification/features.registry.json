@@ -441,10 +441,12 @@
         "bash scripts/verify/feature-dogfood-reliability-windows-proof.sh"
       ],
       "proof_artifacts": [
-        "docs/verification/feature-dogfood-reliability-windows-25.md"
+        "docs/verification/feature-dogfood-reliability-windows-25.md",
+        "docs/verification/artifacts/dogfood-reliability-windows-local-summary.json",
+        "docs/verification/artifacts/dogfood-reliability-windows-local-summary.md"
       ],
       "current_status": "partial",
-      "proof_status": "partial",
+      "proof_status": "strong",
       "dogfood_status": "ad_hoc",
       "external_status": "none",
       "blocks_25_25": true,
@@ -456,13 +458,15 @@
       ],
       "allowed_claims": [
         "Local proof can inspect dated dogfood/reliability artifacts and report whether spans are ad hoc or sustained.",
-        "Current checkout contains dated ad hoc dogfood evidence, but no closed sustained reliability window is proven."
+        "Current checkout contains dated ad hoc dogfood evidence, but no closed sustained reliability window is proven.",
+        "Strong local proof computes deterministic artifact inventory, dated evidence, and explicit sustained-window absence/presence without upgrading dogfood status unless the sustained-window rule passes.",
+        "Current checkout has dated ad hoc evidence and zero sustained windows under the no-false-positive rule; dogfood status remains ad_hoc."
       ],
       "forbidden_claims": [
         "Do not claim sustained or continuous dogfood until dated closed window artifacts/logs prove actual real-use duration and failure/recovery review.",
         "Do not claim external validation, production reliability, or 25/25 dogfood readiness from local repository proof alone."
       ],
-      "freshness_policy": "Close or refresh windows on release, storage, server, installer, or agent workflow changes."
+      "freshness_policy": "Re-run after changes to dogfood enrollment/status, installer/setup flows, memory storage, server/runtime reliability, release process, or whenever a new dogfood window starts/closes; commit refreshed deterministic summary artifacts with any claimed proof update."
     },
     {
       "id": "feature.external_replay_auditor_proof",

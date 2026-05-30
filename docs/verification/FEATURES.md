@@ -31,7 +31,7 @@ bash scripts/verify/feature-registry-audit.sh
 | `feature.shared_research_cache` | shared research cache/donor repo extraction | `partial` | `strong` | `none` | `none` | yes |
 | `feature.hive_hivemind_coordination` | hive/hivemind coordination | `partial` | `strong` | `ad_hoc` | `none` | yes |
 | `feature.competitor_public_benchmark_replay` | competitor/public benchmark replay | `partial` | `partial` | `none` | `planned` | yes |
-| `feature.dogfood_reliability_windows` | dogfood/reliability windows | `partial` | `partial` | `ad_hoc` | `none` | yes |
+| `feature.dogfood_reliability_windows` | dogfood/reliability windows | `partial` | `strong` | `ad_hoc` | `none` | yes |
 | `feature.external_replay_auditor_proof` | external replay/auditor proof | `partial` | `partial` | `none` | `planned` | yes |
 | `feature.product_ux_dashboard_cli_language` | product UX surfaces/dashboard/CLI language | `partial` | `partial` | `none` | `none` | yes |
 | `feature.network_identity_federation_market` | network identity/federation/market layer | `partial` | `partial` | `none` | `none` | yes |
