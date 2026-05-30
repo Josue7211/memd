@@ -7,13 +7,12 @@ Feature id: `feature.hive_hivemind_coordination`
 ## Honest Status
 
 - Current status: partial
-- Proof status: partial
+- Proof status: strong
 - Dogfood status: ad_hoc
 - External status: none
 - Blocks 25/25 claim: yes
 
-This proof improves the local, replayable evidence for hive/hivemind coordination,
-but it is not a production-reliability or external-auditor proof.
+This proof provides strong local, replayable evidence for hive/hivemind coordination by combining static contract checks, archived-run integrity checks, executable-mode validation, and the isolated local hive production proof. It is still not an external-auditor proof or a sustained production-reliability claim.
 
 ## What the Local Proof Validates
 
@@ -23,7 +22,7 @@ Run:
 bash scripts/verify/feature-hive-hivemind-coordination-proof.sh
 ```
 
-The proof checks three layers:
+The proof checks five local layers:
 
 1. Current hive authority and capability contracts in docs/scripts:
    - `docs/contracts/hive-live-map-guard.md`
@@ -41,7 +40,9 @@ The proof checks three layers:
    - targeted inbox delivery, acknowledgement, and handoff packet
    - exclusive-write, help-only, and shared-review task lanes
    - handoff/task/dev-server receipts and claim release evidence
-3. Checksum integrity for the archived hive run via `SHA256SUMS.json`.
+3. Executable/run-mode hygiene for hive proof and guard scripts.
+4. Checksum integrity for the archived hive run via `SHA256SUMS.json`.
+5. Local production rehearsal through `scripts/verify/hive-production-proof.sh` (without the optional external/shared Tailscale canary).
 
 ## No Cross-Agent Leakage Assumption
 
@@ -61,18 +62,21 @@ state sharing.
 
 ## Staleness Limit
 
-The archived run is dated `2026-05-26` and is therefore evidence of an ad hoc
-local/internal-alpha proof, not sustained dogfood. The proof script revalidates
-artifact integrity and current contract text, but it does not rerun the full
-hive production exercise or an external canary.
+The archived run is dated `2026-05-26` and remains evidence of an ad hoc
+local/internal-alpha run, not sustained dogfood. The local proof now also
+reruns the isolated hive production exercise and current static guards, but it
+does not run the optional external/shared Tailscale canary and does not replace
+independent external review.
 
 ## Allowed Claim
 
-A current static/local proof validates hive coordination contracts and archived
-ad hoc artifacts for roster, authority, capability, handoff, task ownership,
-help/review lanes, dev-server conflict receipts, and claim release.
+A current strong local proof validates hive coordination contracts, executable
+script modes, live-map separation guards, an isolated hive production rehearsal,
+and archived ad hoc artifacts for roster, authority, capability, handoff, task
+ownership, help/review lanes, dev-server conflict receipts, and claim release.
 
 ## Forbidden Claims
 
-Do not claim production hive/hivemind reliability, continuous dogfood, external
-verification, or cross-agent leakage/private-context sharing from this proof.
+Do not claim sustained production hive/hivemind reliability, continuous
+dogfood, external verification, optional shared/Tailscale canary coverage, or
+cross-agent leakage/private-context sharing from this local proof.
