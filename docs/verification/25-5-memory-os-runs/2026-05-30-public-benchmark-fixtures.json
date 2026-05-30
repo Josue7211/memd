@@ -1,0 +1,145 @@
+{
+  "suite": "25_5_public_benchmark_fixtures",
+  "status": "pass",
+  "execution_boundary": "local deterministic public mini-fixture replay; dynamic server port and timing values intentionally omitted",
+  "external_live_replay": "planned",
+  "datasets": [
+    "longmemeval",
+    "locomo",
+    "membench",
+    "convomem"
+  ],
+  "fixture_checksums": {
+    "longmemeval": {
+      "fixture": "fixtures/longmemeval-mini.json",
+      "sha256": "sha256:9476cbe708707821fb462ceda53a8c9613e3a111a65df2ba010625b15c009c5e",
+      "bytes": 2051
+    },
+    "locomo": {
+      "fixture": "fixtures/locomo-mini.json",
+      "sha256": "sha256:bf3fc32257dd5cd66f355d5eadff352d8059645b2ef2b44dd6b9cc994df741e2",
+      "bytes": 2604
+    },
+    "membench": {
+      "fixture": "fixtures/membench-mini.json",
+      "sha256": "sha256:342479e970508ada756c6cc793d27aaeac1d8f96b420a46609d7ae8096c59e8e",
+      "bytes": 2238
+    },
+    "convomem": {
+      "fixture": "fixtures/convomem-mini.json",
+      "sha256": "sha256:a3bd49bcd82a1f0382aa5d0c3dc8a6b94e0cde6ae3fb074669dc874e060065eb",
+      "bytes": 1917
+    }
+  },
+  "baseline_backend": "lexical",
+  "comparison_backend": "memd",
+  "limit": 2,
+  "top_k": 5,
+  "rows": [
+    {
+      "dataset": "longmemeval",
+      "backend": "lexical",
+      "items": 2,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "session_recall_any_at_1": 1.0,
+      "failures": 0,
+      "fixture": "fixtures/longmemeval-mini.json",
+      "fixture_sha256": "sha256:9476cbe708707821fb462ceda53a8c9613e3a111a65df2ba010625b15c009c5e",
+      "fixture_bytes": 2051
+    },
+    {
+      "dataset": "longmemeval",
+      "backend": "memd",
+      "items": 2,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "session_recall_any_at_1": 1.0,
+      "failures": 0,
+      "fixture": "fixtures/longmemeval-mini.json",
+      "fixture_sha256": "sha256:9476cbe708707821fb462ceda53a8c9613e3a111a65df2ba010625b15c009c5e",
+      "fixture_bytes": 2051
+    },
+    {
+      "dataset": "locomo",
+      "backend": "lexical",
+      "items": 2,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "session_recall_any_at_1": null,
+      "failures": 0,
+      "fixture": "fixtures/locomo-mini.json",
+      "fixture_sha256": "sha256:bf3fc32257dd5cd66f355d5eadff352d8059645b2ef2b44dd6b9cc994df741e2",
+      "fixture_bytes": 2604
+    },
+    {
+      "dataset": "locomo",
+      "backend": "memd",
+      "items": 2,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "session_recall_any_at_1": null,
+      "failures": 0,
+      "fixture": "fixtures/locomo-mini.json",
+      "fixture_sha256": "sha256:bf3fc32257dd5cd66f355d5eadff352d8059645b2ef2b44dd6b9cc994df741e2",
+      "fixture_bytes": 2604
+    },
+    {
+      "dataset": "membench",
+      "backend": "lexical",
+      "items": 2,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "session_recall_any_at_1": null,
+      "failures": 0,
+      "fixture": "fixtures/membench-mini.json",
+      "fixture_sha256": "sha256:342479e970508ada756c6cc793d27aaeac1d8f96b420a46609d7ae8096c59e8e",
+      "fixture_bytes": 2238
+    },
+    {
+      "dataset": "membench",
+      "backend": "memd",
+      "items": 2,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "session_recall_any_at_1": null,
+      "failures": 0,
+      "fixture": "fixtures/membench-mini.json",
+      "fixture_sha256": "sha256:342479e970508ada756c6cc793d27aaeac1d8f96b420a46609d7ae8096c59e8e",
+      "fixture_bytes": 2238
+    },
+    {
+      "dataset": "convomem",
+      "backend": "lexical",
+      "items": 2,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "session_recall_any_at_1": null,
+      "failures": 0,
+      "fixture": "fixtures/convomem-mini.json",
+      "fixture_sha256": "sha256:a3bd49bcd82a1f0382aa5d0c3dc8a6b94e0cde6ae3fb074669dc874e060065eb",
+      "fixture_bytes": 1917
+    },
+    {
+      "dataset": "convomem",
+      "backend": "memd",
+      "items": 2,
+      "accuracy": 1.0,
+      "hit_rate": 1.0,
+      "recall_at_k": 1.0,
+      "session_recall_any_at_1": null,
+      "failures": 0,
+      "fixture": "fixtures/convomem-mini.json",
+      "fixture_sha256": "sha256:a3bd49bcd82a1f0382aa5d0c3dc8a6b94e0cde6ae3fb074669dc874e060065eb",
+      "fixture_bytes": 1917
+    }
+  ],
+  "failed": []
+}
