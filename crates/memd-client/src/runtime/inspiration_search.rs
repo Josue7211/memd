@@ -23,6 +23,7 @@ struct InspirationFileFingerprint {
     path: String,
     len: u64,
     modified: Option<u64>,
+    sha256: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +60,8 @@ fn inspiration_search_cache_path(root: &Path, query: &str, limit: usize) -> Path
 
 fn inspiration_file_fingerprint(path: &Path) -> anyhow::Result<InspirationFileFingerprint> {
     let metadata = fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+    let content =
+        fs::read(path).with_context(|| format!("read {} for fingerprint", path.display()))?;
     let modified = metadata
         .modified()
         .ok()
@@ -68,6 +71,7 @@ fn inspiration_file_fingerprint(path: &Path) -> anyhow::Result<InspirationFileFi
         path: path.display().to_string(),
         len: metadata.len(),
         modified,
+        sha256: format!("{:x}", Sha256::digest(&content)),
     })
 }
 
@@ -161,7 +165,10 @@ pub(crate) fn search_inspiration_lane(
             .iter()
             .zip(current_fingerprints.iter())
             .all(|(left, right)| {
-                left.path == right.path && left.len == right.len && left.modified == right.modified
+                left.path == right.path
+                    && left.len == right.len
+                    && left.modified == right.modified
+                    && left.sha256 == right.sha256
             })
     {
         return Ok(InspirationSearchResult {

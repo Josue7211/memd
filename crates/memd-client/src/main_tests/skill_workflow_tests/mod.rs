@@ -361,29 +361,127 @@ fn skill_lifecycle_roundtrip_mirror_catalog_wake_remove() {
 }
 
 #[test]
-fn inspiration_search_reuses_cache_for_unchanged_files() {
-    let root = std::env::temp_dir().join(format!("memd-inspiration-{}", uuid::Uuid::new_v4()));
-    let lane_dir = root.join(".memd").join("lanes").join("inspiration");
-    fs::create_dir_all(&lane_dir).expect("create inspiration lane dir");
-    fs::write(
-        lane_dir.join("INSPIRATION-LANE.md"),
-        "# Inspiration Lane\n\nLightRAG keeps the backend swappable.\n",
-    )
-    .expect("write inspiration lane");
+fn inspiration_search_strong_local_cache_proof() {
+    fn make_root(name: &str) -> std::path::PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("memd-inspiration-{name}-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join(".memd").join("lanes").join("inspiration"))
+            .expect("create inspiration lane dir");
+        root
+    }
 
-    let first = search_inspiration_lane(&root, "LightRAG", 10).expect("first inspiration search");
+    fn write_lane(root: &std::path::Path, body: &str) {
+        fs::write(
+            root.join(".memd")
+                .join("lanes")
+                .join("inspiration")
+                .join("INSPIRATION-LANE.md"),
+            body,
+        )
+        .expect("write inspiration lane");
+    }
+
+    let root_a = make_root("root-a");
+    let root_b = make_root("root-b");
+    let private_secret = "PRIVATE_DO_NOT_CACHE_SHARED_RESEARCH_SECRET";
+
+    write_lane(
+        &root_a,
+        "# Inspiration Lane\n\n## Source Proof\nLightRAG keeps the backend swappable for RootA.\n",
+    );
+    fs::create_dir_all(root_a.join("private")).expect("create private dir");
+    fs::write(
+        root_a.join("private").join("notes.md"),
+        format!("LightRAG private note {private_secret}\n"),
+    )
+    .expect("write private non-allowlisted note");
+
+    let first = search_inspiration_lane(&root_a, "LightRAG", 10).expect("first inspiration search");
     assert_eq!(first.hits.len(), 1);
     assert_eq!(first.cache_hits, 0);
     assert_eq!(first.cache_scanned, 1);
+    assert!(first.hits[0].file.ends_with("INSPIRATION-LANE.md"));
+    assert_eq!(first.hits[0].line, 4);
+    assert_eq!(first.hits[0].section, "Inspiration Lane > Source Proof");
+    assert!(first.hits[0].text.contains("RootA"));
+    assert!(!first.hits[0].text.contains(private_secret));
 
-    let second = search_inspiration_lane(&root, "LightRAG", 10).expect("second inspiration search");
+    let second =
+        search_inspiration_lane(&root_a, "LightRAG", 10).expect("second inspiration search");
     assert_eq!(second.hits.len(), 1);
     assert_eq!(second.cache_hits, 1);
     assert_eq!(second.cache_scanned, 0);
 
-    let summary = render_inspiration_search_summary(&root, "LightRAG", &second);
+    let summary = render_inspiration_search_summary(&root_a, "LightRAG", &second);
+    assert!(summary.contains("INSPIRATION-LANE.md:4"));
+    assert!(summary.contains("[Inspiration Lane > Source Proof]"));
     assert!(summary.contains("cache_hits=1"));
     assert!(summary.contains("scanned=0"));
+    assert!(!summary.contains(private_secret));
 
-    fs::remove_dir_all(root).expect("cleanup inspiration temp dir");
+    write_lane(
+        &root_a,
+        "# Inspiration Lane\n\n## Source Proof\nLightRAG now uses the invalidated RootA fingerprint.\n",
+    );
+    let invalidated =
+        search_inspiration_lane(&root_a, "LightRAG", 10).expect("invalidated inspiration search");
+    assert_eq!(invalidated.hits.len(), 1);
+    assert_eq!(
+        invalidated.cache_hits, 0,
+        "changed fingerprint must miss cache"
+    );
+    assert_eq!(invalidated.cache_scanned, 1);
+    assert!(
+        invalidated.hits[0]
+            .text
+            .contains("invalidated RootA fingerprint")
+    );
+
+    write_lane(
+        &root_b,
+        "# Inspiration Lane\n\n## Root Isolation\nLightRAG belongs to isolated RootB only.\n",
+    );
+    let isolated =
+        search_inspiration_lane(&root_b, "LightRAG", 10).expect("root-isolated inspiration search");
+    assert_eq!(isolated.hits.len(), 1);
+    assert_eq!(
+        isolated.cache_hits, 0,
+        "different root must not reuse RootA cache"
+    );
+    assert_eq!(isolated.cache_scanned, 1);
+    assert!(isolated.hits[0].text.contains("isolated RootB only"));
+    assert!(!isolated.hits[0].text.contains("RootA"));
+
+    let cache_dir = root_a
+        .join(".memd")
+        .join("state")
+        .join(".inspiration-cache");
+    let mut cache_files = fs::read_dir(&cache_dir)
+        .expect("read inspiration cache dir")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect cache files");
+    cache_files.sort_by_key(|entry| entry.path());
+    assert!(
+        !cache_files.is_empty(),
+        "search should write cache artifacts"
+    );
+    for entry in cache_files {
+        let raw = fs::read_to_string(entry.path()).expect("read cache artifact");
+        assert!(raw.contains("INSPIRATION-LANE.md"));
+        assert!(
+            raw.contains("sha256"),
+            "cache artifact must carry content fingerprint"
+        );
+        assert!(
+            !raw.contains(private_secret),
+            "private non-allowlisted data bled into cache"
+        );
+        assert!(
+            !raw.contains("private/notes.md"),
+            "non-allowlisted path bled into cache"
+        );
+    }
+
+    fs::remove_dir_all(root_a).expect("cleanup inspiration root a");
+    fs::remove_dir_all(root_b).expect("cleanup inspiration root b");
 }
