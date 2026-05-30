@@ -678,7 +678,7 @@
         "docs/verification/25-5-memory-os-runs/*-harness-process-replay.json"
       ],
       "current_status": "partial",
-      "proof_status": "partial",
+      "proof_status": "strong",
       "dogfood_status": "ad_hoc",
       "external_status": "none",
       "blocks_25_25": true,
@@ -689,12 +689,12 @@
         "replayability"
       ],
       "allowed_claims": [
-        "Current local proof validates documented continuity surfaces across available Codex, Hermes, OpenClaw, and Claude-style harness packs, including shared wake/memory/event bundle surfaces, wake/resume/write-path parity, and existing local process replay artifact sanity checks when present."
+        "Strong local 25/5 proof validates cross-harness continuity surfaces across Codex, Claude Code, OpenCode, OpenClaw, and Hermes config surfaces; native wake/resume/handoff/recovery bundles; cross-process memory object consistency; local artifact cleanliness; and local-only claim boundaries."
       ],
       "forbidden_claims": [
-        "Do not claim seamless cross-harness continuity, production-grade continuity, real external cross-session continuity, or independent external verification from this local/ad hoc proof alone."
+        "Do not claim 25/25, seamless production cross-harness continuity, production readiness, real external cross-session continuity, sustained dogfood, or independent external verification from this local 25/5 proof alone."
       ],
-      "freshness_policy": "Re-run feature-cross-harness-continuity-proof after state schema, CLI/server protocol, import/export, handoff/resume/wake, generated harness pack, or integration doc changes; re-run the process replay before upgrading beyond local/ad hoc status."
+      "freshness_policy": "Re-run feature-cross-harness-continuity-proof after state schema, CLI/server protocol, import/export, handoff/resume/wake/recovery, generated harness pack, or integration doc changes; keep external_status none until independent external replay is recorded."
     }
   ]
 }
