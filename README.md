@@ -222,7 +222,7 @@ If you are using Codex, `memd` can load or reload the current bundle for you. Fo
 - [Obsidian Bridge](./docs/core/obsidian.md)
 - [RAG](./docs/core/rag.md)
 - [Efficiency](./docs/policy/efficiency.md)
-- [OSS Positioning](./docs/reference/oss-positioning.md)
+- [OSS Positioning](./docs/reference/archive/oss-positioning.md)
 
 ## Integrations
 
