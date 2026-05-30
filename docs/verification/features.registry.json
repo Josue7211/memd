@@ -398,11 +398,13 @@
       ],
       "proof_artifacts": [
         "docs/verification/feature-competitor-public-benchmark-replay-25.md",
+        "scripts/verify/25-5-public-benchmark-fixtures.sh",
+        "scripts/verify/feature-competitor-public-benchmark-replay-proof.sh",
         "docs/verification/25-5-memory-os-runs/YYYY-MM-DD-public-benchmark-fixtures.json",
         "docs/verification/25-5-memory-os-runs/YYYY-MM-DD-competitor-head-to-head.json (optional; only current if present and passing)"
       ],
       "current_status": "partial",
-      "proof_status": "partial",
+      "proof_status": "strong",
       "dogfood_status": "none",
       "external_status": "planned",
       "blocks_25_25": true,
@@ -413,14 +415,15 @@
         "public_evidence"
       ],
       "allowed_claims": [
-        "Local public fixture replay is current when the feature proof command passes.",
-        "Same-fixture competitor comparison is current only when a fresh passing competitor replay artifact exists."
+        "Local public fixture replay has strong deterministic proof when the feature proof command passes: fixture checksums, lexical baseline rows, memd rows, item limits, and metric bounds are validated.",
+        "External live replay remains planned; same-fixture competitor comparison is current only when a fresh passing competitor replay artifact exists."
       ],
       "forbidden_claims": [
-        "Do not claim competitor superiority, market leadership, or external verification from local fixture replay alone.",
-        "Do not reuse stale competitor artifacts as current benchmark proof."
+        "Do not claim competitor superiority, market leadership, benchmark wins, or external verification from local fixture replay alone.",
+        "Do not reuse stale competitor artifacts as current benchmark proof.",
+        "Do not cite dynamic ports, runtime durations, or local mini-fixture replay as independent third-party benchmark evidence."
       ],
-      "freshness_policy": "Refresh after benchmark fixture, baseline, competitor version, scoring changes, or any day a current proof is claimed; dated artifacts must be same-day or one-day-fresh."
+      "freshness_policy": "Refresh after benchmark fixture, checksum, baseline, competitor version, scoring, replay-script, or claim-boundary changes; dated artifacts must be same-day or one-day-fresh."
     },
     {
       "id": "feature.dogfood_reliability_windows",

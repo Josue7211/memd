@@ -54,6 +54,7 @@ SERVER_URL="http://127.0.0.1:$SERVER_PORT"
 SERVER_PID="$!"
 
 python3 - "$ROOT" "$SERVER_URL" "$REPORT" "$SERVER_PID" "$WORK_DIR" <<'PY'
+import hashlib
 import json
 import os
 import pathlib
@@ -91,8 +92,50 @@ def parse_json_stdout(raw):
         raise RuntimeError(f"no JSON object in benchmark stdout:\n{raw[-2000:]}")
     return json.loads(raw[start:end + 1])
 
+EXPECTED_FIXTURES = {
+    "longmemeval": {"path": "fixtures/longmemeval-mini.json", "sha256": "9476cbe708707821fb462ceda53a8c9613e3a111a65df2ba010625b15c009c5e", "bytes": 2051},
+    "locomo": {"path": "fixtures/locomo-mini.json", "sha256": "bf3fc32257dd5cd66f355d5eadff352d8059645b2ef2b44dd6b9cc994df741e2", "bytes": 2604},
+    "membench": {"path": "fixtures/membench-mini.json", "sha256": "342479e970508ada756c6cc793d27aaeac1d8f96b420a46609d7ae8096c59e8e", "bytes": 2238},
+    "convomem": {"path": "fixtures/convomem-mini.json", "sha256": "a3bd49bcd82a1f0382aa5d0c3dc8a6b94e0cde6ae3fb074669dc874e060065eb", "bytes": 1917},
+}
+
+EXPECTED_BASELINE_ROWS = {
+    ("longmemeval", "lexical"),
+    ("locomo", "lexical"),
+    ("membench", "lexical"),
+    ("convomem", "lexical"),
+}
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def validate_fixture(dataset):
+    expected = EXPECTED_FIXTURES[dataset]
+    fixture = root / expected["path"]
+    if not fixture.exists():
+        raise RuntimeError(f"missing fixture: {expected['path']}")
+    actual_sha = sha256_file(fixture)
+    actual_bytes = fixture.stat().st_size
+    if actual_sha != expected["sha256"] or actual_bytes != expected["bytes"]:
+        raise RuntimeError(
+            f"fixture drift for {expected['path']}: "
+            f"sha256={actual_sha} bytes={actual_bytes}"
+        )
+    return fixture, {
+        "fixture": expected["path"],
+        "sha256": "sha256:" + actual_sha,
+        "bytes": actual_bytes,
+    }
+
+
 def run_benchmark(dataset, backend):
-    fixture = root / "fixtures" / f"{dataset}-mini.json"
+    fixture, fixture_meta = validate_fixture(dataset)
     out = work_dir / "bench-output" / backend / dataset
     out.mkdir(parents=True, exist_ok=True)
     cmd = [
@@ -143,18 +186,33 @@ def run_benchmark(dataset, backend):
         "hit_rate": metrics.get("hit_rate"),
         "recall_at_k": metrics.get("recall_at_k"),
         "session_recall_any_at_1": metrics.get("session_recall_any@1"),
-        "duration_ms": (report.get("manifest") or {}).get("duration_ms"),
         "failures": len(report.get("failures") or []),
         "fixture": str(fixture.relative_to(root)),
+        "fixture_sha256": fixture_meta["sha256"],
+        "fixture_bytes": fixture_meta["bytes"],
     }
 
 wait_health(server_url, server_pid)
 
 datasets = ["longmemeval", "locomo", "membench", "convomem"]
+fixture_checksums = {dataset: validate_fixture(dataset)[1] for dataset in datasets}
 rows = []
 for dataset in datasets:
     rows.append(run_benchmark(dataset, "lexical"))
     rows.append(run_benchmark(dataset, "memd"))
+
+seen_baselines = {(row["dataset"], row["backend"]) for row in rows if row["backend"] == "lexical"}
+missing_baselines = sorted(EXPECTED_BASELINE_ROWS - seen_baselines)
+if missing_baselines:
+    raise AssertionError(f"missing lexical baseline rows: {missing_baselines}")
+
+for row in rows:
+    if row["items"] != 2:
+        raise AssertionError(f"unexpected item count in row: {row}")
+    for metric_name in ("accuracy", "hit_rate", "recall_at_k", "session_recall_any_at_1"):
+        value = row.get(metric_name)
+        if value is not None and not (0 <= value <= 1):
+            raise AssertionError(f"metric out of range {metric_name}={value}: {row}")
 
 memd_rows = [row for row in rows if row["backend"] == "memd"]
 failed = [
@@ -166,9 +224,14 @@ failed = [
 summary = {
     "suite": "25_5_public_benchmark_fixtures",
     "status": "pass" if not failed else "fail",
-    "server_url": server_url,
+    "execution_boundary": "local deterministic public mini-fixture replay; dynamic server port and timing values intentionally omitted",
+    "external_live_replay": "planned",
     "datasets": datasets,
+    "fixture_checksums": fixture_checksums,
+    "baseline_backend": "lexical",
+    "comparison_backend": "memd",
     "limit": 2,
+    "top_k": 5,
     "rows": rows,
     "failed": failed,
 }

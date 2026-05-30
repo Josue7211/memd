@@ -29,6 +29,7 @@ fi
 
 python3 - "$ROOT" "$RUN_DATE" "$PUBLIC_REPORT" "$COMPETITOR_REPORT" "$FEATURE_DOC" "$REGISTRY" "$MAX_AGE_DAYS" <<'PY'
 import datetime as dt
+import hashlib
 import json
 import re
 import sys
@@ -49,6 +50,22 @@ def rel(path: Path) -> str:
         return str(path.resolve().relative_to(root.resolve()))
     except Exception:
         return str(path)
+
+EXPECTED_FIXTURES = {
+    "longmemeval": {"path": "fixtures/longmemeval-mini.json", "sha256": "sha256:9476cbe708707821fb462ceda53a8c9613e3a111a65df2ba010625b15c009c5e", "bytes": 2051},
+    "locomo": {"path": "fixtures/locomo-mini.json", "sha256": "sha256:bf3fc32257dd5cd66f355d5eadff352d8059645b2ef2b44dd6b9cc994df741e2", "bytes": 2604},
+    "membench": {"path": "fixtures/membench-mini.json", "sha256": "sha256:342479e970508ada756c6cc793d27aaeac1d8f96b420a46609d7ae8096c59e8e", "bytes": 2238},
+    "convomem": {"path": "fixtures/convomem-mini.json", "sha256": "sha256:a3bd49bcd82a1f0382aa5d0c3dc8a6b94e0cde6ae3fb074669dc874e060065eb", "bytes": 1917},
+}
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            h.update(chunk)
+    return "sha256:" + h.hexdigest()
+
 
 def load_json(path: Path, label: str):
     if not path.exists():
@@ -86,7 +103,30 @@ if public is not None:
         errors.append("public report suite mismatch")
     if public.get("status") != "pass":
         errors.append(f"public report is not passing: {public.get('status')!r}")
-    expected_datasets = {"longmemeval", "locomo", "membench", "convomem"}
+    expected_datasets = set(EXPECTED_FIXTURES)
+    if public.get("server_url") or any("duration_ms" in row for row in public.get("rows", [])):
+        errors.append("public report contains dynamic port/timing noise")
+    if public.get("execution_boundary") != "local deterministic public mini-fixture replay; dynamic server port and timing values intentionally omitted":
+        errors.append("public report missing deterministic local execution boundary")
+    if public.get("external_live_replay") != "planned":
+        errors.append("public report must keep external live replay planned")
+    if public.get("baseline_backend") != "lexical" or public.get("comparison_backend") != "memd":
+        errors.append("public report must disclose lexical baseline and memd comparison backends")
+    if public.get("limit") != 2 or public.get("top_k") != 5:
+        errors.append("public report must disclose deterministic limit=2 and top_k=5")
+    fixture_checksums = public.get("fixture_checksums") or {}
+    for dataset, expected in EXPECTED_FIXTURES.items():
+        fixture_path = root / expected["path"]
+        if not fixture_path.exists():
+            errors.append(f"missing expected fixture: {expected['path']}")
+            continue
+        actual_sha = sha256_file(fixture_path)
+        actual_bytes = fixture_path.stat().st_size
+        reported = fixture_checksums.get(dataset) or {}
+        if actual_sha != expected["sha256"] or actual_bytes != expected["bytes"]:
+            errors.append(f"fixture checksum drift: {expected['path']}")
+        if reported.get("fixture") != expected["path"] or reported.get("sha256") != expected["sha256"] or reported.get("bytes") != expected["bytes"]:
+            errors.append(f"public report fixture checksum mismatch for {dataset}: {reported}")
     seen = {(row.get("dataset"), row.get("backend")) for row in public.get("rows", [])}
     for dataset in expected_datasets:
         for backend in ("lexical", "memd"):
@@ -99,6 +139,17 @@ if public is not None:
             continue
         if not (root / fixture).exists():
             errors.append(f"referenced public fixture does not exist: {fixture}")
+        dataset = row.get("dataset")
+        if dataset in EXPECTED_FIXTURES:
+            expected = EXPECTED_FIXTURES[dataset]
+            if row.get("fixture_sha256") != expected["sha256"] or row.get("fixture_bytes") != expected["bytes"]:
+                errors.append(f"row fixture checksum mismatch: {row}")
+        if row.get("items") != 2:
+            errors.append(f"fixture replay row must use deterministic item limit 2: {row}")
+        for metric in ("accuracy", "hit_rate", "recall_at_k", "session_recall_any_at_1"):
+            value = row.get(metric)
+            if value is not None and not (0 <= value <= 1):
+                errors.append(f"metric out of range {metric}={value}: {row}")
         if row.get("failures") not in (0, [], None):
             errors.append(f"fixture replay row has failures: {row}")
 
@@ -172,6 +223,8 @@ if registry is not None:
             errors.append("registry entry does not list this proof command")
         if "docs/verification/feature-competitor-public-benchmark-replay-25.md" not in artifacts:
             errors.append("registry entry does not list feature proof doc artifact")
+        if feature.get("proof_status") != "strong":
+            errors.append("registry proof_status must be strong after local deterministic fixture replay proof passes")
         if feature.get("external_status") != "planned":
             errors.append("registry must keep external_status planned until live external replay exists")
         if "do not claim" not in forbidden or "superiority" not in forbidden:
