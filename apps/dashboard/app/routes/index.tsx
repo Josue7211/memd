@@ -80,9 +80,9 @@ function StatusDashboard() {
                 memd control center
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-text-secondary">
-                Runtime cleanup is landed. The live bar is real evidence:
-                users, harness pairs, devices, auditor replay, and third-party
-                replay.
+                Runtime status is local evidence only. Release proof still
+                requires real users, harness pairs, devices, auditor review,
+                and third-party replay packets.
               </p>
             </div>
             <div className="rounded-lg border border-border-subtle bg-bg-primary px-4 py-3 text-right">
@@ -211,6 +211,7 @@ function StatusDashboard() {
           <div className="mt-5 space-y-2 text-xs text-text-secondary">
             <p>Next evidence note: 2026-05-13.</p>
             <p>No `1.0.0` tag until real-user, device, auditor, and third-party replay packets exist.</p>
+            <p>This dashboard does not claim those gates are complete.</p>
           </div>
         </GlassPanel>
 
@@ -352,8 +353,8 @@ function V20GateCard() {
     "3 real users",
     "3 harness-user pairs",
     "3 devices",
-    "V19 auditor",
-    "V20 third-party replay",
+    "auditor review packet",
+    "third-party replay packet",
     "weekly evidence notes",
   ];
 
