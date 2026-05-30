@@ -38,7 +38,7 @@ PY
 if [[ ! -x "$ROOT/target/debug/memd-server" || ! -x "$ROOT/target/debug/memd" ]]; then
   (
     cd "$ROOT"
-    cargo build -q -p memd-server -p memd-client --bin memd
+    MEMD_CARGO_TARGET_DIR="$ROOT/target" CARGO_TARGET_DIR="$ROOT/target" cargo build -q -p memd-server --bin memd-server -p memd-client --bin memd
   )
 fi
 
