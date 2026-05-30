@@ -309,7 +309,7 @@
         "crates/memd-client/src/main_tests/skill_workflow_tests/mod.rs"
       ],
       "current_status": "partial",
-      "proof_status": "partial",
+      "proof_status": "strong",
       "dogfood_status": "none",
       "external_status": "none",
       "blocks_25_25": true,
@@ -320,15 +320,16 @@
         "freshness"
       ],
       "allowed_claims": [
-        "The local inspiration/research lane search cache has executable proof for unchanged-file cache hit/miss behavior.",
-        "Current local proof shows source attribution fields and rendered file/line/section metadata for inspiration search hits.",
-        "Current contamination guardrails are limited to root/query/limit cache keys, file fingerprints, and a fixed inspiration-lane file allowlist."
+        "The implemented local inspiration/research lane search cache has strong executable local proof for cold miss and warm hit behavior.",
+        "Local proof shows source attribution fields and rendered file/line/section metadata for inspiration search hits.",
+        "Local proof shows cache invalidation on allowlisted file content fingerprint changes.",
+        "Local proof shows root/query/limit isolation, fixed inspiration-lane allowlisting, and no bleed of a non-allowlisted private fixture sentinel into hits, renders, or cache artifacts."
       ],
       "forbidden_claims": [
-        "Do not claim production-safe shared research cache, complete RAG cache safety, complete donor repo extraction, or contamination-free/private-data-safe multi-repo sharing from this local proof alone.",
+        "Do not claim production-safe shared research cache, complete RAG cache safety, complete donor repo extraction, dogfood validation, external verification, or contamination-free/private-data-safe arbitrary multi-repo sharing from this local proof alone.",
         "Do not claim external verification until an independent replay is recorded."
       ],
-      "freshness_policy": "Re-run proof after changes to inspiration search cache keys, lane file allowlists, RAG integration, donor extraction, cache formats, or multi-repo research workflows."
+      "freshness_policy": "Re-run proof after changes to inspiration search cache keys, lane file allowlists, fingerprint fields, RAG integration, donor extraction, cache formats, or multi-repo research workflows."
     },
     {
       "id": "feature.hive_hivemind_coordination",
