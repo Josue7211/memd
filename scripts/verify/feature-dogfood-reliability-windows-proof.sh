@@ -2,14 +2,15 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TMP="$(mktemp -d)"
-cleanup() { rm -rf "$TMP"; }
-trap cleanup EXIT
+SUMMARY_JSON="$ROOT/docs/verification/artifacts/dogfood-reliability-windows-local-summary.json"
+SUMMARY_MD="$ROOT/docs/verification/artifacts/dogfood-reliability-windows-local-summary.md"
 
 log() { printf 'proof: %s\n' "$*"; }
 fail() { printf 'proof: FAIL: %s\n' "$*" >&2; exit 1; }
 
-python3 - "$ROOT" "$TMP/proof-summary.md" <<'PY'
+mkdir -p "$(dirname "$SUMMARY_JSON")"
+
+python3 - "$ROOT" "$SUMMARY_JSON" "$SUMMARY_MD" <<'PYPROOF'
 import json
 import re
 import sys
@@ -17,253 +18,267 @@ from datetime import date, datetime
 from pathlib import Path
 
 root = Path(sys.argv[1])
-summary_path = Path(sys.argv[2])
+summary_json = Path(sys.argv[2])
+summary_md = Path(sys.argv[3])
 
-SEARCH_ROOTS = [
-    root / "docs",
-    root / "dogfood",
-    root / "reliability",
-    root / "artifacts",
-    root / "logs",
-    root / ".memd" / "logs",
-]
-KEYWORDS = ("dogfood", "reliability", "evidence clock", "dogfood clock", "wake-budget", "wake-cost")
-LOG_SUFFIXES = {".log", ".jsonl", ".ndjson", ".json", ".txt", ".md"}
-EXCLUDED_RELATIVE_PATHS = {
+SEARCH_ROOTS = ["docs", "dogfood", "reliability", "artifacts", "logs", ".memd/logs"]
+TEXT_SUFFIXES = {".log", ".jsonl", ".ndjson", ".json", ".txt", ".md", ".toml", ".yaml", ".yml"}
+KEYWORDS = ("dogfood", "reliability", "evidence clock", "dogfood clock", "wake-budget", "wake-cost", "window")
+EXCLUDED = {
     "docs/verification/features.registry.json",
     "docs/verification/feature-coverage-report.md",
+    "docs/verification/FEATURES.md",
     "docs/verification/feature-dogfood-reliability-windows-25.md",
+    "docs/verification/artifacts/dogfood-reliability-windows-local-summary.json",
+    "docs/verification/artifacts/dogfood-reliability-windows-local-summary.md",
 }
+IGNORE_PARTS = {".git", "target", "node_modules", ".claude"}
 DATE_RE = re.compile(r"(20\d{2})[-_/](\d{2})[-_/](\d{2})")
 ISO_RE = re.compile(r"20\d{2}-\d{2}-\d{2}(?:[T ][0-2]\d:[0-5]\d(?::[0-5]\d)?(?:Z|[+-]\d{2}:?\d{2})?)?")
+LABEL_RE = re.compile(r"(?im)^\s*(opened|started|start|closed|ended|reviewed|review|date|day7_earliest)\s*:\s*(.+)$")
+REAL_USE_RE = re.compile(r"(?i)\b(real[- ]?(use|user|session|device|workflow)|weekly evidence review|actual use|dogfood(er|ing)? used)\b")
+FAILURE_RE = re.compile(r"(?i)\b(fail(?:ed|ure)?|recover(?:y|ed)?|repair|blocker|incident|ready=false|regression|outage)\b")
+PLANNING_RE = re.compile(r"(?i)\b(next actions?|next steps?|pending|planned|deferred|earliest|target|todo|proposal|in lieu of real[- ]session|not yet|needs? real users?)\b")
+CLOSED_RE = re.compile(r"(?i)\b(closed|ended|reviewed|retrospective|postmortem|complete[d]?|window review)\b")
+CONTINUITY_RE = re.compile(r"(?i)\b(daily|continuous|sustained|consecutive|uptime|window|duration|from .* to )\b")
 
 
-def parse_date(value: str):
+def parse_date(value):
     if not value:
         return None
-    value = value.strip().strip('"\'')
-    match = ISO_RE.search(value)
-    if not match:
+    value = str(value).strip().strip('"\'')
+    m = ISO_RE.search(value)
+    if not m:
         return None
-    token = match.group(0).replace(" ", "T")
+    token = m.group(0).replace(" ", "T")
     try:
         if "T" in token:
-            normalized = token.replace("Z", "+00:00")
-            if re.search(r"[+-]\d{4}$", normalized):
-                normalized = normalized[:-2] + ":" + normalized[-2:]
-            return datetime.fromisoformat(normalized).date()
+            token = token.replace("Z", "+00:00")
+            if re.search(r"[+-]\d{4}$", token):
+                token = token[:-2] + ":" + token[-2:]
+            return datetime.fromisoformat(token).date()
         return date.fromisoformat(token[:10])
     except ValueError:
         return None
 
 
-def date_from_filename(path: Path):
-    match = DATE_RE.search(str(path.relative_to(root)))
-    if not match:
+def iso(d):
+    return d.isoformat() if isinstance(d, date) else d
+
+
+def read_text(path):
+    if path.suffix.lower() not in TEXT_SUFFIXES:
+        return ""
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return ""
+    if b"\0" in data[:4096]:
+        return ""
+    return data.decode("utf-8", errors="ignore")
+
+
+def date_from_filename(rel):
+    m = DATE_RE.search(rel)
+    if not m:
         return None
     try:
-        return date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
     except ValueError:
         return None
 
 
-def read_text(path: Path):
+def collect_json_dates(line):
+    out = []
+    s = line.strip()
+    if not s.startswith("{"):
+        return out
     try:
-        return path.read_text(errors="ignore")
+        obj = json.loads(s)
     except Exception:
-        return ""
+        return out
+    if not isinstance(obj, dict):
+        return out
+    for key in ("ts", "timestamp", "time", "date", "opened", "started", "closed", "ended", "reviewed", "created_at", "updated_at"):
+        d = parse_date(obj.get(key))
+        if d:
+            out.append({"date": d, "source": f"json:{key}"})
+    return out
 
 
-def artifact_kind(path: Path, text: str):
-    low = f"{path.name}\n{text[:2000]}".lower()
-    if "dogfood" in low or "reliability" in low or "evidence clock" in low or "dogfood clock" in low:
-        return "window_candidate"
-    if "wake-budget" in low or "wake-cost" in low or path.suffix in {".ndjson", ".jsonl", ".log"}:
-        return "log"
-    return "ad_hoc_doc"
-
-
-def line_timestamps(path: Path):
-    found = []
-    if path.suffix not in LOG_SUFFIXES:
-        return found
-    text = read_text(path)
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("{"):
-            try:
-                obj = json.loads(stripped)
-            except Exception:
-                obj = None
-            if isinstance(obj, dict):
-                for key in ("ts", "timestamp", "time", "date", "opened", "created_at"):
-                    d = parse_date(str(obj.get(key, "")))
-                    if d:
-                        found.append(d)
-        for token in ISO_RE.findall(line):
-            d = parse_date(token)
-            if d:
-                found.append(d)
-    return found
+def classify(rel, text):
+    low = f"{rel}\n{text[:8000]}".lower()
+    if "dogfood" in low or "evidence clock" in low or "dogfood clock" in low:
+        return "dogfood_evidence"
+    if "reliability" in low or "window" in low:
+        return "reliability_evidence"
+    if rel.endswith((".log", ".jsonl", ".ndjson")) or "wake-budget" in low or "wake-cost" in low:
+        return "log_evidence"
+    return "related_document"
 
 artifacts = []
-for base in SEARCH_ROOTS:
+for root_name in SEARCH_ROOTS:
+    base = root / root_name
     if not base.exists():
         continue
-    for path in base.rglob("*"):
+    for path in sorted(base.rglob("*")):
         if not path.is_file():
             continue
-        rel = str(path.relative_to(root))
-        if rel in EXCLUDED_RELATIVE_PATHS:
+        rel = path.relative_to(root).as_posix()
+        if rel in EXCLUDED:
             continue
-        if any(part in {".git", "target", "node_modules"} for part in path.parts):
+        if any(part in IGNORE_PARTS for part in path.relative_to(root).parts):
             continue
-        text = read_text(path) if path.suffix.lower() in LOG_SUFFIXES else ""
-        low = f"{path.name}\n{text[:5000]}".lower()
-        span_eligible = (
-            "dogfood" in low
-            or "evidence clock" in low
-            or "dogfood clock" in low
-            or "/dogfood" in rel.lower()
-        )
-        real_use_confirmed = (
-            "real use" in low
-            or "real user" in low
-            or "real-session" in low
-            or "real session" in low
-            or "weekly evidence review" in low
-        )
-        disqualified_span = (
-            "in lieu of real-session" in low
-            or "dogfood deferred" in low
-            or "next actions" in low
-            or "next step" in low
-            or "pending" in low
-        )
-        if not any(keyword in low for keyword in KEYWORDS):
+        text = read_text(path)
+        haystack = f"{rel}\n{text[:12000]}".lower()
+        if not any(k in haystack for k in KEYWORDS):
             continue
-        dates = set()
-        fn_date = date_from_filename(path)
+        observations = []
+        fn_date = date_from_filename(rel)
         if fn_date:
-            dates.add(fn_date)
-        for label in ("opened", "closed", "date", "day7_earliest"):
-            for m in re.finditer(rf"(?im)^\s*{label}\s*:\s*(.+)$", text):
-                d = parse_date(m.group(1))
-                if d:
-                    dates.add(d)
-        timestamps = line_timestamps(path)
-        dates.update(timestamps)
-        opened_dates = []
-        closed_dates = []
-        for m in re.finditer(r"(?im)^\s*opened\s*:\s*(.+)$", text):
-            d = parse_date(m.group(1))
-            if d:
-                opened_dates.append(d)
-        for m in re.finditer(r"(?im)^\s*(closed|ended|reviewed)\s*:\s*(.+)$", text):
+            observations.append({"date": fn_date, "source": "filename"})
+        for m in LABEL_RE.finditer(text):
             d = parse_date(m.group(2))
             if d:
-                closed_dates.append(d)
+                observations.append({"date": d, "source": f"label:{m.group(1).lower()}"})
+        for line in text.splitlines():
+            observations.extend(collect_json_dates(line))
+            for token in ISO_RE.findall(line):
+                d = parse_date(token)
+                if d:
+                    observations.append({"date": d, "source": "inline_iso"})
+        seen = set(); dedup = []
+        for o in observations:
+            key = (o["date"], o["source"])
+            if key not in seen:
+                seen.add(key); dedup.append(o)
+        dedup.sort(key=lambda o: (o["date"], o["source"]))
+        dates = sorted({o["date"] for o in dedup})
+        labels = {m.group(1).lower(): parse_date(m.group(2)) for m in LABEL_RE.finditer(text) if parse_date(m.group(2))}
         artifacts.append({
-            "path": str(path.relative_to(root)),
-            "kind": artifact_kind(path, text),
-            "dates": sorted(dates),
-            "log_dates": sorted(timestamps),
-            "opened_dates": sorted(opened_dates),
-            "closed_dates": sorted(closed_dates),
-            "span_eligible": span_eligible,
-            "real_use_confirmed": real_use_confirmed,
-            "disqualified_span": disqualified_span,
-            "has_text": bool(text),
-            "mentions_failure": bool(re.search(r"(?i)fail|failure|recover|repair|blocker|ready=false", text)),
+            "path": rel,
+            "kind": classify(rel, text),
+            "date_observations": [{"date": iso(o["date"]), "source": o["source"]} for o in dedup],
+            "dates": [iso(d) for d in dates],
+            "has_dated_evidence": bool(dates),
+            "signals": {
+                "real_use": bool(REAL_USE_RE.search(text)),
+                "failure_or_recovery": bool(FAILURE_RE.search(text)),
+                "closed_or_reviewed": bool(CLOSED_RE.search(text)),
+                "continuity_language": bool(CONTINUITY_RE.search(text)),
+                "planning_or_future_only_risk": bool(PLANNING_RE.search(text)),
+            },
+            "labels": {k: iso(v) for k, v in sorted(labels.items())},
         })
 
-artifacts.sort(key=lambda a: (a["dates"][0] if a["dates"] else date.max, a["path"]))
-dated = [a for a in artifacts if a["dates"]]
-window_candidates = [a for a in dated if a["kind"] == "window_candidate"]
-log_artifacts = [a for a in dated if a["kind"] == "log"]
+artifacts.sort(key=lambda a: (a["dates"][0] if a["dates"] else "9999-99-99", a["path"]))
+dated = [a for a in artifacts if a["has_dated_evidence"]]
 
-calculated_windows = []
-for a in window_candidates:
-    if not a["span_eligible"] or not a["real_use_confirmed"] or a["disqualified_span"]:
-        continue
-    # Documentation window spans must have an explicit start and close/review/end;
-    # an opened clock plus a future day-7 target is not treated as sustained.
-    if a["opened_dates"] and a["closed_dates"]:
-        start, end = min(a["opened_dates"]), max(a["closed_dates"])
-        calculated_windows.append({
-            "path": a["path"],
-            "start": start,
-            "end": end,
-            "days": (end - start).days,
-            "kind": a["kind"],
-        })
-for a in log_artifacts:
-    # Logs can form a span from observed timestamps, because each timestamp is
-    # an observed event rather than a planned milestone.
-    ds = a["log_dates"]
-    if len(ds) >= 2:
-        start, end = min(ds), max(ds)
-        calculated_windows.append({
-            "path": a["path"],
-            "start": start,
-            "end": end,
-            "days": (end - start).days,
-            "kind": a["kind"],
-        })
+windows = []
+for a in dated:
+    ds = [date.fromisoformat(d) for d in a["dates"]]
+    labels = {k: date.fromisoformat(v) for k, v in a["labels"].items()}
+    sig = a["signals"]
+    reasons = []
+    if not sig["real_use"]:
+        reasons.append("no explicit real-use/session/device signal")
+    if not sig["closed_or_reviewed"]:
+        reasons.append("no explicit close/end/review signal")
+    if sig["planning_or_future_only_risk"]:
+        reasons.append("planning/future-only language present")
+    if not sig["failure_or_recovery"]:
+        reasons.append("no failure/recovery/incident signal")
+    start = labels.get("opened") or labels.get("started") or labels.get("start") or (min(ds) if len(ds) >= 2 else None)
+    end = labels.get("closed") or labels.get("ended") or labels.get("reviewed") or labels.get("review") or (max(ds) if len(ds) >= 2 else None)
+    days = (end - start).days if start and end and end >= start else None
+    if days is None:
+        reasons.append("insufficient start/end dates for duration")
+    elif days < 7:
+        reasons.append("duration under 7 days")
+    sustained = bool(days is not None and days >= 7 and sig["real_use"] and sig["closed_or_reviewed"] and sig["failure_or_recovery"] and not sig["planning_or_future_only_risk"])
+    windows.append({
+        "path": a["path"],
+        "start": iso(start) if start else None,
+        "end": iso(end) if end else None,
+        "duration_days": days,
+        "sustained_window_present": sustained,
+        "absence_reasons": [] if sustained else reasons,
+    })
 
-sustained = [w for w in calculated_windows if w["days"] >= 7]
-status = "ad_hoc"
-if sustained:
-    status = "windowed_candidate"
-if not dated:
-    status = "none"
+sustained = [w for w in windows if w["sustained_window_present"]]
+result = {
+    "feature_id": "feature.dogfood_reliability_windows",
+    "proof_level": "strong_local",
+    "generated_by": "scripts/verify/feature-dogfood-reliability-windows-proof.sh",
+    "scanned_roots": SEARCH_ROOTS,
+    "inventory": {
+        "matching_artifact_count": len(artifacts),
+        "dated_artifact_count": len(dated),
+        "window_evaluation_count": len(windows),
+        "sustained_window_count": len(sustained),
+    },
+    "dogfood_status_conclusion": "windowed" if sustained else ("ad_hoc" if dated else "none"),
+    "sustained_window_present": bool(sustained),
+    "sustained_window_absent": not bool(sustained),
+    "no_false_positive_policy": "A sustained window requires >=7 calculable days plus explicit real-use, close/review, failure/recovery, and no planning/future-only risk signals in the same artifact.",
+    "artifacts": artifacts,
+    "window_evaluations": windows,
+}
+summary_json.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
 
-lines = []
-lines.append("# Dogfood reliability windows local proof summary")
-lines.append("")
-lines.append(f"- scanned roots: {', '.join(str(p.relative_to(root)) if p.is_relative_to(root) else str(p) for p in SEARCH_ROOTS)}")
-lines.append(f"- matching artifacts/logs found: {len(artifacts)}")
-lines.append(f"- dated artifacts/logs found: {len(dated)}")
-lines.append(f"- dated window candidates: {len(window_candidates)}")
-lines.append(f"- dated log artifacts: {len(log_artifacts)}")
-lines.append(f"- calculated window spans: {len(calculated_windows)}")
-lines.append(f"- sustained spans >=7 days: {len(sustained)}")
-lines.append(f"- honest dogfood conclusion: {status}")
-lines.append("")
-lines.append("## Dated artifacts inspected")
+lines = [
+    "# Dogfood reliability windows local proof summary",
+    "",
+    "Deterministic artifact generated by `bash scripts/verify/feature-dogfood-reliability-windows-proof.sh`.",
+    "",
+    "## Inventory",
+]
+for k, v in result["inventory"].items():
+    lines.append(f"- {k}: {v}")
+lines.extend([
+    f"- sustained_window_present: {str(result['sustained_window_present']).lower()}",
+    f"- sustained_window_absent: {str(result['sustained_window_absent']).lower()}",
+    f"- dogfood_status_conclusion: {result['dogfood_status_conclusion']}",
+    "",
+    "## No-false-positive rule",
+    result["no_false_positive_policy"],
+    "",
+    "## Dated evidence inventory",
+])
 if dated:
-    for a in dated[:200]:
-        dates = ", ".join(d.isoformat() for d in a["dates"])
-        failure = "; mentions failure/recovery" if a["mentions_failure"] else ""
-        lines.append(f"- `{a['path']}` ({a['kind']}): {dates}{failure}")
+    for a in dated:
+        lines.append(f"- `{a['path']}` ({a['kind']}): {', '.join(a['dates'])}")
 else:
     lines.append("- none")
-lines.append("")
-lines.append("## Calculated window spans")
-if calculated_windows:
-    for w in calculated_windows:
-        lines.append(f"- `{w['path']}`: {w['start']} to {w['end']} = {w['days']} days ({w['kind']})")
+lines.extend(["", "## Sustained-window evaluations"])
+if windows:
+    for w in windows:
+        verdict = "present" if w["sustained_window_present"] else "absent"
+        span = f"{w['start']} to {w['end']} = {w['duration_days']} days" if w["duration_days"] is not None else "not calculable"
+        reasons = "" if w["sustained_window_present"] else "; reasons: " + "; ".join(w["absence_reasons"])
+        lines.append(f"- `{w['path']}`: {verdict}; {span}{reasons}")
 else:
-    lines.append("- none calculable from the dated artifacts/logs in this checkout")
-lines.append("")
-lines.append("## Honest interpretation")
+    lines.append("- none")
+lines.extend(["", "## Honest conclusion"])
 if sustained:
-    lines.append("At least one local artifact contains a >=7-day dated span. This is still a local candidate until reviewed for actual continuous usage and failure/recovery completeness.")
+    lines.append("Local proof found at least one sustained-window candidate. This is not external validation.")
 elif dated:
-    lines.append("Dated ad hoc dogfood/reliability evidence exists, but this proof found no explicit >=7-day closed reliability window with calculable duration. Do not claim sustained/continuous dogfood.")
+    lines.append("Dated local dogfood/reliability evidence exists, but no artifact passes the sustained-window rule. Dogfood status remains ad_hoc.")
 else:
-    lines.append("No dated dogfood/reliability artifacts or logs were found in this checkout. Do not claim dogfood reliability evidence.")
-lines.append("")
-lines.append("External validation: pending; this proof only inspects local repository/bundle artifacts available to the runner.")
+    lines.append("No dated dogfood/reliability evidence was found. Dogfood status is none.")
+summary_md.write_text("\n".join(lines) + "\n")
 
-summary_path.write_text("\n".join(lines) + "\n")
 print("\n".join(lines))
-
 if len(artifacts) == 0:
     print("proof: FAIL: no dogfood/reliability surfaces found to inspect", file=sys.stderr)
     sys.exit(1)
-PY
+if not summary_json.exists() or not summary_md.exists():
+    print("proof: FAIL: deterministic summary artifacts missing", file=sys.stderr)
+    sys.exit(1)
+PYPROOF
 
-[[ -s "$TMP/proof-summary.md" ]] || fail "proof summary was not written"
-log "summary: $TMP/proof-summary.md"
+[[ -s "$SUMMARY_JSON" ]] || fail "summary json was not written"
+[[ -s "$SUMMARY_MD" ]] || fail "summary markdown was not written"
+log "summary-json: ${SUMMARY_JSON#$ROOT/}"
+log "summary-md: ${SUMMARY_MD#$ROOT/}"
 log "feature-dogfood-reliability-windows-proof=pass"

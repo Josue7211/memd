@@ -11,7 +11,8 @@ This proof slice covers the evidence question behind dogfood reliability windows
 - discover local dogfood/reliability artifacts and logs in the checkout or local bundle paths;
 - identify dated artifacts where possible;
 - calculate window counts and durations when an artifact/log contains enough dates;
-- distinguish ad hoc evidence from sustained, closed reliability windows;
+- write deterministic summary artifacts under `docs/verification/artifacts/`;
+- distinguish ad hoc evidence from sustained, closed reliability windows with an explicit no-false-positive rule;
 - avoid claiming continuous dogfood, production reliability, or external validation from local evidence alone.
 
 ## Executable proof
@@ -26,14 +27,20 @@ The script scans `docs/`, `dogfood/`, `reliability/`, `artifacts/`, `logs/`, and
 
 - matching artifact/log count;
 - dated artifact/log count;
-- dated window-candidate count;
-- dated log artifact count;
+- window evaluation count;
+- sustained-window count;
 - calculated spans where at least two dates are present;
-- sustained spans of at least seven days, if any.
+- sustained spans of at least seven days, if any;
+- explicit sustained-window presence/absence and absence reasons for every dated candidate.
+
+The deterministic summaries are:
+
+- `docs/verification/artifacts/dogfood-reliability-windows-local-summary.json`
+- `docs/verification/artifacts/dogfood-reliability-windows-local-summary.md`
 
 ## Local result on this slice
 
-Current local proof result: dated ad hoc dogfood evidence exists in repository documentation, but no closed sustained reliability window is proven by this checkout.
+Current local proof result: **strong local proof passed**. It inventoried local dogfood/reliability artifacts, extracted dated evidence, evaluated every dated candidate against the no-false-positive sustained-window rule, and found **zero sustained windows** in this checkout. Dated ad hoc evidence exists, so dogfood status remains `ad_hoc`.
 
 Evidence currently found includes dated handoff/planning artifacts such as:
 
@@ -52,7 +59,7 @@ Those are useful local artifacts, but they do not by themselves close a sustaine
 | Window counts | Count dated window candidates and calculated spans | covered locally |
 | Duration calculation | Calculate start/end/day duration when at least two dates are present | covered when data exists |
 | Failure/recovery evidence | Flag artifacts mentioning failure, recovery, repair, blocker, or `ready=false` | partial local signal only |
-| Sustained dogfood | Require explicit calculated spans, with >=7 days highlighted | pending closed reviewed windows |
+| Sustained dogfood | Require >=7 calculable days plus explicit real-use, close/review, failure/recovery, and no planning/future-only risk signals | absent in current local inventory |
 | External validation | Independent users/machines and external audit replay | pending external |
 
 ## Honest limitations
@@ -65,7 +72,7 @@ This proof is intentionally conservative. It does not prove:
 - that multiple independent users or devices participated;
 - external validation or production readiness.
 
-A 25/25 claim for this feature still needs dated, closed reliability windows with reviewed logs, explicit failures/recoveries, calculated durations, and preferably independent replay or auditor review.
+The proof status is `strong` because the local absence/presence check is deterministic and conservative, not because sustained dogfood exists. A 25/25 dogfood-readiness claim still needs dated, closed reliability windows with reviewed logs, explicit failures/recoveries, calculated durations, and preferably independent replay or auditor review.
 
 ## Freshness
 
