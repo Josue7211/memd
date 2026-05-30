@@ -18,6 +18,8 @@ PUBLIC_BENCH_LIMIT="${PUBLIC_BENCH_LIMIT:-2}"
 PUBLIC_BENCH_TIMEOUT="${PUBLIC_BENCH_TIMEOUT:-900}"
 PUBLIC_BENCH_OFFSET="${PUBLIC_BENCH_OFFSET:-0}"
 SERVER_LOG="$OUT_DIR/${RUN_DATE}-${RUN_LABEL}-server.log"
+MEMD_BIN="${MEMD_CARGO_TARGET_DIR}/debug/memd"
+MEMD_SERVER_BIN="${MEMD_CARGO_TARGET_DIR}/debug/memd-server"
 REPORT="$OUT_DIR/${RUN_DATE}-${RUN_LABEL}.json"
 DATASET_CACHE_DIR="${DATASET_CACHE_DIR:-$DEFAULT_CACHE_ROOT}"
 SERVER_PID=""
@@ -44,10 +46,10 @@ s.close()
 PY
 }
 
-if [[ ! -x "$ROOT/target/debug/memd-server" || ! -x "$ROOT/target/debug/memd" ]]; then
+if [[ ! -x "$MEMD_SERVER_BIN" || ! -x "$MEMD_BIN" ]]; then
   (
     cd "$ROOT"
-    cargo build -q -p memd-server -p memd-client --bin memd
+    cargo build -q -p memd-server --bin memd-server -p memd-client --bin memd
   )
 fi
 
@@ -61,11 +63,11 @@ SERVER_URL="http://127.0.0.1:$SERVER_PORT"
     MEMD_BIND_ADDR="127.0.0.1:$SERVER_PORT" \
     MEMD_RATE_LIMIT_DISABLED=1 \
     MEMD_STORE_AUTO_LINK_DISABLED=1 \
-    "$ROOT/target/debug/memd-server"
+    "$MEMD_SERVER_BIN"
 ) >"$SERVER_LOG" 2>&1 &
 SERVER_PID="$!"
 
-python3 - "$ROOT" "$SERVER_URL" "$REPORT" "$SERVER_PID" "$WORK_DIR" "$DATASET_CACHE_DIR" "$PUBLIC_BENCH_LIMIT" "$SUITE_NAME" "$PUBLIC_BENCH_TIMEOUT" "$PUBLIC_BENCH_OFFSET" <<'PY'
+python3 - "$ROOT" "$SERVER_URL" "$REPORT" "$SERVER_PID" "$WORK_DIR" "$DATASET_CACHE_DIR" "$PUBLIC_BENCH_LIMIT" "$SUITE_NAME" "$PUBLIC_BENCH_TIMEOUT" "$PUBLIC_BENCH_OFFSET" "$MEMD_BIN" <<'PY'
 import json
 import os
 import pathlib
@@ -84,6 +86,7 @@ public_bench_limit = int(sys.argv[7])
 suite_name = sys.argv[8]
 public_bench_timeout = int(sys.argv[9])
 public_bench_offset = int(sys.argv[10])
+memd_bin = pathlib.Path(sys.argv[11])
 
 def wait_health(url, pid):
     deadline = time.time() + 180
@@ -162,7 +165,7 @@ def run_external_public(dataset, limit):
     out = dataset_cache_dir / dataset
     out.mkdir(parents=True, exist_ok=True)
     cmd = [
-        str(root / "target/debug/memd"),
+        str(memd_bin),
         "benchmark",
         "public",
         dataset,

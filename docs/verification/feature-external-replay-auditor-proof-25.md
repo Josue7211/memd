@@ -6,18 +6,18 @@ Secondary/reference doc. Start from [[ROADMAP]] for project truth.
 
 Feature: `feature.external_replay_auditor_proof`
 
-This proof is a local readiness check for external replay and auditor handoff. It verifies that public-facing instructions, checklist structure, registry wiring, and local artifact integrity checks are present enough to prepare an outside replay. It does not prove that an independent outside auditor has run the proof.
+This proof is a strong local readiness check for external replay and auditor handoff. It verifies public-facing instructions, checklist structure, registry wiring, concrete artifact paths, schema/checksum expectations, immutability guards, and a fresh local `25-5-external-public-smoke` generation/validation path. It does not prove that an independent outside auditor has run the proof.
 
 ## Honest Status
 
 - Current status: partial
-- Proof status: partial local readiness proof
+- Proof status: strong local readiness proof
 - Dogfood status: none
 - External status: planned
 - Independent external replay: not verified
 - 25/25 blocker: yes, until a real independent replay/auditor artifact is recorded
 
-Allowed claim from this slice: local external-replay/auditor readiness is wired and checked by `bash scripts/verify/feature-external-replay-auditor-proof.sh`.
+Allowed claim from this slice: strong local external-replay/auditor readiness is wired and checked by `bash scripts/verify/feature-external-replay-auditor-proof.sh`, including local public-smoke artifact generation/validation without persistent dirty proof output.
 
 Forbidden claim: do not claim externally verified, third-party replayed, or auditor-approved from this document alone.
 
@@ -28,6 +28,7 @@ Forbidden claim: do not claim externally verified, third-party replayed, or audi
    - `docs/verification/features.registry.json` contains exactly one external replay/auditor feature row.
    - The row links this proof doc and the executable proof command.
    - Existing public replay runner `scripts/verify/25-5-external-public-smoke.sh` is still listed as replay preparation.
+   - Registry proof artifacts are concrete local files, not globs/descriptions, and the registered `external-public-smoke.json` report validates as a passing memd/no-RAG public replay artifact.
    - Release proof bundle directory `docs/verification/release-1-0-0/` exists when present and contains paired `.md`/`.ndjson` proof artifacts.
 
 2. Auditor checklist
@@ -39,6 +40,11 @@ Forbidden claim: do not claim externally verified, third-party replayed, or audi
    - SHA-256 digests are computed for local release bundle files during the proof run.
    - `.ndjson` artifacts are parsed line-by-line as JSON and must include status records.
    - Public benchmark checksum rows in `docs/verification/PUBLIC_BENCHMARKS.md` are inspected; if referenced dataset files exist locally, their SHA-256 must match the documented `sha256:` value. Missing local datasets are reported as skipped, not external proof.
+
+4. 25-5-external-public-smoke artifact generation/validation
+   - The proof executes `scripts/verify/25-5-external-public-smoke.sh` with `OUT_DIR` and `DATASET_CACHE_DIR` pointed at a temporary directory, `PUBLIC_BENCH_LIMIT=1` by default, and `MEMD_RAG_URL` unset.
+   - The generated report must cover LongMemEval, LoCoMo, MemBench, and ConvoMem; use the memd backend; expose public source URLs and `sha256:` dataset checksums; pass accuracy/recall gates; and contain item-level hit/top-id evidence.
+   - The temporary output is deleted and the proof compares git porcelain before/after, failing if the generation leaves persistent dirty noise.
 
 ## Evidence boundaries
 
