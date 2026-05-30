@@ -9,9 +9,10 @@ If you are new to memd, read in this order:
 1. `START-HERE.md` - the first-run path and setup orientation.
 2. `README.md` - what the project is trying to provide and the current quickstart.
 3. `docs/WHERE-AM-I.md` - current project truth and recovery context.
-4. `docs/product/INDEX.md` - this plain-language product map.
-5. `docs/verification/features.registry.json` - machine-readable feature truth.
-6. `docs/verification/feature-docs-product-education-25.md` - local proof map for this docs slice.
+4. `docs/setup/README.md` - getting-started command examples for install, setup, doctor, and first proof.
+5. `docs/product/INDEX.md` - this plain-language product map.
+6. `docs/verification/features.registry.json` - machine-readable feature truth.
+7. `docs/verification/feature-docs-product-education-25.md` - local proof map for this docs slice.
 
 Do not start with old benchmark, phase, or backlog pages unless a current page points you there. Those pages can be useful history, but they are not automatically current product truth.
 
@@ -29,6 +30,26 @@ Current honest status: memd has working local surfaces and verification scripts,
 | Feature truth | Feature claims are tracked in the registry. | `docs/verification/features.registry.json` plus registry audit. | Registry-backed, not product-complete. |
 | Product behavior | A command or workflow works. | A named executable proof command and current artifact. | Only claim behavior where proof is linked. |
 | 25-star readiness | The product is ready for high-confidence release. | Local proof, dogfood, and external/auditor replay. | Not yet; blockers remain registered. |
+
+## Setup Command Examples
+
+The beginner path must stay aligned across `START-HERE.md`, `README.md`, `docs/setup/README.md`, and CLI help/argument definitions:
+
+```bash
+scripts/install-memd.sh
+memd setup --guided --summary
+memd setup --interactive
+memd doctor --summary
+memd status --output .memd --summary
+memd resume --output .memd --intent current_task
+memd setup-demo --summary
+```
+
+These commands are local setup and education examples. They do not prove external validation, sustained dogfood, production readiness, or whole-product 25/25.
+
+## Local 25/5 target
+
+This docs/product education slice targets strong local 25/5 proof: navigation, setup examples, local reference integrity, registry honesty, and overclaim prevention. It remains local proof only; external validation is pending and dogfood evidence remains pending unless a dated artifact is added.
 
 ## Jargon Guardrail
 

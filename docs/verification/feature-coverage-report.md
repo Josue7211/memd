@@ -20,7 +20,7 @@ This is a static Pillar 01 coverage report. It summarizes registry coverage and 
 | ID | Current | Proof | Dogfood | External | Primary blocker |
 | --- | --- | --- | --- | --- | --- |
 | `feature.setup_install_onboarding` | `partial` | `strong` | `ad_hoc` | `planned` | Needs external replay and broader lifecycle proof beyond local setup smoke. |
-| `feature.docs_product_education` | `partial` | `smoke` | `ad_hoc` | `none` | Docs need ongoing alignment with registry and executable proof. |
+| `feature.docs_product_education` | `partial` | `strong` | `ad_hoc` | `none` | Strong local docs proof covers navigation, setup/CLI alignment, internal references, registry honesty, and unsupported 25/25 blockers; external replay and sustained dogfood remain pending. |
 | `feature.doctor_status_recovery_update_uninstall` | `partial` | `strong` | `ad_hoc` | `planned` | Local lifecycle proof exists; destructive reset contract and external replay remain pending. |
 | `feature.memory_core` | `partial` | `strong` | `ad_hoc` | `none` | Local proof maps capture/lookup/resume/corrections/provenance/trust, but external validation and production reliability remain unproven. |
 | `feature.context_compiler_token_savings` | `partial` | `strong` | `ad_hoc` | `planned` | Local fixture proof records saved-token ledger, retained quality, and budget enforcement; independent external replay remains pending. |

@@ -98,6 +98,9 @@
         "scripts/doc-lint.sh"
       ],
       "docs": [
+        "README.md",
+        "START-HERE.md",
+        "docs/setup/README.md",
         "docs/verification/FEATURES.md",
         "docs/verification/feature-coverage-report.md",
         "docs/product/INDEX.md",
@@ -110,10 +113,11 @@
       ],
       "proof_artifacts": [
         "docs/verification/feature-coverage-report.md",
-        "docs/verification/feature-docs-product-education-25.md"
+        "docs/verification/feature-docs-product-education-25.md",
+        "scripts/verify/feature-docs-product-education-proof.sh"
       ],
       "current_status": "partial",
-      "proof_status": "smoke",
+      "proof_status": "strong",
       "dogfood_status": "ad_hoc",
       "external_status": "none",
       "blocks_25_25": true,
@@ -124,13 +128,13 @@
       ],
       "allowed_claims": [
         "Registry defines current whole-app truth fields.",
-        "Docs/product education has local proof for navigation, claim-to-proof mapping, and honest pending language when the proof script passes."
+        "Docs/product education has strong local proof for navigation, start-here/README/setup/CLI alignment, setup examples, claim-to-proof mapping, and honest pending language when the proof script passes."
       ],
       "forbidden_claims": [
         "Do not claim docs prove product behavior without linked executable proof.",
         "Do not claim external validation, dogfood readiness, production readiness, or whole-product 25/25 from local docs proof alone."
       ],
-      "freshness_policy": "Update registry and coverage report with every feature claim, proof artifact, or status change."
+      "freshness_policy": "Update registry, coverage report, FEATURES row, and product education proof whenever beginner navigation, README/START-HERE/setup docs, CLI setup/help surfaces, feature claims, proof artifacts, or status language changes."
     },
     {
       "id": "feature.doctor_status_recovery_update_uninstall",

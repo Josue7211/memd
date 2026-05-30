@@ -24,7 +24,7 @@ bash scripts/verify/feature-registry-audit.sh
 | ID | Category | Current | Proof | Dogfood | External | Blocks 25/25 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `feature.setup_install_onboarding` | setup/install/onboarding | `partial` | `strong` | `ad_hoc` | `planned` | yes |
-| `feature.docs_product_education` | docs/product education | `partial` | `smoke` | `ad_hoc` | `none` | yes |
+| `feature.docs_product_education` | docs/product education | `partial` | `strong` | `ad_hoc` | `none` | yes |
 | `feature.doctor_status_recovery_update_uninstall` | doctor/status/recovery/update/uninstall | `partial` | `strong` | `ad_hoc` | `planned` | yes |
 | `feature.memory_core` | memory capture/lookup/recall/corrections/provenance/trust | `partial` | `strong` | `ad_hoc` | `none` | yes |
 | `feature.context_compiler_token_savings` | context compiler/token savings | `partial` | `strong` | `ad_hoc` | `planned` | yes |
