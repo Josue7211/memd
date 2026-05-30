@@ -31,7 +31,7 @@ This is a static Pillar 01 coverage report. It summarizes registry coverage and 
 | `feature.external_replay_auditor_proof` | `partial` | `strong` | `none` | `planned` | Local auditor-readiness bundle proof exists; no independent external replay artifact is registered. |
 | `feature.product_ux_dashboard_cli_language` | `partial` | `partial` | `none` | `none` | Local CLI/help and dashboard-source language proof exists; no real dashboard browser walkthrough/dogfood/external validation is registered. |
 | `feature.network_identity_federation_market` | `partial` | `partial` | `none` | `none` | Local identity-scope proof exists for single user/org local memory identity across Codex/Hermes/OpenClaw-style surfaces; V26 artifact absent and federation/market remain bounded/planned. |
-| `feature.release_claim_honesty_gates` | `partial` | `partial` | `ad_hoc` | `none` | Local honesty proof checks registry audit, release checklist hooks, executable proof commands, and unsupported 25/25 overclaim blockers; full release-flow integration and external evidence remain pending. |
+| `feature.release_claim_honesty_gates` | `partial` | `strong` | `ad_hoc` | `none` | Strong local 25/5 honesty proof checks registry audit, release checklist hooks, executable proof commands, doc lint, git diff hygiene, dynamic-artifact cleanliness, and unsupported 25/25 overclaim blockers; full release-flow integration and external evidence remain pending. |
 | `feature.cross_harness_continuity` | `partial` | `partial` | `ad_hoc` | `none` | Cross-harness replay proof is planned but not recorded. |
 
 ## Honest Conclusion

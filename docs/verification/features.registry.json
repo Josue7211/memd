@@ -610,6 +610,7 @@
         "docs/verification/features.registry.json",
         "scripts/verify/feature-registry-audit.sh",
         "scripts/verify/feature-release-claim-honesty-gates-proof.sh",
+        "scripts/verify/local-25-5-release-claim-honesty-gate.sh",
         "docs/policy/archive/release-process.md",
         "release docs"
       ],
@@ -623,6 +624,8 @@
       "proof_commands": [
         "bash scripts/verify/feature-registry-audit.sh",
         "bash scripts/verify/feature-release-claim-honesty-gates-proof.sh",
+        "bash scripts/verify/local-25-5-release-claim-honesty-gate.sh",
+        "scripts/doc-lint.sh",
         "git diff --check"
       ],
       "proof_artifacts": [
@@ -630,7 +633,7 @@
         "docs/verification/feature-release-claim-honesty-gates-25.md"
       ],
       "current_status": "partial",
-      "proof_status": "partial",
+      "proof_status": "strong",
       "dogfood_status": "ad_hoc",
       "external_status": "none",
       "blocks_25_25": true,
@@ -640,12 +643,12 @@
         "evidence_linkage"
       ],
       "allowed_claims": [
-        "Local release-claim honesty proof checks the registry audit, release checklist hooks, executable proof commands, and unsupported 25/25 overclaim blockers."
+        "Strong local 25/5 release-claim honesty proof checks the registry audit, release checklist hooks, executable proof commands, doc lint, git diff hygiene, dynamic-artifact cleanliness, and unsupported 25/25 overclaim blockers."
       ],
       "forbidden_claims": [
-        "Do not claim 25/25, production-ready release gating, release-flow integration, or external verification from this local honesty proof alone."
+        "Do not claim 25/25, production-ready release gating, sustained release-flow integration, dogfood closure, or external verification from this local 25/5 honesty proof alone."
       ],
-      "freshness_policy": "Run registry audit and the local release-claim honesty proof before release notes, README claim changes, scorecard changes, public benchmark updates, tags, or announcements."
+      "freshness_policy": "Run registry audit, doc lint, git diff hygiene, and the local 25/5 release-claim honesty proof before release notes, README claim changes, scorecard changes, public benchmark updates, tags, or announcements."
     },
     {
       "id": "feature.cross_harness_continuity",
