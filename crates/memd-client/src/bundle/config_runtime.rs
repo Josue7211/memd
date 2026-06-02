@@ -390,7 +390,6 @@ pub(crate) fn doctor_args_to_setup_args(
         force: args.repair,
         guided: false,
         allow_localhost_read_only_fallback: false,
-        interactive: false,
         summary: false,
         json: false,
     }

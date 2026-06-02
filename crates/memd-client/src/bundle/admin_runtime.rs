@@ -103,7 +103,7 @@ const INTERACTIVE_HARNESSES: &[&str] = &[
 ];
 const SETUP_BEGINNER_STEPS: &[(&str, &str)] = &[
     ("Install", "scripts/install-memd.sh"),
-    ("Configure", "memd setup --interactive"),
+    ("Configure", "memd setup"),
     ("Doctor", "memd doctor --summary"),
     (
         "First proof",
@@ -156,20 +156,55 @@ fn centered_line(text: &str) -> String {
 
 fn render_interactive_menu(title: &str, prompt: &str, options: &[&str], selected: usize) -> String {
     let mut out = String::new();
-    out.push_str(&centered_line("memd setup"));
-    out.push_str("\n\n");
-    out.push_str(&centered_line(title));
-    out.push_str("\n\n");
-    out.push_str(&centered_line(prompt));
-    out.push_str("\n\n");
+    out.push_str("╔═════════════════════════════════════════════════════════════════╗\n");
+    out.push_str("║  memd                                                            ║\n");
+    out.push_str("║  ✦  memory control plane                                         ║\n");
+    out.push_str(&format!("║  SETUP / {title:<53} ║\n"));
+    out.push_str("╚═════════════════════════════════════════════════════════════════╝\n");
+    out.push_str("  Configure shared memory. Ctrl+C exits any prompt.\n\n");
+    out.push_str(&format!("✦ {prompt}\n"));
+    out.push_str("  Choose a route. Enter accepts the highlighted default.\n\n");
     for (idx, option) in options.iter().enumerate() {
-        let marker = if idx == selected { "›" } else { " " };
-        out.push_str(&centered_line(&format!("{marker} {option}")));
-        out.push('\n');
+        let marker = if idx == selected { "◆" } else { "◇" };
+        out.push_str(&format!("  {marker} {:>2}. {option}\n", idx + 1));
     }
     out.push('\n');
-    out.push_str(&centered_line("↑/↓ move   Enter select   q quit"));
+    out.push_str("  ↑/↓ move   Enter select   q quit");
     out
+}
+
+fn should_run_setup_picker(args: &SetupArgs) -> bool {
+    use std::io::IsTerminal;
+    if args.summary || args.json || args.guided {
+        return false;
+    }
+    if args.project.is_some()
+        || args.namespace.is_some()
+        || args.global
+        || args.project_root.is_some()
+        || args.agent.is_some()
+        || args.session.is_some()
+        || args.tab_id.is_some()
+        || args.hive_system.is_some()
+        || args.hive_role.is_some()
+        || !args.capability.is_empty()
+        || !args.hive_group.is_empty()
+        || args.hive_group_goal.is_some()
+        || args.authority.is_some()
+        || args.output.is_some()
+        || args.base_url.is_some()
+        || args.rag_url.is_some()
+        || args.route.is_some()
+        || args.intent.is_some()
+        || args.workspace.is_some()
+        || args.visibility.is_some()
+        || args.voice_mode.is_some()
+        || args.force
+        || args.allow_localhost_read_only_fallback
+    {
+        return false;
+    }
+    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }
 
 fn run_centered_picker(title: &str, prompt: &str, options: &[&str]) -> anyhow::Result<usize> {
@@ -231,7 +266,7 @@ pub(crate) async fn run_bundle_setup_command(args: &SetupArgs) -> anyhow::Result
         return Ok(());
     }
     let interactive_args;
-    let args = if args.interactive {
+    let args = if should_run_setup_picker(args) {
         interactive_args = run_interactive_setup(args)?;
         &interactive_args
     } else {
@@ -246,8 +281,12 @@ pub(crate) async fn run_bundle_setup_command(args: &SetupArgs) -> anyhow::Result
     // store. Memory must be continuous across worktrees of the same project.
     let symlinked = maybe_symlink_worktree_bundle(&init_args.output).unwrap_or(false);
 
-    if !symlinked {
+    let bundle_preexisted = init_args.output.exists() && !init_args.force;
+    if !symlinked && !bundle_preexisted {
         write_init_bundle(&init_args)?;
+    } else if !symlinked && bundle_preexisted {
+        write_agent_profiles(&init_args.output)?;
+        write_native_agent_bridge_files(&init_args.output)?;
     }
 
     // F2: Ingest lane source files into DB after setup.
@@ -307,7 +346,14 @@ pub(crate) async fn run_bundle_setup_command(args: &SetupArgs) -> anyhow::Result
             },
         );
     } else {
-        println!("Initialized memd bundle at {}", init_args.output.display());
+        if bundle_preexisted {
+            println!(
+                "Updated existing memd bundle at {}",
+                init_args.output.display()
+            );
+        } else {
+            println!("Initialized memd bundle at {}", init_args.output.display());
+        }
         if decision.fallback_activated {
             eprintln!("memd authority warning:");
             eprintln!("- shared authority unavailable");
@@ -324,11 +370,15 @@ mod setup_interactive_tests {
     use super::*;
 
     #[test]
-    fn centered_menu_renders_arrow_enter_picker_copy() {
+    fn setup_menu_mimics_hermes_openclaw_brand_language() {
         let menu = render_interactive_menu("Provider", "Pick one", INTERACTIVE_PROVIDERS, 1);
-        assert!(menu.contains("memd setup"));
-        assert!(menu.contains("› Shared memd server"));
-        assert!(menu.contains("↑/↓ move   Enter select   q quit"));
+        assert!(menu.contains("memd"));
+        assert!(menu.contains("memory control plane"));
+        assert!(menu.contains("SETUP / Provider"));
+        assert!(menu.contains("◆  2. Shared memd server"));
+        assert!(menu.contains("◇  1. Local only"));
+        assert!(!menu.contains("Hermes Agent Setup Wizard"));
+        assert!(!menu.contains("Choice [default"));
     }
 
     #[test]
@@ -336,7 +386,7 @@ mod setup_interactive_tests {
         let menu = render_interactive_menu("Harness", "Pick one", INTERACTIVE_HARNESSES, 3);
         assert!(menu.contains("codex"));
         assert!(menu.contains("hermes"));
-        assert!(menu.contains("› openclaw"));
+        assert!(menu.contains("◆  4. openclaw"));
         assert!(menu.contains("opencode"));
     }
 
@@ -344,7 +394,8 @@ mod setup_interactive_tests {
     fn guided_setup_renders_hands_on_beginner_path() {
         let guide = render_setup_guided_markdown();
         assert!(guide.contains("Apple-level first run"));
-        assert!(guide.contains("memd setup --interactive"));
+        assert!(guide.contains("memd setup"));
+        assert!(!guide.contains("--interactive"));
         assert!(guide.contains("memd setup-demo --summary"));
         assert!(guide.contains("docs/setup/troubleshooting.md"));
     }
@@ -386,7 +437,6 @@ pub(crate) async fn run_bundle_setup_demo_command(args: &SetupDemoArgs) -> anyho
         force: true,
         guided: false,
         allow_localhost_read_only_fallback: true,
-        interactive: false,
         summary: true,
         json: false,
     };
@@ -467,6 +517,40 @@ pub(crate) async fn run_bundle_config_command(
     base_url: &str,
 ) -> anyhow::Result<()> {
     let bundle_root = resolve_setup_bundle_root(args.output.as_deref())?;
+    if !bundle_root.join("config.json").is_file() {
+        let setup_args = SetupArgs {
+            project: None,
+            namespace: None,
+            global: false,
+            project_root: args.project_root.clone(),
+            seed_existing: true,
+            agent: None,
+            session: None,
+            tab_id: None,
+            hive_system: None,
+            hive_role: None,
+            capability: Vec::new(),
+            hive_group: Vec::new(),
+            hive_group_goal: None,
+            authority: None,
+            output: Some(bundle_root.clone()),
+            base_url: None,
+            rag_url: None,
+            route: None,
+            intent: None,
+            workspace: None,
+            visibility: None,
+            voice_mode: None,
+            force: false,
+            guided: false,
+            allow_localhost_read_only_fallback: false,
+            summary: true,
+            json: false,
+        };
+        let init_args = normalize_init_args(setup_args_to_init_args(&setup_args))?;
+        let decision = resolve_bootstrap_authority(init_args).await?;
+        write_init_bundle(&decision.init_args)?;
+    }
     if let Some(command) = &args.command {
         return run_bundle_config_subcommand(&bundle_root, command);
     }

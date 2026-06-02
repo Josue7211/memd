@@ -95,7 +95,7 @@ pub(crate) enum Commands {
     Doctor(DoctorArgs),
     Device(DeviceArgs),
     Dogfood(DogfoodArgs),
-    #[command(visible_alias = "configure")]
+    #[command(visible_alias = "configure", visible_alias = "settings")]
     Config(ConfigArgs),
     Memory(MemoryArgs),
     Store(RequestInput),

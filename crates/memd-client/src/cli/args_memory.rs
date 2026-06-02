@@ -1005,10 +1005,6 @@ pub(crate) struct SetupArgs {
     #[arg(long, default_value_t = false)]
     pub(crate) guided: bool,
 
-    /// Open a centered arrow-key provider/harness picker.
-    #[arg(long, default_value_t = false)]
-    pub(crate) interactive: bool,
-
     #[arg(long, default_value_t = false)]
     pub(crate) allow_localhost_read_only_fallback: bool,
 
