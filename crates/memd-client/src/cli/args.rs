@@ -29,11 +29,13 @@ pub(crate) struct Cli {
 #[derive(Debug, Subcommand)]
 pub(crate) enum Commands {
     Healthz,
+    /// Show local bundle readiness, server health, memory context, and next actions.
     Status(StatusArgs),
     State(StateArgs),
     Claim(ClaimArgs),
     Capabilities(CapabilitiesArgs),
     Session(SessionArgs),
+    /// Refresh/rehydrate the current agent session from saved memd context.
     Wake(WakeArgs),
     Awareness(AwarenessArgs),
     Heartbeat(HeartbeatArgs),
@@ -66,12 +68,15 @@ pub(crate) enum Commands {
     Agent(AgentArgs),
     Attach(AttachArgs),
     Resume(ResumeArgs),
+    /// Refresh the active session context; alias: reload.
     #[command(visible_alias = "reload")]
     Refresh(ResumeArgs),
     Watch(WatchArgs),
     Handoff(HandoffArgs),
     Checkpoint(CheckpointArgs),
+    /// Save a durable memory item with project/workspace metadata.
     Remember(RememberArgs),
+    /// Teach memd a canonical fact, preference, or procedure for future recall.
     Teach(TeachArgs),
     Embed(EmbedArgs),
     Rag(RagArgs),
@@ -83,6 +88,7 @@ pub(crate) enum Commands {
     IngestSources(IngestSourcesArgs),
     Inspiration(InspirationArgs),
     Skill(SkillArgs),
+    /// Browse installed skills and skill catalog entries.
     Skills(SkillsArgs),
     Packs(PacksArgs),
     Commands(CommandCatalogArgs),
@@ -95,8 +101,10 @@ pub(crate) enum Commands {
     Doctor(DoctorArgs),
     Device(DeviceArgs),
     Dogfood(DogfoodArgs),
+    /// View or edit runtime settings; aliases: configure, settings.
     #[command(visible_alias = "configure", visible_alias = "settings")]
     Config(ConfigArgs),
+    /// Browse lanes, items, and local memory artifacts.
     Memory(MemoryArgs),
     Store(RequestInput),
     Candidate(RequestInput),
@@ -107,6 +115,7 @@ pub(crate) enum Commands {
     Repair(RepairArgs),
     Correct(CorrectArgs),
     Search(SearchArgs),
+    /// Retrieve relevant memories for a query with filters and optional JSON.
     Lookup(LookupArgs),
     Context(ContextArgs),
     Working(WorkingArgs),
@@ -136,8 +145,10 @@ pub(crate) enum Commands {
     Compact(CompactArgs),
     Obsidian(ObsidianArgs),
     Ui(UiArgs),
+    /// Run/install memd hook helpers for context, capture, gate, and repair flows.
     #[command(visible_alias = "hooks")]
     Hook(HookArgs),
+    /// Initialize memd in a project; equivalent onboarding entrypoint to setup.
     Init(InitArgs),
     Loops(LoopsArgs),
     Telemetry(TelemetryArgs),

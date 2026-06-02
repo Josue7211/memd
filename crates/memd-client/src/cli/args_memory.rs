@@ -1861,11 +1861,17 @@ pub(crate) struct AutoresearchArgs {
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct StatusArgs {
+    /// Bundle root to inspect (defaults to .memd).
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     pub(crate) output: PathBuf,
 
+    /// Print the compact one-line status summary.
     #[arg(long)]
     pub(crate) summary: bool,
+
+    /// Print raw status JSON instead of the human status view.
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Clone, Args)]

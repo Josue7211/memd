@@ -163,6 +163,176 @@ pub(crate) fn render_opencode_harness_pack_markdown(pack: &OpenCodeHarnessPack) 
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn render_bundle_status_human(status: &Value) -> String {
+    let bundle = status
+        .get("bundle")
+        .and_then(Value::as_str)
+        .unwrap_or("none");
+    let setup_ready = status
+        .get("setup_ready")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let server = status
+        .get("server")
+        .and_then(|value| value.get("status"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let rag = status
+        .get("rag")
+        .and_then(|value| value.get("healthy"))
+        .and_then(Value::as_bool)
+        .map(|healthy| if healthy { "ready" } else { "degraded" })
+        .unwrap_or("off");
+    let resume = status
+        .get("resume_preview")
+        .and_then(|value| if value.is_null() { None } else { Some(value) });
+    let defaults = status
+        .get("defaults")
+        .and_then(|value| if value.is_null() { None } else { Some(value) });
+    let heartbeat = status
+        .get("heartbeat")
+        .and_then(|value| if value.is_null() { None } else { Some(value) });
+    let project = pick_status_str(&[resume, defaults, heartbeat], "project", "none");
+    let namespace = pick_status_str(&[resume, defaults, heartbeat], "namespace", "none");
+    let session = pick_status_str(&[resume, defaults, heartbeat], "session", "none");
+    let agent = resume
+        .and_then(|value| value.get("agent").and_then(Value::as_str))
+        .or_else(|| defaults.and_then(|value| value.get("agent").and_then(Value::as_str)))
+        .or_else(|| {
+            heartbeat.and_then(|value| {
+                value
+                    .get("effective_agent")
+                    .and_then(Value::as_str)
+                    .or_else(|| value.get("agent").and_then(Value::as_str))
+            })
+        })
+        .unwrap_or("none");
+
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "memd status - {}",
+        if setup_ready { "ready" } else { "needs setup" }
+    ));
+    lines.push(format!("  Bundle: {bundle}"));
+    lines.push(format!("  Server: {server}"));
+    lines.push(format!("  Memory: rag={rag}"));
+    lines.push(format!(
+        "  Context: project={project} namespace={namespace} session={session} agent={agent}"
+    ));
+
+    if let Some(resume) = resume {
+        let pressure = resume
+            .get("context_pressure")
+            .and_then(Value::as_str)
+            .unwrap_or("none");
+        let tokens = resume
+            .get("estimated_prompt_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        lines.push(format!("  Prompt: pressure={pressure} tokens={tokens}"));
+        if let Some(focus) = resume.get("focus").and_then(Value::as_str) {
+            lines.push(format!("  Focus: {}", compact_inline(focus, 96)));
+        }
+        if let Some(next) = resume.get("next_recovery").and_then(Value::as_str) {
+            lines.push(format!("  Next: {}", compact_inline(next, 96)));
+        }
+        if resume
+            .get("refresh_recommended")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            || pressure == "high"
+        {
+            lines.push(
+                "  Warning: prompt pressure high - run memd refresh or trim context.".to_string(),
+            );
+        }
+    }
+
+    if let Some(atlas) = status.get("server").and_then(|value| value.get("atlas")) {
+        lines.push(format!(
+            "  Atlas: edges={} regions={} ratio={:.2} state={}",
+            atlas
+                .get("edges_active")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            atlas
+                .get("region_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            atlas
+                .get("edge_item_ratio")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
+            if atlas
+                .get("dormant")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                "dormant"
+            } else {
+                "active"
+            }
+        ));
+        if let Some(warning) = atlas.get("warning").and_then(Value::as_str) {
+            lines.push(format!("  Atlas warning: {}", compact_inline(warning, 96)));
+        }
+    }
+
+    if let Some(truth) = status
+        .get("truth_summary")
+        .and_then(|value| if value.is_null() { None } else { Some(value) })
+    {
+        lines.push(format!(
+            "  Truth: {} confidence={:.2} sources={} freshness={}",
+            truth
+                .get("truth")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown"),
+            truth
+                .get("confidence")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
+            truth
+                .get("source_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            truth
+                .get("freshness")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown"),
+        ));
+    }
+
+    if let Some(missing) = status.get("missing").and_then(Value::as_array) {
+        let missing = missing.iter().filter_map(Value::as_str).collect::<Vec<_>>();
+        if !missing.is_empty() {
+            lines.push(format!("  Missing: {}", missing.join(", ")));
+        }
+    }
+
+    let next = if setup_ready {
+        "memd lookup --query \"what should I know?\""
+    } else if status
+        .get("config")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        "memd doctor --output .memd --repair --summary"
+    } else {
+        "memd setup --agent auto --summary"
+    };
+    lines.push(format!("  Next action: {next}"));
+    lines.join("\n")
+}
+
+fn pick_status_str<'a>(values: &[Option<&'a Value>], key: &str, fallback: &'a str) -> &'a str {
+    values
+        .iter()
+        .find_map(|value| value.and_then(|value| value.get(key).and_then(Value::as_str)))
+        .unwrap_or(fallback)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
     let bundle = status
         .get("bundle")
@@ -952,3 +1122,51 @@ pub(crate) fn render_bundle_state_summary(state: &Value) -> String {
 
 mod render_memory;
 pub(crate) use render_memory::*;
+
+#[cfg(test)]
+mod status_render_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn status_human_renderer_surfaces_readiness_and_next_action() {
+        let status = json!({
+            "bundle": ".memd",
+            "setup_ready": true,
+            "server": {
+                "status": "ok",
+                "atlas": {"edges_active": 7, "region_count": 2, "edge_item_ratio": 1.25, "dormant": false}
+            },
+            "rag": {"healthy": true},
+            "defaults": {"project": "memd", "namespace": "main", "session": "s1", "agent": "hermes"},
+            "resume_preview": {
+                "project": "memd",
+                "namespace": "main",
+                "session": "s1",
+                "agent": "hermes",
+                "context_pressure": "medium",
+                "estimated_prompt_tokens": 1234,
+                "focus": "ship status UX",
+                "next_recovery": "run tests"
+            },
+            "truth_summary": {"truth": "grounded", "confidence": 0.91, "source_count": 3, "freshness": "fresh"}
+        });
+
+        let rendered = render_bundle_status_human(&status);
+        assert!(rendered.contains("memd status - ready"));
+        assert!(rendered.contains("Bundle: .memd"));
+        assert!(rendered.contains("Context: project=memd namespace=main session=s1 agent=hermes"));
+        assert!(rendered.contains("Prompt: pressure=medium tokens=1234"));
+        assert!(rendered.contains("Atlas: edges=7 regions=2 ratio=1.25 state=active"));
+        assert!(rendered.contains("Next action: memd lookup --query"));
+    }
+
+    #[test]
+    fn status_summary_remains_single_line_machine_compact() {
+        let status = json!({"bundle": ".memd", "setup_ready": false, "server": {"status": "unknown"}, "missing": ["config"]});
+        let rendered = render_bundle_status_summary(&status);
+        assert!(!rendered.contains('\n'));
+        assert!(rendered.starts_with("status bundle=.memd"));
+        assert!(rendered.contains("setup_next=\"memd setup --agent auto --summary\""));
+    }
+}

@@ -159,10 +159,12 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::Healthz => print_json(&client.healthz().await?)?,
         Commands::Status(args) => {
             let status = read_bundle_status(&args.output, &base_url).await?;
-            if args.summary {
+            if args.json {
+                print_json(&status)?;
+            } else if args.summary {
                 println!("{}", render_bundle_status_summary(&status));
             } else {
-                print_json(&status)?;
+                println!("{}", render_bundle_status_human(&status));
             }
         }
         Commands::State(args) => {
