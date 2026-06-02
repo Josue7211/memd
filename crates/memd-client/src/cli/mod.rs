@@ -68,6 +68,7 @@ mod skill_runtime;
 pub(crate) use skill_runtime::*;
 
 pub(crate) mod skill_catalog;
+pub(crate) mod terminal_ux;
 
 fn bundle_auto_commit_enabled_for(output: &Path) -> bool {
     if let Ok(value) = std::env::var("MEMD_AUTO_COMMIT_ENABLED") {

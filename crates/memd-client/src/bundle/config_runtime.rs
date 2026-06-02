@@ -365,6 +365,7 @@ pub(crate) fn doctor_args_to_setup_args(
     project_root: Option<PathBuf>,
 ) -> SetupArgs {
     SetupArgs {
+        section: None,
         project: None,
         namespace: None,
         global: output == default_global_bundle_root(),
@@ -389,6 +390,7 @@ pub(crate) fn doctor_args_to_setup_args(
         voice_mode: Some(default_voice_mode()),
         force: args.repair,
         guided: false,
+        non_interactive: true,
         allow_localhost_read_only_fallback: false,
         summary: false,
         json: false,
