@@ -930,8 +930,28 @@ pub(crate) struct CommandCatalogArgs {
     pub(crate) json: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(crate) enum SetupSection {
+    /// Configure local/shared provider routing.
+    Provider,
+    /// Configure agent harness bridge files.
+    Harness,
+    /// Configure memory bundle defaults.
+    Memory,
+    /// Configure voice and tone defaults.
+    Voice,
+    /// Configure hive coordination metadata.
+    Hive,
+    /// Show proof commands for verifying setup.
+    Proof,
+}
+
 #[derive(Debug, Clone, Args)]
 pub(crate) struct SetupArgs {
+    /// Optional setup section: provider, harness, memory, voice, hive, or proof.
+    #[arg(value_enum)]
+    pub(crate) section: Option<SetupSection>,
+
     #[arg(long)]
     pub(crate) project: Option<String>,
 
@@ -1004,6 +1024,10 @@ pub(crate) struct SetupArgs {
     /// Print the beginner guided setup path and exact proof commands.
     #[arg(long, default_value_t = false)]
     pub(crate) guided: bool,
+
+    /// Run safe idempotent setup defaults without opening the TTY picker.
+    #[arg(long, default_value_t = false)]
+    pub(crate) non_interactive: bool,
 
     #[arg(long, default_value_t = false)]
     pub(crate) allow_localhost_read_only_fallback: bool,

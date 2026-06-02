@@ -1,5 +1,5 @@
 use super::*;
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[path = "args_coordination.rs"]
 mod args_coordination;
