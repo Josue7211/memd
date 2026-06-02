@@ -218,6 +218,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn settings_summary_uses_settings_prefix_and_config_prefix_stays_config() {
+        let snapshot = BundleConfigSnapshot {
+            bundle_root: "/tmp/memd".to_string(),
+            project_root: None,
+            setup_ready: true,
+            runtime_present: true,
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            session: Some("session-a".to_string()),
+            tab_id: None,
+            base_url: Some("http://127.0.0.1:8787".to_string()),
+            route: Some("auto".to_string()),
+            intent: Some("current_task".to_string()),
+            workspace: None,
+            visibility: None,
+            hive_system: None,
+            hive_role: None,
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            authority_mode: Some("shared".to_string()),
+            authority_degraded: false,
+            shared_base_url: None,
+            fallback_base_url: None,
+            localhost_fallback_policy: Some("deny".to_string()),
+            voice_mode: "caveman-ultra".to_string(),
+            auto_commit_enabled: false,
+        };
+
+        assert!(render_bundle_settings_summary(&snapshot).starts_with("settings "));
+        assert!(render_bundle_config_summary(&snapshot).starts_with("config "));
+        let human = render_bundle_settings_human(&snapshot);
+        assert!(human.contains("memd settings"));
+        assert!(human.contains("┌"));
+        assert!(human.contains("Auto commit: disabled"));
+    }
+
+    #[test]
     fn set_bundle_base_url_updates_shared_authority_state_when_shared() {
         let dir = std::env::temp_dir().join(format!(
             "memd-bundle-shared-base-url-{}",
@@ -532,8 +570,17 @@ pub(crate) fn render_bundle_config_snapshot(
 }
 
 pub(crate) fn render_bundle_config_summary(config: &BundleConfigSnapshot) -> String {
+    render_bundle_config_summary_with_label(config, "config")
+}
+
+pub(crate) fn render_bundle_settings_summary(config: &BundleConfigSnapshot) -> String {
+    render_bundle_config_summary_with_label(config, "settings")
+}
+
+fn render_bundle_config_summary_with_label(config: &BundleConfigSnapshot, label: &str) -> String {
     format!(
-        "config bundle={} ready={} project={} namespace={} agent={} session={} base_url={} route={} intent={} voice={} auto_commit={} authority={} degraded={}",
+        "{} bundle={} ready={} project={} namespace={} agent={} session={} base_url={} route={} intent={} voice={} auto_commit={} authority={} degraded={}",
+        label,
         config.bundle_root,
         config.setup_ready,
         config.project.as_deref().unwrap_or("none"),
@@ -556,6 +603,147 @@ pub(crate) fn render_bundle_config_summary(config: &BundleConfigSnapshot) -> Str
             "no"
         }
     )
+}
+
+pub(crate) fn render_bundle_settings_human(config: &BundleConfigSnapshot) -> String {
+    let rows = vec![
+        ("Bundle", redact_display(config.bundle_root.as_str())),
+        (
+            "Project root",
+            config
+                .project_root
+                .as_deref()
+                .map(redact_display)
+                .unwrap_or_else(|| "none".to_string()),
+        ),
+        ("Ready", config.setup_ready.to_string()),
+        (
+            "Runtime",
+            if config.runtime_present {
+                "present"
+            } else {
+                "missing"
+            }
+            .to_string(),
+        ),
+        ("Project", value_or_none(config.project.as_deref())),
+        ("Namespace", value_or_none(config.namespace.as_deref())),
+        ("Agent", value_or_none(config.agent.as_deref())),
+        ("Session", value_or_none(config.session.as_deref())),
+        ("Tab", value_or_none(config.tab_id.as_deref())),
+        ("Base URL", value_or_none(config.base_url.as_deref())),
+        ("Route", value_or_none(config.route.as_deref())),
+        ("Intent", value_or_none(config.intent.as_deref())),
+        ("Voice", config.voice_mode.clone()),
+        (
+            "Auto commit",
+            if config.auto_commit_enabled {
+                "enabled"
+            } else {
+                "disabled"
+            }
+            .to_string(),
+        ),
+        ("Workspace", value_or_none(config.workspace.as_deref())),
+        ("Visibility", value_or_none(config.visibility.as_deref())),
+        ("Hive system", value_or_none(config.hive_system.as_deref())),
+        ("Hive role", value_or_none(config.hive_role.as_deref())),
+        (
+            "Hive goal",
+            value_or_none(config.hive_group_goal.as_deref()),
+        ),
+        ("Authority", value_or_none(config.authority.as_deref())),
+        (
+            "Authority mode",
+            value_or_default(config.authority_mode.as_deref(), "shared"),
+        ),
+        (
+            "Authority degraded",
+            if config.authority_degraded {
+                "yes"
+            } else {
+                "no"
+            }
+            .to_string(),
+        ),
+        (
+            "Shared base URL",
+            value_or_none(config.shared_base_url.as_deref()),
+        ),
+        (
+            "Fallback base URL",
+            value_or_none(config.fallback_base_url.as_deref()),
+        ),
+        (
+            "Localhost fallback",
+            value_or_default(config.localhost_fallback_policy.as_deref(), "deny"),
+        ),
+    ];
+    let width = rows
+        .iter()
+        .map(|(key, value)| key.len() + value.len() + 5)
+        .chain([" memd settings ".len()])
+        .max()
+        .unwrap_or(32)
+        .min(96);
+    let mut out = String::new();
+    out.push_str(&format!("┌{}┐\n", "─".repeat(width + 2)));
+    out.push_str(&format!("│ {:^width$} │\n", "memd settings", width = width));
+    out.push_str(&format!("├{}┤\n", "─".repeat(width + 2)));
+    for (idx, (key, value)) in rows.iter().enumerate() {
+        if matches!(idx, 4 | 14 | 19) {
+            out.push_str(&format!("├{}┤\n", "─".repeat(width + 2)));
+        }
+        let line = format!("{key}: {value}");
+        out.push_str(&format!(
+            "│ {:width$} │\n",
+            truncate_for_box(&line, width),
+            width = width
+        ));
+    }
+    out.push_str(&format!("└{}┘", "─".repeat(width + 2)));
+    out
+}
+
+fn value_or_none(value: Option<&str>) -> String {
+    value_or_default(value, "none")
+}
+
+fn value_or_default(value: Option<&str>, default: &str) -> String {
+    value
+        .map(redact_display)
+        .unwrap_or_else(|| default.to_string())
+}
+
+fn redact_display(value: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        return "none".to_string();
+    }
+    if value.contains('@') && !value.starts_with("http://") && !value.starts_with("https://") {
+        return "[redacted]".to_string();
+    }
+    let lower = value.to_ascii_lowercase();
+    if lower.contains("token")
+        || lower.contains("secret")
+        || lower.contains("password")
+        || lower.contains("apikey")
+        || lower.contains("api_key")
+    {
+        return "[redacted]".to_string();
+    }
+    value.to_string()
+}
+
+fn truncate_for_box(value: &str, width: usize) -> String {
+    let count = value.chars().count();
+    if count <= width {
+        return value.to_string();
+    }
+    if width <= 1 {
+        return "…".to_string();
+    }
+    value.chars().take(width - 1).collect::<String>() + "…"
 }
 
 pub(crate) fn render_bundle_config_markdown(config: &BundleConfigSnapshot) -> String {

@@ -95,8 +95,10 @@ pub(crate) enum Commands {
     Doctor(DoctorArgs),
     Device(DeviceArgs),
     Dogfood(DogfoodArgs),
-    #[command(visible_alias = "configure", visible_alias = "settings")]
+    #[command(visible_alias = "configure")]
     Config(ConfigArgs),
+    /// View and edit memd settings.
+    Settings(ConfigArgs),
     Memory(MemoryArgs),
     Store(RequestInput),
     Candidate(RequestInput),

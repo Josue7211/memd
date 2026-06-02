@@ -701,6 +701,21 @@ pub(crate) async fn run_bundle_config_command(
     args: &ConfigArgs,
     base_url: &str,
 ) -> anyhow::Result<()> {
+    run_bundle_config_or_settings_command(args, base_url, false).await
+}
+
+pub(crate) async fn run_bundle_settings_command(
+    args: &ConfigArgs,
+    base_url: &str,
+) -> anyhow::Result<()> {
+    run_bundle_config_or_settings_command(args, base_url, true).await
+}
+
+async fn run_bundle_config_or_settings_command(
+    args: &ConfigArgs,
+    base_url: &str,
+    settings_invocation: bool,
+) -> anyhow::Result<()> {
     let bundle_root = resolve_setup_bundle_root(args.output.as_deref())?;
     if !bundle_root.join("config.json").is_file() {
         let setup_args = SetupArgs {
@@ -756,7 +771,13 @@ pub(crate) async fn run_bundle_config_command(
     if args.json {
         print_json(&config)?;
     } else if args.summary {
-        println!("{}", render_bundle_config_summary(&config));
+        if settings_invocation {
+            println!("{}", render_bundle_settings_summary(&config));
+        } else {
+            println!("{}", render_bundle_config_summary(&config));
+        }
+    } else if settings_invocation {
+        println!("{}", render_bundle_settings_human(&config));
     } else {
         println!("{}", render_bundle_config_markdown(&config));
     }
