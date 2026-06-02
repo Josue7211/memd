@@ -1145,6 +1145,9 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::Config(args) => {
             crate::run_bundle_config_command(&args, &base_url).await?;
         }
+        Commands::Settings(args) => {
+            crate::run_bundle_settings_command(&args, &base_url).await?;
+        }
         Commands::Memory(args) => {
             run_memory_command(&client, &base_url, &args).await?;
         }
