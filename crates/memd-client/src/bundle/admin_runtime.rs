@@ -117,12 +117,50 @@ const INTERACTIVE_HARNESSES: &[&str] = &[
     "done",
 ];
 const INTERACTIVE_HARNESS_OPTIONS: &[MenuOption<'static>] = &[
-    MenuOption::new("codex"),
-    MenuOption::new("claude-code"),
-    MenuOption::new("hermes"),
-    MenuOption::new("openclaw"),
-    MenuOption::new("opencode"),
+    MenuOption::with_description("codex", "Install Codex wake/lookup bridge files."),
+    MenuOption::with_description(
+        "claude-code",
+        "Install Claude Code imports and memory bridge files.",
+    ),
+    MenuOption::with_description(
+        "hermes",
+        "Install Hermes-oriented startup and recall defaults.",
+    ),
+    MenuOption::with_description("openclaw", "Install OpenClaw harness bridge files."),
+    MenuOption::with_description("opencode", "Install OpenCode harness bridge files."),
     MenuOption::with_description("done", "Keep detected/default harness."),
+];
+const SETUP_HOME_OPTIONS: &[MenuOption<'static>] = &[
+    MenuOption::with_description(
+        "Quick Setup",
+        "Safe defaults: detected project, codex harness, one-line summary.",
+    ),
+    MenuOption::with_description(
+        "Full Setup",
+        "Review provider and harness before writing bundle defaults.",
+    ),
+    MenuOption::with_description(
+        "Provider",
+        "Choose local, shared, or MEMD_BASE_URL-backed authority.",
+    ),
+    MenuOption::with_description(
+        "Harness",
+        "Configure bridge files for Codex, Claude Code, Hermes, OpenClaw, or OpenCode.",
+    ),
+    MenuOption::with_description(
+        "Memory Bundle",
+        "Create or refresh .memd config, profiles, lanes, and wake surface.",
+    ),
+    MenuOption::with_description("Voice", "Set generated guidance tone and voice defaults."),
+    MenuOption::with_description(
+        "Hive",
+        "Attach coordination metadata: system, role, group, and goals.",
+    ),
+    MenuOption::with_description(
+        "Proof",
+        "Print exact commands and pass/fail checklist for setup verification.",
+    ),
+    MenuOption::with_description("Exit", "Leave without changing setup."),
 ];
 const SETUP_BEGINNER_STEPS: &[(&str, &str)] = &[
     ("Install", "scripts/install-memd.sh"),
@@ -168,34 +206,76 @@ fn render_setup_guided_json() -> serde_json::Value {
     })
 }
 
+fn render_setup_welcome() -> String {
+    let mut out = terminal_ux::render_brand_box(
+        "Welcome to memd",
+        "memory control plane",
+        "SETUP / Welcome Back",
+    );
+    out.push_str(
+        "✦ Welcome Back / Welcome to memd
+",
+    );
+    out.push_str(
+        "  Bring durable memory online for this project without guessing.
+
+",
+    );
+    out.push_str(
+        "✦ Readiness checklist
+",
+    );
+    out.push_str(&terminal_ux::render_checklist(&[
+        ("TTY detected for guided setup", CheckState::Ready),
+        (
+            "Non-interactive mode stays safe and never waits for input",
+            CheckState::Ready,
+        ),
+        ("Proof path available before changes", CheckState::Ready),
+    ]));
+    out.push('\n');
+    out
+}
+
 fn render_interactive_menu(
     title: &str,
     prompt: &str,
     options: &[MenuOption<'_>],
     selected: usize,
 ) -> String {
-    let mut out = terminal_ux::render_brand_box(
-        "memd Setup",
-        "memory control plane",
-        &format!("SETUP / {title}"),
-    );
-    out.push_str(
-        "  Configure shared memory. Ctrl+C exits any prompt.
-
-",
-    );
+    let mut out = render_setup_welcome();
+    out.push_str(&terminal_ux::render_section_header(
+        title,
+        "Descriptions and current state are shown before any selection is applied.",
+    ));
     out.push_str(&terminal_ux::render_selector(prompt, options, selected));
     out
 }
 
+fn render_setup_home_menu(selected: usize) -> String {
+    render_interactive_menu(
+        "Setup Wizard",
+        "Choose setup path",
+        SETUP_HOME_OPTIONS,
+        selected,
+    )
+}
+
+fn render_current_state(label: &str, state: &str) -> String {
+    format!("  Current state: {label} — {state}\n")
+}
+
 fn render_setup_section(section: SetupSection) -> String {
-    let mut out =
-        terminal_ux::render_brand_box("memd Setup", "memory control plane", "SETUP / Sections");
+    let mut out = render_setup_welcome();
     match section {
         SetupSection::Provider => {
             out.push_str(&terminal_ux::render_section_header(
                 "Provider",
                 "Choose local, shared, or MEMD_BASE_URL-backed memory authority.",
+            ));
+            out.push_str(&render_current_state(
+                "authority",
+                "auto-detected from flags, MEMD_BASE_URL, or bundle defaults",
             ));
             out.push_str(&terminal_ux::render_selector(
                 "Pick where memd should connect first",
@@ -208,6 +288,10 @@ fn render_setup_section(section: SetupSection) -> String {
                 "Harness",
                 "Configure bridge files for your agent surface.",
             ));
+            out.push_str(&render_current_state(
+                "harness",
+                "detected agent when available; codex is the safe default",
+            ));
             out.push_str(&terminal_ux::render_selector(
                 "Pick the agent surface you want to configure first",
                 INTERACTIVE_HARNESS_OPTIONS,
@@ -216,57 +300,72 @@ fn render_setup_section(section: SetupSection) -> String {
         }
         SetupSection::Memory => {
             out.push_str(&terminal_ux::render_section_header(
-                "Memory",
+                "Memory Bundle",
                 "Initialize or refresh the .memd bundle and runtime config.",
+            ));
+            out.push_str(&render_current_state(
+                "bundle",
+                ".memd is created or refreshed only when setup runs",
             ));
             out.push_str(&terminal_ux::render_checklist(&[
                 ("bundle config", CheckState::Ready),
                 ("agent profiles", CheckState::Ready),
                 ("lane ingestion", CheckState::Pending),
             ]));
-            out.push_str(
-                "
-  Run: memd setup --summary
-",
-            );
+            out.push_str("\n  Run: memd setup --summary\n");
         }
         SetupSection::Voice => {
             out.push_str(&terminal_ux::render_section_header(
                 "Voice",
                 "Set memd voice defaults for generated guidance.",
             ));
-            out.push_str(
-                "  Run: memd setup --voice-mode caveman-ultra --summary
-",
-            );
+            out.push_str(&render_current_state(
+                "voice",
+                "caveman-ultra unless --voice-mode overrides it",
+            ));
+            out.push_str("  Run: memd setup --voice-mode caveman-ultra --summary\n");
         }
         SetupSection::Hive => {
             out.push_str(&terminal_ux::render_section_header(
                 "Hive",
                 "Attach hive system, role, group, and coordination authority metadata.",
             ));
-            out.push_str(
-                "  Run: memd setup --hive-system NAME --hive-role ROLE --summary
-",
-            );
+            out.push_str(&render_current_state(
+                "coordination",
+                "unset until --hive-system/--hive-role/--hive-group are supplied",
+            ));
+            out.push_str("  Run: memd setup --hive-system NAME --hive-role ROLE --summary\n");
         }
         SetupSection::Proof => {
             out.push_str(&terminal_ux::render_section_header(
                 "Proof",
                 "Verify setup without changing this repository, then inspect current bundle status.",
             ));
-            out.push_str(
-                "  1. memd setup-demo --summary
-",
-            );
-            out.push_str(
-                "  2. memd status --output .memd --summary
-",
-            );
-            out.push_str(
-                "  3. memd resume --output .memd --intent current_task
-",
-            );
+            out.push_str(&render_current_state(
+                "proof",
+                "setup-demo is isolated; status/resume inspect the active .memd bundle",
+            ));
+            out.push_str("\n  Next commands:\n");
+            out.push_str("  1. memd setup-demo --summary\n");
+            out.push_str("  2. memd setup --summary\n");
+            out.push_str("  3. memd status --output .memd --summary\n");
+            out.push_str("  4. memd resume --output .memd --intent current_task\n\n");
+            out.push_str("  Pass/fail checklist:\n");
+            out.push_str(&terminal_ux::render_checklist(&[
+                (
+                    "PASS: setup-demo=pass or ready=true appears",
+                    CheckState::Pending,
+                ),
+                (
+                    "PASS: setup summary is exactly one line",
+                    CheckState::Pending,
+                ),
+                ("PASS: status reports setup_ready=true", CheckState::Pending),
+                (
+                    "FAIL: any command hangs, prompts in --summary mode, or prints secrets",
+                    CheckState::Pending,
+                ),
+            ]));
         }
     }
     out
@@ -306,26 +405,58 @@ fn should_run_setup_picker(args: &SetupArgs) -> bool {
     std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }
 
-fn run_centered_picker(title: &str, prompt: &str, options: &[&str]) -> anyhow::Result<usize> {
+fn run_centered_picker(
+    title: &str,
+    prompt: &str,
+    options: &[MenuOption<'_>],
+) -> anyhow::Result<usize> {
     use console::{Key, Term};
     let term = Term::stdout();
     let mut selected = 0usize;
     loop {
         term.clear_screen()?;
-        let menu_options: Vec<MenuOption<'_>> = options
-            .iter()
-            .map(|option| MenuOption::new(option))
-            .collect();
-        term.write_line(&render_interactive_menu(
-            title,
-            prompt,
-            &menu_options,
-            selected,
-        ))?;
+        term.write_line(&render_interactive_menu(title, prompt, options, selected))?;
         match term.read_key()? {
             Key::ArrowUp => selected = selected.saturating_sub(1),
             Key::ArrowDown => selected = (selected + 1).min(options.len().saturating_sub(1)),
             Key::Enter => return Ok(selected),
+            Key::Char(c) if c.is_ascii_digit() => {
+                if let Some(value) = c.to_digit(10) {
+                    let idx = value as usize;
+                    if (1..=options.len()).contains(&idx) {
+                        selected = idx - 1;
+                    }
+                }
+            }
+            Key::Char('q') | Key::Escape | Key::CtrlC => {
+                anyhow::bail!("interactive setup cancelled")
+            }
+            _ => {}
+        }
+    }
+}
+
+fn run_setup_home_picker() -> anyhow::Result<usize> {
+    use console::{Key, Term};
+    let term = Term::stdout();
+    let mut selected = 0usize;
+    loop {
+        term.clear_screen()?;
+        term.write_line(&render_setup_home_menu(selected))?;
+        match term.read_key()? {
+            Key::ArrowUp => selected = selected.saturating_sub(1),
+            Key::ArrowDown => {
+                selected = (selected + 1).min(SETUP_HOME_OPTIONS.len().saturating_sub(1))
+            }
+            Key::Enter => return Ok(selected),
+            Key::Char(c) if c.is_ascii_digit() => {
+                if let Some(value) = c.to_digit(10) {
+                    let idx = value as usize;
+                    if (1..=SETUP_HOME_OPTIONS.len()).contains(&idx) {
+                        selected = idx - 1;
+                    }
+                }
+            }
             Key::Char('q') | Key::Escape | Key::CtrlC => {
                 anyhow::bail!("interactive setup cancelled")
             }
@@ -335,15 +466,64 @@ fn run_centered_picker(title: &str, prompt: &str, options: &[&str]) -> anyhow::R
 }
 
 fn run_interactive_setup(args: &SetupArgs) -> anyhow::Result<SetupArgs> {
+    let home_idx = run_setup_home_picker()?;
+    match SETUP_HOME_OPTIONS[home_idx].label {
+        "Quick Setup" => {
+            let mut configured = args.clone();
+            configured.summary = true;
+            configured.agent = configured.agent.or_else(|| Some("codex".to_string()));
+            println!(
+                "setup selection path=quick harness={}",
+                configured.agent.as_deref().unwrap_or("codex")
+            );
+            return Ok(configured);
+        }
+        "Provider" => {
+            println!("{}", render_setup_section(SetupSection::Provider));
+            anyhow::bail!(
+                "interactive setup section displayed; rerun with --summary to apply defaults"
+            )
+        }
+        "Harness" => {
+            println!("{}", render_setup_section(SetupSection::Harness));
+            anyhow::bail!(
+                "interactive setup section displayed; rerun with --summary to apply defaults"
+            )
+        }
+        "Memory Bundle" => {
+            println!("{}", render_setup_section(SetupSection::Memory));
+            anyhow::bail!(
+                "interactive setup section displayed; rerun with --summary to apply defaults"
+            )
+        }
+        "Voice" => {
+            println!("{}", render_setup_section(SetupSection::Voice));
+            anyhow::bail!(
+                "interactive setup section displayed; rerun with --summary to apply defaults"
+            )
+        }
+        "Hive" => {
+            println!("{}", render_setup_section(SetupSection::Hive));
+            anyhow::bail!(
+                "interactive setup section displayed; rerun with --summary to apply defaults"
+            )
+        }
+        "Proof" => {
+            println!("{}", render_setup_section(SetupSection::Proof));
+            anyhow::bail!("interactive setup proof displayed; no setup changes made")
+        }
+        "Exit" => anyhow::bail!("interactive setup cancelled"),
+        _ => {}
+    }
     let provider_idx = run_centered_picker(
         "Provider",
         "Pick where memd should connect first",
-        INTERACTIVE_PROVIDERS,
+        INTERACTIVE_PROVIDER_OPTIONS,
     )?;
     let harness_idx = run_centered_picker(
         "Harness",
         "Pick the agent surface you want to configure first",
-        INTERACTIVE_HARNESSES,
+        INTERACTIVE_HARNESS_OPTIONS,
     )?;
     let mut configured = args.clone();
     configured.summary = true;
@@ -486,9 +666,12 @@ mod setup_interactive_tests {
         let menu = render_interactive_menu("Provider", "Pick one", INTERACTIVE_PROVIDER_OPTIONS, 1);
         assert!(menu.contains("memd"));
         assert!(menu.contains("memory control plane"));
-        assert!(menu.contains("SETUP / Provider"));
-        assert!(menu.contains("◆  2. Shared memd server"));
-        assert!(menu.contains("◇  1. Local only"));
+        assert!(menu.contains("SETUP / Welcome Back"));
+        assert!(menu.contains("Welcome Back / Welcome to memd"));
+        assert!(menu.contains("Readiness checklist"));
+        assert!(menu.contains("(●)  2. Shared memd server"));
+        assert!(menu.contains("(○)  1. Local only"));
+        assert!(menu.contains("Select by number, Enter to confirm."));
         assert!(!menu.contains("Hermes Agent Setup Wizard"));
         assert!(!menu.contains("Choice [default"));
     }
@@ -498,7 +681,7 @@ mod setup_interactive_tests {
         let menu = render_interactive_menu("Harness", "Pick one", INTERACTIVE_HARNESS_OPTIONS, 3);
         assert!(menu.contains("codex"));
         assert!(menu.contains("hermes"));
-        assert!(menu.contains("◆  4. openclaw"));
+        assert!(menu.contains("(●)  4. openclaw"));
         assert!(menu.contains("opencode"));
     }
 
@@ -521,7 +704,7 @@ mod setup_interactive_tests {
     #[test]
     fn setup_provider_section_renders_provider_picker() {
         let rendered = render_setup_section(SetupSection::Provider);
-        assert!(rendered.contains("memd Setup"));
+        assert!(rendered.contains("Welcome to memd"));
         assert!(rendered.contains("Provider"));
         assert!(rendered.contains("Shared memd server"));
         assert!(!rendered.contains("--interactive"));
@@ -531,8 +714,53 @@ mod setup_interactive_tests {
     fn setup_proof_section_prints_proof_commands() {
         let rendered = render_setup_section(SetupSection::Proof);
         assert!(rendered.contains("memd setup-demo --summary"));
+        assert!(rendered.contains("memd setup --summary"));
         assert!(rendered.contains("memd status --output .memd --summary"));
+        assert!(rendered.contains("Pass/fail checklist"));
+        assert!(rendered.contains("FAIL: any command hangs"));
         assert!(!rendered.contains("--interactive"));
+    }
+
+    #[test]
+    fn setup_home_menu_lists_required_parity_sections() {
+        let menu = render_setup_home_menu(0);
+        for label in [
+            "Quick Setup",
+            "Full Setup",
+            "Provider",
+            "Harness",
+            "Memory Bundle",
+            "Voice",
+            "Hive",
+            "Proof",
+            "Exit",
+        ] {
+            assert!(menu.contains(label), "missing setup menu label {label}");
+        }
+        assert!(menu.contains("Welcome to memd"));
+        assert!(menu.contains("Readiness checklist"));
+    }
+
+    #[test]
+    fn setup_sections_include_descriptions_and_current_state() {
+        for section in [
+            SetupSection::Provider,
+            SetupSection::Harness,
+            SetupSection::Memory,
+            SetupSection::Voice,
+            SetupSection::Hive,
+            SetupSection::Proof,
+        ] {
+            let rendered = render_setup_section(section);
+            assert!(
+                rendered.contains("Current state:"),
+                "missing state for {section:?}"
+            );
+            assert!(
+                rendered.contains("✦"),
+                "missing section description for {section:?}"
+            );
+        }
     }
 
     #[test]
