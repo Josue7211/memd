@@ -411,9 +411,12 @@ fn resolve_pack_bundle_root(explicit: Option<&Path>) -> anyhow::Result<PathBuf> 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let raw_args: Vec<String> = std::env::args().collect();
-    let root_help = raw_args.len() == 1
-        || (raw_args.len() == 2 && raw_args.iter().any(|arg| arg == "-h" || arg == "--help"));
-    if root_help {
+    let curated_help = raw_args.len() == 1
+        || (raw_args.len() == 2
+            && raw_args
+                .iter()
+                .any(|arg| arg == "-h" || arg == "--help" || arg == "help"));
+    if curated_help {
         println!("{}", cli::terminal_ux::render_home_help());
         return Ok(());
     }

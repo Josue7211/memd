@@ -153,7 +153,7 @@ pub(crate) fn ready_mark(ready: bool) -> &'static str {
 }
 
 pub(crate) fn render_home_help() -> String {
-    let quick_rows = [
+    let start_rows = [
         PanelRow {
             label: "setup",
             value: "First-run setup wizard and local bundle onboarding",
@@ -170,6 +170,8 @@ pub(crate) fn render_home_help() -> String {
             label: "settings",
             value: "View or edit project, route, voice, hive, and authority config",
         },
+    ];
+    let memory_rows = [
         PanelRow {
             label: "lookup",
             value: "Ask memory what this agent should know before answering",
@@ -187,48 +189,53 @@ pub(crate) fn render_home_help() -> String {
             value: "Refresh the startup memory surface",
         },
     ];
-    let workflow_rows = [
+    let explore_rows = [
         PanelRow {
-            label: "memd setup",
-            value: "configure this project",
+            label: "memory",
+            value: "Browse lanes, memory items, and local memory artifacts",
         },
         PanelRow {
-            label: "memd status",
-            value: "see readiness and next action",
+            label: "skills",
+            value: "Inspect installed skills and the discovered skill catalog",
         },
         PanelRow {
-            label: "memd lookup --query ...",
-            value: "recall relevant memory",
-        },
-        PanelRow {
-            label: "memd teach --content ...",
-            value: "teach a stable truth",
+            label: "commands",
+            value: "Open the full command catalog for power users",
         },
     ];
     let advanced_rows = [
         PanelRow {
             label: "memd commands",
-            value: "browse the full command catalog",
+            value: "Browse the full command catalog for power users",
         },
         PanelRow {
             label: "memd help <command>",
-            value: "open detailed help for one command",
+            value: "Open detailed Clap help and flags for one command",
         },
         PanelRow {
-            label: "--summary / --json",
-            value: "machine-safe output modes where supported",
+            label: "--summary",
+            value: "Print compact one-line output where supported",
+        },
+        PanelRow {
+            label: "--json",
+            value: "Print parseable machine output where supported",
         },
     ];
     let sections = [
         PanelSection {
             title: "Start here",
-            body: Some("Most users only need these commands."),
-            rows: &quick_rows,
+            body: Some("Most users only need these setup and health commands."),
+            rows: &start_rows,
         },
         PanelSection {
-            title: "Common workflow",
-            body: Some("A safe path from setup to memory recall."),
-            rows: &workflow_rows,
+            title: "Memory",
+            body: Some("Recall, teach, and refresh durable memory."),
+            rows: &memory_rows,
+        },
+        PanelSection {
+            title: "Explore",
+            body: Some("Discover more without dumping every internal command."),
+            rows: &explore_rows,
         },
         PanelSection {
             title: "Advanced",
@@ -289,7 +296,31 @@ mod terminal_ux_tests {
         let rendered = render_home_help();
         assert!(rendered.contains("memd Help"));
         assert!(rendered.contains("Start here"));
-        assert!(rendered.contains("memd commands"));
+        assert!(rendered.contains("Memory"));
+        assert!(rendered.contains("Explore"));
+        assert!(rendered.contains("Advanced"));
+        for command in [
+            "setup",
+            "status",
+            "doctor",
+            "settings",
+            "lookup",
+            "teach",
+            "remember",
+            "wake",
+            "memory",
+            "skills",
+            "commands",
+            "memd commands",
+            "memd help <command>",
+            "--summary",
+            "--json",
+        ] {
+            assert!(
+                rendered.contains(command),
+                "missing curated command: {command}"
+            );
+        }
         assert!(!rendered.contains("healthz"));
     }
 

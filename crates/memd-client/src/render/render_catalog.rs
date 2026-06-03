@@ -221,6 +221,7 @@ pub(crate) fn render_command_catalog_markdown(catalog: &CommandCatalog) -> Strin
         markdown.push_str("No commands found.\n");
         return markdown;
     }
+    markdown.push_str("Full catalog for power users. Root help stays curated; use this view when you need every native command, bridge surface, and bundle helper.\n\n");
     markdown.push_str("memd owns the native CLI surfaces. External bridge surfaces stay listed so they can be migrated, swapped, or reimplemented on other harnesses without pretending memd owns them.\n\n");
     render_command_catalog_section(
         &mut markdown,
