@@ -690,7 +690,7 @@ pub(crate) async fn run_bundle_doctor_command(
     if args.json {
         print_json(&status)?;
     } else if args.summary {
-        println!("{}", render_bundle_status_summary(&status));
+        println!("doctor {}", render_bundle_status_summary(&status));
     } else {
         println!("{}", render_doctor_status_markdown(&bundle_root, &status));
     }

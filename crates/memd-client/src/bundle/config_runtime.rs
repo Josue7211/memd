@@ -253,9 +253,36 @@ mod tests {
         assert!(render_bundle_config_summary(&snapshot).starts_with("config "));
         let human = render_bundle_settings_human(&snapshot);
         assert!(human.contains("memd Settings"));
+        assert!(human.contains("Identity"));
+        assert!(human.contains("Connection"));
+        assert!(human.contains("Memory Bundle"));
+        assert!(human.contains("Agent Defaults"));
+        assert!(human.contains("Hive/Authority"));
+        assert!(human.contains("Edit commands"));
+        assert!(human.contains("memd settings set voice_mode=caveman-lite"));
         assert!(human.contains("╔"));
         assert!(human.contains("Auto commit"));
         assert!(human.contains("disabled"));
+    }
+
+    #[test]
+    fn doctor_dashboard_surfaces_verdict_repair_and_proof() {
+        let status = serde_json::json!({
+            "setup_ready": false,
+            "server": {"status": "unknown"},
+            "rag": {"healthy": false},
+            "missing": ["config", "agents"]
+        });
+
+        let rendered = render_doctor_status_markdown(Path::new(".memd"), &status);
+        assert!(rendered.contains("memd Doctor"));
+        assert!(rendered.contains("Overall verdict"));
+        assert!(rendered.contains("FAIL"));
+        assert!(rendered.contains("Problems found"));
+        assert!(rendered.contains("Repair commands"));
+        assert!(rendered.contains("memd setup --agent auto --summary"));
+        assert!(rendered.contains("Proof commands"));
+        assert!(rendered.contains("memd doctor --json"));
     }
 
     #[test]
@@ -584,22 +611,22 @@ fn render_bundle_config_summary_with_label(config: &BundleConfigSnapshot, label:
     format!(
         "{} bundle={} ready={} project={} namespace={} agent={} session={} base_url={} route={} intent={} voice={} auto_commit={} authority={} degraded={}",
         label,
-        config.bundle_root,
+        summary_atom(config.bundle_root.as_str()),
         config.setup_ready,
-        config.project.as_deref().unwrap_or("none"),
-        config.namespace.as_deref().unwrap_or("none"),
-        config.agent.as_deref().unwrap_or("none"),
-        config.session.as_deref().unwrap_or("none"),
-        config.base_url.as_deref().unwrap_or("none"),
-        config.route.as_deref().unwrap_or("none"),
-        config.intent.as_deref().unwrap_or("none"),
-        config.voice_mode.as_str(),
+        summary_atom(config.project.as_deref().unwrap_or("none")),
+        summary_atom(config.namespace.as_deref().unwrap_or("none")),
+        summary_atom(config.agent.as_deref().unwrap_or("none")),
+        summary_atom(config.session.as_deref().unwrap_or("none")),
+        summary_atom(config.base_url.as_deref().unwrap_or("none")),
+        summary_atom(config.route.as_deref().unwrap_or("none")),
+        summary_atom(config.intent.as_deref().unwrap_or("none")),
+        summary_atom(config.voice_mode.as_str()),
         if config.auto_commit_enabled {
             "on"
         } else {
             "off"
         },
-        config.authority_mode.as_deref().unwrap_or("shared"),
+        summary_atom(config.authority_mode.as_deref().unwrap_or("shared")),
         if config.authority_degraded {
             "yes"
         } else {
@@ -608,12 +635,29 @@ fn render_bundle_config_summary_with_label(config: &BundleConfigSnapshot, label:
     )
 }
 
+fn summary_atom(value: &str) -> String {
+    let redacted = redact_display(value);
+    if redacted.chars().any(char::is_whitespace) {
+        serde_json::to_string(&redacted).unwrap_or_else(|_| "\"[unprintable]\"".to_string())
+    } else {
+        redacted
+    }
+}
+
 pub(crate) fn render_bundle_settings_human(config: &BundleConfigSnapshot) -> String {
-    let ready = format!("{} {}", ready_mark(config.setup_ready), config.setup_ready);
+    let ready = format!(
+        "{} {}",
+        ready_mark(config.setup_ready),
+        if config.setup_ready {
+            "ready"
+        } else {
+            "needs setup"
+        }
+    );
     let runtime = if config.runtime_present {
         "✓ present"
     } else {
-        "✗ missing"
+        "⚠ missing"
     }
     .to_string();
     let auto_commit = if config.auto_commit_enabled {
@@ -623,22 +667,12 @@ pub(crate) fn render_bundle_settings_human(config: &BundleConfigSnapshot) -> Str
     }
     .to_string();
     let degraded = if config.authority_degraded {
-        "yes"
+        "⚠ degraded"
     } else {
-        "no"
+        "✓ healthy"
     }
     .to_string();
 
-    let bundle_values = vec![
-        redact_display(config.bundle_root.as_str()),
-        config
-            .project_root
-            .as_deref()
-            .map(redact_display)
-            .unwrap_or_else(|| "none".to_string()),
-        ready,
-        runtime,
-    ];
     let identity_values = vec![
         value_or_none(config.project.as_deref()),
         value_or_none(config.namespace.as_deref()),
@@ -646,21 +680,28 @@ pub(crate) fn render_bundle_settings_human(config: &BundleConfigSnapshot) -> Str
         value_or_none(config.session.as_deref()),
         value_or_none(config.tab_id.as_deref()),
     ];
-    let routing_values = vec![
+    let connection_values = vec![
         value_or_none(config.base_url.as_deref()),
         value_or_none(config.route.as_deref()),
         value_or_none(config.intent.as_deref()),
-        config.voice_mode.clone(),
-        auto_commit,
     ];
+    let bundle_values = vec![
+        redact_display_human(config.bundle_root.as_str()),
+        config
+            .project_root
+            .as_deref()
+            .map(redact_display_human)
+            .unwrap_or_else(|| "none".to_string()),
+        ready,
+        runtime,
+    ];
+    let default_values = vec![config.voice_mode.clone(), auto_commit];
     let hive_values = vec![
         value_or_none(config.workspace.as_deref()),
         value_or_none(config.visibility.as_deref()),
         value_or_none(config.hive_system.as_deref()),
         value_or_none(config.hive_role.as_deref()),
         value_or_none(config.hive_group_goal.as_deref()),
-    ];
-    let authority_values = vec![
         value_or_none(config.authority.as_deref()),
         value_or_default(config.authority_mode.as_deref(), "shared"),
         degraded,
@@ -668,25 +709,13 @@ pub(crate) fn render_bundle_settings_human(config: &BundleConfigSnapshot) -> Str
         value_or_none(config.fallback_base_url.as_deref()),
         value_or_default(config.localhost_fallback_policy.as_deref(), "deny"),
     ];
-
-    let bundle_rows = [
-        PanelRow {
-            label: "Bundle",
-            value: bundle_values[0].as_str(),
-        },
-        PanelRow {
-            label: "Project root",
-            value: bundle_values[1].as_str(),
-        },
-        PanelRow {
-            label: "Ready",
-            value: bundle_values[2].as_str(),
-        },
-        PanelRow {
-            label: "Runtime",
-            value: bundle_values[3].as_str(),
-        },
+    let edit_values = vec![
+        "memd settings set voice_mode=caveman-lite".to_string(),
+        "memd settings get base_url".to_string(),
+        "memd settings list --summary".to_string(),
+        "Use --json when scripts need full, untruncated values.".to_string(),
     ];
+
     let identity_rows = [
         PanelRow {
             label: "Project",
@@ -709,26 +738,46 @@ pub(crate) fn render_bundle_settings_human(config: &BundleConfigSnapshot) -> Str
             value: identity_values[4].as_str(),
         },
     ];
-    let routing_rows = [
+    let connection_rows = [
         PanelRow {
             label: "Base URL",
-            value: routing_values[0].as_str(),
+            value: connection_values[0].as_str(),
         },
         PanelRow {
             label: "Route",
-            value: routing_values[1].as_str(),
+            value: connection_values[1].as_str(),
         },
         PanelRow {
             label: "Intent",
-            value: routing_values[2].as_str(),
+            value: connection_values[2].as_str(),
+        },
+    ];
+    let bundle_rows = [
+        PanelRow {
+            label: "Bundle",
+            value: bundle_values[0].as_str(),
         },
         PanelRow {
+            label: "Project root",
+            value: bundle_values[1].as_str(),
+        },
+        PanelRow {
+            label: "Ready",
+            value: bundle_values[2].as_str(),
+        },
+        PanelRow {
+            label: "Runtime",
+            value: bundle_values[3].as_str(),
+        },
+    ];
+    let default_rows = [
+        PanelRow {
             label: "Voice",
-            value: routing_values[3].as_str(),
+            value: default_values[0].as_str(),
         },
         PanelRow {
             label: "Auto commit",
-            value: routing_values[4].as_str(),
+            value: default_values[1].as_str(),
         },
     ];
     let hive_rows = [
@@ -752,58 +801,81 @@ pub(crate) fn render_bundle_settings_human(config: &BundleConfigSnapshot) -> Str
             label: "Hive goal",
             value: hive_values[4].as_str(),
         },
-    ];
-    let authority_rows = [
         PanelRow {
             label: "Authority",
-            value: authority_values[0].as_str(),
+            value: hive_values[5].as_str(),
         },
         PanelRow {
             label: "Mode",
-            value: authority_values[1].as_str(),
+            value: hive_values[6].as_str(),
         },
         PanelRow {
-            label: "Degraded",
-            value: authority_values[2].as_str(),
+            label: "Health",
+            value: hive_values[7].as_str(),
         },
         PanelRow {
             label: "Shared URL",
-            value: authority_values[3].as_str(),
+            value: hive_values[8].as_str(),
         },
         PanelRow {
             label: "Fallback URL",
-            value: authority_values[4].as_str(),
+            value: hive_values[9].as_str(),
         },
         PanelRow {
             label: "Localhost",
-            value: authority_values[5].as_str(),
+            value: hive_values[10].as_str(),
+        },
+    ];
+    let edit_rows = [
+        PanelRow {
+            label: "Set",
+            value: edit_values[0].as_str(),
+        },
+        PanelRow {
+            label: "Get",
+            value: edit_values[1].as_str(),
+        },
+        PanelRow {
+            label: "List",
+            value: edit_values[2].as_str(),
+        },
+        PanelRow {
+            label: "Scripts",
+            value: edit_values[3].as_str(),
         },
     ];
     let sections = [
         PanelSection {
-            title: "Bundle",
-            body: Some("Where this workspace stores memory and runtime config."),
-            rows: &bundle_rows,
-        },
-        PanelSection {
             title: "Identity",
-            body: Some("Current project, namespace, agent, and session."),
+            body: Some("Who this shell is when reading and writing memory."),
             rows: &identity_rows,
         },
         PanelSection {
-            title: "Routing",
-            body: Some("How memd connects and what voice agents should use."),
-            rows: &routing_rows,
+            title: "Connection",
+            body: Some("Server endpoint and retrieval routing used by memd commands."),
+            rows: &connection_rows,
         },
         PanelSection {
-            title: "Hive",
-            body: Some("Coordination metadata for shared agent work."),
+            title: "Memory Bundle",
+            body: Some("Local bundle, project root, and runtime file readiness."),
+            rows: &bundle_rows,
+        },
+        PanelSection {
+            title: "Agent Defaults",
+            body: Some("Default voice and automation behavior agents inherit."),
+            rows: &default_rows,
+        },
+        PanelSection {
+            title: "Hive/Authority",
+            body: Some(
+                "Coordination, trust mode, and fallback policy. Warnings mean degraded shared-memory writes.",
+            ),
             rows: &hive_rows,
         },
         PanelSection {
-            title: "Authority",
-            body: Some("Trust and fallback policy for shared memory writes."),
-            rows: &authority_rows,
+            title: "Edit commands",
+            body: Some("Copy/paste examples for safe configuration changes."),
+            rows: &edit_rows,
         },
     ];
     render_panel("memd Settings", "memory control plane", &sections)
@@ -815,7 +887,7 @@ fn value_or_none(value: Option<&str>) -> String {
 
 fn value_or_default(value: Option<&str>, default: &str) -> String {
     value
-        .map(redact_display)
+        .map(redact_display_human)
         .unwrap_or_else(|| default.to_string())
 }
 
@@ -837,6 +909,10 @@ fn redact_display(value: &str) -> String {
         return "[redacted]".to_string();
     }
     value.to_string()
+}
+
+fn redact_display_human(value: &str) -> String {
+    truncate_for_box(&redact_display(value), 64)
 }
 
 fn truncate_for_box(value: &str, width: usize) -> String {
@@ -966,7 +1042,7 @@ pub(crate) fn render_doctor_status_markdown(
         .and_then(|value| value.get("status"))
         .and_then(|value| value.as_str())
         .unwrap_or("unknown");
-    let missing_values = status
+    let missing = status
         .get("missing")
         .and_then(|value| value.as_array())
         .map(|items| {
@@ -974,120 +1050,119 @@ pub(crate) fn render_doctor_status_markdown(
                 .iter()
                 .filter_map(|item| item.as_str())
                 .collect::<Vec<_>>()
-                .join(", ")
         })
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "none".to_string());
-    let ready_value = format!("{} {}", ready_mark(setup_ready), setup_ready);
-    let server_value = format!("{} {}", ready_mark(server == "ok"), server);
-    let core_values = vec![
-        bundle_root.display().to_string(),
-        ready_value,
-        server_value,
-        missing_values,
+        .unwrap_or_default();
+    let rag_state = status
+        .get("rag")
+        .and_then(|value| value.get("healthy"))
+        .and_then(|value| value.as_bool());
+    let missing_values = if missing.is_empty() {
+        "none".to_string()
+    } else {
+        missing.join(", ")
+    };
+    let verdict = if !setup_ready || server == "error" || server == "failed" {
+        "FAIL"
+    } else if server != "ok" || !missing.is_empty() || rag_state == Some(false) {
+        "WARN"
+    } else {
+        "PASS"
+    };
+    let checked = format!(
+        "bundle exists, setup={}, server={}, memory={}, missing={}",
+        setup_ready,
+        server,
+        rag_state
+            .map(|healthy| if healthy { "healthy" } else { "degraded" })
+            .unwrap_or("not reported"),
+        missing_values
+    );
+    let problem_text = match verdict {
+        "PASS" => "none — bundle, server, and memory wiring look ready".to_string(),
+        "WARN" => format!("degraded or incomplete checks: {checked}"),
+        _ => format!("blocking checks failed: {checked}"),
+    };
+    let repair = if setup_ready {
+        "memd doctor --output .memd --repair --summary"
+    } else {
+        "memd setup --agent auto --summary"
+    };
+    let proof = "memd status --summary && memd doctor --json | python3 -m json.tool >/dev/null";
+
+    let verdict_values = vec![
+        format!(
+            "{} {}",
+            if verdict == "PASS" {
+                "✓"
+            } else if verdict == "WARN" {
+                "⚠"
+            } else {
+                "✗"
+            },
+            verdict
+        ),
+        checked,
     ];
-    let core_rows = [
+    let problem_values = vec![problem_text];
+    let repair_values = vec![repair.to_string()];
+    let proof_values = vec![
+        proof.to_string(),
+        "Checks above prove summary remains one line and JSON remains parseable.".to_string(),
+    ];
+    let verdict_rows = [
         PanelRow {
-            label: "Bundle",
-            value: core_values[0].as_str(),
+            label: "Overall verdict",
+            value: verdict_values[0].as_str(),
         },
         PanelRow {
-            label: "Ready",
-            value: core_values[1].as_str(),
-        },
-        PanelRow {
-            label: "Server",
-            value: core_values[2].as_str(),
-        },
-        PanelRow {
-            label: "Missing",
-            value: core_values[3].as_str(),
+            label: "Checked",
+            value: verdict_values[1].as_str(),
         },
     ];
-    if let Some(evolution) = status
-        .get("evolution")
-        .and_then(|value| if value.is_null() { None } else { Some(value) })
-    {
-        let evolution_values = vec![
-            evolution
-                .get("proposal_state")
-                .and_then(|value| value.as_str())
-                .unwrap_or("none")
-                .to_string(),
-            format!(
-                "{} / {}",
-                evolution
-                    .get("scope_class")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("none"),
-                evolution
-                    .get("scope_gate")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("none")
-            ),
-            evolution
-                .get("authority_tier")
-                .and_then(|value| value.as_str())
-                .unwrap_or("none")
-                .to_string(),
-            format!(
-                "merge={} durability={}",
-                evolution
-                    .get("merge_status")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("none"),
-                evolution
-                    .get("durability_status")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("none")
-            ),
-            evolution
-                .get("branch")
-                .and_then(|value| value.as_str())
-                .unwrap_or("none")
-                .to_string(),
-        ];
-        let evolution_rows = [
-            PanelRow {
-                label: "Proposal",
-                value: evolution_values[0].as_str(),
-            },
-            PanelRow {
-                label: "Scope",
-                value: evolution_values[1].as_str(),
-            },
-            PanelRow {
-                label: "Authority",
-                value: evolution_values[2].as_str(),
-            },
-            PanelRow {
-                label: "Queues",
-                value: evolution_values[3].as_str(),
-            },
-            PanelRow {
-                label: "Branch",
-                value: evolution_values[4].as_str(),
-            },
-        ];
-        let sections = [
-            PanelSection {
-                title: "Readiness",
-                body: Some("Doctor checks the local bundle and repair state."),
-                rows: &core_rows,
-            },
-            PanelSection {
-                title: "Evolution",
-                body: Some("Pending memory evolution and durability gates."),
-                rows: &evolution_rows,
-            },
-        ];
-        return render_panel("memd Doctor", "memory control plane", &sections);
-    }
-    let sections = [PanelSection {
-        title: "Readiness",
-        body: Some("Doctor checks the local bundle and repair state."),
-        rows: &core_rows,
+    let problem_rows = [PanelRow {
+        label: "Problems found",
+        value: problem_values[0].as_str(),
     }];
+    let repair_rows = [PanelRow {
+        label: "Repair",
+        value: repair_values[0].as_str(),
+    }];
+    let proof_rows = [
+        PanelRow {
+            label: "Proof",
+            value: proof_values[0].as_str(),
+        },
+        PanelRow {
+            label: "Why",
+            value: proof_values[1].as_str(),
+        },
+    ];
+    let sections = [
+        PanelSection {
+            title: "Overall verdict",
+            body: Some(
+                "PASS means ready; WARN means usable but degraded; FAIL means repair before relying on memory.",
+            ),
+            rows: &verdict_rows,
+        },
+        PanelSection {
+            title: "Problems found",
+            body: Some("Doctor explains every local bundle, server, and memory check it used."),
+            rows: &problem_rows,
+        },
+        PanelSection {
+            title: "Repair commands",
+            body: Some("Run the safest next command for the current failure mode."),
+            rows: &repair_rows,
+        },
+        PanelSection {
+            title: "Proof commands",
+            body: Some(
+                "Run these after repair to prove human, summary, and JSON modes still work.",
+            ),
+            rows: &proof_rows,
+        },
+    ];
     render_panel("memd Doctor", "memory control plane", &sections)
 }
 

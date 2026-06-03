@@ -164,6 +164,7 @@ pub(crate) fn render_opencode_harness_pack_markdown(pack: &OpenCodeHarnessPack) 
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn render_bundle_status_human(status: &Value) -> String {
     let bundle = status
         .get("bundle")
@@ -213,50 +214,26 @@ pub(crate) fn render_bundle_status_human(status: &Value) -> String {
         ready_mark(setup_ready),
         if setup_ready { "ready" } else { "needs setup" }
     );
-    let server_value = format!("{} {}", ready_mark(server == "ok"), server);
-    let rag_value = format!("{} {}", if rag == "degraded" { "✗" } else { "✓" }, rag);
-    let health_values = vec![bundle.to_string(), ready_value, server_value, rag_value];
-    let health_rows = [
-        PanelRow {
-            label: "Bundle",
-            value: health_values[0].as_str(),
+    let server_value = format!("{} {}", if server == "ok" { "✓" } else { "⚠" }, server);
+    let memory_value = format!(
+        "{} {}",
+        if rag == "ready" {
+            "✓"
+        } else if rag == "degraded" {
+            "⚠"
+        } else {
+            "•"
         },
-        PanelRow {
-            label: "Setup",
-            value: health_values[1].as_str(),
-        },
-        PanelRow {
-            label: "Server",
-            value: health_values[2].as_str(),
-        },
-        PanelRow {
-            label: "Memory",
-            value: health_values[3].as_str(),
-        },
-    ];
-    let context_values = vec![
+        rag
+    );
+    let env_values = vec![bundle.to_string(), ready_value];
+    let server_values = vec![server_value];
+    let memory_values = vec![memory_value];
+    let runtime_values = vec![
         project.to_string(),
         namespace.to_string(),
         session.to_string(),
         agent.to_string(),
-    ];
-    let context_rows = [
-        PanelRow {
-            label: "Project",
-            value: context_values[0].as_str(),
-        },
-        PanelRow {
-            label: "Namespace",
-            value: context_values[1].as_str(),
-        },
-        PanelRow {
-            label: "Session",
-            value: context_values[2].as_str(),
-        },
-        PanelRow {
-            label: "Agent",
-            value: context_values[3].as_str(),
-        },
     ];
     let atlas_values =
         if let Some(atlas) = status.get("server").and_then(|value| value.get("atlas")) {
@@ -296,24 +273,6 @@ pub(crate) fn render_bundle_status_human(status: &Value) -> String {
                 "unknown".to_string(),
             ]
         };
-    let atlas_rows = [
-        PanelRow {
-            label: "Edges",
-            value: atlas_values[0].as_str(),
-        },
-        PanelRow {
-            label: "Regions",
-            value: atlas_values[1].as_str(),
-        },
-        PanelRow {
-            label: "Ratio",
-            value: atlas_values[2].as_str(),
-        },
-        PanelRow {
-            label: "State",
-            value: atlas_values[3].as_str(),
-        },
-    ];
     let next = if setup_ready {
         "memd lookup --query \"what should I know?\""
     } else if status
@@ -326,28 +285,88 @@ pub(crate) fn render_bundle_status_human(status: &Value) -> String {
         "memd setup --agent auto --summary"
     };
     let next_values = vec![next.to_string()];
+
+    let env_rows = [
+        PanelRow {
+            label: "Bundle",
+            value: env_values[0].as_str(),
+        },
+        PanelRow {
+            label: "Setup",
+            value: env_values[1].as_str(),
+        },
+    ];
+    let server_rows = [
+        PanelRow {
+            label: "Status",
+            value: server_values[0].as_str(),
+        },
+        PanelRow {
+            label: "Atlas edges",
+            value: atlas_values[0].as_str(),
+        },
+        PanelRow {
+            label: "Atlas regions",
+            value: atlas_values[1].as_str(),
+        },
+        PanelRow {
+            label: "Atlas ratio",
+            value: atlas_values[2].as_str(),
+        },
+        PanelRow {
+            label: "Atlas state",
+            value: atlas_values[3].as_str(),
+        },
+    ];
+    let memory_rows = [PanelRow {
+        label: "RAG",
+        value: memory_values[0].as_str(),
+    }];
+    let runtime_rows = [
+        PanelRow {
+            label: "Project",
+            value: runtime_values[0].as_str(),
+        },
+        PanelRow {
+            label: "Namespace",
+            value: runtime_values[1].as_str(),
+        },
+        PanelRow {
+            label: "Session",
+            value: runtime_values[2].as_str(),
+        },
+        PanelRow {
+            label: "Agent",
+            value: runtime_values[3].as_str(),
+        },
+    ];
     let next_rows = [PanelRow {
         label: "Next action",
         value: next_values[0].as_str(),
     }];
     let sections = [
         PanelSection {
-            title: "Health",
-            body: Some("Live readiness across bundle, server, and memory surfaces."),
-            rows: &health_rows,
+            title: "Environment",
+            body: Some("Local bundle and setup readiness for this shell."),
+            rows: &env_rows,
         },
         PanelSection {
-            title: "Context",
-            body: Some("What identity this shell will use for memory operations."),
-            rows: &context_rows,
+            title: "Server",
+            body: Some("API health and atlas graph shape reported by the server."),
+            rows: &server_rows,
         },
         PanelSection {
-            title: "Atlas",
-            body: Some("Knowledge graph shape for this control plane."),
-            rows: &atlas_rows,
+            title: "Memory",
+            body: Some("Retrieval and generation readiness. Warnings mean memory may be degraded."),
+            rows: &memory_rows,
         },
         PanelSection {
-            title: "Next",
+            title: "Runtime wiring",
+            body: Some("Project, namespace, session, and agent that commands will use."),
+            rows: &runtime_rows,
+        },
+        PanelSection {
+            title: "Next action",
             body: Some("Recommended command to continue safely."),
             rows: &next_rows,
         },
@@ -1187,13 +1206,15 @@ mod status_render_tests {
         assert!(rendered.contains("✓ ready"));
         assert!(rendered.contains("Bundle"));
         assert!(rendered.contains(".memd"));
-        assert!(rendered.contains("Context"));
+        assert!(rendered.contains("Environment"));
+        assert!(rendered.contains("Server"));
+        assert!(rendered.contains("Memory"));
+        assert!(rendered.contains("Runtime wiring"));
         assert!(rendered.contains("Project"));
         assert!(rendered.contains("memd"));
         assert!(rendered.contains("hermes"));
 
-        assert!(rendered.contains("Atlas"));
-        assert!(rendered.contains("Edges"));
+        assert!(rendered.contains("Atlas edges"));
         assert!(rendered.contains("7"));
         assert!(rendered.contains("Next action"));
         assert!(rendered.contains("memd lookup --query"));
