@@ -30,16 +30,23 @@ impl<'a> MenuOption<'a> {
 
 pub(crate) fn render_brand_box(title: &str, subtitle: &str, eyebrow: &str) -> String {
     let mut out = String::new();
-    out.push_str("╔═════════════════════════════════════════════════════════════════╗\n");
-    out.push_str("║  memd                                                            ║\n");
-    let subtitle = truncate_to_width(subtitle, 61);
-    let eyebrow = truncate_to_width(eyebrow, 61);
-    let _ = writeln!(out, "║  ✦  {subtitle:<58} ║");
-    let _ = writeln!(out, "║  {eyebrow:<61} ║");
-    out.push_str("╚═════════════════════════════════════════════════════════════════╝\n");
-    if !title.is_empty() {
-        let _ = writeln!(out, "\n◈ {title}");
-    }
+    let title_line = truncate_to_width(title, 56);
+    let subtitle = truncate_to_width(subtitle, 56);
+    let eyebrow = truncate_to_width(eyebrow, 56);
+    out.push_str("╭────────────────────────────────────────────────────────────────────────╮\n");
+    out.push_str("│                                                                        │\n");
+    out.push_str("│  ███╗   ███╗ ███████╗ ███╗   ███╗ ██████╗                             │\n");
+    out.push_str("│  ████╗ ████║ ██╔════╝ ████╗ ████║ ██╔══██╗                            │\n");
+    out.push_str("│  ██╔████╔██║ █████╗   ██╔████╔██║ ██║  ██║                            │\n");
+    out.push_str("│  ██║╚██╔╝██║ ██╔══╝   ██║╚██╔╝██║ ██║  ██║                            │\n");
+    out.push_str("│  ██║ ╚═╝ ██║ ███████╗ ██║ ╚═╝ ██║ ██████╔╝                            │\n");
+    out.push_str("│  ╚═╝     ╚═╝ ╚══════╝ ╚═╝     ╚═╝ ╚═════╝                             │\n");
+    out.push_str("│                                                                        │\n");
+    let _ = writeln!(out, "│  ⚡ {title_line:<66}│");
+    let _ = writeln!(out, "│  ◆ {subtitle:<66}│");
+    let _ = writeln!(out, "│  ◇ {eyebrow:<66}│");
+    out.push_str("│                                                                        │\n");
+    out.push_str("╰────────────────────────────────────────────────────────────────────────╯\n");
     out
 }
 
@@ -66,13 +73,13 @@ pub(crate) fn render_checklist(items: &[(&str, CheckState)]) -> String {
 
 pub(crate) fn render_selector(prompt: &str, options: &[MenuOption<'_>], selected: usize) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "✦ {prompt}");
-    out.push_str("  Choose a route. Enter accepts the highlighted default.\n\n");
+    let _ = writeln!(out, "◆ {prompt}");
+    out.push_str("  Select by number, Enter to confirm.\n\n");
     for (idx, option) in options.iter().enumerate() {
-        let marker = if idx == selected { "◆" } else { "◇" };
+        let marker = if idx == selected { "(●)" } else { "(○)" };
         let _ = writeln!(out, "  {marker} {:>2}. {}", idx + 1, option.label);
         if let Some(description) = option.description {
-            let _ = writeln!(out, "       {description}");
+            let _ = writeln!(out, "       — {description}");
         }
     }
     out.push('\n');
@@ -103,6 +110,146 @@ fn truncate_to_width(value: &str, width: usize) -> String {
     }
 }
 
+pub(crate) fn render_panel(title: &str, subtitle: &str, sections: &[PanelSection<'_>]) -> String {
+    let mut out = String::new();
+    out.push_str(&render_brand_box(
+        title,
+        subtitle,
+        &title.to_ascii_uppercase(),
+    ));
+    for (idx, section) in sections.iter().enumerate() {
+        if idx == 0 {
+            out.push('\n');
+        }
+        let _ = writeln!(out, "◆ {}", section.title);
+        if let Some(body) = section.body {
+            let _ = writeln!(out, "  {body}");
+        }
+        for row in section.rows {
+            let _ = writeln!(out, "  {:<20} {}", row.label, row.value);
+        }
+        if idx + 1 != sections.len() {
+            out.push('\n');
+        }
+    }
+    out.trim_end().to_string()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PanelSection<'a> {
+    pub(crate) title: &'a str,
+    pub(crate) body: Option<&'a str>,
+    pub(crate) rows: &'a [PanelRow<'a>],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PanelRow<'a> {
+    pub(crate) label: &'a str,
+    pub(crate) value: &'a str,
+}
+
+pub(crate) fn ready_mark(ready: bool) -> &'static str {
+    if ready { "✓" } else { "✗" }
+}
+
+pub(crate) fn render_home_help() -> String {
+    let quick_rows = [
+        PanelRow {
+            label: "setup",
+            value: "First-run setup wizard and local bundle onboarding",
+        },
+        PanelRow {
+            label: "status",
+            value: "Readable health, server, memory, and next-action dashboard",
+        },
+        PanelRow {
+            label: "doctor",
+            value: "Diagnose bundle readiness and repair drift",
+        },
+        PanelRow {
+            label: "settings",
+            value: "View or edit project, route, voice, hive, and authority config",
+        },
+        PanelRow {
+            label: "lookup",
+            value: "Ask memory what this agent should know before answering",
+        },
+        PanelRow {
+            label: "teach",
+            value: "Save a canonical fact, preference, or procedure",
+        },
+        PanelRow {
+            label: "remember",
+            value: "Save a durable memory item with metadata",
+        },
+        PanelRow {
+            label: "wake",
+            value: "Refresh the startup memory surface",
+        },
+    ];
+    let workflow_rows = [
+        PanelRow {
+            label: "memd setup",
+            value: "configure this project",
+        },
+        PanelRow {
+            label: "memd status",
+            value: "see readiness and next action",
+        },
+        PanelRow {
+            label: "memd lookup --query ...",
+            value: "recall relevant memory",
+        },
+        PanelRow {
+            label: "memd teach --content ...",
+            value: "teach a stable truth",
+        },
+    ];
+    let advanced_rows = [
+        PanelRow {
+            label: "memd commands",
+            value: "browse the full command catalog",
+        },
+        PanelRow {
+            label: "memd help <command>",
+            value: "open detailed help for one command",
+        },
+        PanelRow {
+            label: "--summary / --json",
+            value: "machine-safe output modes where supported",
+        },
+    ];
+    let sections = [
+        PanelSection {
+            title: "Start here",
+            body: Some("Most users only need these commands."),
+            rows: &quick_rows,
+        },
+        PanelSection {
+            title: "Common workflow",
+            body: Some("A safe path from setup to memory recall."),
+            rows: &workflow_rows,
+        },
+        PanelSection {
+            title: "Advanced",
+            body: Some("The full CLI is still available, just not dumped on first help."),
+            rows: &advanced_rows,
+        },
+    ];
+    let mut out = render_panel("memd Help", "memory control plane", &sections);
+    out.push_str(
+        "
+
+Usage: memd [OPTIONS] <COMMAND>
+
+Options:
+  --base-url <BASE_URL>    override shared server URL
+  -h, --help               show this help
+",
+    );
+    out
+}
+
 #[cfg(test)]
 mod terminal_ux_tests {
     use super::*;
@@ -113,7 +260,6 @@ mod terminal_ux_tests {
         assert!(rendered.contains("memd"));
         assert!(rendered.contains("memory control plane"));
         assert!(rendered.contains("SETUP / Provider"));
-        assert!(rendered.contains("◈ memd Setup"));
         assert!(!rendered.contains("Hermes Agent Setup Wizard"));
     }
 
@@ -127,8 +273,8 @@ mod terminal_ux_tests {
             ],
             1,
         );
-        assert!(rendered.contains("◇  1. Local only"));
-        assert!(rendered.contains("◆  2. Shared memd server"));
+        assert!(rendered.contains("(○)  1. Local only"));
+        assert!(rendered.contains("(●)  2. Shared memd server"));
         assert!(rendered.contains("Use team memory"));
     }
 
@@ -136,5 +282,31 @@ mod terminal_ux_tests {
     fn redact_secret_keeps_shape_not_secret() {
         assert_eq!(redact_secret("1234567890abcdef"), "1234…cdef");
         assert_eq!(redact_secret("short"), "<redacted>");
+    }
+
+    #[test]
+    fn home_help_is_short_and_points_to_command_catalog() {
+        let rendered = render_home_help();
+        assert!(rendered.contains("memd Help"));
+        assert!(rendered.contains("Start here"));
+        assert!(rendered.contains("memd commands"));
+        assert!(!rendered.contains("healthz"));
+    }
+
+    #[test]
+    fn panel_renders_sections_and_rows() {
+        let rows = [PanelRow {
+            label: "Ready",
+            value: "✓ true",
+        }];
+        let sections = [PanelSection {
+            title: "Runtime",
+            body: Some("Current state"),
+            rows: &rows,
+        }];
+        let rendered = render_panel("memd Settings", "memory control plane", &sections);
+        assert!(rendered.contains("memd Settings"));
+        assert!(rendered.contains("◆ Runtime"));
+        assert!(rendered.contains("Ready"));
     }
 }

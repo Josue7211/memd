@@ -11,6 +11,7 @@ use memd_schema::{
 
 use crate::cli::command_catalog::{CommandCatalog, CommandCatalogEntry};
 use crate::cli::skill_catalog::{SkillCatalog, SkillCatalogEntry};
+use crate::cli::terminal_ux::{PanelRow, PanelSection, ready_mark, render_panel};
 use crate::{
     harness::{
         agent_zero::AgentZeroHarnessPack,
@@ -207,109 +208,112 @@ pub(crate) fn render_bundle_status_human(status: &Value) -> String {
             })
         })
         .unwrap_or("none");
-
-    let mut lines = Vec::new();
-    lines.push(format!(
-        "memd status - {}",
+    let ready_value = format!(
+        "{} {}",
+        ready_mark(setup_ready),
         if setup_ready { "ready" } else { "needs setup" }
-    ));
-    lines.push(format!("  Bundle: {bundle}"));
-    lines.push(format!("  Server: {server}"));
-    lines.push(format!("  Memory: rag={rag}"));
-    lines.push(format!(
-        "  Context: project={project} namespace={namespace} session={session} agent={agent}"
-    ));
-
-    if let Some(resume) = resume {
-        let pressure = resume
-            .get("context_pressure")
-            .and_then(Value::as_str)
-            .unwrap_or("none");
-        let tokens = resume
-            .get("estimated_prompt_tokens")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        lines.push(format!("  Prompt: pressure={pressure} tokens={tokens}"));
-        if let Some(focus) = resume.get("focus").and_then(Value::as_str) {
-            lines.push(format!("  Focus: {}", compact_inline(focus, 96)));
-        }
-        if let Some(next) = resume.get("next_recovery").and_then(Value::as_str) {
-            lines.push(format!("  Next: {}", compact_inline(next, 96)));
-        }
-        if resume
-            .get("refresh_recommended")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-            || pressure == "high"
-        {
-            lines.push(
-                "  Warning: prompt pressure high - run memd refresh or trim context.".to_string(),
-            );
-        }
-    }
-
-    if let Some(atlas) = status.get("server").and_then(|value| value.get("atlas")) {
-        lines.push(format!(
-            "  Atlas: edges={} regions={} ratio={:.2} state={}",
-            atlas
-                .get("edges_active")
-                .and_then(Value::as_u64)
-                .unwrap_or(0),
-            atlas
-                .get("region_count")
-                .and_then(Value::as_u64)
-                .unwrap_or(0),
-            atlas
-                .get("edge_item_ratio")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0),
-            if atlas
-                .get("dormant")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-            {
-                "dormant"
-            } else {
-                "active"
-            }
-        ));
-        if let Some(warning) = atlas.get("warning").and_then(Value::as_str) {
-            lines.push(format!("  Atlas warning: {}", compact_inline(warning, 96)));
-        }
-    }
-
-    if let Some(truth) = status
-        .get("truth_summary")
-        .and_then(|value| if value.is_null() { None } else { Some(value) })
-    {
-        lines.push(format!(
-            "  Truth: {} confidence={:.2} sources={} freshness={}",
-            truth
-                .get("truth")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown"),
-            truth
-                .get("confidence")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0),
-            truth
-                .get("source_count")
-                .and_then(Value::as_u64)
-                .unwrap_or(0),
-            truth
-                .get("freshness")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown"),
-        ));
-    }
-
-    if let Some(missing) = status.get("missing").and_then(Value::as_array) {
-        let missing = missing.iter().filter_map(Value::as_str).collect::<Vec<_>>();
-        if !missing.is_empty() {
-            lines.push(format!("  Missing: {}", missing.join(", ")));
-        }
-    }
-
+    );
+    let server_value = format!("{} {}", ready_mark(server == "ok"), server);
+    let rag_value = format!("{} {}", if rag == "degraded" { "✗" } else { "✓" }, rag);
+    let health_values = vec![bundle.to_string(), ready_value, server_value, rag_value];
+    let health_rows = [
+        PanelRow {
+            label: "Bundle",
+            value: health_values[0].as_str(),
+        },
+        PanelRow {
+            label: "Setup",
+            value: health_values[1].as_str(),
+        },
+        PanelRow {
+            label: "Server",
+            value: health_values[2].as_str(),
+        },
+        PanelRow {
+            label: "Memory",
+            value: health_values[3].as_str(),
+        },
+    ];
+    let context_values = vec![
+        project.to_string(),
+        namespace.to_string(),
+        session.to_string(),
+        agent.to_string(),
+    ];
+    let context_rows = [
+        PanelRow {
+            label: "Project",
+            value: context_values[0].as_str(),
+        },
+        PanelRow {
+            label: "Namespace",
+            value: context_values[1].as_str(),
+        },
+        PanelRow {
+            label: "Session",
+            value: context_values[2].as_str(),
+        },
+        PanelRow {
+            label: "Agent",
+            value: context_values[3].as_str(),
+        },
+    ];
+    let atlas_values =
+        if let Some(atlas) = status.get("server").and_then(|value| value.get("atlas")) {
+            vec![
+                atlas
+                    .get("edges_active")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+                    .to_string(),
+                atlas
+                    .get("region_count")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+                    .to_string(),
+                format!(
+                    "{:.2}",
+                    atlas
+                        .get("edge_item_ratio")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0)
+                ),
+                if atlas
+                    .get("dormant")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    "dormant".to_string()
+                } else {
+                    "active".to_string()
+                },
+            ]
+        } else {
+            vec![
+                "0".to_string(),
+                "0".to_string(),
+                "0.00".to_string(),
+                "unknown".to_string(),
+            ]
+        };
+    let atlas_rows = [
+        PanelRow {
+            label: "Edges",
+            value: atlas_values[0].as_str(),
+        },
+        PanelRow {
+            label: "Regions",
+            value: atlas_values[1].as_str(),
+        },
+        PanelRow {
+            label: "Ratio",
+            value: atlas_values[2].as_str(),
+        },
+        PanelRow {
+            label: "State",
+            value: atlas_values[3].as_str(),
+        },
+    ];
     let next = if setup_ready {
         "memd lookup --query \"what should I know?\""
     } else if status
@@ -321,8 +325,34 @@ pub(crate) fn render_bundle_status_human(status: &Value) -> String {
     } else {
         "memd setup --agent auto --summary"
     };
-    lines.push(format!("  Next action: {next}"));
-    lines.join("\n")
+    let next_values = vec![next.to_string()];
+    let next_rows = [PanelRow {
+        label: "Next action",
+        value: next_values[0].as_str(),
+    }];
+    let sections = [
+        PanelSection {
+            title: "Health",
+            body: Some("Live readiness across bundle, server, and memory surfaces."),
+            rows: &health_rows,
+        },
+        PanelSection {
+            title: "Context",
+            body: Some("What identity this shell will use for memory operations."),
+            rows: &context_rows,
+        },
+        PanelSection {
+            title: "Atlas",
+            body: Some("Knowledge graph shape for this control plane."),
+            rows: &atlas_rows,
+        },
+        PanelSection {
+            title: "Next",
+            body: Some("Recommended command to continue safely."),
+            rows: &next_rows,
+        },
+    ];
+    render_panel("memd Status", "memory control plane", &sections)
 }
 
 fn pick_status_str<'a>(values: &[Option<&'a Value>], key: &str, fallback: &'a str) -> &'a str {
@@ -1153,12 +1183,20 @@ mod status_render_tests {
         });
 
         let rendered = render_bundle_status_human(&status);
-        assert!(rendered.contains("memd status - ready"));
-        assert!(rendered.contains("Bundle: .memd"));
-        assert!(rendered.contains("Context: project=memd namespace=main session=s1 agent=hermes"));
-        assert!(rendered.contains("Prompt: pressure=medium tokens=1234"));
-        assert!(rendered.contains("Atlas: edges=7 regions=2 ratio=1.25 state=active"));
-        assert!(rendered.contains("Next action: memd lookup --query"));
+        assert!(rendered.contains("memd Status"));
+        assert!(rendered.contains("✓ ready"));
+        assert!(rendered.contains("Bundle"));
+        assert!(rendered.contains(".memd"));
+        assert!(rendered.contains("Context"));
+        assert!(rendered.contains("Project"));
+        assert!(rendered.contains("memd"));
+        assert!(rendered.contains("hermes"));
+
+        assert!(rendered.contains("Atlas"));
+        assert!(rendered.contains("Edges"));
+        assert!(rendered.contains("7"));
+        assert!(rendered.contains("Next action"));
+        assert!(rendered.contains("memd lookup --query"));
     }
 
     #[test]

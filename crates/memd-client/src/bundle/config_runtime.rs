@@ -1,5 +1,6 @@
 use super::*;
 use crate::bundle::BundleConfigFile;
+use crate::cli::terminal_ux::{PanelRow, PanelSection, ready_mark, render_panel};
 
 pub(crate) fn read_bundle_voice_mode(output: &Path) -> Option<String> {
     read_bundle_config_file(output)
@@ -216,6 +217,7 @@ pub(crate) fn set_bundle_route(output: &Path, route: &str) -> anyhow::Result<()>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::terminal_ux::{PanelRow, PanelSection, ready_mark, render_panel};
 
     #[test]
     fn settings_summary_uses_settings_prefix_and_config_prefix_stays_config() {
@@ -250,9 +252,10 @@ mod tests {
         assert!(render_bundle_settings_summary(&snapshot).starts_with("settings "));
         assert!(render_bundle_config_summary(&snapshot).starts_with("config "));
         let human = render_bundle_settings_human(&snapshot);
-        assert!(human.contains("memd settings"));
-        assert!(human.contains("┌"));
-        assert!(human.contains("Auto commit: disabled"));
+        assert!(human.contains("memd Settings"));
+        assert!(human.contains("╔"));
+        assert!(human.contains("Auto commit"));
+        assert!(human.contains("disabled"));
     }
 
     #[test]
@@ -606,103 +609,204 @@ fn render_bundle_config_summary_with_label(config: &BundleConfigSnapshot, label:
 }
 
 pub(crate) fn render_bundle_settings_human(config: &BundleConfigSnapshot) -> String {
-    let rows = vec![
-        ("Bundle", redact_display(config.bundle_root.as_str())),
-        (
-            "Project root",
-            config
-                .project_root
-                .as_deref()
-                .map(redact_display)
-                .unwrap_or_else(|| "none".to_string()),
-        ),
-        ("Ready", config.setup_ready.to_string()),
-        (
-            "Runtime",
-            if config.runtime_present {
-                "present"
-            } else {
-                "missing"
-            }
-            .to_string(),
-        ),
-        ("Project", value_or_none(config.project.as_deref())),
-        ("Namespace", value_or_none(config.namespace.as_deref())),
-        ("Agent", value_or_none(config.agent.as_deref())),
-        ("Session", value_or_none(config.session.as_deref())),
-        ("Tab", value_or_none(config.tab_id.as_deref())),
-        ("Base URL", value_or_none(config.base_url.as_deref())),
-        ("Route", value_or_none(config.route.as_deref())),
-        ("Intent", value_or_none(config.intent.as_deref())),
-        ("Voice", config.voice_mode.clone()),
-        (
-            "Auto commit",
-            if config.auto_commit_enabled {
-                "enabled"
-            } else {
-                "disabled"
-            }
-            .to_string(),
-        ),
-        ("Workspace", value_or_none(config.workspace.as_deref())),
-        ("Visibility", value_or_none(config.visibility.as_deref())),
-        ("Hive system", value_or_none(config.hive_system.as_deref())),
-        ("Hive role", value_or_none(config.hive_role.as_deref())),
-        (
-            "Hive goal",
-            value_or_none(config.hive_group_goal.as_deref()),
-        ),
-        ("Authority", value_or_none(config.authority.as_deref())),
-        (
-            "Authority mode",
-            value_or_default(config.authority_mode.as_deref(), "shared"),
-        ),
-        (
-            "Authority degraded",
-            if config.authority_degraded {
-                "yes"
-            } else {
-                "no"
-            }
-            .to_string(),
-        ),
-        (
-            "Shared base URL",
-            value_or_none(config.shared_base_url.as_deref()),
-        ),
-        (
-            "Fallback base URL",
-            value_or_none(config.fallback_base_url.as_deref()),
-        ),
-        (
-            "Localhost fallback",
-            value_or_default(config.localhost_fallback_policy.as_deref(), "deny"),
-        ),
-    ];
-    let width = rows
-        .iter()
-        .map(|(key, value)| key.len() + value.len() + 5)
-        .chain([" memd settings ".len()])
-        .max()
-        .unwrap_or(32)
-        .min(96);
-    let mut out = String::new();
-    out.push_str(&format!("┌{}┐\n", "─".repeat(width + 2)));
-    out.push_str(&format!("│ {:^width$} │\n", "memd settings", width = width));
-    out.push_str(&format!("├{}┤\n", "─".repeat(width + 2)));
-    for (idx, (key, value)) in rows.iter().enumerate() {
-        if matches!(idx, 4 | 14 | 19) {
-            out.push_str(&format!("├{}┤\n", "─".repeat(width + 2)));
-        }
-        let line = format!("{key}: {value}");
-        out.push_str(&format!(
-            "│ {:width$} │\n",
-            truncate_for_box(&line, width),
-            width = width
-        ));
+    let ready = format!("{} {}", ready_mark(config.setup_ready), config.setup_ready);
+    let runtime = if config.runtime_present {
+        "✓ present"
+    } else {
+        "✗ missing"
     }
-    out.push_str(&format!("└{}┘", "─".repeat(width + 2)));
-    out
+    .to_string();
+    let auto_commit = if config.auto_commit_enabled {
+        "enabled"
+    } else {
+        "disabled"
+    }
+    .to_string();
+    let degraded = if config.authority_degraded {
+        "yes"
+    } else {
+        "no"
+    }
+    .to_string();
+
+    let bundle_values = vec![
+        redact_display(config.bundle_root.as_str()),
+        config
+            .project_root
+            .as_deref()
+            .map(redact_display)
+            .unwrap_or_else(|| "none".to_string()),
+        ready,
+        runtime,
+    ];
+    let identity_values = vec![
+        value_or_none(config.project.as_deref()),
+        value_or_none(config.namespace.as_deref()),
+        value_or_none(config.agent.as_deref()),
+        value_or_none(config.session.as_deref()),
+        value_or_none(config.tab_id.as_deref()),
+    ];
+    let routing_values = vec![
+        value_or_none(config.base_url.as_deref()),
+        value_or_none(config.route.as_deref()),
+        value_or_none(config.intent.as_deref()),
+        config.voice_mode.clone(),
+        auto_commit,
+    ];
+    let hive_values = vec![
+        value_or_none(config.workspace.as_deref()),
+        value_or_none(config.visibility.as_deref()),
+        value_or_none(config.hive_system.as_deref()),
+        value_or_none(config.hive_role.as_deref()),
+        value_or_none(config.hive_group_goal.as_deref()),
+    ];
+    let authority_values = vec![
+        value_or_none(config.authority.as_deref()),
+        value_or_default(config.authority_mode.as_deref(), "shared"),
+        degraded,
+        value_or_none(config.shared_base_url.as_deref()),
+        value_or_none(config.fallback_base_url.as_deref()),
+        value_or_default(config.localhost_fallback_policy.as_deref(), "deny"),
+    ];
+
+    let bundle_rows = [
+        PanelRow {
+            label: "Bundle",
+            value: bundle_values[0].as_str(),
+        },
+        PanelRow {
+            label: "Project root",
+            value: bundle_values[1].as_str(),
+        },
+        PanelRow {
+            label: "Ready",
+            value: bundle_values[2].as_str(),
+        },
+        PanelRow {
+            label: "Runtime",
+            value: bundle_values[3].as_str(),
+        },
+    ];
+    let identity_rows = [
+        PanelRow {
+            label: "Project",
+            value: identity_values[0].as_str(),
+        },
+        PanelRow {
+            label: "Namespace",
+            value: identity_values[1].as_str(),
+        },
+        PanelRow {
+            label: "Agent",
+            value: identity_values[2].as_str(),
+        },
+        PanelRow {
+            label: "Session",
+            value: identity_values[3].as_str(),
+        },
+        PanelRow {
+            label: "Tab",
+            value: identity_values[4].as_str(),
+        },
+    ];
+    let routing_rows = [
+        PanelRow {
+            label: "Base URL",
+            value: routing_values[0].as_str(),
+        },
+        PanelRow {
+            label: "Route",
+            value: routing_values[1].as_str(),
+        },
+        PanelRow {
+            label: "Intent",
+            value: routing_values[2].as_str(),
+        },
+        PanelRow {
+            label: "Voice",
+            value: routing_values[3].as_str(),
+        },
+        PanelRow {
+            label: "Auto commit",
+            value: routing_values[4].as_str(),
+        },
+    ];
+    let hive_rows = [
+        PanelRow {
+            label: "Workspace",
+            value: hive_values[0].as_str(),
+        },
+        PanelRow {
+            label: "Visibility",
+            value: hive_values[1].as_str(),
+        },
+        PanelRow {
+            label: "Hive system",
+            value: hive_values[2].as_str(),
+        },
+        PanelRow {
+            label: "Hive role",
+            value: hive_values[3].as_str(),
+        },
+        PanelRow {
+            label: "Hive goal",
+            value: hive_values[4].as_str(),
+        },
+    ];
+    let authority_rows = [
+        PanelRow {
+            label: "Authority",
+            value: authority_values[0].as_str(),
+        },
+        PanelRow {
+            label: "Mode",
+            value: authority_values[1].as_str(),
+        },
+        PanelRow {
+            label: "Degraded",
+            value: authority_values[2].as_str(),
+        },
+        PanelRow {
+            label: "Shared URL",
+            value: authority_values[3].as_str(),
+        },
+        PanelRow {
+            label: "Fallback URL",
+            value: authority_values[4].as_str(),
+        },
+        PanelRow {
+            label: "Localhost",
+            value: authority_values[5].as_str(),
+        },
+    ];
+    let sections = [
+        PanelSection {
+            title: "Bundle",
+            body: Some("Where this workspace stores memory and runtime config."),
+            rows: &bundle_rows,
+        },
+        PanelSection {
+            title: "Identity",
+            body: Some("Current project, namespace, agent, and session."),
+            rows: &identity_rows,
+        },
+        PanelSection {
+            title: "Routing",
+            body: Some("How memd connects and what voice agents should use."),
+            rows: &routing_rows,
+        },
+        PanelSection {
+            title: "Hive",
+            body: Some("Coordination metadata for shared agent work."),
+            rows: &hive_rows,
+        },
+        PanelSection {
+            title: "Authority",
+            body: Some("Trust and fallback policy for shared memory writes."),
+            rows: &authority_rows,
+        },
+    ];
+    render_panel("memd Settings", "memory control plane", &sections)
 }
 
 fn value_or_none(value: Option<&str>) -> String {
@@ -853,74 +957,138 @@ pub(crate) fn render_doctor_status_markdown(
     bundle_root: &Path,
     status: &serde_json::Value,
 ) -> String {
-    let mut markdown = String::new();
-    markdown.push_str("# memd doctor\n\n");
-    markdown.push_str(&format!("- bundle: `{}`\n", bundle_root.display()));
-    markdown.push_str(&format!(
-        "- ready: `{}`\n",
-        status
-            .get("setup_ready")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false)
-    ));
-    if let Some(missing) = status.get("missing").and_then(|value| value.as_array())
-        && !missing.is_empty()
-    {
-        markdown.push_str("\n## Missing\n");
-        for item in missing {
-            markdown.push_str(&format!("- {}\n", item.as_str().unwrap_or("unknown")));
-        }
-    }
+    let setup_ready = status
+        .get("setup_ready")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let server = status
+        .get("server")
+        .and_then(|value| value.get("status"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("unknown");
+    let missing_values = status
+        .get("missing")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "none".to_string());
+    let ready_value = format!("{} {}", ready_mark(setup_ready), setup_ready);
+    let server_value = format!("{} {}", ready_mark(server == "ok"), server);
+    let core_values = vec![
+        bundle_root.display().to_string(),
+        ready_value,
+        server_value,
+        missing_values,
+    ];
+    let core_rows = [
+        PanelRow {
+            label: "Bundle",
+            value: core_values[0].as_str(),
+        },
+        PanelRow {
+            label: "Ready",
+            value: core_values[1].as_str(),
+        },
+        PanelRow {
+            label: "Server",
+            value: core_values[2].as_str(),
+        },
+        PanelRow {
+            label: "Missing",
+            value: core_values[3].as_str(),
+        },
+    ];
     if let Some(evolution) = status
         .get("evolution")
         .and_then(|value| if value.is_null() { None } else { Some(value) })
     {
-        markdown.push_str("\n## Evolution\n");
-        markdown.push_str(&format!(
-            "- proposal state: `{}`\n",
+        let evolution_values = vec![
             evolution
                 .get("proposal_state")
                 .and_then(|value| value.as_str())
                 .unwrap_or("none")
-        ));
-        markdown.push_str(&format!(
-            "- scope: `{}` / `{}`\n",
-            evolution
-                .get("scope_class")
-                .and_then(|value| value.as_str())
-                .unwrap_or("none"),
-            evolution
-                .get("scope_gate")
-                .and_then(|value| value.as_str())
-                .unwrap_or("none")
-        ));
-        markdown.push_str(&format!(
-            "- authority: `{}`\n",
+                .to_string(),
+            format!(
+                "{} / {}",
+                evolution
+                    .get("scope_class")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("none"),
+                evolution
+                    .get("scope_gate")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("none")
+            ),
             evolution
                 .get("authority_tier")
                 .and_then(|value| value.as_str())
                 .unwrap_or("none")
-        ));
-        markdown.push_str(&format!(
-            "- queues: merge=`{}` durability=`{}`\n",
-            evolution
-                .get("merge_status")
-                .and_then(|value| value.as_str())
-                .unwrap_or("none"),
-            evolution
-                .get("durability_status")
-                .and_then(|value| value.as_str())
-                .unwrap_or("none")
-        ));
-        markdown.push_str(&format!(
-            "- branch: `{}`\n",
+                .to_string(),
+            format!(
+                "merge={} durability={}",
+                evolution
+                    .get("merge_status")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("none"),
+                evolution
+                    .get("durability_status")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("none")
+            ),
             evolution
                 .get("branch")
                 .and_then(|value| value.as_str())
                 .unwrap_or("none")
-        ));
+                .to_string(),
+        ];
+        let evolution_rows = [
+            PanelRow {
+                label: "Proposal",
+                value: evolution_values[0].as_str(),
+            },
+            PanelRow {
+                label: "Scope",
+                value: evolution_values[1].as_str(),
+            },
+            PanelRow {
+                label: "Authority",
+                value: evolution_values[2].as_str(),
+            },
+            PanelRow {
+                label: "Queues",
+                value: evolution_values[3].as_str(),
+            },
+            PanelRow {
+                label: "Branch",
+                value: evolution_values[4].as_str(),
+            },
+        ];
+        let sections = [
+            PanelSection {
+                title: "Readiness",
+                body: Some("Doctor checks the local bundle and repair state."),
+                rows: &core_rows,
+            },
+            PanelSection {
+                title: "Evolution",
+                body: Some("Pending memory evolution and durability gates."),
+                rows: &evolution_rows,
+            },
+        ];
+        return render_panel("memd Doctor", "memory control plane", &sections);
     }
-    markdown
+    let sections = [PanelSection {
+        title: "Readiness",
+        body: Some("Doctor checks the local bundle and repair state."),
+        rows: &core_rows,
+    }];
+    render_panel("memd Doctor", "memory control plane", &sections)
 }
 
 pub(crate) fn set_bundle_workspace(output: &Path, workspace: &str) -> anyhow::Result<()> {
